@@ -4,7 +4,8 @@
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 import { deriveWaitReason, type WaitReason } from './waitReason'
-import { stageLockedForHuman } from './agentWork'
+import { parseDecisions, stageLockedForHuman, type DecisionsParse } from './agentWork'
+import { stubPendingByItem, type StubPendingEntry } from './forceProgress'
 
 export interface HubItemRow {
   id: string; project_id: string; parent_id: string | null; code: string; name: string; sort_order: number
@@ -12,11 +13,15 @@ export interface HubItemRow {
   assignee_member_id: string | null; agent_prompt: string | null; actual_pct: number | null; stage: string | null
   /** 선행 매칭 키(0077) — 프로젝트 안 external_ref. depends 는 선행 external_ref 배열. */
   external_ref: string | null; depends: string[] | null
+  /** 강제 진행(0103) — stub_for 가 있으면 스텁 제거 하위 Task(구조에 투명), depends_waived 는 면제한 선행 ref. */
+  stub_for?: string | null; depends_waived?: string[] | null
 }
 export interface HubMemberRow { id: string; name: string; email: string | null; user_id: string | null }
 export interface HubReportRow {
   work_order_id: string; percent: number; summary: string; links: { label?: string; url: string }[]; agent: string
   review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string
+  /** 워커 결정 목록(0102). null = 제출 안 됨. 항목 모양은 parseDecisions 가 다시 본다. 옛 시험 픽스처는 비워 둘 수 있다. */
+  decisions?: unknown
 }
 export interface AgentHubRows {
   project: { id: string; name: string } | null
@@ -47,6 +52,8 @@ export interface HubRow {
    *  좌석표(Seat.waitReason)와 같은 deriveWaitReason 을 쓴다. 두 화면이 다른 말을 하면 안 된다.
    *  kind==='dependency' 가 종전 unmetDepends 를 대신한다(같은 게이트·같은 선행 판정). */
   waitReason: WaitReason | null
+  /** 스텁 잔존(강제 진행 스펙 F13) — 승인 비활성·배지 재료. 선택 필드(옛 픽스처 호환), 조립은 항상 채운다. */
+  stubPending?: StubPendingEntry[]
 }
 export interface HubQueueEntry {
   orderId: string; itemId: string | null; code: string; name: string; agent: string; percent: number; summary: string
@@ -56,6 +63,10 @@ export interface HubQueueEntry {
   /** 서브트리 관리자(트랙 B) — 큐 항목은 항상 리프의 reported 주문이므로 그 리프의 strict 조상
    *  중 담당자가 나면 true. HubRow.canManage 와 같은 규칙. */
   canManage: boolean
+  /** 스텁 잔존 — HubRow.stubPending 과 같다. 있으면 승인 버튼을 끈다(RPC 도 stub_pending 으로 거부). */
+  stubPending?: StubPendingEntry[]
+  /** 최신 completion 보고의 결정 목록 상태(과제 C). 보고 행이 없으면 none. */
+  decisions: DecisionsParse
 }
 export interface AgentHub {
   projectId: string; projectName: string
@@ -146,7 +157,9 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     if (!cur || Date.parse(r.created_at) > Date.parse(cur.created_at)) latestReport.set(r.work_order_id, r)
   }
 
-  const hasChildren = new Set(rows.items.map(i => i.parent_id).filter((x): x is string => x !== null))
+  // stub 하위는 구조에 투명하다(스펙 2026-09-23 F9) — 후행을 부모로 만들지 않는다. 하위 행 자신은 표에 리프로 보인다.
+  const stubsByItem = stubPendingByItem(rows.items)
+  const hasChildren = new Set(rows.items.filter(i => !i.stub_for).map(i => i.parent_id).filter((x): x is string => x !== null))
   // canManage(조상 워크)·큐(항목 표시)가 같이 쓴다 — 루프보다 먼저 만들어 둔다.
   const itemById = new Map(rows.items.map(i => [i.id, i]))
   // 선행은 같은 프로젝트 항목의 external_ref 로 맞춘다 — 허브는 프로젝트 전체 항목을 이미 들고 있다.
@@ -191,6 +204,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
           // 담당자 id 는 있는데 로스터 행이 없으면 계정 미연결과 같은 취급(seatmap.ts 와 같은 규칙).
           assignee: item.assignee_member_id ? { name: assigneeMember?.name ?? '(로스터에 없음)', user_id: assigneeMember?.user_id ?? null } : null,
           watchers: hubWatchers,
+          waived: item.depends_waived ?? [],
         })
       : null
     if (waitReason !== null && (waitReason.kind === 'dependency' || waitReason.kind === 'agent_off')) counters.stuck++
@@ -203,6 +217,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
       order, prompt: item.agent_prompt,
       canToggle: isLeaf && !item.milestone && (viewer.isAdmin || assigneeMine),
       waitReason,
+      stubPending: stubsByItem.get(item.id) ?? [],
     })
   }
 
@@ -217,6 +232,8 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         links: rep?.links ?? [], reportedAt: rep?.created_at ?? o.updated_at,
         assigneeMine: it?.assignee_member_id != null && mine.has(it.assignee_member_id),
         canManage: it ? isSubtreeManagerOf(it.id, itemById, mine) : false,
+        stubPending: o.wbs_item_id ? (stubsByItem.get(o.wbs_item_id) ?? []) : [],
+        decisions: rep ? parseDecisions(rep.decisions) : { state: 'none' as const },
       }
     })
     .sort((a, b) => Date.parse(a.reportedAt) - Date.parse(b.reportedAt))

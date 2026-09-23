@@ -12,7 +12,7 @@ import { recordProgressSnapshot } from '@/lib/data/snapshots'
 
 export const dynamic = 'force-dynamic'
 
-type ItemDetail = Record<string, unknown> & { name?: string; assignee_member_id?: string | null; depends?: string[] | null }
+type ItemDetail = Record<string, unknown> & { name?: string; assignee_member_id?: string | null; depends?: string[] | null; depends_waived?: string[] | null }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
       const depends = item?.depends ?? []
       if (depends.length > 0) {
-        dependsInfo = await loadDependsInfo(admin, { projectId: loaded.order.project_id, depends })
+        dependsInfo = await loadDependsInfo(admin, { projectId: loaded.order.project_id, depends, waived: item?.depends_waived ?? [] })
         // 충족 판정은 depends_evidence 의 reached 하나다(predecessorReached — 스펙 2026-09-15 §3.7):
         // stage ≥ im, **또는** 선행에 approved 주문이 있음(2026-08-25 — 승인이 반쪽으로 끝난 선행이 후속을
         // 영구히 막던 교착), **또는** 선행 실적 100(위임하지 않은 사람 Task). 응답에 실린 reached 와 같은

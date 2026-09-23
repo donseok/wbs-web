@@ -1,12 +1,13 @@
 // tests/components/agents-detail-panel.test.tsx
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Seat } from '@/lib/domain/seatmap'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
+vi.mock('@/app/actions/agentWork', () => ({ getReportDecisions: vi.fn(async () => ({ ok: true, decisions: [] })) }))
 import { DetailPanel } from '@/components/agents/DetailPanel'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
@@ -94,5 +95,33 @@ describe('DetailPanel — 좌석 결재', () => {
   it('머지 완료 좌석에서는 승인 취소와 재작업 요청이 뜬다', () => {
     act(() => root.render(<DetailPanel seat={seat({ state: 'DONE' })}  nowMs={NOW} {...OPS} />))
     expect([...host.querySelectorAll('[data-panel-op]')].map(b => (b as HTMLElement).dataset.panelOp)).toEqual(['unapprove', 'rework'])
+  })
+})
+
+describe('DetailPanel — 강제 진행(스펙 2026-09-23)', () => {
+  it('선행 대기 좌석은 WBS 사이드바의 강제 진행 절로 가는 링크를 보인다(두 번째 진입점)', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'READY', waitReason: { kind: 'dependency', label: '선행 대기', text: '선행 작업이 아직…' } })} nowMs={NOW} {...OPS} />))
+    expect(host.querySelector('[data-force-entry="i1"]')!.getAttribute('href')).toBe('/p/p1/wbs?focus=i1&open=1')
+  })
+  it('다른 대기 사유에는 링크가 없다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'READY', waitReason: { kind: 'agent_off', label: '에이전트 꺼짐', text: '…' } })} nowMs={NOW} {...OPS} />))
+    expect(host.querySelector('[data-force-entry]')).toBeNull()
+  })
+  it('스텁 잔존 좌석은 하위 Task 로 가는 링크를 사이드바 열기와 함께 단다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'WAIT', stubPending: [{ subTaskId: 's1', label: '스텁 잔존: TSK-01 대체' }] })} nowMs={NOW} {...OPS} />))
+    const a = host.querySelector('[data-stub-link="s1"]')!
+    expect(a.textContent).toBe('스텁 잔존: TSK-01 대체')
+    expect(a.getAttribute('href')).toBe('/p/p1/wbs?focus=s1&open=1')
+  })
+})
+
+describe('DetailPanel — 머지 충돌 인용(2026-09-23)', () => {
+  it('phase 가 merge_conflict 이고 note 가 있으면 "머지 충돌: <note>" 를 인용한다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'WAIT', phase: 'merge_conflict', heartbeatPhase: 'merge_conflict', note: '충돌 2개(src/a.ts…) · 해소 중 w2 1/3' })} nowMs={NOW} {...OPS} />))
+    expect(host.textContent).toContain('머지 충돌: 충돌 2개(src/a.ts…) · 해소 중 w2 1/3')
+  })
+  it('note 가 없으면 인용하지 않는다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'DONE', phase: 'merge_conflict', heartbeatPhase: 'merge_conflict', note: null })} nowMs={NOW} {...OPS} />))
+    expect(host.textContent).not.toContain('머지 충돌:')
   })
 })

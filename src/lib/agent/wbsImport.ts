@@ -175,6 +175,30 @@ export function toRpcNode(module: string, n: ImportNode, index: number, levels?:
   }
 }
 
+/** F11 사전 검사 재료 — 이 프로젝트의 스텁 제거 하위(0103). 없으면 추가 조회 없이 빈 목록. 조회 실패는 throw(쓰기 전 중단). */
+async function findStubConflicts(
+  admin: AdminClient, projectId: string, nodes: ReadonlyArray<{ external_ref: string; parent_external_ref: string | null }>,
+): Promise<string[]> {
+  const { data: stubs, error } = await admin.from('wbs_items').select('id, parent_id, external_ref')
+    .eq('project_id', projectId).not('stub_for', 'is', null)
+  if (error) throw new Error(`스텁 하위 조회 실패: ${error.message}`)
+  const rows = (stubs ?? []) as Array<{ id: string; parent_id: string | null; external_ref: string | null }>
+  if (rows.length === 0) return []
+  const parentIds = [...new Set(rows.map(r => r.parent_id).filter((x): x is string => x !== null))]
+  const { data: parents, error: pErr } = await admin.from('wbs_items').select('id, external_ref').in('id', parentIds)
+  if (pErr) throw new Error(`스텁 후행 조회 실패: ${pErr.message}`)
+  const successorRefs = new Set(((parents ?? []) as Array<{ external_ref: string | null }>).map(p => p.external_ref).filter((x): x is string => !!x))
+  const stubRefs = new Set(rows.map(r => r.external_ref).filter((x): x is string => !!x))
+  const out: string[] = []
+  for (const n of nodes) {
+    if (stubRefs.has(n.external_ref)) out.push(`${n.external_ref}(스텁 제거 작업의 ref 는 wbs.md 로 덮어쓸 수 없다)`)
+    else if (n.parent_external_ref && successorRefs.has(n.parent_external_ref)) {
+      out.push(`${n.external_ref}(부모 ${n.parent_external_ref} 에 스텁 제거 작업이 있어 하위 항목을 둘 수 없다)`)
+    }
+  }
+  return out
+}
+
 /**
  * import 실행 코어(v2.2) — 인증 이후의 전 과정: levels 시드/정합·attach 해석·노드 변환·
  * RPC upsert·배정·자동 발행. API 라우트(PAT)와 웹 업로드 액션(세션)이 공유한다 —
@@ -215,11 +239,11 @@ export async function runWbsImport(
   } else if (levels) {
     // 골격 업로드: level_labels 시드 — 설정 편집과 동일한 검증(축소 fail-closed 포함).
     const { data: rows, error: rowsErr } = await admin
-      .from('wbs_items').select('id, parent_id').eq('project_id', projectId)
+      .from('wbs_items').select('id, parent_id, stub_for').eq('project_id', projectId)
     if (rowsErr) throw new Error(`WBS 조회 실패: ${rowsErr.message}`)
     const v = validateLevelSettings({
       labels: levels.map(l => l.name),
-      currentTreeMaxDepth: treeMaxDepth((rows ?? []) as Array<{ id: string; parent_id: string | null }>),
+      currentTreeMaxDepth: treeMaxDepth((rows ?? []) as Array<{ id: string; parent_id: string | null; stub_for: string | null }>),
     })
     if (!v.ok) return { ok: false, code: 'validation_failed', message: `levels 시드 실패: ${v.error}` }
     const { error: seedErr } = await admin.from('project_settings').upsert({
@@ -247,6 +271,14 @@ export async function runWbsImport(
   if (errors.length > 0) {
     return { ok: false, code: 'validation_failed',
       message: `노드 변환 실패 ${errors.length}건: ${errors.slice(0, 5).join(' / ')}` }
+  }
+
+  // F11(강제 진행 스펙 2026-09-23) — 스텁 제거 하위가 달린 후행 아래에 일반 자식을 올리거나, 스텁 하위의 ref 를
+  // wbs.md 노드로 덮어쓰면 후행이 롤업 부모가 되거나 스텁이 일반 항목이 된다. RPC 전에 거부한다(전량 보고).
+  const stubConflicts = await findStubConflicts(admin, projectId, rpcNodes as Array<{ external_ref: string; parent_external_ref: string | null }>)
+  if (stubConflicts.length > 0) {
+    return { ok: false, code: 'validation_failed',
+      message: `스텁 제거 작업과 충돌하는 노드 ${stubConflicts.length}건: ${stubConflicts.slice(0, 5).join(' / ')}` }
   }
 
   // p_attach_id 는 attach 경로에서만 싣는다 — 레거시 payload 는 구 2인자 시그니처와도 호환(배포 순서 안전).

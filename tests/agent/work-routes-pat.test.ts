@@ -247,7 +247,7 @@ describe('GET /agent/work/[id] — PAT 멤버십 게이트', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.order.item).toEqual(ITEM) // ITEM_DETAIL_COLUMNS 전 필드 — v1(id,code,name,biz,deliverable,planned_*)보다 확장됨
-    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true }])
+    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true, waived: false }])
   })
 
   it('레거시 시크릿 + wbs_item_id 있음 → item 은 v1 컬럼 그대로, depends_evidence 없음(회귀 기준선)', async () => {
@@ -297,6 +297,7 @@ describe('GET /agent/work/[id] — reports[].evidence', () => {
     const res = await detail(PAT.token)
     expect(res.status).toBe(200)
     expect(selects.agent_work_reports?.[0]).toContain('evidence')
+    expect(selects.agent_work_reports?.[0]).toContain('decisions')
   })
 
   it('레거시 시크릿 응답은 evidence 를 요구하지 않는다(v1 회귀 기준선)', async () => {
@@ -309,5 +310,6 @@ describe('GET /agent/work/[id] — reports[].evidence', () => {
     const res = await detail('legacy-secret')
     expect(res.status).toBe(200)
     expect(selects.agent_work_reports?.[0]).not.toContain('evidence')
+    expect(selects.agent_work_reports?.[0]).not.toContain('decisions')
   })
 })

@@ -16,7 +16,7 @@ vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ t:
 import { ApprovalQueue } from '@/components/agent-hub/ApprovalQueue'
 import { HubStatusBar } from '@/components/agent-hub/HubStatusBar'
 
-const Q: HubQueueEntry[] = [{ orderId: 'o1', itemId: 'i1', code: 'TSK-1', name: '화면', agent: 'hong/mbp', percent: 100, summary: '끝', links: [{ url: 'https://x/pr/1', label: 'PR' }], reportedAt: '2026-09-14T08:00:00Z', assigneeMine: false, canManage: false }]
+const Q: HubQueueEntry[] = [{ orderId: 'o1', itemId: 'i1', code: 'TSK-1', name: '화면', agent: 'hong/mbp', percent: 100, summary: '끝', links: [{ url: 'https://x/pr/1', label: 'PR' }], reportedAt: '2026-09-14T08:00:00Z', assigneeMine: false, canManage: false, decisions: { state: 'ok', items: [] } }]
 const QMINE: HubQueueEntry[] = [{ ...Q[0], assigneeMine: true }]
 /** 서브트리 관리자(트랙 B, 2026-09-15) — 리프 본인 담당자는 아니지만 조상 담당자가 나인 경우. */
 const QMANAGE: HubQueueEntry[] = [{ ...Q[0], canManage: true }]
@@ -39,6 +39,13 @@ describe('ApprovalQueue — 처리는 runHubProcessOp 1건, 응답의 허브로 
   it('비면 안내 한 줄', () => {
     render({ queue: [] })
     expect(host.textContent).toContain('승인 대기 없음')
+  })
+  it('스텁 잔존 카드는 승인 버튼이 비활성이고 문구와 WBS 링크를 보인다(강제 진행 F6·F13)', () => {
+    render({ queue: [{ ...Q[0], stubPending: [{ subTaskId: 's1', label: '스텁 잔존: TSK-01 대체' }] }] })
+    expect((host.querySelector('[data-queue-approve]') as HTMLButtonElement).disabled).toBe(true)
+    const link = host.querySelector('[data-queue-stub-link]') as HTMLAnchorElement
+    expect(link.textContent).toBe('스텁 잔존: TSK-01 대체')
+    expect(link.getAttribute('href')).toBe('/p/p1/wbs?focus=s1&open=1')
   })
   it('카드에 코드·이름·에이전트·요약·링크가 보이고 승인 → {kind:approve} + onHub(hub), onChanged 없음', async () => {
     runOp.mockResolvedValueOnce({ ok: true, hub: HUB })
@@ -133,5 +140,28 @@ describe('HubStatusBar', () => {
     await act(async () => { (host.querySelector('button') as HTMLButtonElement).click() })
     expect(setEnabled).toHaveBeenCalledWith('p1', false)
     expect(onChanged).toHaveBeenCalled()
+  })
+})
+
+describe('ApprovalQueue — 결정 목록(과제 C)', () => {
+  const DEC = { key: 'D2', question: '넣는가?', options: ['아니오', '예'], chosen: 0, rationale: '근거', on_reject: '방향' }
+  it('결정이 있으면 칩과 펼친 목록을 보이고 반려 안내가 결정 번호를 청한다', async () => {
+    render({ queue: [{ ...Q[0], decisions: { state: 'ok', items: [DEC, { ...DEC, key: 'D3' }] } }] })
+    expect(host.querySelector('[data-queue-decision-chip]')!.textContent).toBe('결정 2')
+    expect(host.querySelectorAll('[data-decision]')).toHaveLength(2)
+    await act(async () => { (host.querySelector('[data-queue-reject-open]') as HTMLButtonElement).click() })
+    expect((host.querySelector('textarea') as HTMLTextAreaElement).placeholder).toBe('반려 사유 — 특정 결정이면 번호를 적어 주세요(예: D2 는 선택지 2로)')
+  })
+  it('0건이면 칩·목록이 없고 반려 안내는 종전 그대로', async () => {
+    render()
+    expect(host.querySelector('[data-queue-decision-chip]')).toBeNull()
+    expect(host.querySelector('[data-decisions]')).toBeNull()
+    await act(async () => { (host.querySelector('[data-queue-reject-open]') as HTMLButtonElement).click() })
+    expect((host.querySelector('textarea') as HTMLTextAreaElement).placeholder).not.toContain('D2')
+  })
+  it('미제출(구 CLI)이면 칩 없이 미제출 문구를 보인다 — 0건으로 그리지 않는다', () => {
+    render({ queue: [{ ...Q[0], decisions: { state: 'none' } }] })
+    expect(host.querySelector('[data-queue-decision-chip]')).toBeNull()
+    expect(host.querySelector('[data-decisions="none"]')).not.toBeNull()
   })
 })

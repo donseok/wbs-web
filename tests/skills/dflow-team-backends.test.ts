@@ -91,7 +91,7 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
       '| `team.result` | 「3. 결과 처리」, 「1. 시작」 5번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |',
       '| `team.blocked` | 「3. 결과 처리」·「6. blocked」, 「1. 시작」 5번(이어받은 해시·답 대기 재기록) | `slot`, `id8`, `worktree`, `hash`, `reason` |',
       '| `team.answer` | 「6. blocked」 답 매칭, 「1. 시작」 5번(대기 중인 답 재기록) | `id8`, `answer` |',
-      '| `team.sweep` | 「4. 승인 스윕」 | `merged`, `waiting`, `rejected` |',
+      '| `team.sweep` | 「4. 승인 스윕」 | `merged`, `waiting`, `rejected`, `resolved` |', // resolved 는 2026-09-23 머지 충돌 해소
       '| `team.stop` | 「7. 마감」 | 없음 |',
     ]) expect(e(), row).toContain(row)
   })

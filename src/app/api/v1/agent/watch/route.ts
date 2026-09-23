@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
+import { HOLDER_RE } from '@/lib/agent/leadLease'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, requireScope, resolveAgentPrincipal,
 } from '@/lib/agent/externalApi'
@@ -33,20 +34,38 @@ export interface ResumeRequest {
  * 조회에 실패하면 빈 배열로 위장하지 않고 null 을 돌려준다 — 호출자는 "요청 없음"과 구별해야 한다.
  */
 async function loadResumeRequests(
-  admin: ReturnType<typeof createAdminClient>, userId: string, projectId: string | null,
+  admin: ReturnType<typeof createAdminClient>, userId: string, projectId: string | null, holder: string | null,
 ): Promise<ResumeRequest[] | null> {
+  // 팀장이 holder 를 보내면 그 holder 로 쥔 lease 의 프로젝트만 돌려준다(스펙 §9). 신원+프로젝트마다 팀장이
+  // 하나이므로 hostname 이 겹치는 다른 PC 의 팀장이 남의 재개 요청을 가져가지 않는다.
+  let leased: Set<string> | null = null
+  if (holder !== null) {
+    const { data: ls, error: lErr } = await admin
+      .from('agent_lead_leases').select('project_id')
+      .eq('user_id', userId).eq('holder', holder).gt('expires_at', new Date().toISOString())
+    if (lErr) { console.error('[agent-api] lease 조회 실패:', lErr.message); return null }
+    leased = new Set(((ls ?? []) as Array<{ project_id: string }>).map(r => r.project_id))
+    // lease 가 하나도 없으면 이 신원은 어느 프로젝트에서도 팀장이 아니다 — orders 조회 자체를
+    // 건너뛴다. 건너뛰지 않으면 held 프로젝트가 없는 신원이라도 RESUME_MAX(50)를 다른(비-lease)
+    // 프로젝트의 오래된 요청이 다 채워, 뒤에 오는 held 프로젝트 요청이 잘릴 수 있다.
+    if (leased.size === 0) return []
+  }
   let q = admin
     .from('agent_work_orders')
     .select('id, project_id, wbs_item_id, claimed_by, resume_requested_at, resume_requested_host')
     .eq('claimed_by_user_id', userId).eq('status', 'claimed')
     .not('resume_requested_at', 'is', null)
   if (projectId !== null) q = q.eq('project_id', projectId)
+  // leased 가 있으면 DB 단에서 먼저 그 프로젝트로 좁혀 limit(RESUME_MAX) 가 held 프로젝트를
+  // 밀어내지 않게 한다. 아래 in-memory 필터는 그대로 두어 이중 방어선을 유지한다.
+  if (leased !== null) q = q.in('project_id', [...leased])
   const { data, error } = await q.order('resume_requested_at', { ascending: true }).limit(RESUME_MAX)
   if (error) { console.error('[agent-api] 재개 요청 조회 실패:', error.message); return null }
-  const rows = (data ?? []) as Array<{
+  const allRows = (data ?? []) as Array<{
     id: string; project_id: string; wbs_item_id: string | null; claimed_by: string | null
     resume_requested_at: string; resume_requested_host: string | null
   }>
+  const rows = leased === null ? allRows : allRows.filter(r => leased.has(r.project_id))
   if (rows.length === 0) return []
   // 팀장이 표로 보고할 때 TSK 코드가 있어야 사람이 어느 작업인지 안다 — 행이 소수라 한 번 더 읽는다.
   const itemIds = [...new Set(rows.map(r => r.wbs_item_id).filter((x): x is string => x !== null))]
@@ -89,6 +108,10 @@ export async function POST(req: NextRequest) {
   if (bodyProject !== null && (typeof bodyProject !== 'string' || !isUuidLike(bodyProject))) {
     return apiBadRequest('project_id 형식이 올바르지 않습니다.')
   }
+  const holder = b.holder === undefined || b.holder === null ? null : b.holder
+  if (holder !== null && (typeof holder !== 'string' || !HOLDER_RE.test(holder))) {
+    return apiBadRequest('holder 형식이 올바르지 않습니다.')
+  }
 
   try {
     const admin = createAdminClient()
@@ -124,7 +147,7 @@ export async function POST(req: NextRequest) {
     const { error: gcErr } = await admin
       .from('agent_watchers').delete().lt('last_seen_at', new Date(now.getTime() - STALE_ROW_MS).toISOString())
     if (gcErr) console.error('[agent-api] watch 오래된 행 정리 실패:', gcErr.message)
-    const resume = await loadResumeRequests(admin, principal.userId, projectId)
+    const resume = await loadResumeRequests(admin, principal.userId, projectId, holder)
     return NextResponse.json({
       ok: true,
       expires_at: new Date(now.getTime() + WATCHER_TTL_MS).toISOString(),

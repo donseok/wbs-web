@@ -8,8 +8,10 @@ import { PhaseBadge } from './PhaseBadge'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { OwnerTag, ownerLabel } from './OwnerTag'
+import { DecisionChip } from './DecisionChip'
 import { IconBlocked, IconDependency, IconDone, IconOffline, IconRejected, IconStale, IconWait } from './icons'
 import css from './seatmap.module.css'
+import { stubBadgeText } from '@/lib/domain/forceProgress'
 
 export const STATE_LABEL: Record<SeatState, string> = {
   ACTIVE: '업무 중', STALE: '무응답', OFFLINE: '끊김', BLOCKED: '결정 대기', REJECTED: '반려 · 재작업',
@@ -75,7 +77,13 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
           <span className={css.deskTop}>
             <span className={css.deskId}>{seat.code}</span>
             {owner && <OwnerTag owner={owner} />}
+            <DecisionChip count={seat.decisionCount} />
             <SeatMark state={seat.state} anim={seat.anim} />
+            {(seat.stubPending ?? []).length > 0 && (
+              <span className={css.stubBadge} data-stub-badge="" title={(seat.stubPending ?? []).map(s => s.label).join('\n')}>
+                {stubBadgeText((seat.stubPending ?? []).length)}
+              </span>
+            )}
           </span>
           <span className={css.deskName}>{seat.name}</span>
           <span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span>

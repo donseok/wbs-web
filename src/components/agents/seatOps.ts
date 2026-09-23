@@ -73,7 +73,11 @@ export function mayRun(seat: Pick<Seat, 'canManage' | 'assigneeMine'>, spec: Sea
 }
 
 /** 좌석 어포던스가 보는 최소 모양 — 재개 요청 표식까지 읽는다. */
-export type SeatOpsInput = Pick<Seat, 'state' | 'canManage' | 'assigneeMine'> & { resumeRequestedAt?: string | null }
+export type SeatOpsInput = Pick<Seat, 'state' | 'canManage' | 'assigneeMine'> & {
+  resumeRequestedAt?: string | null
+  /** 스텁 잔존(강제 진행 스펙 F6) — 있으면 승인을 잠그고 그 문구를 이유로 보인다(RPC 도 stub_pending 으로 거부). */
+  stubPending?: Seat['stubPending']
+}
 
 /** 이 좌석에 그릴 결재 버튼 — 자격이 없는 것도 이유를 달아 비활성으로 남긴다(왜 못 누르는지 보여야 한다). */
 export function opsFor(seat: SeatOpsInput): Array<{ spec: SeatOpSpec; allowed: boolean; why: string }> {
@@ -82,6 +86,8 @@ export function opsFor(seat: SeatOpsInput): Array<{ spec: SeatOpSpec; allowed: b
     const spec = SPEC[kind]
     // 요청이 이미 걸린 좌석의 재개 버튼은 자격이 있어도 잠근다 — 눌러 봐야 같은 값을 덮어쓸 뿐이다.
     if (kind === 'resume' && pending) return { spec, allowed: false, why: RESUME_PENDING }
+    const stubs = seat.stubPending ?? []
+    if (kind === 'approve' && stubs.length > 0) return { spec, allowed: false, why: stubs.map(s => s.label).join(' · ') }
     const allowed = mayRun(seat, spec)
     return { spec, allowed, why: allowed ? spec.title : (spec.assigneeMayDo ? ERR_NO_RIGHT_REVIEW : ERR_NO_RIGHT) }
   })

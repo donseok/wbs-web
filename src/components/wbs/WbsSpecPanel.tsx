@@ -1,5 +1,6 @@
 'use client'
 
+import { stubLabel, type StubTaskLike } from '@/lib/domain/forceProgress'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -17,7 +18,8 @@ import {
   type AgentOrderBrief,
   type AgentOrderStatus,
 } from '@/app/actions/agentWork'
-import { isClaimStale } from '@/lib/domain/agentWork'
+import { isClaimStale, parseDecisions } from '@/lib/domain/agentWork'
+import { DecisionList } from '@/components/agent-hub/DecisionList'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -50,7 +52,9 @@ const PRIORITY_KEYS: Record<WbsPriority, DictKey> = {
  * 하나의 항목에 dialog 하나만 뜨도록 RowDetailPanel 이 유일한 배치 주체다).
  * 편집 권한은 배정(§2.5)과 동일 — 프로젝트 관리자. editable=false 면 전 필드 읽기 전용.
  */
-export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: boolean }) {
+const NO_STUBS: readonly StubTaskLike[] = []
+
+export function WbsSpecPanel({ itemId, editable, stubs = NO_STUBS }: { itemId: string; editable: boolean; stubs?: readonly StubTaskLike[] }) {
   const router = useRouter()
   const { t } = useLocale()
   const [loaded, setLoaded] = useState<WbsSpecDetail | 'error' | null>(null)
@@ -361,7 +365,7 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
 
       {/* 진행 상황은 명세 본문 밖이다 — 승인·반려는 사람만 할 수 있고 이 화면이 유일한 자리라,
           명세 접힘 안쪽에 두면 승인 대기 주문이 두 겹 접힘 뒤로 사라진다. */}
-      <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} />
+      <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} stubs={stubs} />
     </section>
   )
 }
@@ -372,13 +376,32 @@ const ORDER_STATUS_LABEL: Record<string, DictKey> = {
 }
 
 /**
+ * 완료 보고 한 회차의 결정 목록(과제 C, 스펙 §7.2). 승인 대기 회차는 펼치고, 반려·재작업된 옛 회차는
+ * 결정 수만 보이게 접는다 — 회차마다 무엇이 반려됐는지(review_note)와 나란히 읽힌다.
+ */
+function ReportDecisions({ raw, open, latest }: { raw: unknown; open: boolean; latest: boolean }) {
+  const parsed = parseDecisions(raw)
+  if (open) return <DecisionList decisions={parsed} compact />
+  if (parsed.state === 'ok' && parsed.items.length === 0) return null
+  // 미제출(0102 이전·구 CLI)은 가장 최근 completion 회차에만 알린다 — 옛 회차마다 붙으면 잡음이다.
+  if (parsed.state === 'none' && !latest) return null
+  const head = parsed.state === 'ok' ? `결정 ${parsed.items.length}건` : parsed.state === 'none' ? '결정 목록 미제출' : '결정 목록 오류'
+  return (
+    <details data-report-decisions-fold className="mt-1">
+      <summary className="cursor-pointer text-[10px] text-ink-subtle">{head}</summary>
+      <DecisionList decisions={parsed} compact />
+    </details>
+  )
+}
+
+/**
  * "진행 상황" — 이 항목의 최신 에이전트 주문(2026-08-24, agent-ops 화면 대체). 승인·반려는 여전히
  * 사람만 하는 행위라 여기 남는다 — 발행·취소는 위임 체크 하나로 되므로 이 섹션에 버튼을 두지 않는다.
  * 위임한 적 없거나(order:null) 조회 실패면 아무것도 렌더하지 않는다(빈 패널에 소음을 더하지 않는다) —
  * 실패는 refErr 처럼 별도 alert 를 세우지 않고 조용히 숨긴다. 실패가 잦으면 getAgentOrderForItem 의
  * console.error 로그가 남는다.
  */
-function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string; editable: boolean; refreshKey: number }) {
+function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: string; editable: boolean; refreshKey: number; stubs: readonly StubTaskLike[] }) {
   const { t } = useLocale()
   const [order, setOrder] = useState<AgentOrderStatus | null>(null)
   // 최신 주문 앞에 있던 주문들. 승인된 주문은 항목을 비워주므로 재발행이 새 주문을 만들고,
@@ -418,6 +441,11 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
   if (!order || (order.status === 'cancelled' && priorOrders.length === 0)) return null
 
   const lastReport = order.reports.at(-1)
+  // 승인 대기 회차 = 주문이 reported 일 때의 마지막 completion. 그 밖의 completion 은 옛 회차다.
+  const latestCompletionId = [...order.reports].reverse().find(r => r.kind === 'completion')?.id ?? null
+  const pendingCompletionId = order.status === 'reported'
+    ? ([...order.reports].reverse().find(r => r.kind === 'completion')?.id ?? null)
+    : null
 
   // warning: 본 동작은 성공했지만 실적·단계 같은 후속이 남았다는 신호. 조용히 삼키면 사람이
   // 반쪽 상태를 못 보고, 에러 자리에 넣으면 성공한 동작이 실패로 읽힌다 — 자리를 나눈다.
@@ -475,6 +503,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
                   ))}
                 </div>
               )}
+              {r.kind === 'completion' && <ReportDecisions raw={r.decisions} open={r.id === pendingCompletionId} latest={r.id === latestCompletionId} />}
             </li>
           ))}
         </ul>
@@ -491,8 +520,11 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
       )}
       {editable && order.status === 'reported' && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <button type="button" className="btn btn-primary h-7 px-2.5 text-xs" disabled={busy}
+          {/* 스텁 잔존(스펙 2026-09-23 F6) — 서버 RPC 도 stub_pending 으로 거부한다. 버튼은 이유와 함께 끈다. */}
+          <button type="button" className="btn btn-primary h-7 px-2.5 text-xs" disabled={busy || stubs.length > 0}
+            title={stubs.length > 0 ? stubs.map(s => stubLabel(s.stubFor)).join('\n') : undefined}
             onClick={() => void run(() => approveAgentCompletion(order.id))}>{t('wbs.agentOrderApprove')}</button>
+          {stubs.length > 0 && <span data-stub-approve-lock className="text-[11px] font-semibold text-delayed">{stubs.map(s => stubLabel(s.stubFor)).join(' · ')}</span>}
           {rejecting ? (
             <>
               <input className="app-input h-7 w-40 text-xs" aria-label={t('wbs.agentOrderRejectNote')}

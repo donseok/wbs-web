@@ -311,6 +311,8 @@ export type AgentOrderReport = {
   id: string; kind: 'progress' | 'completion'; percent: number; summary: string
   links: { label?: string; url: string }[]; agent: string
   review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string
+  /** 워커 결정 목록(0102). null = 제출 안 됨. 화면은 parseDecisions 로 읽는다. */
+  decisions?: unknown
 }
 export type AgentOrderStatus = {
   id: string; status: string
@@ -352,9 +354,37 @@ export async function getAgentOrderForItem(itemId: string): Promise<
 
   const { data: reports, error: repErr } = await sb
     .from('agent_work_reports')
-    .select('id, kind, percent, summary, links, agent, review_action, review_note, created_at')
+    .select('id, kind, percent, summary, links, agent, review_action, review_note, created_at, decisions')
     .eq('work_order_id', row.id)
     .order('created_at', { ascending: true })
   if (repErr) return { ok: false, error: `보고 조회 실패: ${repErr.message}` }
   return { ok: true, order: { ...row, reports: (reports ?? []) as AgentOrderReport[] }, priorOrders, projectId }
+}
+
+/**
+ * 주문의 최신 completion 보고의 결정 목록(과제 C, 스펙 §7.3) — 오피스 상세 패널이 열릴 때 한 번 읽는다.
+ * 좌석표는 수(decision_count)만 싣고 본문을 끌어오지 않으므로 여기서 좁게 읽는다.
+ * 세션 클라이언트 + requireProjectMember — getAgentOrderForItem 과 같은 등급이고 RLS 가 2차 방어선이다.
+ * 조회 실패를 빈 목록으로 위장하지 않는다(3원칙) — 호출부가 오류 문구와 재시도를 그린다.
+ */
+export async function getReportDecisions(orderId: string): Promise<
+  | { ok: true; decisions: unknown }
+  | { ok: false; error: string }
+> {
+  if (!isUuidLike(orderId)) return { ok: false, error: '잘못된 요청입니다.' }
+  const sb = await createServerClient()
+  const { data: order, error: orderErr } = await sb.from('agent_work_orders').select('project_id').eq('id', orderId).maybeSingle()
+  if (orderErr) return { ok: false, error: `주문 조회 실패: ${orderErr.message}` }
+  if (!order) return { ok: false, error: '대상을 찾을 수 없습니다.' }
+  const g = await requireProjectMember((order as { project_id: string }).project_id)
+  if (!g.ok) return { ok: false, error: g.error }
+  const { data: rep, error: repErr } = await sb
+    .from('agent_work_reports')
+    .select('decisions, created_at')
+    .eq('work_order_id', orderId).eq('kind', 'completion')
+    .order('created_at', { ascending: false }).limit(1)
+    .maybeSingle()
+  if (repErr) return { ok: false, error: `보고 조회 실패: ${repErr.message}` }
+  if (!rep) return { ok: false, error: '완료 보고가 없습니다.' }
+  return { ok: true, decisions: (rep as { decisions: unknown }).decisions ?? null }
 }

@@ -56,6 +56,8 @@ const CHANGED = [
   '`docs/tasks/<TSK>/spec.md` + **design.md (Build 이후 Phase)** + **기준선 수치** + Phase 지시 +',
   // 11. Task 6b: phase 값 목록에 scaffold 초기값 ready 를 더하고 뒤에 설명 문장을 붙인다
   '  `phase` 값: `design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.',
+  // 12. Phase 06 3번: 결정 목록을 done --decisions 로 넘긴다(과제 C, docs/superpowers/specs/2026-09-23-worker-decision-report-design.md §6)
+  '   `dflow.sh done <ref> "<요약>" --auto-links`.',
 ] as const
 
 /**

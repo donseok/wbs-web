@@ -6,6 +6,7 @@ import { teamOrderMap } from '@/lib/domain/teams'
 import { teamsForProjectSync } from '@/lib/teams/master'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind, TaskDependency } from '@/lib/domain/types'
 import { mergeSpecDepends } from '@/lib/domain/mergeDependencies'
+import { hasContract } from '@/lib/domain/forceProgress'
 import { seoulToday } from '@/lib/domain/dates'
 import { AGENT_TAG } from '@/lib/domain/seatmap'
 
@@ -98,6 +99,13 @@ export const getComputedWbs = cache(async (
     updatedAt: (r.updated_at as string | null) ?? null,
     // 「단계」 컬럼 표시 조건(D9) — 위임 태그. select('*') 가 tags 를 이미 싣는다.
     agentDelegated: Array.isArray(r.tags) && (r.tags as unknown[]).includes(AGENT_TAG),
+    // 강제 진행(0103) — stub 하위는 buildTree 가 subTasks 로 뺀다. select('*') 가 싣는다.
+    stubFor: (r.stub_for as string | null) ?? null,
+    externalRef: (r.external_ref as string | null) ?? null,
+    dependsWaived: (r.depends_waived as string[] | null) ?? [],
+    // 선행 계약 판정 재료(F4)·간선 목록 — 사이드바 「강제 진행」 절이 쓴다.
+    hasContract: hasContract({ spec: (r.spec as string | null) ?? null, acceptance: r.acceptance ?? [] }),
+    depends: (r.depends as string[] | null) ?? null,
   }))
 
   const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
@@ -121,6 +129,9 @@ export const getComputedWbs = cache(async (
         projectId: r.project_id as string,
         externalRef: (r.external_ref as string | null) ?? null,
         depends: (r.depends as string[] | null) ?? null,
+        dependsWaived: (r.depends_waived as string[] | null) ?? null,
+        parentId: (r.parent_id as string | null) ?? null,
+        stubFor: (r.stub_for as string | null) ?? null,
       })),
     )
     return { dependencies: merged.dependencies, unresolvedDepends: Object.fromEntries(merged.unresolvedBySuccessorId) }
@@ -151,7 +162,7 @@ export const getProjectsCompletion = cache(
     const sb = await createServerClient()
     const { data, error } = await sb
       .from('wbs_items')
-      .select('id, parent_id, project_id, actual_pct')
+      .select('id, parent_id, project_id, actual_pct, stub_for')
 
     // 표시 전용이라 throw하지 않는다 — 이 함수는 앱 루트 layout에서 호출되므로 throw하면 배지 하나 때문에
     // 모든 페이지가 에러 화면이 된다(복구 경로인 설정/임포트까지 막힌다). 대신 실패를 null로 신호한다.
@@ -166,6 +177,7 @@ export const getProjectsCompletion = cache(
         parentId: (r.parent_id as string | null) ?? null,
         projectId: r.project_id as string,
         actualPct: (r.actual_pct as number | null) ?? null,
+        stubFor: (r.stub_for as string | null) ?? null,
       })),
     )
   },

@@ -167,10 +167,12 @@ claimed 가 아니면 exit 4, 사람이 중단한 주문(`cancelled`)이면 exit
 
 ```bash
 git push origin agent/<주문id 8자>-<slug>
-dflow.sh done <순번> "<요약>" --auto-links
+dflow.sh done <순번> "<요약>" --auto-links --decisions <DOCS_DIR>/tasks/<TSK>/decisions.json
 ```
 
 `--auto-links` 옵션: git 정보(브랜치, SHA, PR URL)를 자동 수집해 서버 보고.
+`--decisions <file>` 옵션(계약 2.6): 스스로 고른 확인 필요 결정 목록(JSON 배열)을 보고 필드로 싣는다. 0건이면 `[]` 를 넘긴다.
+형식이 틀리면 push 확인·전송 전에 exit 2 로 멈춘다. 경고의 뜻은 `references/troubleshooting.md` exit 2 절.
 
 보고 후 상태는 **reported(승인 대기)** 다. 사용자에게 "완료했습니다"가 아니라 "승인 대기로 보고했습니다"로 전달한다.
 

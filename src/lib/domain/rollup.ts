@@ -35,6 +35,8 @@ function siblingWeight(w: number | null): number {
  */
 export function computeNode(node: TreeNode, today: string, holidays: Set<string>): ComputedItem {
   const children = node.children.map(c => computeNode(c, today, holidays))
+  // stub 하위는 계산만 하고 롤업에는 넣지 않는다(스펙 2026-09-23 F9). 표시(하위 행·스텁 배지)에 쓴다.
+  const subTasks = (node.subTasks ?? []).map(c => computeNode(c, today, holidays))
   const planned = plannedPct(node.plannedStart, node.plannedEnd, today, holidays)
 
   let rolledActual: number
@@ -58,6 +60,7 @@ export function computeNode(node: TreeNode, today: string, holidays: Set<string>
     achievement: achievementOf(rolledActual, rolledPlanned),
     status: statusOf(rolledActual, rolledPlanned, node.plannedStart, today),
     children,
+    subTasks,
     depth: node.depth,
   }
 }

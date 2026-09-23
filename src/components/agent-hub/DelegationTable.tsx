@@ -25,6 +25,7 @@ import {
   REASON_TONE, STAGE_CODES, STAGE_NONE_LABEL, STATE_LABEL, STATE_TONE, TOGGLE_DENIED_TITLE,
 } from './labels'
 import s from './delegationTable.module.css'
+import { stubBadgeText } from '@/lib/domain/forceProgress'
 
 export type HubFilter = 'mine' | 'all'
 
@@ -393,6 +394,8 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
               const ops = canReviewRow && r.order
                 ? (OPS_BY_STATUS[r.order.status] ?? []).filter(b => b.who === 'admin' ? (isAdmin || r.canManage) : (isAdmin || r.assigneeMine || r.canManage))
                 : []
+              // 스텁 잔존(강제 진행 스펙 F6·F13) — 승인은 잠그고 이름 옆에 배지·링크를 둔다.
+              const stubs = r.stubPending ?? []
               const noteOpen = noteOp?.itemId === r.itemId ? noteOp : null
               const confirmOpen = confirmOp?.itemId === r.itemId ? confirmOp : null
               const showReason = reasonOpen === r.itemId && r.waitReason !== null
@@ -424,6 +427,12 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                         ? <button type="button" data-hub-open={r.itemId} onClick={() => onSelect(r.itemId)}
                             title={r.name} className={cls(s.trunc, 'min-w-0 text-left hover:underline', r.isLeaf ? 'text-ink' : 'font-semibold text-ink')}>{r.name}</button>
                         : <span className={cls(s.trunc, 'min-w-0', r.isLeaf ? 'text-ink' : 'font-semibold text-ink')} title={r.name}>{r.name}</span>}
+                      {stubs.length > 0 && (
+                        <a data-hub-stub-badge href={`/p/${projectId}/wbs?focus=${stubs[0].subTaskId}&open=1`} title={stubs.map(x => x.label).join('\n')}
+                          className="shrink-0 rounded-full border border-delayed/40 bg-delayed-weak px-1.5 py-0.5 text-[10px] font-bold text-delayed">
+                          {stubBadgeText(stubs.length)}
+                        </a>
+                      )}
                       {canEditPrompt && (
                         <button type="button" data-hub-prompt-edit aria-label={`${r.code} 프롬프트 편집`} disabled={isBusy}
                           onClick={() => { setEditing(r.itemId); setDraft(r.prompt ?? '') }}
@@ -473,7 +482,9 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                     {ops.length > 0 && (
                       <span className="flex flex-nowrap gap-1">
                         {ops.map(b => (
-                          <button key={b.kind} type="button" data-hub-op={b.kind} disabled={isBusy} title={OP_TITLE[b.kind]}
+                          <button key={b.kind} type="button" data-hub-op={b.kind}
+                            disabled={isBusy || (b.kind === 'approve' && stubs.length > 0)}
+                            title={b.kind === 'approve' && stubs.length > 0 ? stubs.map(x => x.label).join('\n') : OP_TITLE[b.kind]}
                             aria-expanded={b.note ? noteOpen?.kind === b.note : b.confirm ? confirmOpen?.kind === b.kind : undefined}
                             onClick={() => {
                               const orderId = r.order?.id

@@ -17,6 +17,8 @@ import { formatWeightPct, formatPct1, fmtSize } from '@/lib/domain/format'
 import { DependencyEgoGraph, type EgoNode } from './DependencyEgoGraph'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, StatusChip, fmtDate, teamStyle } from './shared'
 import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
+import { ForceProgressSection } from './ForceProgressSection'
+import { pendingStubs } from '@/lib/domain/forceProgress'
 import { ChangeHistoryList } from './ChangeHistoryList'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
@@ -30,7 +32,7 @@ const EMPTY_REFS: string[] = []
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
   canEditDeliverable = false, projectId, levelLabels = DEFAULT_LEVEL_LABELS, maxDepth = null,
-  members = EMPTY_MEMBERS, onSelectItem, unresolvedRefs = EMPTY_REFS,
+  members = EMPTY_MEMBERS, onSelectItem, unresolvedRefs = EMPTY_REFS, canForce = false,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -55,6 +57,8 @@ export function RowDetailPanel({
    * claim 게이트는 이것을 미충족으로 보고 409 를 내므로 목록에서 빼면 화면이 위장한다.
    */
   unresolvedRefs?: string[]
+  /** 후행의 서브트리 관리자 — 관리자가 아니어도 강제 진행 절 버튼을 본다(스펙 2026-09-23 §3.2). */
+  canForce?: boolean
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -111,6 +115,16 @@ export function RowDetailPanel({
   const isAct = canSplit(item.isOwnerSplit, item.children.some(c => !c.isOwnerSplit))
   const subTeams = useMemo(() => availableSubActTeams(item.children, allTeamCodes), [item.children, allTeamCodes])
   const flipWarn = willDiscardActual(item.children.length, item.actualPct)
+  // 강제 진행 절 재료(스펙 2026-09-23 §3.2) — 선행 ref → 항목. allItems 는 stub 하위까지 펼친 목록이다.
+  const itemByRef = useMemo(
+    () => new Map(allItems.filter(i => i.externalRef).map(i => [i.externalRef as string, i])),
+    [allItems],
+  )
+  // 스텁 잔존(F6·F13) — 승인 버튼 비활성과 문구의 재료. 판정은 pendingStubs 하나다.
+  const stubs = useMemo(
+    () => pendingStubs((item.subTasks ?? []).filter(s => s.stubFor).map(s => ({ id: s.id, stubFor: s.stubFor as string, externalRef: s.externalRef ?? null, stage: s.stage ?? null }))),
+    [item.subTasks],
+  )
   const itemById = useMemo(() => new Map(allItems.map(candidate => [candidate.id, candidate])), [allItems])
   const incomingDependencies = useMemo(
     () => dependencies.filter(dep => dep.successorId === item.id),
@@ -396,7 +410,12 @@ export function RowDetailPanel({
               별도 오버레이가 아니라 이 패널의 섹션으로 둔다(리뷰 라운드 1 — 두 번째
               fixed dialog는 aria-modal 뒤에서 키보드·스크린리더로 도달 불가했다). */}
           {!editing && (
-            <WbsAssigneeStagePanel itemId={item.id} members={members} editable={editable} hasChildren={item.children.length > 0} />
+            <WbsAssigneeStagePanel itemId={item.id} members={members} editable={editable} hasChildren={item.children.length > 0} stubs={stubs} />
+          )}
+
+          {/* 강제 진행(스펙 2026-09-23 §3.2) — 선행 간선마다 면제·해제, 스텁 잔존 목록. 의존성 절이 접혀 있어도 보이도록 따로 둔다. */}
+          {!editing && (
+            <ForceProgressSection item={item} itemByRef={itemByRef} editable={editable} canForce={canForce} onSelectItem={onSelectItem} />
           )}
 
           {!editing && (

@@ -12,12 +12,16 @@ function filterExpr(): string {
   if (!m) throw new Error('show 필터를 찾지 못했다')
   return m[1]
 }
-function run(show: unknown): { spec_empty: boolean; deps_unmet: string[] } {
+function run(show: unknown): { spec_empty: boolean; deps_unmet: string[]; deps_nohead: string[] } {
   return JSON.parse(execFileSync('jq', ['-c', filterExpr()], { input: JSON.stringify(show) }).toString())
 }
 const order = (extra: Record<string, unknown>) => ({ order: { id: 'o1', item: { external_ref: 'd/TSK-03-02', spec: '본문' } }, ...extra })
 
 describe('dflow-team — spawn 전 선행 사전 검사(2026-09-19)', () => {
+  it('show 필터는 G1(중단 표식 정리)을 위해 status 를 싣는다', () => {
+    const r = JSON.parse(execFileSync('jq', ['-c', filterExpr()], { input: JSON.stringify({ order: { id: 'o1', status: 'ready', item: { external_ref: 'd/TSK-03-02', spec: '본문' } } }) }).toString())
+    expect(r.status).toBe('ready')
+  })
   it('reached 가 거짓인 선행만 deps_unmet 에 담는다', () => {
     const r = run(order({ depends_evidence: [
       { external_ref: 'd/TSK-03-01', reached: false, head_sha: null },
@@ -39,5 +43,20 @@ describe('dflow-team — spawn 전 선행 사전 검사(2026-09-19)', () => {
   })
   it('state.json merged 기준으로 거르지 않는다(워커 행 B 스택을 막지 않도록)', () => {
     expect(team).toContain('`state.json` 의 `phase=merged` 로 거르지 않는다')
+  })
+  it('deps_nohead 는 reached=true·head_sha 없는 선행만 담는다 — head_sha 있는 선행(행 B 스택)은 거르지 않는다(2026-09-23)', () => {
+    const r = run(order({ depends_evidence: [
+      { external_ref: 'd/TSK-03-01', reached: true, head_sha: null },
+      { external_ref: 'd/TSK-03-02', reached: true, head_sha: 'abc' },
+      { external_ref: 'd/TSK-03-03', reached: false, head_sha: null },
+      { external_ref: 'd/TSK-03-04', reached: true },
+    ] }))
+    expect(r.deps_nohead).toEqual(['d/TSK-03-01', 'd/TSK-03-04'])
+    expect(r.deps_unmet).toEqual(['d/TSK-03-03'])
+  })
+  it('선행 반영 사전 검사: NOT_REFLECTED 는 선행 미반영으로 일시 제외, UNKNOWN 은 거르지 않는다', () => {
+    expect(team).toContain('사유 `선행 미반영(사전 검사: <ref…>)`')
+    expect(team).toContain('`UNKNOWN`(rc=2) 은 거르지 않고 워커에 맡긴다')
+    expect(team).toContain('.claude/skills/dflow-dev/scripts/pred-reflected.sh')
   })
 })

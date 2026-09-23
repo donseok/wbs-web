@@ -113,6 +113,15 @@ export function isProjectMember(actor: Actor | null, projectId: string | null): 
 }
 
 /**
+ * 팀장 lease 강제 해제(오피스 「팀장 해제」) — 그 프로젝트의 멤버이면서 lease 주인 본인이거나, 그 프로젝트 관리자.
+ * 서버 액션은 service_role 로 쓰므로 이 판정이 유일한 관문이다. 스펙 2026-09-23-dflow-lead-lease-design.md §7.
+ */
+export function canReleaseLeadLease(actor: Actor | null, projectId: string, leaseUserId: string): boolean {
+  if (!actor || !isProjectMember(actor, projectId)) return false
+  return actor.userId === leaseUserId || isProjectAdmin(actor, projectId)
+}
+
+/**
  * 비공개 프로젝트 UI 숨김 판정 (0070). 보안 경계가 아니라 노출 억제다 —
  * RLS 는 개방 그대로이고 URL 직접 접근도 막지 않는다(설계 2026-08-10).
  * is_private 이 없거나 null 이면 공개로 본다(컬럼 미적용·구 스냅샷 호환).

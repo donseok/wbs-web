@@ -119,10 +119,10 @@ dflow.sh progress 1 50 "개발 50% 완료, 테스트 예정"
 
 ```bash
 git push origin agent/12345678-task-slug
-dflow.sh done 1 "완료·테스트 통과·PR 병합됨" --auto-links
+dflow.sh done 1 "완료·테스트 통과·PR 병합됨" --auto-links --decisions <DOCS_DIR>/tasks/TSK-01-01/decisions.json
 ```
 
-**중요**: push 후에 done 호출. push 없이는 exit 2 오류.
+**중요**: push 후에 done 호출. push 없이는 exit 2 오류. `--decisions` 파일은 확인 필요 결정 목록(0건이면 `[]`)이다.
 
 ## 워크플로우 다이어그램
 
@@ -141,7 +141,7 @@ dflow.sh done 1 "완료·테스트 통과·PR 병합됨" --auto-links
    ├─ exit 2 if push 미완료 → git push 후 재시도
    └─ exit 0 if push 완료
    ↓
-6. dflow.sh done <순번> "<요약>" --auto-links
+6. dflow.sh done <순번> "<요약>" --auto-links --decisions <decisions.json>
    └─ 상태 → reported (승인 대기)
 ```
 

@@ -17,6 +17,8 @@ export interface ReadinessLink {
   lagDays: number
   /** 어느 축에서 온 링크인가 — 축마다 충족 규칙이 다르다. @see evaluateStartReadiness */
   origin: DependencyOrigin
+  /** 강제 진행 면제 간선 — spec 축에서 충족으로 본다(predecessorReached 의 waived 축). */
+  waived?: boolean
 }
 
 /** satisfied=선행 제약 충족, waiting=선행이 아직 조건 미달, unknown=선행 행을 찾을 수 없음. */
@@ -62,6 +64,7 @@ export function evaluateStartReadiness(
 
   for (const dep of links) {
     const predecessor = predecessorById.get(dep.predecessorId)
+    if (dep.waived === true) { byDependencyId.set(dep.id, 'satisfied'); continue } // 면제 간선은 선행 행 유무와 무관
     if (!predecessor) {
       byDependencyId.set(dep.id, 'unknown')
       unknownCount++

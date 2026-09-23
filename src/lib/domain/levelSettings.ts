@@ -15,9 +15,13 @@ export type LevelSettingsResult =
 
 /** parent_id 체인에서 트리 최대 깊이(0-base). 빈 트리는 null.
  *  부모가 집합에 없는 고아는 루트 취급, 순환은 방문 표시로 끊는다 — 어느 쪽도 깊이를 과대평가하지 않는다. */
-export function treeMaxDepth(rows: ReadonlyArray<{ id: string; parent_id: string | null }>): number | null {
+export function treeMaxDepth(
+  rows: ReadonlyArray<{ id: string; parent_id: string | null; stub_for?: string | null }>,
+): number | null {
   if (rows.length === 0) return null
-  const parentOf = new Map(rows.map((r) => [r.id, r.parent_id]))
+  // stub 하위(0103)는 구조에 투명하다 — 레벨 깊이에 세지 않는다(스펙 2026-09-23 F9).
+  const live = rows.filter((r) => !r.stub_for)
+  const parentOf = new Map(live.map((r) => [r.id, r.parent_id]))
   const depthOf = new Map<string, number>()
   const resolve = (id: string): number => {
     const known = depthOf.get(id)
@@ -29,7 +33,7 @@ export function treeMaxDepth(rows: ReadonlyArray<{ id: string; parent_id: string
     return d
   }
   let max = 0
-  for (const r of rows) max = Math.max(max, resolve(r.id))
+  for (const r of live) max = Math.max(max, resolve(r.id))
   return max
 }
 

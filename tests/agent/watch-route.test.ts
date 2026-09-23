@@ -26,7 +26,8 @@ function useAdmin(queues: Record<string, Resp[]>, calls: Record<string, unknown[
       b.upsert = (payload: unknown, opts: unknown) => { (calls[`${table}:upsert`] ??= []).push([payload, opts]); return b }
       b.delete = () => { (calls[`${table}:delete`] ??= []).push(true); return b }
       b.update = () => b
-      for (const k of ['eq', 'lt', 'in', 'limit', 'order', 'not']) b[k] = () => b
+      b.in = (col: string, vals: unknown) => { (calls[`${table}:in`] ??= []).push([col, vals]); return b }
+      for (const k of ['eq', 'lt', 'gt', 'limit', 'order', 'not']) b[k] = () => b
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
@@ -136,5 +137,47 @@ describe('POST /agent/watch — 재개 요청 전달(0099)', () => {
     const body = await res.json()
     expect(body.resume_requests).toBeNull()
     expect(body.resume_requests_error).toBe('재개 요청 조회에 실패했습니다.')
+  })
+})
+
+describe('holder — lease 쥔 프로젝트의 재개 요청만', () => {
+  const H = '0123abcd-0000-4000-8000-00000000abcd:12345'
+  const order = (pid: string) => ({
+    id: `${pid.slice(0, 8)}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, project_id: pid, wbs_item_id: null,
+    claimed_by: 'claude-mbp', resume_requested_at: '2026-09-23T00:00:00Z', resume_requested_host: 'mbp',
+  })
+  it('lease 가 있는 프로젝트의 요청만 남긴다', async () => {
+    useAdmin({ ...runnerQueues(), agent_lead_leases: [{ data: [{ project_id: P1 }] }], agent_work_orders: [{ data: [order(P1), order(P2)] }] })
+    const res = await post({ agent: 'hong/mbp/lead', holder: H })
+    const body = await res.json()
+    expect(body.resume_requests.map((r: { project_id: string }) => r.project_id)).toEqual([P1])
+  })
+  it('lease 조회가 실패하면 resume_requests 는 null — 요청 없음으로 위장하지 않는다', async () => {
+    useAdmin({ ...runnerQueues(), agent_lead_leases: [{ error: { message: 'boom' } }], agent_work_orders: [{ data: [order(P1)] }] })
+    const body = await (await post({ agent: 'hong/mbp/lead', holder: H })).json()
+    expect(body.resume_requests).toBeNull()
+    expect(body.resume_requests_error).toBeTruthy()
+  })
+  it('holder 형식이 틀리면 400', async () => {
+    useAdmin(runnerQueues())
+    expect((await post({ agent: 'a', holder: 'mbp' })).status).toBe(400)
+  })
+  it('holder 가 없으면 기존 동작(프로젝트를 가리지 않음)', async () => {
+    useAdmin({ ...runnerQueues(), agent_work_orders: [{ data: [order(P1), order(P2)] }] })
+    const body = await (await post({ agent: 'hong/mbp/lead' })).json()
+    expect(body.resume_requests).toHaveLength(2)
+  })
+  it('lease 가 있으면 orders 조회에 project_id in 필터를 건다(held 아닌 프로젝트가 limit 을 먹지 않게)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin({ ...runnerQueues(), agent_lead_leases: [{ data: [{ project_id: P1 }] }], agent_work_orders: [{ data: [order(P1)] }] }, calls)
+    await post({ agent: 'hong/mbp/lead', holder: H })
+    expect(calls['agent_work_orders:in']).toEqual([['project_id', [P1]]])
+  })
+  it('lease 가 하나도 없으면 orders 를 조회하지 않고 즉시 빈 배열이다', async () => {
+    const admin = useAdmin({ ...runnerQueues(), agent_lead_leases: [{ data: [] }] })
+    const res = await post({ agent: 'hong/mbp/lead', holder: H })
+    const body = await res.json()
+    expect(body.resume_requests).toEqual([])
+    expect(admin.from.mock.calls.some((c: unknown[]) => c[0] === 'agent_work_orders')).toBe(false)
   })
 })

@@ -35,6 +35,10 @@ class MockAdminClient {
     return this
   }
 
+  is() {
+    return this
+  }
+
   limit() {
     return this
   }

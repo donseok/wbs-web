@@ -15,6 +15,10 @@ import { PhaseBadge } from './PhaseBadge'
 import { awayBubble, awayReason, leadChatter } from '@/lib/domain/officeChatter'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { OwnerTag, ownerLabel, teamOwnerLabel, watcherOwnerLabel, type OwnerLabel } from './OwnerTag'
+import { LeadChip } from './LeadChip'
+
+/** 「팀장 해제」 핸들러 — 없으면 책상에 lease 정보만 보이고 해제 버튼은 그리지 않는다(FloorCard 와 같은 규칙). */
+type ReleaseLeadHandler = (projectId: string, userId: string) => Promise<void>
 
 type Tone = { label: string; color: string }
 const TONE: Record<string, Tone> = {
@@ -83,7 +87,7 @@ export function useRoster(map: Pick<Seatmap, 'floors'>): Roster {
   return useMemo(() => assembleRoster(map), [map])
 }
 
-export function RosterBoard({ roster, nowMs }: { roster: Roster; nowMs: number }) {
+export function RosterBoard({ roster, nowMs, onReleaseLead }: { roster: Roster; nowMs: number; onReleaseLead?: ReleaseLeadHandler }) {
   const [selected, setSelected] = useState<string | null>(null)
   const allDesks = roster.hosts.flatMap(h => h.desks.map(d => ({ d, h })))
   // 고른 자리가 폴링으로 사라지면 결정 대기 → 첫 에이전트 순으로 다시 고른다.
@@ -99,8 +103,19 @@ export function RosterBoard({ roster, nowMs }: { roster: Roster; nowMs: number }
             감시 중인 작업 PC 도, 주문을 잡은 에이전트도 없습니다. 에이전트가 dflow 로 감시를 시작하거나 위임된 주문을 잡으면 여기에 자리가 생깁니다.
           </p>
         )}
+        {/* identity(agent 문자열)가 같은 감시자가 없어 어느 책상에도 못 붙은 lease(0101) — 다른 계정
+            감시자는 scope=mine 이 지워도 그 lease 는 남는다(관리자가 남의 것도 풀 수 있어야 하므로).
+            없는 "감시 중" 책상을 지어내는 대신 여기 따로 보인다. */}
+        {roster.unmatchedLeads.length > 0 && (
+          <div data-roster-unmatched-leads className="flex flex-wrap gap-1 rounded-2xl border border-dashed border-line bg-surface px-3 py-2">
+            {roster.unmatchedLeads.map(l => (
+              <LeadChip key={`${l.projectId}:${l.userId}`} lead={l} projectLabel={l.floorName}
+                onRelease={onReleaseLead ? () => onReleaseLead(l.projectId, l.userId) : undefined} />
+            ))}
+          </div>
+        )}
         {roster.hosts.map(h => (
-          <HostCard key={h.key} host={h} nowMs={nowMs} selectedKey={current?.d.key ?? null} onSelect={setSelected} />
+          <HostCard key={h.key} host={h} nowMs={nowMs} selectedKey={current?.d.key ?? null} onSelect={setSelected} onReleaseLead={onReleaseLead} />
         ))}
       </div>
       {current && <Profile desk={current.d} host={current.h} nowMs={nowMs} />}
@@ -108,8 +123,8 @@ export function RosterBoard({ roster, nowMs }: { roster: Roster; nowMs: number }
   )
 }
 
-function HostCard({ host, nowMs, selectedKey, onSelect }: {
-  host: RosterHost; nowMs: number; selectedKey: string | null; onSelect: (k: string) => void
+function HostCard({ host, nowMs, selectedKey, onSelect, onReleaseLead }: {
+  host: RosterHost; nowMs: number; selectedKey: string | null; onSelect: (k: string) => void; onReleaseLead?: ReleaseLeadHandler
 }) {
   const busy = host.desks.filter(d => d.kind === 'member').length
   const w = host.watcher
@@ -134,14 +149,14 @@ function HostCard({ host, nowMs, selectedKey, onSelect }: {
         {host.slots !== null && <span className="ml-auto text-xs font-semibold tabular-nums text-ink-muted">자리 {busy}/{host.slots}</span>}
       </header>
       <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(172px,1fr))]">
-        {host.desks.map(d => <Desk key={d.key} desk={d} host={host} nowMs={nowMs} selected={d.key === selectedKey} onSelect={onSelect} />)}
+        {host.desks.map(d => <Desk key={d.key} desk={d} host={host} nowMs={nowMs} selected={d.key === selectedKey} onSelect={onSelect} onReleaseLead={onReleaseLead} />)}
       </ul>
     </section>
   )
 }
 
-function Desk({ desk, host, nowMs, selected, onSelect }: {
-  desk: RosterDesk; host: RosterHost; nowMs: number; selected: boolean; onSelect: (k: string) => void
+function Desk({ desk, host, nowMs, selected, onSelect, onReleaseLead }: {
+  desk: RosterDesk; host: RosterHost; nowMs: number; selected: boolean; onSelect: (k: string) => void; onReleaseLead?: ReleaseLeadHandler
 }) {
   const tone = deskTone(desk)
   const look = deskLook(desk)
@@ -153,7 +168,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
   const mine = owner?.kind === 'mine'
   const edge = `${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${mine ? (selected ? 'ring-offset-2 ring-offset-brand' : 'shadow-[0_0_0_2px_var(--color-brand)]') : ''}`
   return (
-    <li>
+    <li className="flex flex-col gap-1">
       <button type="button" data-roster-desk={desk.slot} data-owner={owner?.kind} aria-pressed={selected} onClick={() => onSelect(desk.key)}
         className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${edge} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
         {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
@@ -177,6 +192,17 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
           <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `신호 ${ageLabel(sig, nowMs)}` : ' '}</span>
         </span>
       </button>
+      {/* 팀장 lease(0101, 스펙 §7) — 책상 버튼 밖의 형제로 둔다: 해제 확인은 진짜 <button> 이라
+          선택 버튼 안에 넣으면(중첩 button) 잘못된 HTML 이 되고 클릭이 선택과 뒤섞인다. */}
+      {desk.leads.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {/* 한 책상(identity)이 여러 프로젝트의 팀장이면 칩마다 층 이름을 붙여 구분한다. */}
+          {desk.leads.map(l => (
+            <LeadChip key={`${l.projectId}:${l.userId}`} lead={l} projectLabel={desk.leads.length > 1 ? l.floorName : undefined}
+              onRelease={onReleaseLead ? () => onReleaseLead(l.projectId, l.userId) : undefined} />
+          ))}
+        </div>
+      )}
     </li>
   )
 }
@@ -251,7 +277,7 @@ function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg'
   )
 }
 
-const PHASE_KO: Record<string, string> = { design: '설계', build: '구현', verify: '검증', refactor: '리팩터', blocked: '결정 대기', rejected: '재작업', reported: '보고' }
+export const PHASE_KO: Record<string, string> = { design: '설계', build: '구현', verify: '검증', refactor: '리팩터', blocked: '결정 대기', rejected: '재작업', reported: '보고', merge_conflict: '머지 충돌' }
 
 /** 등급 테두리 — 1 금 · 2 은 · 3 동 · 4 무광. 1등급만 은은하게 빛난다. */
 const TIER_RING: Record<ModelTier, { edge: string; glow: number }> = {

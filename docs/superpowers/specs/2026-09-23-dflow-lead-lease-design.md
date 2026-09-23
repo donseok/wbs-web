@@ -146,14 +146,17 @@ PAT 전용(레거시 시크릿은 `identity_required` 400). `requireScope(princi
    - `LEASE_OK` → 계속.
    - `LEAD_LEASE_HELD …` → 로컬 잠금을 풀고 멈춘다. 보고: 어느 프로젝트를 어느 host 의 누가 언제까지 쥐었는지, 그리고 "그 팀장이 이미 죽었다면 최대 3분 뒤 풀린다. 지금 넘겨받으려면 `--takeover` 또는 오피스의 「팀장 해제」".
    - 그 밖의 실패(3·5·6) → 로컬 잠금을 풀고 사유를 보고하고 멈춘다(fail-closed).
-3. 감시 시작 단계에서 `dflow.sh lease keep --pid <LEAD_PID> --lost-file <팀장 체크아웃>/.git/dflow-team.lease-lost` 를 `run_in_background` 로 띄운다(`caffeinate -w` 와 같은 자리). 띄우기 전에 옛 `lease-lost` 파일을 지운다.
+3. 감시 시작 단계에서 `dflow.sh lease keep --pid <LEAD_PID> --lost-file '<git rev-parse --path-format=absolute --git-path dflow-team.lease-lost 의 값>'` 를 `run_in_background` 로 띄운다(`caffeinate -w` 와 같은 자리). 띄우기 전에 옛 `lease-lost` 파일을 지운다. 워크트리에선 `.git` 이 파일이라 `<팀장 체크아웃>/.git/…` 로 적으면 틀린다.
 4. `--takeover` 는 새 인자다. `references/help.md` 인자 표에 더한다.
 
 ### 20초 감시 루프
 `STOP_FILE` 검사 바로 뒤에 `LEASE_FILE`(`dflow-team.lease-lost`) 검사를 더한다: 있으면 `LEASE_LOST <파일 첫 줄>` 을 출력하고 끝난다. 결과 도착보다 먼저 본다(밀려난 팀장이 새 결과로 spawn 을 잇지 않게).
 
 ### 기상마다
-watch 호출에 `--holder "$(dflow.sh lease holder)"` 를 더한다(재개 요청 거르기, §5).
+`h=$(dflow.sh lease holder) || h=''` 로 먼저 값을 구한다. `h` 가 비어 있지 않을 때만 watch 호출에
+`--holder "$h"` 를 더한다(재개 요청 거르기, §5). `h` 가 비면 watch 를 부르지 않고 `HOLDER_FAILED` 로 보고한다 —
+`--holder "$(...)"` 를 그대로 값 자리에 넣으면 조회 실패가 빈 문자열로 조용히 넘어가 무필터(전체 재개 요청)로
+호출되기 때문이다.
 `<상태 파일>.beat` 가 180초 넘게 낡았으면 `LEASE_KEEP_DEAD` 로 보고하고 `lease renew` 를 한 번 부른다. `LEASE_OK` 면 `lease keep` 을 다시 띄우고, `LEASE_LOST`·`LEASE_NONE` 이면 lease 상실 마감으로 간다(§12 의 「`lease keep` 만 죽음」).
 
 ### `LEASE_LOST` 기상 → 밀려난 팀장의 마감
@@ -182,7 +185,7 @@ watch 호출에 `--holder "$(dflow.sh lease holder)"` 를 더한다(재개 요�
 | CLI | `tests/skills/dflow-lead-lease.test.ts` | 가짜 `curl`(PATH 앞): acquire 성공·막힘 출력과 종료 코드, 상태 파일, renew lost, release, `keep` 이 죽은 PID 에 release 하고 끝남, 네트워크 3회 실패에 `LEASE_UNREACHABLE`, machine-id 생성·권한 600 |
 | 스킬 문서 | `tests/skills/dflow-team*.test.ts` | 시작 단계의 `lease acquire` 위치(로컬 잠금 뒤), 감시 루프 `LEASE_LOST` 검사가 결과보다 앞, `LEASE_LOST` 마감이 워커를 건드리지 않음, 셸 블록 문법(`dflow-team-shell-blocks`) |
 | 권한 | `tests/authz/` 의 새 파일 | 해제 판정 순수 함수: 본인 허용, 관리자 허용, 타인 멤버 거부, 비멤버 거부 |
-| 화면 | ego-browser, 스테이징 | 팀장을 띄운 뒤 오피스에 lease 표시, 「팀장 해제」 → 팀장이 20초 안에 `LEASE_LOST` 로 멈춤 |
+| 화면 | ego-browser, 스테이징 | 팀장을 띄운 뒤 오피스에 lease 표시, 「팀장 해제」 → 팀장이 약 1분 안에(다음 갱신 + 감시 루프 20초) `LEASE_LOST` 로 멈춤 |
 
 ## 11. 배포 순서
 

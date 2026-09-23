@@ -89,7 +89,7 @@ describe('claim 선행 게이트', () => {
     const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true }])
+    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true, waived: false }])
   })
 
   it('선행 stage=ip → 403 dependency_not_met + unmet 배열', async () => {
@@ -218,14 +218,14 @@ describe('depends_evidence', () => {
       agent_work_reports: [{ data: { evidence: { branch: 'main', head_sha: HEAD_SHA } } }],
     })
     const result1 = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
-    expect(result1).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: 'main', head_sha: HEAD_SHA, order_approved: true, actual_pct: null, reached: true }])
+    expect(result1).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: 'main', head_sha: HEAD_SHA, order_approved: true, actual_pct: null, reached: true, waived: false }])
 
     useAdmin({
       wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'im' }] }],
       agent_work_orders: [{ data: null }], // approved 주문 없음
     })
     const result2 = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
-    expect(result2).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true }])
+    expect(result2).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true, waived: false }])
   })
 })
 

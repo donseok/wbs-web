@@ -72,9 +72,19 @@ type Resp = { data?: unknown; error?: { message: string; code?: string } | null 
 function useAdmin(queues: Record<string, Resp[]>, rpcQueue: Resp[] = [], users: Array<{ id: string; email: string }> = [{ id: 'u-1', email: 'admin@example.com' }]) {
   const admin = {
     from: vi.fn((table: string) => {
-      const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
+      let resp: Resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'update', 'insert', 'delete', 'eq', 'in', 'limit']) b[k] = () => b
+      for (const k of ['select', 'update', 'insert', 'delete', 'eq', 'in', 'limit', 'is']) b[k] = () => b
+      // .not('stub_for', 'is', null) = 강제 진행 F11 사전 검사의 스텁 하위 조회 — 순서 큐를 소비하지 않도록 되돌리고
+      // '<table>:stubs' 큐(기본 빈 목록)로 답한다.
+      let stubQuery = false
+      b.not = () => {
+        if (!stubQuery) {
+          (queues[table] ??= []).unshift(resp); stubQuery = true
+          resp = (queues[`${table}:stubs`] ?? []).shift() ?? { data: [], error: null }
+        }
+        return b
+      }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.single = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) =>
@@ -192,6 +202,29 @@ describe('POST /wbs/import', () => {
       recipientUserIds: [OWNER.id],
       payload: expect.objectContaining({ detail: 'upserted 3건, 담당자 미매칭 0건' }),
     }))
+  })
+
+  it('F11(강제 진행) — 스텁 하위가 달린 후행 아래 일반 자식·스텁 ref 덮어쓰기는 RPC 전에 전량 거부한다', async () => {
+    const { token, row } = patRow()
+    const body = {
+      project_id: PROJECT_ID, module: 'MES',
+      nodes: [NODE({ id: 'T-A' }), NODE({ id: 'T-B', parent_id: 'T-A' }), NODE({ id: 'T-A.stub.MES_T-0' })],
+    }
+    const admin = useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }],
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      'wbs_items:stubs': [{ data: [{ id: 'stub-1', parent_id: 'id-a', external_ref: 'MES/T-A.stub.MES_T-0' }] }],
+      wbs_items: [{ data: [{ id: 'id-a', external_ref: 'MES/T-A' }] }], // 스텁의 후행
+    })
+    const res = await importPOST(post(body, token))
+    const json = await res.json()
+    expect(res.status).toBeGreaterThanOrEqual(400)
+    expect(JSON.stringify(json)).toContain('MES/T-B')
+    expect(JSON.stringify(json)).toContain('MES/T-A.stub.MES_T-0')
+    expect(JSON.stringify(json)).not.toContain('MES/T-A(')
+    expect(admin.rpc).not.toHaveBeenCalled()
   })
 
   it('assignee 미매칭은 생략하지 않고 unmatched_assignees 전량 리포트 — 그래도 주문은 난다(v2.1: 배정은 주문 조건이 아니다)', async () => {

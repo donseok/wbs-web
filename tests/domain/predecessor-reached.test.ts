@@ -3,6 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_HELD_ORDER_STATUSES, REACHED_STAGES, STAGE_ORDER, predecessorReached, stageLockedForHuman } from '@/lib/domain/agentWork'
 
 describe('predecessorReached — 선행 충족 세 축', () => {
+  it('면제된 간선(waived)은 다른 축과 무관하게 충족이다(강제 진행 F2)', () => {
+    expect(predecessorReached({ stage: null, waived: true })).toBe(true)
+    expect(predecessorReached({ stage: 'ip', orderApproved: false, actualPct: 10, waived: true })).toBe(true)
+    expect(predecessorReached({ stage: 'ip', waived: false })).toBe(false)
+  })
   it('stage im·xx', () => {
     expect(predecessorReached({ stage: 'im' })).toBe(true)
     expect(predecessorReached({ stage: 'xx' })).toBe(true)

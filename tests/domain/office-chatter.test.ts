@@ -8,7 +8,7 @@ import LINES from '@/lib/domain/officeChatter.lines.json'
 const NOW = Date.parse('2026-09-18T09:00:00Z')
 const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString()
 const member = (slot: string, seat: Partial<Seat>): RosterDesk => ({
-  key: `h/${slot}`, slot, label: `팀원 ${slot.slice(1)}`, kind: 'member', watcher: null, raw: `a/h/${slot}`,
+  key: `h/${slot}`, slot, label: `팀원 ${slot.slice(1)}`, kind: 'member', watcher: null, raw: `a/h/${slot}`, leads: [],
   seat: { orderId: `o-${slot}`, state: 'ACTIVE', phase: 'build', lastReport: null, ...seat } as Seat,
 })
 const host = (...desks: RosterDesk[]): RosterHost => ({ key: 'a/h', label: 'a / h', conforming: true, mine: false, watcher: null, slots: 2, desks })

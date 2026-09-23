@@ -17,6 +17,8 @@ export type DependInfo = {
    * 함수(predecessorReached)라, 스킬은 축을 다시 조합하지 않고 이 값을 본다.
    */
   reached: boolean
+  /** 강제 진행으로 면제한 간선(계약 v2.8, 0103 depends_waived). 참이면 reached 도 참이다. head_sha 가 없는 것이 정상이다. */
+  waived: boolean
 }
 
 /**
@@ -25,7 +27,7 @@ export type DependInfo = {
  */
 export const ITEM_DETAIL_COLUMNS =
   'id, code, name, external_ref, stage, category, domain, priority, model, tags, depends, ' +
-  'prd_ref, entry_point, acceptance, spec, agent_prompt, assignee_member_id, planned_start, planned_end'
+  'prd_ref, entry_point, acceptance, spec, agent_prompt, assignee_member_id, planned_start, planned_end, depends_waived, stub_for'
 
 /**
  * 선행 정보 — stage 는 게이트 재료(결정 C-①), evidence 는 클라이언트 로컬 도달 검사 재료(C-②).
@@ -33,7 +35,7 @@ export const ITEM_DETAIL_COLUMNS =
  */
 export async function loadDependsInfo(
   admin: AdminClient,
-  args: { projectId: string; depends: string[] },
+  args: { projectId: string; depends: string[]; waived?: string[] },
 ): Promise<DependInfo[]> {
   const { data: items, error } = await admin
     .from('wbs_items').select('id, external_ref, stage, actual_pct')
@@ -46,8 +48,10 @@ export async function loadDependsInfo(
   )
   const out: DependInfo[] = []
   for (const ref of args.depends) {
+    // 면제(강제 진행, 스펙 2026-09-23 F2) — claim 게이트도 통과한다. 선행이 프로젝트에 없어도 면제가 먼저다.
+    const waived = (args.waived ?? []).includes(ref)
     const item = byRef.get(ref)
-    if (!item) { out.push({ external_ref: ref, stage: null, branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: false }); continue }
+    if (!item) { out.push({ external_ref: ref, stage: null, branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: waived, waived }); continue }
     // 최근 approved 주문 → 최신 completion 보고의 evidence
     let branch: string | null = null
     let headSha: string | null = null
@@ -69,7 +73,8 @@ export async function loadDependsInfo(
     const actualPct = item.actual_pct == null ? null : Number(item.actual_pct)
     out.push({
       external_ref: ref, stage: item.stage, branch, head_sha: headSha, order_approved: order !== null, actual_pct: actualPct,
-      reached: predecessorReached({ stage: item.stage, orderApproved: order !== null, actualPct }),
+      reached: predecessorReached({ stage: item.stage, orderApproved: order !== null, actualPct, waived }),
+      waived,
     })
   }
   return out

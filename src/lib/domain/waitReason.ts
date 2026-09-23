@@ -4,7 +4,7 @@
 import { predecessorReached } from './agentWork'
 import { STAGE_LABEL_KO, isStageCode } from './stageLabels'
 
-export type WaitReasonKind = 'dependency' | 'agent_off' | 'agents_busy' | 'pickup'
+export type WaitReasonKind = 'dependency' | 'agent_off' | 'agents_busy' | 'pickup' | 'merge_conflict'
 export interface WaitReason { kind: WaitReasonKind; label: string; text: string }
 
 export function stageText(stage: string | null): string {
@@ -16,13 +16,19 @@ export interface PredecessorLike {
   external_ref: string; code: string; name: string; stage: string | null; order_approved: boolean
   /** 선행 충족 세 번째 축(스펙 2026-09-15 §3.7) — 실적 100 이면 충족. 선택 필드: 모르는 호출부는 앞의 두 축으로만 판정한다. */
   actual_pct?: number | null
+  /** 선행 주문이 개발 브랜치와 머지 충돌 중(heartbeat_phase=merge_conflict, 2026-09-23). 선택 필드 — 모르는 호출부는 싣지 않는다. */
+  merge_conflict?: boolean
 }
 export interface UnmetDepend { ref: string; found: boolean; code?: string; name?: string; stage?: string | null }
 
-/** 미충족 선행 — 검수 대기(im) 이상·승인된 주문·실적 100 중 하나면 충족(predecessorReached). 프로젝트에 없는 ref 는 미충족(fail-closed, 클레임 게이트와 동일). */
-export function unmetDepends(depends: string[] | null, byRef: (ref: string) => PredecessorLike | undefined): UnmetDepend[] {
+/** 미충족 선행 — 면제(waived)·검수 대기(im) 이상·승인된 주문·실적 100 중 하나면 충족(predecessorReached). 프로젝트에 없는 ref 는 미충족(fail-closed, 클레임 게이트와 동일) — 단 면제된 ref 는 조회 전에 충족이다. */
+export function unmetDepends(
+  depends: string[] | null, byRef: (ref: string) => PredecessorLike | undefined, waived: readonly string[] = [],
+): UnmetDepend[] {
   const out: UnmetDepend[] = []
+  const w = new Set(waived)
   for (const ref of depends ?? []) {
+    if (w.has(ref)) continue
     const p = byRef(ref)
     if (!p) { out.push({ ref, found: false }); continue }
     if (predecessorReached({ stage: p.stage, orderApproved: p.order_approved, actualPct: p.actual_pct })) continue
@@ -47,12 +53,23 @@ export function deriveWaitReason(args: {
   assignee: { name: string; user_id: string | null } | null
   /** 이 층을 보는 살아 있는 감시자(project_id null 포함). */
   watchers: WatcherLike[]
+  /** 강제 진행으로 면제한 선행 ref(wbs_items.depends_waived). */
+  waived?: readonly string[]
 }): WaitReason {
-  const unmet = unmetDepends(args.depends, args.predecessorByRef)
+  const unmet = unmetDepends(args.depends, args.predecessorByRef, args.waived ?? [])
   if (unmet.length > 0) {
     return {
       kind: 'dependency', label: '선행 대기',
       text: `선행 작업이 아직 끝나지 않았습니다: ${unmetDependsList(unmet)}. 선행이 검수 대기(im) 이상이 되거나, 그 주문이 승인되거나, 실적이 100% 가 돼야 이 작업을 집어갈 수 있습니다.`,
+    }
+  }
+  // 선행이 머지 충돌 중이면 claim 게이트는 통과하지만 팀장 사전 필터가 거른다(2026-09-23 §6.3) — 그 이유를 보여 준다.
+  // 선행 대기 바로 다음에 본다 — 에이전트를 켜도 충돌이 풀리기 전에는 착수하지 않으므로 이쪽이 더 앞선 사유다.
+  const conflicted = (args.depends ?? []).map(r => args.predecessorByRef(r)).filter((p): p is PredecessorLike => p?.merge_conflict === true)
+  if (conflicted.length > 0) {
+    return {
+      kind: 'merge_conflict', label: '선행 머지 충돌',
+      text: `선행 ${conflicted.map(p => p.code).join(', ')} 가 개발 브랜치와 충돌해 머지 대기 중입니다. 해소되면 자동으로 착수합니다.`,
     }
   }
   const a = args.assignee

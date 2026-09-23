@@ -64,7 +64,7 @@ export async function recordProgressSnapshot(
     }
     const [{ data: items, error: itemsErr }, { data: hol, error: holErr }] = await Promise.all([
       sb.from('wbs_items')
-        .select('id, parent_id, code, sort_order, name, planned_start, planned_end, weight, actual_pct, is_owner_split')
+        .select('id, parent_id, code, sort_order, name, planned_start, planned_end, weight, actual_pct, is_owner_split, stub_for')
         .eq('project_id', projectId),
       sb.from('holidays').select('date').eq('project_id', projectId),
     ])
@@ -88,6 +88,7 @@ export async function recordProgressSnapshot(
       actualPct: (r.actual_pct as number) ?? null,
       owners: [],
       isOwnerSplit: r.is_owner_split === true,
+      stubFor: (r.stub_for as string | null) ?? null, // stub 하위(0103)는 롤업에 투명
     }))
     const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
     const opts = { subActTeamOrder: teamOrderMap(activeCodes(teamsForProjectSync(projectId))) }

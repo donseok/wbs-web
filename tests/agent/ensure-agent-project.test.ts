@@ -13,7 +13,7 @@ function admin(queues: Record<string, Resp[]>) {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'eq', 'in', 'limit']) b[k] = () => b
+      for (const k of ['select', 'eq', 'in', 'limit', 'is']) b[k] = () => b
       b.update = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.insert = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })

@@ -23,7 +23,7 @@ const seat = (over: Partial<Seat> = {}): Seat => ({
 const watcher = (agent: string, over: Partial<Watcher> = {}): Watcher =>
   ({ agent, host: null, slots: 1, busy: 1, untilLabel: null, lastSeenAt: new Date(NOW - 5000).toISOString(), projectId: null, ...over })
 const map = (seats: Seat[], watchers: Watcher[] = []): Seatmap => ({
-  floors: [{ id: 'p1', name: 'mes-base', seatCount: seats.length, doneCount: 0, watchers,
+  floors: [{ id: 'p1', name: 'mes-base', seatCount: seats.length, doneCount: 0, watchers, leads: [],
     zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 0, wait: 0, ready: 0, done: 0 }, seats }] }],
   counters: { active: 0, standby: 0, idle: 0, offline: 0 }, attention: [], fetchedAt: new Date(NOW).toISOString(), scope: 'all',
 })

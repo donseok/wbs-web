@@ -72,3 +72,26 @@ describe('notifySuccessorsOnReached — 선행 실적 100 도 충족(스펙 2026
     expect(mocks.emitNotification).not.toHaveBeenCalled()
   })
 })
+
+describe('notifySuccessorsOnReached — 강제 진행 면제 간선(스펙 2026-09-23 F2)', () => {
+  it('남은 미충족 선행이 면제 간선뿐이면 발행한다(면제 ref 는 조회하지 않는다)', async () => {
+    const { admin } = useAdmin({
+      wbs_items: [
+        { data: [{ id: 'succ-1', name: '후행', assignee_member_id: 'm-1', depends: ['MES/A', 'MES/B'], depends_waived: ['MES/B'] }] },
+        { data: [{ external_ref: 'MES/A', stage: 'im', actual_pct: 80 }] },
+      ],
+    })
+    await notifySuccessorsOnReached(admin, { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: 'MES/A' }, ACTOR)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({ type: 'work.unblocked', entityId: 'succ-1' }))
+  })
+  it('도달한 선행이 면제 간선이면 이미 착수 가능했으므로 다시 알리지 않는다', async () => {
+    const { admin, fromCalls } = useAdmin({
+      wbs_items: [
+        { data: [{ id: 'succ-1', name: '후행', assignee_member_id: 'm-1', depends: ['MES/A'], depends_waived: ['MES/A'] }] },
+      ],
+    })
+    await notifySuccessorsOnReached(admin, { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: 'MES/A' }, ACTOR)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+    expect(fromCalls).toEqual(['wbs_items'])
+  })
+})

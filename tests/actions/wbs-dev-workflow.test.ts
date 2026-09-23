@@ -49,7 +49,7 @@ function admin(queues: Record<string, Resp[]>) {
       calls.push(table)
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'order', 'limit']) b[k] = () => b
+      for (const k of ['select', 'order', 'limit', 'is', 'not']) b[k] = () => b
       b.eq = (col: string, val: unknown) => {
         (captured[`${table}.eq`] ??= []).push([col, val]); return b
       }

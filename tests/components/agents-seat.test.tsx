@@ -150,7 +150,7 @@ describe('seatMetaLine · STATE_LABEL', () => {
 
 const zone = (over: Partial<Zone>): Zone => ({ key: 'z', code: 'WP-04', name: '주문 관리', seats: [], summary: { work: 0, wait: 0, ready: 0, done: 0 }, ...over })
 const emptySeat = (n: number): Seat => seat({ orderId: `e${n}`, id8: `e${n}`, code: `TSK-05-0${n}`, name: `빈 항목 ${n}`, state: 'READY', phase: 'design', anim: 'empty', agent: null, progress: 0, lastSignalAt: null, heartbeatAt: null, heartbeatPhase: null })
-const floor = (zones: Zone[]): Floor => ({ id: 'p1', name: 'mes-base', zones, seatCount: zones.reduce((n, z) => n + z.seats.length, 0), doneCount: 0, watchers: [] })
+const floor = (zones: Zone[]): Floor => ({ id: 'p1', name: 'mes-base', zones, seatCount: zones.reduce((n, z) => n + z.seats.length, 0), doneCount: 0, watchers: [], leads: [] })
 
 describe('ZoneBlock', () => {
   it('onFold 가 있으면 접기 버튼을 그리고 누르면 호출된다', () => {

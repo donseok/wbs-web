@@ -50,14 +50,16 @@ export async function GET(req: NextRequest) {
 
     const { data: rows, error: rowsErr } = await admin
       .from('wbs_items')
-      .select('id, parent_id, name, external_ref, level_idx, sort_order')
+      .select('id, parent_id, name, external_ref, level_idx, sort_order, stub_for')
       .eq('project_id', projectId)
     if (rowsErr) {
       console.error('[wbs-structure] WBS 조회 실패:', rowsErr.message)
       return apiInternalError()
     }
-    type Row = { id: string; parent_id: string | null; name: string; external_ref: string | null; level_idx: number | null; sort_order: number }
-    const all = (rows ?? []) as Row[]
+    type Row = { id: string; parent_id: string | null; name: string; external_ref: string | null; level_idx: number | null; sort_order: number; stub_for?: string | null }
+    // 스텁 제거 하위(0103 stub_for)는 구조에 투명하다(강제 진행 스펙 F9) — 구조 원천에 싣지 않는다.
+    // 실으면 PL 스킬이 일반 자식으로 wbs.md 에 적어 재업로드 때 후행이 롤업 부모처럼 보인다.
+    const all = ((rows ?? []) as Row[]).filter(r => !r.stub_for)
     const byId = new Map(all.map(r => [r.id, r]))
     // 깊이 계산 — 고아는 루트 취급, 순환은 방문 표시로 끊는다(domain/levelSettings.treeMaxDepth 와 동일 규칙).
     const depthOf = new Map<string, number>()

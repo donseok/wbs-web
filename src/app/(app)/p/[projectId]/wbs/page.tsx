@@ -1,5 +1,6 @@
 import { getComputedWbs } from '@/lib/data/wbs'
 import { getProjectMembers } from '@/lib/data/members'
+import { getForceManagedIds } from '@/lib/data/forceProgress'
 import { getProjectConfig } from '@/lib/data/projectConfig'
 import { listProjects } from '@/app/actions/project'
 import { getSession } from '@/lib/auth'
@@ -20,10 +21,10 @@ export default async function WbsPage({
   searchParams,
 }: {
   params: Promise<{ projectId: string }>
-  searchParams: Promise<{ view?: string; focus?: string }>
+  searchParams: Promise<{ view?: string; focus?: string; open?: string }>
 }) {
   const { projectId } = await params
-  const { view, focus } = await searchParams
+  const { view, focus, open } = await searchParams
   const locale = await getServerLocale()
   const [{ items, dependencies, unresolvedDepends, holidays, today }, actor, projects, initialCollapsed, user, projectConfig, uiPrefs, members] = await Promise.all([
     getComputedWbs(projectId),
@@ -38,6 +39,8 @@ export default async function WbsPage({
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   // 프레즌스 신원 — 주간 시트와 동일하게 서버 세션에서 전달
   const me = user ? { id: user.id, name: displayNameFrom(user.user_metadata, user.email) ?? '사용자' } : null
+  // 강제 진행 버튼 노출 — 관리자가 아니어도 후행의 서브트리 관리자면 보인다(서버 가드는 그대로).
+  const forceManagedIds = await getForceManagedIds(projectId, items, user ? { id: user.id, email: user.email ?? null } : null)
   return (
     <ProjectPageShell
       flush
@@ -64,6 +67,7 @@ export default async function WbsPage({
         defaultView={view === 'timeline' ? 'timeline' : 'sheet'}
         initialCollapsed={initialCollapsed ?? undefined}
         focusId={focus ?? null}
+        focusOpen={open === '1'}
         levelLabels={projectConfig.levelLabels}
         maxDepth={projectConfig.maxDepth}
         milestoneKeywords={projectConfig.milestoneKeywords}
@@ -71,6 +75,7 @@ export default async function WbsPage({
         initialOutline={uiPrefs.wbsOutline ?? false}
         initialGanttScale={uiPrefs.wbsGanttScale}
         members={members}
+        forceManagedIds={forceManagedIds}
       />
     </ProjectPageShell>
   )

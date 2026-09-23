@@ -52,6 +52,22 @@ export interface WbsRow {
    * 받아들인다 — SSR 직후라 보유 값이 곧 최신이고, 버리면 갱신이 영영 오지 않는다.
    */
   updatedAt?: string | null
+  /**
+   * 「스텁 제거·실연결」 하위 Task 표식(0103) — 대신한 선행의 external_ref. 값이 있으면 구조에 투명하다
+   * (buildTree 가 children 이 아닌 subTasks 로 뺀다, 스펙 2026-09-23 F9). stage 와 같은 이유로 선택 필드다.
+   */
+  stubFor?: string | null
+  /** 업로드 매칭 키(0077). 스텁 배지의 링크·문구 재료. */
+  externalRef?: string | null
+  /** 강제 진행으로 면제한 선행 ref(0103). */
+  dependsWaived?: string[]
+  /**
+   * 선행 계약 유무(스펙 2026-09-23 F4 — spec 본문 ∨ acceptance 1건 이상). 로더가 forceProgress.hasContract 로
+   * 계산해 불리언만 싣는다 — spec 본문을 항목마다 클라이언트로 보내면 WBS 페이로드가 불어난다. 버튼 상태용이고 정본 판정은 RPC 다.
+   */
+  hasContract?: boolean
+  /** wbs.md 선행 ref(0077). 강제 진행 절이 간선마다 버튼을 그린다. */
+  depends?: string[] | null
 }
 
 /** WBS 작업 간 일정 의존성. predecessor → successor 방향. */
@@ -70,6 +86,8 @@ export interface TaskDependency {
    * 선택 필드로 두지 않는다 — 합성 행에 삭제 버튼이 붙는 사고를 타입이 잡아야 한다.
    */
   origin: DependencyOrigin
+  /** 강제 진행으로 면제한 spec 간선(스펙 2026-09-23 F1) — origin 'spec' 에만 뜻이 있다. 착수 판정은 충족으로 본다. */
+  waived?: boolean
 }
 
 /** @see TaskDependency.origin */
@@ -81,6 +99,12 @@ export interface ComputedItem extends WbsRow {
   achievement: number | null  // rolledActual/planned, planned=0이면 null
   status: Status
   children: ComputedItem[]
+  /**
+   * 「스텁 제거·실연결」 하위 Task(0103 stub_for) — 롤업·리프 판정에 들어가지 않는 표시 전용 자식(스펙 2026-09-23 F9).
+   * 선택 필드인 이유는 WbsRow.stage 와 같다: 필수로 올리면 ComputedItem 리터럴을 만드는 테스트가 한꺼번에 깨진다.
+   * buildTree·computeNode 는 항상 채운다 — 읽는 쪽은 `?? []`.
+   */
+  subTasks?: ComputedItem[]
   depth: number
 }
 

@@ -41,6 +41,7 @@ export const REASON_TEXT: Record<string, string> = {
   order_item_mismatch: '주문의 항목이 다릅니다.',
   bad_event: '알 수 없는 사건입니다.',
   bad_stage: '허용되지 않는 단계입니다.',
+  stub_pending: '스텁이 남아 있어 승인할 수 없습니다 — 스텁 제거 작업을 먼저 끝내세요.',
 }
 
 /** 주문 사건이 단계·실적을 건너뛴 사유 — 사람이 할 일이 달라 warning 으로 드러낸다. */

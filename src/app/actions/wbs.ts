@@ -12,6 +12,11 @@ import { subActName } from '@/lib/domain/subact'
 import { businessDaysBetween } from '@/lib/domain/dates'
 import { AGENT_TAG } from '@/lib/domain/seatmap'
 import { AGENT_HELD_ORDER_STATUSES, stageLockedForHuman } from '@/lib/domain/agentWork'
+import { stubPendingLock } from '@/lib/domain/forceProgress'
+
+// 'use server' 파일이라 export 하지 않는다(비동기 함수 외 export 는 next build 를 깬다).
+const STUB_DELETE_MSG = '스텁 제거 작업은 후행 Task 사이드바 「강제 진행」 에서 사유와 함께 취소합니다.'
+const STUB_LOCK_ACTUAL_MSG = '스텁이 남아 있어 완료(100)로 둘 수 없습니다 — 스텁 제거 작업이 끝나면 승인으로 완료합니다.'
 
 export interface ChangeLogEntry {
   id: number
@@ -90,7 +95,8 @@ export async function updateActual(
   if (!item) return { ok: false, error: '항목 없음' }
   // 자식이 있으면 롤업 부모 — 직접 입력한 값은 화면에도 엑셀에도 안 나오므로 거부한다.
   // 조회 실패를 '자식 없음'으로 오인하면 롤업 부모에 실적%가 박혀 화면엔 안 보이는 유령 값이 남는다 → 실패는 거부.
-  const { data: child, error: childErr } = await sb.from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
+  // stub 하위(0103)는 구조에 투명하다 — 후행은 계속 리프다(스펙 2026-09-23 F9).
+  const { data: child, error: childErr } = await sb.from('wbs_items').select('id').eq('parent_id', itemId).is('stub_for', null).limit(1).maybeSingle()
   if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }
   if (child) return { ok: false, error: '하위 항목이 있어 롤업으로 계산됩니다' }
 
@@ -103,6 +109,16 @@ export async function updateActual(
     const { data: owner, error: ownerErr } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).in('team_id', myTeamIds).limit(1).maybeSingle()
     if (ownerErr) return { ok: false, error: `담당 확인 실패: ${ownerErr.message}` }
     if (!owner) return { ok: false, error: '담당 작업이 아님' }
+  }
+
+  // 스텁 잔존(스펙 2026-09-23 F6) — 후행은 하위 스텁 제거가 xx 가 되기 전엔 100 이 될 수 없다. 위임 여부와 무관.
+  if (newPct > 99) {
+    const { data: subs, error: subErr } = await sb.from('wbs_items')
+      .select('id, stub_for, external_ref, stage').eq('parent_id', itemId).not('stub_for', 'is', null)
+    if (subErr) return { ok: false, error: `스텁 하위 확인 실패: ${subErr.message}` }
+    const list = ((subs ?? []) as Array<{ id: string; stub_for: string; external_ref: string | null; stage: string | null }>)
+      .map(s => ({ id: s.id, stubFor: s.stub_for, externalRef: s.external_ref, stage: s.stage }))
+    if (stubPendingLock(list)) return { ok: false, error: STUB_LOCK_ACTUAL_MSG }
   }
 
   // D7(스펙 2026-09-15 §3.6) — 에이전트 관할 작업(잠금: 위임됨 ∨ 주문 claimed·reported)의 100 은 승인 버튼으로만.
@@ -243,7 +259,7 @@ export async function addWbsItem(
   if (!g.ok) return { ok: false, error: g.error }
   if (!name.trim()) return { ok: false, error: '이름을 입력하세요' }
   const sb = await createServerClient()
-  let q = sb.from('wbs_items').select('sort_order, is_owner_split').eq('project_id', projectId)
+  let q = sb.from('wbs_items').select('sort_order, is_owner_split, stub_for').eq('project_id', projectId)
   q = parentId ? q.eq('parent_id', parentId) : q.is('parent_id', null)
   // 형제 조회 실패를 '형제 0개'로 오인하면 (1) sort_order 가 1로 충돌하고 (2) 아래에서 '첫 자식'으로 착각해
   // 부모의 직접 입력 실적%를 지운다. 둘 다 되돌릴 수 없으니 쓰기 전에 중단한다.
@@ -254,6 +270,18 @@ export async function addWbsItem(
   // 계약을 둘 다 깬다(Task 9 리뷰 발견). 기존 자식이 전부 일반 항목이거나 없으면 영향 없음.
   if (parentId && sibs.some(s => s.is_owner_split === true)) {
     return { ok: false, error: 'SUB-ACT 형제로는 일반 항목을 추가할 수 없습니다' }
+  }
+  // F11(스펙 2026-09-23) — stub 하위가 있는 후행에 일반 자식을 섞으면 후행이 롤업 부모가 되어 강제 진행 규칙이 무너진다.
+  if (parentId && sibs.some(s => s.stub_for)) {
+    return { ok: false, error: '스텁 제거 작업이 있는 Task 에는 하위 항목을 추가할 수 없습니다' }
+  }
+  if (parentId) {
+    // 하위 Task 는 잎 전용이다(F11). 조회 실패는 중단 — 모르고 추가하면 투명해야 할 행이 롤업 부모가 된다.
+    const { data: parentRow, error: parentErr } = await sb.from('wbs_items').select('stub_for').eq('id', parentId).maybeSingle()
+    if (parentErr) return { ok: false, error: `상위 항목 조회 실패: ${parentErr.message}` }
+    if ((parentRow as { stub_for: string | null } | null)?.stub_for) {
+      return { ok: false, error: '스텁 제거 작업 아래에는 하위 항목을 둘 수 없습니다' }
+    }
   }
   const nextOrder = sibs.reduce((mx, r) => Math.max(mx, Number(r.sort_order) || 0), 0) + 1
   const trimmedName = name.trim()
@@ -292,18 +320,22 @@ export async function addSubAct(
 
   const { data: act, error: actErr } = await sb
     .from('wbs_items')
-    .select('id, project_id, code, name, biz, deliverable, planned_start, planned_end, is_owner_split')
+    .select('id, project_id, code, name, biz, deliverable, planned_start, planned_end, is_owner_split, stub_for')
     .eq('id', actId).single()
   if (actErr && actErr.code !== 'PGRST116') return { ok: false, error: `항목 조회 실패: ${actErr.message}` } // 0행(PGRST116)만 '항목 없음'
   if (!act) return { ok: false, error: '항목 없음' }
   // 가드 ②: 대상 자신이 SUB-ACT면 거부 — 1단계 제한(엑셀 3단 형식 보존).
   if (act.is_owner_split) return { ok: false, error: 'SUB-ACT 아래에는 추가할 수 없습니다' }
+  // F11(스펙 2026-09-23) — 스텁 제거 하위 Task 는 잎 전용이다.
+  if ((act as { stub_for?: string | null }).stub_for) return { ok: false, error: '스텁 제거 작업 아래에는 하위 항목을 둘 수 없습니다' }
 
   // 형제(기존 SUB-ACT) 조회 — 가드 ①(리프 판정) + 중복 팀 방지 + sort_order 채번.
   // 조회 실패를 '형제 0개'로 오인하면 가드 ①이 오통과하고, sort_order 충돌 + 중복 팀 검사 무력화 +
   // '첫 SUB-ACT' 오판으로 ACT 의 직접 입력 실적%까지 지운다. 쓰기 전에 중단한다.
-  const { data: sibs, error: sibErr } = await sb.from('wbs_items').select('id, sort_order, is_owner_split').eq('parent_id', actId)
+  const { data: sibs, error: sibErr } = await sb.from('wbs_items').select('id, sort_order, is_owner_split, stub_for').eq('parent_id', actId)
   if (sibErr || !sibs) return { ok: false, error: `기존 SUB-ACT 조회 실패: ${sibErr?.message ?? '알 수 없는 오류'}` }
+  // F11(스펙 2026-09-23) — stub 하위가 있는 후행에 SUB-ACT 를 두면 후행이 롤업 부모가 된다.
+  if (sibs.some(s => s.stub_for)) return { ok: false, error: '스텁 제거 작업이 있는 항목에는 SUB-ACT 를 추가할 수 없습니다' }
   // 가드 ①: 대상은 리프여야 한다 — 자식이 있으면 거부한다. 단, 자식 전원이 SUB-ACT면 예외 허용
   // (기존 SUB-ACT 형제에 새 팀을 추가하는 정상 경로).
   if (sibs.length > 0 && !sibs.every(s => s.is_owner_split === true)) {
@@ -600,6 +632,11 @@ export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; erro
   const g = await requireProjectAdmin(projectId)
   if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
+  // 스텁 제거 하위(0103)는 「강제 진행」 절의 취소로만 지운다 — 거기서 면제 확인·주문 취소·사유 이력을 함께 한다.
+  // 선행 조회 실패는 중단한다(모르고 지우면 면제가 살아 있는 채 하위가 사라진다).
+  const { data: row, error: rowErr } = await sb.from('wbs_items').select('stub_for').eq('id', itemId).maybeSingle()
+  if (rowErr) return { ok: false, error: `항목 조회 실패: ${rowErr.message}` }
+  if ((row as { stub_for: string | null } | null)?.stub_for) return { ok: false, error: STUB_DELETE_MSG }
   const { error } = await sb.from('wbs_items').delete().eq('id', itemId)
   if (error) return { ok: false, error: error.message }
   revalidatePath(`/p/${projectId}`, 'layout')

@@ -136,7 +136,7 @@ export async function setWbsAssignee(
   return { ok: true }
 }
 
-type TreeRow = { id: string; parent_id: string | null; name: string; assignee_member_id: string | null }
+type TreeRow = { id: string; parent_id: string | null; name: string; assignee_member_id: string | null; stub_for?: string | null }
 
 /**
  * 상위 배정 시 미지정 하위 항목에도 같은 담당자 일괄 적용 — 스테이징 실사용 피드백
@@ -191,7 +191,7 @@ export async function setWbsAssigneeCascade(
   // 하위 트리 조회 실패 시 중단(3원칙 ②) — 부분 적용 강행 금지.
   const { data: allItems, error: treeErr } = await admin
     .from('wbs_items')
-    .select('id, parent_id, name, assignee_member_id')
+    .select('id, parent_id, name, assignee_member_id, stub_for')
     .eq('project_id', resolved.projectId)
   if (treeErr) return { ok: false, error: `하위 항목 조회 실패: ${treeErr.message}` }
   const rows = (allItems ?? []) as TreeRow[]
@@ -203,7 +203,8 @@ export async function setWbsAssigneeCascade(
   const hasChildren = new Set<string>()
   for (const r of rows) {
     if (r.parent_id) {
-      hasChildren.add(r.parent_id)
+      // stub 하위(0103)는 구조에 투명 — 후행을 부모로 만들지 않는다(스펙 F9). 순회(childrenOf)에는 넣어 담당자를 물려준다.
+      if (!r.stub_for) hasChildren.add(r.parent_id)
       const list = childrenOf.get(r.parent_id)
       if (list) list.push(r); else childrenOf.set(r.parent_id, [r])
     }
@@ -432,7 +433,7 @@ export async function setWbsDevWorkflow(
       // 조회 실패 시 리프로 간주하지 않는다(fail-open 금지, 3원칙 ② — 판정 불가면 as 전이
       // 같은 쓰기를 강행하지 않는다) — hasChildren 에 넣어 이 항목의 ON 후처리를 건너뛴다.
       const { data: child, error: childErr } = await admin
-        .from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
+        .from('wbs_items').select('id').eq('parent_id', itemId).is('stub_for', null).limit(1).maybeSingle()
       if (childErr) {
         console.error('[wbsAssign] dev_workflow 리프 판정 실패:', childErr.message)
         hasChildren.add(itemId)
@@ -442,10 +443,10 @@ export async function setWbsDevWorkflow(
     // 하위 트리 조회 실패 시 중단(3원칙 ②) — setWbsAssigneeCascade 와 동일한 패턴.
     const { data: allItems, error: treeErr } = await admin
       .from('wbs_items')
-      .select('id, parent_id, tags')
+      .select('id, parent_id, tags, stub_for')
       .eq('project_id', resolved.projectId)
     if (treeErr) return { ok: false, error: `하위 항목 조회 실패: ${treeErr.message}` }
-    const rows = (allItems ?? []) as { id: string; parent_id: string | null; tags: string[] | null }[]
+    const rows = (allItems ?? []) as { id: string; parent_id: string | null; tags: string[] | null; stub_for?: string | null }[]
     const byId = new Map(rows.map(r => [r.id, r]))
     const root = byId.get(itemId)
     if (!root) return { ok: false, error: '항목 없음' }
@@ -453,7 +454,7 @@ export async function setWbsDevWorkflow(
     const childrenOf = new Map<string, typeof rows>()
     for (const r of rows) {
       if (r.parent_id) {
-        hasChildren.add(r.parent_id)
+        if (!r.stub_for) hasChildren.add(r.parent_id) // stub 하위는 리프 판정에 투명(스펙 F9)
         const list = childrenOf.get(r.parent_id)
         if (list) list.push(r); else childrenOf.set(r.parent_id, [r])
       }

@@ -10,9 +10,9 @@ import {
   assembleAgentHub, type AgentHub, type AgentHubRows, type HubItemRow, type HubMemberRow, type HubReportRow,
 } from '@/lib/domain/agentHub'
 
-export const HUB_ITEM_COLS = 'id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends'
+export const HUB_ITEM_COLS = 'id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived'
 const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note'
-const REPORT_COLS = 'work_order_id, percent, summary, links, agent, review_action, review_note, created_at'
+const REPORT_COLS = 'work_order_id, percent, summary, links, agent, review_action, review_note, created_at, decisions'
 const WATCHER_COLS = 'id, user_id, project_id, agent, host, slots, busy, until_label, last_seen_at'
 
 function must<T>(what: string, r: { data: T | null; error: { message: string } | null }): T {

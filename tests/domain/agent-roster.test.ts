@@ -2,14 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { assembleRoster, modelBadge, parseAgentId, slotLabel } from '@/lib/domain/agentRoster'
 
 const tier = (m: string) => modelBadge(m)?.tier ?? null
-import type { Floor, Seat, Watcher } from '@/lib/domain/seatmap'
+import type { Floor, LeadLease, Seat, Watcher } from '@/lib/domain/seatmap'
 
 const seat = (orderId: string, agent: string | null, state: Seat['state']): Seat =>
   ({ orderId, agent, state, code: orderId, name: orderId } as unknown as Seat)
 const watcher = (agent: string, slots: number | null, lastSeenAt = '2026-09-18T00:00:00Z'): Watcher =>
   ({ agent, host: null, slots, busy: null, untilLabel: null, lastSeenAt, projectId: null })
-const floor = (seats: Seat[], watchers: Watcher[]): Floor =>
-  ({ id: 'p', name: 'P', seatCount: seats.length, doneCount: 0, watchers, zones: [{ key: 'z', code: 'Z', name: 'Z', seats, summary: { work: 0, wait: 0, ready: 0, done: 0 } }] })
+const floor = (seats: Seat[], watchers: Watcher[], leads: LeadLease[] = []): Floor =>
+  ({ id: 'p', name: 'P', seatCount: seats.length, doneCount: 0, watchers, leads, zones: [{ key: 'z', code: 'Z', name: 'Z', seats, summary: { work: 0, wait: 0, ready: 0, done: 0 } }] })
+const lease = (userId: string, agent: string | null, over: Partial<LeadLease> = {}): LeadLease =>
+  ({ userId, host: 'air', agent, renewedAt: '2026-09-18T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z', mine: false, ownerName: null, canRelease: true, ...over })
 
 describe('parseAgentId · slotLabel', () => {
   it('<신원>/<host>/<자리> 세 토막만 작업 PC 로 인정한다', () => {
@@ -50,6 +52,28 @@ describe('assembleRoster', () => {
     const r = assembleRoster({ floors: [floor([], [w]), { ...floor([], [w]), id: 'q' }] })
     expect(r.hosts[0].desks.filter(d => d.kind === 'lead')).toHaveLength(1)
     expect(r.tiles.empty).toBe(2)
+  })
+})
+
+describe('assembleRoster — 팀장 lease(0101) — 짝이 되는 감시자가 없는 경우', () => {
+  it('감시자와 identity(agent 문자열)가 같은 lease 는 그 책상에 붙는다', () => {
+    const r = assembleRoster({ floors: [floor([], [watcher('jji/macbook/lead', 2)], [lease('u1', 'jji/macbook/lead')])] })
+    const lead = r.hosts[0].desks.find(d => d.kind === 'lead')!
+    expect(lead.leads.map(l => l.userId)).toEqual(['u1'])
+    expect(lead.leads[0].projectId).toBe('p')
+    expect(r.unmatchedLeads).toEqual([])
+  })
+  it('짝이 되는 감시자가 없는 lease 는 책상을 지어내지 않고 unmatchedLeads 로 돌려준다', () => {
+    // scope=mine 이 다른 계정의 감시자를 지워도 그 lease 는 남는 경우(관리자가 남의 것도 풀 수 있어야
+    // 한다)와, lease 는 잡았지만 그 PC 의 watch 첫 heartbeat 가 아직 도착하지 않은 경우가 모두 이 모양이다.
+    const r = assembleRoster({ floors: [floor([], [], [lease('u9', 'kim/air/lead')])] })
+    expect(r.hosts).toEqual([]) // 존재하지 않는 "감시 중" 책상을 지어내지 않는다
+    expect(r.unmatchedLeads.map(l => l.userId)).toEqual(['u9'])
+    expect(r.unmatchedLeads[0]).toMatchObject({ projectId: 'p', floorName: 'P' })
+  })
+  it('agent 가 없는(비정상) lease 도 unmatchedLeads 로 간다 — 조용히 버리지 않는다', () => {
+    const r = assembleRoster({ floors: [floor([], [], [lease('u9', null)])] })
+    expect(r.unmatchedLeads).toHaveLength(1)
   })
 })
 

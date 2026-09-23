@@ -10,7 +10,7 @@ function admin(queues: Record<string, Resp[]>, calls: Record<string, unknown[][]
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: [], error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'in', 'eq', 'or', 'gte', 'gt', 'order', 'limit']) {
+      for (const k of ['select', 'in', 'eq', 'or', 'gte', 'gt', 'not', 'order', 'limit']) {
         b[k] = (...a: unknown[]) => { (calls[`${table}.${k}`] ??= []).push(a); return b }
       }
       b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
@@ -21,7 +21,7 @@ function admin(queues: Record<string, Resp[]>, calls: Record<string, unknown[][]
 const O = { id: '11111111-1111-4111-8111-111111111111', project_id: 'p1', wbs_item_id: 'i1', status: 'claimed', claimed_by: 'x', claimed_by_user_id: 'u1', claimed_at: null, created_at: '2026-09-14T08:00:00Z', updated_at: '2026-09-14T08:59:00Z', last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, heartbeat_note: null }
 
 describe('fetchSeatmapRows', () => {
-  it('주문 → 항목 → 부모 → 보고 → watcher → 프로젝트 6개 조회를 하고 행 묶음을 돌려준다', async () => {
+  it('주문 → 항목 → 부모 → 보고 → watcher → 프로젝트 → 팀장 lease 7개 조회를 하고 행 묶음을 돌려준다', async () => {
     const calls: Record<string, unknown[][]> = {}
     const a = admin({
       agent_work_orders: [{ data: [O] }],
@@ -88,10 +88,10 @@ describe('fetchMyMemberIds', () => {
 describe('fetchSeatmapRows — 선행 항목(predecessors)', () => {
   const READY = { ...O, status: 'ready', claimed_by: null, claimed_by_user_id: null }
   const ITEM = { id: 'i1', project_id: 'p1', code: 'T', name: 'n', parent_id: null, actual_pct: 0, assignee_member_id: null, tags: ['agent'], depends: ['M/T1', 'M/T2'] }
-  it('ready 주문 항목의 depends 가 있으면 프로젝트 안 external_ref 로 선행 항목 1회, 그 id 의 approved 주문 1회를 더 조회한다', async () => {
+  it('ready 주문 항목의 depends 가 있으면 프로젝트 안 external_ref 로 선행 항목 1회, 그 id 의 reported·approved 주문 1회를 더 조회한다', async () => {
     const calls: Record<string, unknown[][]> = {}
     const a = admin({
-      agent_work_orders: [{ data: [READY] }, { data: [{ wbs_item_id: 'x1' }] }],
+      agent_work_orders: [{ data: [READY] }, { data: [{ wbs_item_id: 'x1', status: 'approved', heartbeat_phase: null }, { wbs_item_id: 'x2', status: 'reported', heartbeat_phase: 'merge_conflict' }] }],
       wbs_items: [{ data: [ITEM] }, { data: [
         { id: 'x1', project_id: 'p1', external_ref: 'M/T1', code: 'X1', name: 'x1', stage: 'ip' },
         { id: 'x2', project_id: 'p1', external_ref: 'M/T2', code: 'X2', name: 'x2', stage: null, actual_pct: 100 },
@@ -101,16 +101,17 @@ describe('fetchSeatmapRows — 선행 항목(predecessors)', () => {
     expect(calls['wbs_items.in']?.[1]).toEqual(['project_id', ['p1']])
     expect(calls['wbs_items.in']?.[2]).toEqual(['external_ref', ['M/T1', 'M/T2']])
     expect(calls['agent_work_orders.in']?.[1]).toEqual(['wbs_item_id', ['x1', 'x2']])
-    expect(calls['agent_work_orders.eq']?.[0]).toEqual(['status', 'approved'])
+    expect(calls['agent_work_orders.in']?.[2]).toEqual(['status', ['reported', 'approved']])
     expect(rows.predecessors).toEqual([
-      { id: 'x1', project_id: 'p1', external_ref: 'M/T1', code: 'X1', name: 'x1', stage: 'ip', order_approved: true },
-      { id: 'x2', project_id: 'p1', external_ref: 'M/T2', code: 'X2', name: 'x2', stage: null, actual_pct: 100, order_approved: false },
+      { id: 'x1', project_id: 'p1', external_ref: 'M/T1', code: 'X1', name: 'x1', stage: 'ip', order_approved: true, merge_conflict: false },
+      { id: 'x2', project_id: 'p1', external_ref: 'M/T2', code: 'X2', name: 'x2', stage: null, actual_pct: 100, order_approved: false, merge_conflict: true },
     ])
   })
   it('depends 가 있어도 그 항목의 주문이 ready 가 아니면 선행을 조회하지 않는다', async () => {
     const calls: Record<string, unknown[][]> = {}
     const rows = await fetchSeatmapRows(admin({ agent_work_orders: [{ data: [O] }], wbs_items: [{ data: [ITEM] }] }, calls), ['p1'], NOW)
-    expect(calls['wbs_items.in']).toHaveLength(1)
+    // 선행 조회(project_id·external_ref)는 없다 — 항목(id)과 스텁 하위(parent_id, 0103) 두 번뿐이다.
+    expect(calls['wbs_items.in']).toEqual([['id', ['i1']], ['parent_id', ['i1']]])
     expect(calls['agent_work_orders.in']).toHaveLength(1)
     expect(rows.predecessors).toEqual([])
   })

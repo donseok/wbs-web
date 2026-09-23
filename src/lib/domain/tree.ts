@@ -1,6 +1,6 @@
 import type { ComputedItem, WbsRow } from './types'
 
-export type TreeNode = WbsRow & { children: TreeNode[]; depth: number }
+export type TreeNode = WbsRow & { children: TreeNode[]; subTasks?: TreeNode[]; depth: number }
 
 /** tree.ts — 정렬 순서는 주입이 계약(스펙 §5.3). 인자 필수라 tsc 가 전 호출처를 드러낸다.
  *  순수 도메인 모듈은 팀 마스터를 읽지 않는다: 호출부가 팀 마스터의 sort_order 를 주입한다. */
@@ -17,11 +17,15 @@ function subActTeamRank(n: TreeNode, order: ReadonlyMap<string, number>): number
 
 export function buildTree(rows: WbsRow[], opts: BuildTreeOpts): TreeNode[] {
   const byId = new Map<string, TreeNode>()
-  rows.forEach(r => byId.set(r.id, { ...r, children: [], depth: 0 }))
+  rows.forEach(r => byId.set(r.id, { ...r, children: [], subTasks: [], depth: 0 }))
   const roots: TreeNode[] = []
   byId.forEach(node => {
-    if (node.parentId && byId.has(node.parentId)) {
-      byId.get(node.parentId)!.children.push(node)
+    const parent = node.parentId ? byId.get(node.parentId) : undefined
+    if (parent) {
+      // stub 하위는 구조에 투명하다(스펙 2026-09-23 F9) — 리프 판정·롤업이 보는 children 에 넣지 않는다.
+      // 부모를 못 찾은 stub 행은 고아라 root 로 간다(종전 고아 규칙과 같다).
+      if (node.stubFor) (parent.subTasks ??= []).push(node)
+      else parent.children.push(node)
     } else {
       roots.push(node)
     }
@@ -34,13 +38,17 @@ export function buildTree(rows: WbsRow[], opts: BuildTreeOpts): TreeNode[] {
     } else {
       ns.sort((a, b) => a.sortOrder - b.sortOrder)
     }
-    ns.forEach(n => sort(n.children))
+    ns.forEach(n => {
+      sort(n.children)
+      n.subTasks?.sort((a, b) => a.sortOrder - b.sortOrder)
+    })
   }
   sort(roots)
   // depth를 0-based로 부여
   const assignDepth = (n: TreeNode, d: number): void => {
     n.depth = d
     n.children.forEach(c => assignDepth(c, d + 1))
+    n.subTasks?.forEach(c => assignDepth(c, d + 1))
   }
   roots.forEach(r => assignDepth(r, 0))
   return roots

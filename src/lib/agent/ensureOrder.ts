@@ -54,6 +54,7 @@ export async function ensureOrderForWorkflowLeaf(
     .from('wbs_items')
     .select('id')
     .eq('parent_id', wbsItemId)
+    .is('stub_for', null) // stub 하위는 리프 판정에 투명(0103, 스펙 F9)
     .limit(1)
     .maybeSingle()
   if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }

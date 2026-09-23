@@ -46,18 +46,22 @@ export async function notifySuccessorsOnReached(
     if (!item.external_ref) return
     const { data: successors, error } = await admin
       .from('wbs_items')
-      .select('id, name, assignee_member_id, depends')
+      .select('id, name, assignee_member_id, depends, depends_waived')
       .eq('project_id', item.project_id)
       .contains('depends', [item.external_ref])
     if (error) {
       console.error('[stageTransition] 후행 리프 조회 실패:', error.message)
       return
     }
-    type Successor = { id: string; name: string; assignee_member_id: string | null; depends: string[] | null }
+    type Successor = { id: string; name: string; assignee_member_id: string | null; depends: string[] | null; depends_waived?: string[] | null }
     for (const s of (successors ?? []) as Successor[]) {
       if (s.id === item.id) continue // 자기 참조 — 방금 갱신된 자신의 stage로 게이트를 통과해 본인에게 알림 가는 것 방지
       if (!s.assignee_member_id) continue
-      const reached = await allPredecessorsReached(admin, item.project_id, s.depends ?? [])
+      // 강제 진행(스펙 2026-09-23 F2) — 면제된 간선은 이미 충족이다. 도달한 선행이 면제 간선이면 이 후행은 이미
+      // 착수 가능했으므로 「착수 가능」 을 다시 알리지 않는다. 나머지 선행만 claim 게이트와 같은 판정으로 본다.
+      const waived = new Set(s.depends_waived ?? [])
+      if (waived.has(item.external_ref)) continue
+      const reached = await allPredecessorsReached(admin, item.project_id, (s.depends ?? []).filter(r => !waived.has(r)))
       if (reached === null) {
         console.error(`[stageTransition] 후행(${s.id}) 선행 완료 여부 확인 실패 — 발행 생략`)
         continue

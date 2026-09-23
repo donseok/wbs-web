@@ -20,7 +20,7 @@ export async function myMemberIds(
   return [...out]
 }
 
-type AncestorRow = { id: string; parent_id: string | null; assignee_member_id: string | null }
+type AncestorRow = { id: string; parent_id: string | null; assignee_member_id: string | null; stub_for: string | null }
 
 /**
  * 서브트리 관리자 판정(트랙 B, 2026-09-15) — 대상 항목의 **strict 조상**(부모·조부모…루트,
@@ -45,12 +45,14 @@ export async function isSubtreeManager(
 ): Promise<boolean> {
   if (args.myMemberIds.length === 0) return false
   const { data, error } = await admin
-    .from('wbs_items').select('id, parent_id, assignee_member_id').eq('project_id', args.projectId)
+    .from('wbs_items').select('id, parent_id, assignee_member_id, stub_for').eq('project_id', args.projectId)
   if (error) throw new Error(`조상 조회 실패: ${error.message}`)
   const byId = new Map(((data ?? []) as AncestorRow[]).map(r => [r.id, r]))
   const mine = new Set(args.myMemberIds)
   const visited = new Set<string>()
-  let cur = byId.get(args.itemId)?.parent_id ?? null
+  const start = byId.get(args.itemId)
+  let cur = start?.parent_id ?? null
+  if (start?.stub_for && cur !== null) cur = byId.get(cur)?.parent_id ?? null // 스펙 F15 — isSubtreeManagerOf 와 같은 규칙
   while (cur !== null && !visited.has(cur)) {
     visited.add(cur)
     const row = byId.get(cur)

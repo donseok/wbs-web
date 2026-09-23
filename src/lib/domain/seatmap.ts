@@ -3,7 +3,11 @@ import {
   animFor, deriveSeatState, fnv1a32, inferPhase, isRejected, isWatcherAlive, lastSignalMs, pickCharacter,
   type AnimName, type CharacterName, type OrderStatus, type Phase, type SeatState,
 } from './seatState'
-import { deriveWaitReason, type PredecessorLike, type WaitReason } from './waitReason'
+import { deriveWaitReason, unmetDepends, type PredecessorLike, type WaitReason } from './waitReason'
+import {
+  DEFAULT_BOTTLENECK, blockedSinceMs, bottleneckText, findBottlenecks, lastRefSegment, stubPendingByItem,
+  type BlockedSuccessor, type BottleneckSettings, type StubPendingEntry,
+} from './forceProgress'
 
 export interface OrderRow {
   id: string; project_id: string; wbs_item_id: string | null; status: OrderStatus
@@ -23,10 +27,20 @@ export interface ItemRow {
   depends?: string[] | null
   /** 항목에 지정된 모델(0077, import 스펙의 model) — 에이전트가 실제로 도는 모델은 아직 보고되지 않는다. */
   model?: string | null
+  /** 강제 진행(0103) — 스텁 제거 하위 표식·면제한 선행 ref. 병목 계산 재료로 계획 시작일·단계·ref 도 싣는다. */
+  stub_for?: string | null
+  depends_waived?: string[] | null
+  planned_start?: string | null
+  stage?: string | null
+  external_ref?: string | null
 }
 /** 에이전트 위임 태그 — src/app/actions/wbsSpec.ts AGENT_TAG·dflow-poll 자동 착수 계약과 같은 값. 좌석표는 이 태그가 붙은 항목의 주문만 대상으로 한다. */
 export const AGENT_TAG = 'agent'
-export interface ReviewRow { work_order_id: string; review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string }
+export interface ReviewRow {
+  work_order_id: string; review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string
+  /** 워커 결정 수(0102 생성 컬럼). null = 제출 안 됨. 옛 픽스처는 비워 둘 수 있다. */
+  decision_count?: number | null
+}
 /** 에이전트 보기의 보고 말풍선 재료 — 점유·보고 중 주문의 최근 보고 행(progress · completion). */
 export interface ReportRow { work_order_id: string; kind: 'progress' | 'completion'; summary: string; created_at: string }
 export interface WatcherRow {
@@ -34,6 +48,11 @@ export interface WatcherRow {
   slots: number | null; busy: number | null; until_label: string | null; last_seen_at: string
 }
 export interface ProjectRow { id: string; name: string }
+/** 팀장 lease 행(agent_lead_leases, 0101) — 신원+프로젝트당 하나. */
+export interface LeaseRow {
+  user_id: string; project_id: string; host: string | null; agent: string | null
+  renewed_at: string | null; expires_at: string
+}
 /** 층 프로젝트의 로스터 행 — 담당자 이름과 PAT 계정(user_id) 매칭 재료. */
 export interface MemberRow { id: string; project_id: string; user_id: string | null; name: string }
 /** ready 주문 항목의 선행 항목(프로젝트 안 external_ref 매칭) + 승인 주문 유무. */
@@ -43,6 +62,12 @@ export interface SeatmapRows {
   members: MemberRow[]; predecessors: PredecessorRow[]
   /** 최근 보고(없으면 말풍선 없음). 옛 호출부·시험이 비워 둘 수 있게 선택 필드다. */
   reports?: ReportRow[]
+  /** 팀장 lease(0101). 옛 호출부·시험이 비워 둘 수 있게 선택 필드다. */
+  leases?: LeaseRow[]
+  /** 주문 항목들의 스텁 제거 하위(0103 stub_for) — 좌석 대상(items)에 섞지 않는다. 옛 호출부는 비운다. */
+  stubs?: ItemRow[]
+  /** 프로젝트 id → 병목 제안 기준(0103). 없으면 DEFAULT_BOTTLENECK. */
+  bottleneckSettings?: Record<string, BottleneckSettings>
 }
 
 export interface Seat {
@@ -73,6 +98,11 @@ export interface Seat {
   agentMine: boolean
   /** 다른 계정의 에이전트면 그 계정의 로스터 이름. 내 것·레거시·로스터에 없는 계정은 null(화면은 "다른 계정"). */
   agentOwnerName: string | null
+  /** 스텁 잔존(강제 진행 스펙 F13) — 승인 버튼 비활성·배지 재료. 선택 필드: 옛 픽스처 호환, 조립은 항상 채운다. */
+  stubPending?: StubPendingEntry[]
+  /** 승인 대기(reported) 주문의 최신 completion 에 딸린 결정 수(과제 C). 그 밖의 상태·구 CLI 보고는 null.
+   *  말풍선과 달리 승인될 때까지 칩으로 계속 보인다. 옛 시험 픽스처가 비워 둘 수 있게 선택 필드다. */
+  decisionCount?: number | null
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher {
@@ -82,8 +112,23 @@ export interface Watcher {
   /** 다른 계정의 감시자면 그 계정의 로스터 이름(없으면 null). */
   ownerName?: string | null
 }
-export interface Floor { id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[] }
-export interface Attention { orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string }
+/** 팀장 lease(0101) — 신원+프로젝트당 팀장 하나. 오피스 층 머리에 보이고 「팀장 해제」의 대상이다. */
+export interface LeadLease {
+  userId: string; host: string | null; agent: string | null; renewedAt: string | null; expiresAt: string
+  mine: boolean; ownerName: string | null
+  /** 본인 lease 이거나 이 층 관리자. 서버 액션이 같은 판정(canReleaseLeadLease)을 다시 한다. */
+  canRelease: boolean
+}
+export interface Floor {
+  id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[]; leads: LeadLease[]
+  /** 병목 제안(강제 진행 스펙 F14) — 선택 필드(옛 층 픽스처 호환), 조립은 항상 채운다. 자동 면제는 하지 않는다. */
+  bottlenecks?: { text: string; predRef: string; successorIds: string[] }[]
+}
+export interface Attention {
+  orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string
+  /** 머지 충돌 표시(팀장 대리, 2026-09-23). state 는 좌석 상태(WAIT·DONE) 그대로이고 이 표식이 띠 순서를 정한다. */
+  mergeConflict?: boolean
+}
 export interface Seatmap {
   floors: Floor[]
   counters: { active: number; standby: number; idle: number; offline: number }
@@ -108,7 +153,7 @@ export interface SeatmapViewer {
 }
 
 /** 조상 사슬 탐색에 필요한 최소 모양 — 항목 행이든 얕은 조상 행이든 이 셋만 있으면 된다. */
-export interface AncestorLike { id: string; parent_id: string | null; assignee_member_id: string | null }
+export interface AncestorLike { id: string; parent_id: string | null; assignee_member_id: string | null; stub_for?: string | null }
 
 /**
  * 서브트리 관리자 — 대상 항목의 strict 조상(부모·조부모…루트, 자신 제외) 중 담당자가 나인 노드가 있으면 true.
@@ -119,7 +164,10 @@ export function isSubtreeManagerOf(
   itemId: string, itemById: ReadonlyMap<string, AncestorLike>, mine: ReadonlySet<string>,
 ): boolean {
   const visited = new Set<string>()
-  let cur = itemById.get(itemId)?.parent_id ?? null
+  const start = itemById.get(itemId)
+  let cur = start?.parent_id ?? null
+  // stub 하위(0103)는 후행과 같은 자리로 본다 — 후행을 조상으로 치면 후행 담당자가 자기 스텁 제거를 승인한다(스펙 F15).
+  if (start?.stub_for && cur !== null) cur = itemById.get(cur)?.parent_id ?? null
   while (cur !== null && !visited.has(cur)) {
     visited.add(cur)
     const row = itemById.get(cur)
@@ -132,6 +180,10 @@ export function isSubtreeManagerOf(
 
 const WORK_STATES: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED']
 const ATTENTION_ORDER: readonly SeatState[] = ['BLOCKED', 'STALE', 'OFFLINE', 'REJECTED']
+/** 확인 필요 띠 순서 — 머지 충돌은 BLOCKED 바로 뒤. WAIT·DONE 은 ATTENTION_ORDER 밖(-1)이라 따로 매긴다. */
+function attentionRank(a: Attention): number {
+  return a.mergeConflict ? 0.5 : ATTENTION_ORDER.indexOf(a.state)
+}
 
 export function ageLabel(fromIso: string | null, nowMs: number): string {
   if (!fromIso) return '—'
@@ -169,8 +221,11 @@ function ownerOf(accountId: string | null, viewerId: string | undefined, nameOf:
 }
 
 function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }, report: ReportRow | undefined, owner: { mine: boolean; name: string | null }): Seat {
+  // 반려(reject)는 reported→claimed 로 바꾸며 heartbeat_phase 를 남긴다(0097). 점유 중 주문의 merge_conflict 는
+  // 지난 표시의 잔재라 무시한다 — 머지 충돌은 승인 대기·승인 좌석에서만 뜻이 있다(2026-09-23 리뷰).
+  const hbPhase = o.status === 'claimed' && o.heartbeat_phase === 'merge_conflict' ? null : o.heartbeat_phase
   const input = {
-    status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
+    status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: hbPhase,
     updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
   }
   const state = deriveSeatState(input, nowMs)
@@ -186,8 +241,8 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     state, phase, anim: animFor(state, phase, idleSlot + fnv1a32(o.id) % 3), character: pickCharacter(agent ?? o.id),
     agent, progress: Math.max(0, Math.min(100, Math.round(item?.actual_pct ?? 0))),
     lastSignalAt: o.status === 'claimed' ? signal : null,
-    heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
-    note: o.heartbeat_phase === 'blocked' ? o.heartbeat_note : null,
+    heartbeatAt: o.last_heartbeat_at, heartbeatPhase: hbPhase,
+    note: hbPhase === 'blocked' || hbPhase === 'merge_conflict' ? o.heartbeat_note : null,
     // 표식은 점유 중인 주문에서만 뜻이 있다 — 중단·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
     resumeRequestedAt: o.status === 'claimed' ? (o.resume_requested_at ?? null) : null,
     resumeRequestedHost: o.status === 'claimed' ? (o.resume_requested_host ?? null) : null,
@@ -200,6 +255,8 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
       ? { kind: report.kind, summary: report.summary.trim(), at: report.created_at }
       : null,
     agentMine: owner.mine, agentOwnerName: owner.name,
+    stubPending: [],
+    decisionCount: o.status === 'reported' ? (review?.decision_count ?? null) : null,
   }
 }
 
@@ -238,6 +295,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const parentById = new Map(rows.parents.map(p => [p.id, p]))
   const reviewByOrder = latestReviewByOrder(rows.reviews)
   const reportByOrder = latestReportByOrder(rows.reports ?? [])
+  const stubsByItem = stubPendingByItem(rows.stubs ?? [])
   const projectName = new Map(rows.projects.map(p => [p.id, p.name]))
 
   // 결재 어포던스 재료 — 조상 사슬은 items + parents 합집합이다(데이터층이 parents 를 조상 전체로 싣는다).
@@ -277,6 +335,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     }
     const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights, reportByOrder.get(o.id),
       ownerOf(o.claimed_by_user_id, viewerId, ownerName(o.project_id)))
+    seat.stubPending = o.wbs_item_id ? (stubsByItem.get(o.wbs_item_id) ?? []) : []
     if (seat.state === 'READY' && item) {
       const m = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
       seat.waitReason = deriveWaitReason({
@@ -285,6 +344,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
         // 담당자 id 는 있는데 로스터 행이 없으면 계정 미연결과 같은 취급(어느 PAT 도 담당자로 인정되지 않는다).
         assignee: item.assignee_member_id ? { name: m?.name ?? '(로스터에 없음)', user_id: m?.user_id ?? null } : null,
         watchers: watchersOf(o.project_id),
+        waived: item.depends_waived ?? [],
       })
       // 선행 대기는 빈자리가 아니다 — 올 사람이 정해져 있고 앞 작업만 기다린다. 실루엣으로 그린다(안 A).
       if (seat.waitReason?.kind === 'dependency') seat.anim = 'waiting'
@@ -318,6 +378,37 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     })
     .sort((a, b) => a.agent.localeCompare(b.agent))
 
+  // lease 는 mine 필터로 거르지 않는다 — 「팀장 해제」는 남의 lease(다른 PC 에 남은 내 신원, 또는 관리자가 보는 남의 것)가 대상이다.
+  const liveLeases = (rows.leases ?? []).filter(l => Date.parse(l.expires_at) > nowMs)
+  const leadsOf = (pid: string): LeadLease[] => liveLeases
+    .filter(l => l.project_id === pid)
+    .map(l => {
+      const owner = ownerOf(l.user_id, viewerId, ownerName(l.project_id))
+      // canRelease 는 mine 필터로 대체되지 않는다 — opts.viewer 가 없으면 fail-closed(서버 액션 canReleaseLeadLease 와 같은 축).
+      const canRelease = !!opts.viewer?.userId && (opts.viewer.userId === l.user_id || opts.viewer.adminProjectIds.has(pid))
+      return { userId: l.user_id, host: l.host, agent: l.agent, renewedAt: l.renewed_at, expiresAt: l.expires_at, mine: owner.mine, ownerName: owner.name, canRelease }
+    })
+    .sort((a, b) => (a.agent ?? '').localeCompare(b.agent ?? ''))
+
+  // 병목 제안(강제 진행 스펙 F14·§3.2) — 막힌 후속 = 위임된 리프의 ready 주문이 선행 때문에 대기 사유 dependency 인 것.
+  // 막힌 시각은 근사(max(주문 updated_at, 계획 시작일 00:00 KST)). 면제된 간선은 unmetDepends 가 뺀다.
+  const bottlenecksOf = (pid: string): NonNullable<Floor['bottlenecks']> => {
+    const settings = rows.bottleneckSettings?.[pid] ?? DEFAULT_BOTTLENECK
+    const blocked: BlockedSuccessor[] = []
+    for (const o of rows.orders) {
+      if (o.project_id !== pid || o.status !== 'ready' || !o.wbs_item_id) continue
+      const it = itemById.get(o.wbs_item_id)
+      if (!it || !(it.tags ?? []).includes(AGENT_TAG)) continue
+      const unmet = unmetDepends(it.depends ?? null, ref => predByKey.get(`${pid}\u0000${ref}`), it.depends_waived ?? [])
+      if (unmet.length === 0) continue
+      blocked.push({ itemId: it.id, unmetRefs: unmet.map(u => u.ref), blockedSinceMs: blockedSinceMs(o.updated_at, it.planned_start ?? null) })
+    }
+    return findBottlenecks(blocked, nowMs, settings).map(b => ({
+      predRef: b.predRef, successorIds: b.successorIds,
+      text: bottleneckText(b, predByKey.get(`${pid}\u0000${b.predRef}`)?.code ?? lastRefSegment(b.predRef)),
+    }))
+  }
+
   const floorIds = new Set<string>([...floorMap.keys(), ...done.keys()])
   const floors: Floor[] = [...floorIds].map(id => {
     const zones = [...(floorMap.get(id)?.values() ?? [])]
@@ -328,12 +419,18 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       seatCount: zones.reduce((n, z) => n + z.seats.filter(s => s.state !== 'DONE').length, 0),
       doneCount: done.get(id) ?? 0,
       watchers: aliveWatchers.filter(w => w.projectId === null || w.projectId === id),
+      leads: leadsOf(id),
+      bottlenecks: bottlenecksOf(id),
     }
   }).sort((a, b) => a.name.localeCompare(b.name))
 
   const counters = { active: 0, standby: aliveWatchers.length, idle: 0, offline: 0 }
   const attention: Attention[] = []
   for (const f of floors) for (const z of f.zones) for (const s of z.seats) {
+    // 머지 충돌은 승인 대기·승인 좌석에서 난다 — DONE 을 건너뛰기 전에 띠에 넣는다(카운터에는 넣지 않는다).
+    if (s.heartbeatPhase === 'merge_conflict' && (s.state === 'WAIT' || s.state === 'DONE')) {
+      attention.push({ orderId: s.orderId, id8: s.id8, floorName: f.name, code: s.code, name: s.name, state: s.state, why: `머지 충돌 · ${s.note ?? '확인 필요'}`, mergeConflict: true })
+    }
     if (s.state === 'DONE') continue // 승인분은 doneCount 로 따로 센다 — 현황판 넷에 끼우지 않는다
     if (WORK_STATES.includes(s.state)) counters.active++
     else if (s.state === 'WAIT') counters.idle++
@@ -342,7 +439,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       attention.push({ orderId: s.orderId, id8: s.id8, floorName: f.name, code: s.code, name: s.name, state: s.state, why: attentionWhy(s, nowMs) })
     }
   }
-  attention.sort((a, b) => ATTENTION_ORDER.indexOf(a.state) - ATTENTION_ORDER.indexOf(b.state))
+  attention.sort((a, b) => attentionRank(a) - attentionRank(b))
 
   return { floors, counters, attention, fetchedAt: new Date(nowMs).toISOString(), scope: mine ? 'mine' : 'all' }
 }

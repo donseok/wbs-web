@@ -5,6 +5,7 @@ import { ageLabel } from '@/lib/domain/seatmap'
 import { STATE_LABEL } from './Seat'
 import { opsFor, opSpec, type SeatOpKind } from './seatOps'
 import { IconApprove, IconReject, IconResume, IconRework, IconStop, IconUnapprove } from './icons'
+import { SeatDecisions } from './SeatDecisions'
 import css from './seatmap.module.css'
 
 const LADDER: Array<{ phase: string; pct: number }> = [
@@ -66,8 +67,22 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
       <h3>{seat.code}</h3>
       <p className={css.task}>{seat.name}</p>
       <span className={css.pill} data-state={seat.state}>{STATE_LABEL[seat.state]}</span>
+      {/* 스텁 잔존(강제 진행 스펙 F13) — 승인이 잠긴 이유와 치울 하위 Task 로 가는 링크. */}
+      {(seat.stubPending ?? []).length > 0 && (
+        <p className={css.waitReason} data-stub-pending="">
+          <b>스텁 잔존</b> ·{' '}
+          {(seat.stubPending ?? []).map((s, i) => (
+            <span key={s.subTaskId}>{i > 0 && ' · '}<Link href={`/p/${seat.projectId}/wbs?focus=${s.subTaskId}&open=1`} data-stub-link={s.subTaskId}>{s.label}</Link></span>
+          ))}
+        </p>
+      )}
       {seat.state === 'READY' && seat.waitReason && (
-        <p className={css.waitReason} data-wait-reason={seat.waitReason.kind}><b>{seat.waitReason.label}</b> · {seat.waitReason.text}</p>
+        <p className={css.waitReason} data-wait-reason={seat.waitReason.kind}><b>{seat.waitReason.label}</b> · {seat.waitReason.text}
+          {/* 강제 진행 두 번째 진입점(스펙 §3.2) — 선행 대기 좌석에서 WBS 사이드바의 「강제 진행」 절로 바로 간다. */}
+          {seat.waitReason.kind === 'dependency' && seat.itemId && (
+            <> <Link href={`/p/${seat.projectId}/wbs?focus=${seat.itemId}&open=1`} data-force-entry={seat.itemId}>강제 진행 검토</Link></>
+          )}
+        </p>
       )}
       <ul className={css.ladder} aria-label="Phase">
         {LADDER.map((l, i) => (
@@ -94,7 +109,10 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
         )}
       </dl>
       {seat.state === 'BLOCKED' && seat.note && <p className={css.quote}>{seat.note}</p>}
+      {seat.phase === 'merge_conflict' && seat.note && <p className={css.quote}>머지 충돌: {seat.note}</p>}
       {seat.rejected && <p className={css.quote}>반려 사유: {seat.reviewNote ?? '(없음)'}</p>}
+      {/* 결정이 딸린 승인 대기 — 승인 전에 읽을 목록. 좌석표는 수만 실으므로 여기서 본문을 좁게 읽는다(과제 C). */}
+      {seat.state === 'WAIT' && (seat.decisionCount ?? 0) >= 1 && <SeatDecisions key={seat.orderId} orderId={seat.orderId} />}
 
       {/* 결재 — 좌석 위 결재 바와 같은 op 표를 큰 버튼으로. 사유가 필요한 op 는 아래 입력이 열린다. */}
       <div className={css.acts} role="group" aria-label="결재">

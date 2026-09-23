@@ -21,6 +21,7 @@ const WBS_COLUMNS = [
   'id', 'project_id', 'parent_id', 'code', 'sort_order', 'name', 'biz', 'deliverable',
   'planned_start', 'planned_end', 'weight', 'actual_pct', 'updated_at', 'is_owner_split',
   'external_ref', 'depends', // wbs.md 선행을 의존성으로 합성하는 재료 — mergeSpecDepends
+  'stub_for', 'depends_waived', // 강제 진행(0103) — stub 하위는 buildTree 가 subTasks 로 뺀다(구조에 투명)
   'item_owners(kind, teams(code))',
 ].join(', ')
 
@@ -130,6 +131,10 @@ function mapItem(row: Row, projectId: string): WbsRepositoryItem {
     owners: mapOwners(row.item_owners, projectId),
     updatedAt: (row.updated_at as string | null) ?? null,
     isOwnerSplit: row.is_owner_split === true,
+    // stub 하위(0103)는 봇의 트리·리프·롤업에서도 투명해야 한다 — 화면(data/wbs.ts)과 같은 규칙.
+    stubFor: (row.stub_for as string | null) ?? null,
+    externalRef: (row.external_ref as string | null) ?? null,
+    dependsWaived: (row.depends_waived as string[] | null) ?? [],
   }
 }
 
@@ -189,6 +194,9 @@ export function createSupabaseWbsRepository(client: SupabaseServerClient): WbsBo
             projectId: row.project_id as string,
             externalRef: (row.external_ref as string | null) ?? null,
             depends: (row.depends as string[] | null) ?? null,
+            dependsWaived: (row.depends_waived as string[] | null) ?? null,
+            parentId: (row.parent_id as string | null) ?? null,
+            stubFor: (row.stub_for as string | null) ?? null,
           })),
         ).dependencies,
       }

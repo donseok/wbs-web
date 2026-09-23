@@ -38,7 +38,7 @@ function server(queues: Record<string, Resp[]>) {
       calls.push(table)
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'eq', 'in', 'limit', 'order']) b[k] = () => b
+      for (const k of ['select', 'eq', 'in', 'limit', 'order', 'is', 'not']) b[k] = () => b
       b.update = (payload: unknown) => { writes.push({ table, payload }); return b }
       b.insert = (payload: unknown) => { writes.push({ table, payload }); return b }
       b.single = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
@@ -72,7 +72,7 @@ describe('updateActual — 에이전트 관할 작업의 100 잠금(D7)', () => 
   })
   it('사람이 하는 dev_workflow 항목(ready 주문만 상주)은 100 저장', async () => {
     const { writes } = server({
-      wbs_items: [item(), { data: null }, { data: [{ id: W1 }] }],
+      wbs_items: [item(), { data: null }, { data: [] }, { data: [{ id: W1 }] }], // 셋째 = 스텁 하위 없음(0103)
       agent_work_orders: [{ data: null }],
     })
     expect(await updateActual(W1, 100, 40)).toEqual({ ok: true })
@@ -85,7 +85,7 @@ describe('updateActual — 에이전트 관할 작업의 100 잠금(D7)', () => 
     expect(writes[0]).toMatchObject({ table: 'wbs_items', payload: { actual_pct: 99 } })
   })
   it('dev_workflow=false(D-CUBE)는 100 도 그대로 — 주문 조회를 하지 않는다', async () => {
-    const { calls } = server({ wbs_items: [item({ dev_workflow: false, tags: ['agent'] }), { data: null }, { data: [{ id: W1 }] }] })
+    const { calls } = server({ wbs_items: [item({ dev_workflow: false, tags: ['agent'] }), { data: null }, { data: [] }, { data: [{ id: W1 }] }] }) // 셋째 = 스텁 하위 없음(0103)
     expect(await updateActual(W1, 100, 40)).toEqual({ ok: true })
     expect(calls).not.toContain('agent_work_orders')
   })

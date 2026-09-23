@@ -5,6 +5,7 @@ import type { Floor, Zone } from '@/lib/domain/seatmap'
 import { ZoneBlock } from './ZoneBlock'
 import type { SeatOpHandler } from './SeatOpsBar'
 import { IconBlocked, IconFolded, IconWait } from './icons'
+import { LeadChip } from './LeadChip'
 import css from './seatmap.module.css'
 
 type ZoneKind = 'work' | 'wait' | 'empty'
@@ -19,7 +20,7 @@ export function zoneKind(z: Zone): ZoneKind {
   return 'empty'
 }
 
-export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = false, onSelect, onOp }: {
+export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = false, onSelect, onOp, onReleaseLead }: {
   floor: Floor; selectedId: string | null; nowMs: number
   /** op 가 서버에 가 있는 좌석 하나. */
   busyOrderId: string | null
@@ -28,6 +29,8 @@ export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = fa
   /** null = 선택 해제. 구역을 접으면 그 안의 선택을 푼다 — 선택이 남아 있으면 구역이 다시 펼쳐져 접히지 않던 버그(2026-09-14). */
   onSelect: (orderId: string | null) => void
   onOp: SeatOpHandler
+  /** 팀장 lease 해제(0101) — 없으면 「팀장 해제」 버튼을 그리지 않는다. */
+  onReleaseLead?: (projectId: string, userId: string) => Promise<void>
 }) {
   // 모든 구역은 기본 펼침이다(folded 에 든 것만 접힘) — 빈 구역도 책상을 그린다(2026-09-19, 모두 펼치기가 기본).
   // 선택된 좌석이 든 구역은 접혀 있어도 펼친다.
@@ -64,7 +67,18 @@ export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = fa
           <button type="button" className={css.zoneFold} data-floor-fold-all onClick={foldAll}>모두 접기</button>
         </div>
         <span className={`${css.watch} ${w.length ? css.watchOn : ''}`} title={watchLabel}>{w.length ? `감시 중 · ${watchLabel}` : '감시 없음'}</span>
+        {floor.leads.map(l => (
+          <LeadChip key={l.userId} lead={l} onRelease={onReleaseLead ? () => onReleaseLead(floor.id, l.userId) : undefined} />
+        ))}
       </header>
+      {/* 병목 제안(강제 진행 스펙 F14) — 제안까지만 한다. 면제는 후속 Task 사이드바에서 사람이. */}
+      {(floor.bottlenecks ?? []).length > 0 && (
+        <ul className={css.bottleneck} data-bottleneck="">
+          {(floor.bottlenecks ?? []).map(b => (
+            <li key={b.predRef}>{b.text} — 후속의 사이드바 「강제 진행」 에서 이 선행을 면제할 수 있습니다.</li>
+          ))}
+        </ul>
+      )}
       <div className={css.zones}>
         {shown.map(z => <ZoneBlock key={z.key} zone={z} selectedId={selectedId} nowMs={nowMs} busyOrderId={busyOrderId} withDone={withDone} onSelect={onSelect} onOp={onOp} onFold={() => fold(z)} />)}
         {icons.length > 0 && (

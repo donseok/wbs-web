@@ -26,6 +26,11 @@ describe('opsFor — 상태마다 다른 op', () => {
       expect(kinds(s)).toEqual(['resume', 'stop'])
     }
   })
+  it('스텁 잔존이면 승인은 자격이 있어도 잠기고 그 문구가 이유다(강제 진행 F6)', () => {
+    const ops = opsFor({ state: 'WAIT', ...who(true, false), stubPending: [{ subTaskId: 's1', label: '스텁 잔존: TSK-01 대체' }] })
+    expect(ops.find(o => o.spec.kind === 'approve')).toEqual(expect.objectContaining({ allowed: false, why: '스텁 잔존: TSK-01 대체' }))
+    expect(ops.find(o => o.spec.kind === 'reject')!.allowed).toBe(true)
+  })
   it('빈자리에는 아무 것도 없다', () => {
     expect(kinds('READY')).toEqual([])
   })

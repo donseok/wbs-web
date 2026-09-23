@@ -7,6 +7,7 @@ import { canSeeProject } from '@/lib/domain/authz'
 import { isValidDateRange } from '@/lib/domain/validate'
 import { treeMaxDepth, validateLevelSettings } from '@/lib/domain/levelSettings'
 import { validateStageCredits } from '@/lib/domain/stageCredits'
+import { validateBottleneckSettings } from '@/lib/domain/forceProgress'
 import { PRESETS } from '@/lib/domain/projectPresets'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
@@ -133,7 +134,7 @@ export async function updateLevelSettings(projectId: string, labels: string[]): 
 
   // 축소 검증용 선행 조회 — 실패하면 중단한다(검증 불가를 통과로 위장하지 않는다).
   const sb = await createServerClient()
-  const { data: rows, error: rowsErr } = await sb.from('wbs_items').select('id,parent_id').eq('project_id', projectId)
+  const { data: rows, error: rowsErr } = await sb.from('wbs_items').select('id,parent_id,stub_for').eq('project_id', projectId)
   if (rowsErr || !rows) return { ok: false, error: rowsErr?.message || 'WBS 조회에 실패했습니다.' }
 
   const v = validateLevelSettings({ labels, currentTreeMaxDepth: treeMaxDepth(rows) })
@@ -167,6 +168,25 @@ export async function updateStageCredits(projectId: string, credits: unknown): P
   const { error } = await admin.from('project_settings').upsert({
     project_id: projectId,
     stage_credits: v.credits,
+    updated_at: new Date().toISOString(),
+    updated_by: g.actor.userId,
+  })
+  if (error) return { ok: false, error: error.message }
+  revalidatePath(`/p/${projectId}`, 'layout')
+  return { ok: true }
+}
+
+/** 병목 제안 기준(강제 진행 스펙 2026-09-23 F14) — 관리자 전용, 제안 띠만 바뀐다(자동 면제 없음). */
+export async function updateBottleneckSettings(projectId: string, raw: unknown): Promise<{ ok: boolean; error?: string }> {
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const v = validateBottleneckSettings(raw)
+  if (!v.ok) return { ok: false, error: v.error }
+  const admin = createAdminClient()
+  const { error } = await admin.from('project_settings').upsert({
+    project_id: projectId,
+    force_bottleneck_min_successors: v.value.minSuccessors,
+    force_bottleneck_min_hours: v.value.minHours,
     updated_at: new Date().toISOString(),
     updated_by: g.actor.userId,
   })

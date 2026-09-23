@@ -1,6 +1,46 @@
-# D'Flow Agent API 계약 v2.4
+# D'Flow Agent API 계약 v2.8
 
-`contract_version: "2.4"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다.
+`contract_version: "2.8"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다. v2.5는 팀장 lease 를 더했다. v2.6은 완료 보고의 결정 목록(`decisions`)을 더했다. v2.7은 heartbeat 에 팀장의 머지 충돌 표시를 더했다. v2.8은 강제 진행(간선 면제·스텁 제거 작업)을 더했다.
+
+## v2.8 변경점 (2026-09-23)
+
+- `depends_evidence[].waived`(boolean) 추가 — 사람이 그 선행을 「강제 진행」 으로 면제한 간선(0103 `wbs_items.depends_waived`).
+  면제된 간선은 `reached` 가 참이다(claim 게이트도 통과). 면제된 간선에는 `head_sha` 가 없는 것이 정상이다 — 서버의
+  `head_sha` 는 승인된 주문의 완료 보고에서만 오고, 승인된 선행은 면제할 이유가 없다.
+- 스텁 제거 하위 Task 가 주문으로 나온다. `external_ref` 는 `<후행 ref>.stub.<선행 ref 전체를 [A-Za-z0-9._-] 로 치환>`(예: `m/TSK-02.stub.m_TSK-01`)이고 `depends` 는 `[선행, 후행]` 이다.
+  스텁이 남은 동안 후행의 승인은 서버가 거부한다(`stub_pending`) — 완료 보고(im)까지는 정상 진행된다.
+- CLI: `check_depends_local` 이 `waived` 간선을 건너뛴다. `dflow.sh stub-check [<ref>]` — 승격 관문(표식 있으면 exit 4).
+- 설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-23-force-progress-design.md(킷에는 미동봉).
+
+## v2.7 변경점 (2026-09-23)
+
+- `POST /api/v1/agent/work/{id}/heartbeat` 에 팀장 대리 표시 갈래(머지 충돌 설계 §7.2). **PAT 전용**(레거시 400 `identity_required`), 소유 판정은 워커와 같다(`claimed_by_user_id`).
+  - 주문 `reported`·`approved` 에 `{agent, phase:"merge_conflict", note}`(note 필수) → 200 `{ok, phase:"merge_conflict"}`. `heartbeat_phase`·`heartbeat_note` 두 열만 쓴다 — `updated_at`·`last_heartbeat_at`·`heartbeat_agent`·재개 요청 열은 그대로다.
+  - `{agent, clear:"merge_conflict"}` → 200 `{ok, phase:null, cleared}`. 주문 `claimed`·`reported`·`approved` 에서 받는다 — 반려(reject)가 reported→claimed 로 바꾸며 표시를 남기기 때문이다(0097). 현재 값이 `merge_conflict` 일 때만 지운다(`cleared:false` 는 지울 것이 없었다는 뜻).
+  - `claimed` 주문에 `merge_conflict` 설정은 400, 그 밖의 상태는 409 `conflict`, 중단은 409 `cancelled`. 워커 phase 는 종전대로 `claimed` 에서만 받는다.
+- CLI: `dflow.sh heartbeat <order> --agent <신원>/<host>/lead --phase merge_conflict --note "<…>"`(출력 `MERGE_CONFLICT_SET`), `--clear-merge-conflict`(출력 `MERGE_CONFLICT_CLEARED`·`MERGE_CONFLICT_ABSENT`).
+
+## v2.6 변경점 (2026-09-23)
+
+전부 **additive** 다 — `decisions` 를 보내지 않는 요청은 응답의 새 키 하나(`decisions_recorded: null`) 말고는 그대로다.
+
+- `POST /api/v1/agent/work/{id}/report` 에 선택 필드 `decisions` — 워커가 기본값 없는 분기에서 스스로 고른 결정 목록(0102).
+  - **PAT + `kind=completion` 에서만** 받는다. progress 에 실리면 400 `decisions는 완료 보고(kind=completion)에서만 받습니다.`, 레거시(v1) 호출이면 400 `decisions는 PAT 호출에서만 받습니다.`
+  - 배열 0~20건. 항목 `{key, question, options, chosen, rationale, on_reject}` — `key` `^D[1-9][0-9]?$`(보고 안에서 유일), `question` 1~300자, `options` 2~6개·각 1~200자, `chosen` = 택한 선택지의 **0부터 센 정수 색인**(문구가 아니다), `rationale` 1~1000자, `on_reject` 1~500자. 글자 수는 trim 뒤 코드포인트. 알 수 없는 필드는 400. 사유는 필드 경로를 담는다(예 `decisions[2].chosen이 options 범위를 벗어났습니다.`).
+  - `[]` 는 "0건" 명시로 저장한다. 필드를 빼면 행은 `null` = "제출 안 됨"(화면은 "결정 목록 미제출").
+  - completion 응답에 `decisions_recorded` — 보내지 않았으면 `null`, 보냈으면 저장 건수. **이 키가 없으면 서버가 2.6 미만**이라 결정이 버려진 것이다(요약 접미사 `확인 필요 결정 N건: …` 으로만 전달됨).
+- `GET /api/v1/agent/work/{id}` PAT 응답의 `reports[]` 에 `decisions`(evidence 와 같은 규칙, 레거시 불변).
+- CLI: `dflow.sh done <ref> <요약> [--auto-links] [--decisions <file>]` — 파일을 서버와 같은 규칙으로 **push 확인·전송 전에** 검사해 위반이면 exit 2(`DECISIONS_FILE`·`DECISIONS_JSON`·`DECISIONS_INVALID <사유>`). 요약 접미사 N 과 건수가 다르면 `DECISIONS_COUNT_MISMATCH`, 목록이 있는데 접미사가 없으면 `DECISIONS_SUFFIX_MISSING`, 구 서버면 `서버가 결정 목록을 모릅니다(계약 < 2.6) …` 경고(셋 다 exit 0).
+
+## v2.5 변경점 (2026-09-23)
+
+- `POST /api/v1/agent/lead/lease` 신설 — 신원+프로젝트당 `/dflow-team` 팀장 하나(0101). 본문 `op`:
+  - `acquire` `{projects, holder, host, agent, takeover?}` → 200 `{ok, leases:[{project_id, generation, expires_at}]}` · 409 `lead_lease_held` + `held:[{project_id, host, agent, expires_at}]`
+  - `renew` `{holder, leases:[{project_id, generation}]}` → 200 `{ok, expires_at, lost:[project_id]}`
+  - `release` `{holder, leases}` → 200 `{ok, released}`
+  - `holder` = `<PC ID uuid>:<리포 경로 cksum>`. TTL 180초. PAT 전용, `work:claim`, acquire 는 프로젝트 멤버만(403 `forbidden_role`).
+- `POST /api/v1/agent/watch` 에 선택 필드 `holder` — 주면 `resume_requests` 를 그 holder 로 쥔 유효 lease 의 프로젝트로 거른다. lease 조회 실패는 `resume_requests: null`.
+- CLI: `dflow.sh lease holder|acquire [--takeover]|renew|release|keep`, `dflow.sh watch --holder`.
 
 ## v2.4 변경점 (2026-09-18)
 
@@ -74,7 +114,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
   `work:report` 는 폐지됐다(2026-08-25) — claim 할 수 있으면 그 결과도 적을 수 있어야 하고, claim 이 무제한이라 보고만 막는 건 방어선이 아니었다(본인 claim 건만 쓸 수 있다는 강제는 report 라우트가 한다). 신규 발급에는 없고, **옛 토큰의 `work:report` 는 `work:claim` 과 동등하게 수용**한다.
 - PAT는 `project_id` 지정 시 그 프로젝트만. 멤버십: PAT principal은 모든 조회·쓰기에서 `is_superuser` 또는 `project_roles` 보유 필요, 아니면 404.
 
-## 엔드포인트 (v1 5개 불변 + 신규 3개)
+## 엔드포인트 (v1 5개 불변 + 신규 4개)
 
 | 메서드·경로 | 신원 | 요지 |
 |---|---|---|
@@ -82,10 +122,11 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 | GET `/api/v1/agent/work/{id}` | legacy·pat | v1 + PAT 호출 시 `mine:boolean`·`claimed_by_user_email` 추가 |
 | POST `/api/v1/agent/work/{id}/claim` | legacy·pat | PAT: `claimed_by_user_id` 서버 유도 기록. 배정 항목은 담당자만(403 `not_assignee`) |
 | POST `/api/v1/agent/work/{id}/release` | legacy·pat | 소유 판정: PAT=claimed_by_user_id, legacy=claimed_by 라벨. 교차 403 `not_claim_owner` |
-| POST `/api/v1/agent/work/{id}/report` | legacy·pat | 위와 같음 + PAT는 `evidence` 객체 허용 |
+| POST `/api/v1/agent/work/{id}/report` | legacy·pat | 위와 같음 + PAT는 `evidence` 객체 허용 · PAT completion 은 `decisions` 배열 허용(v2.6) |
 | GET `/api/v1/agent/me` | **pat 전용** | legacy 호출 400 `identity_required` |
 | GET `/api/v1/agent/work/mine?scope=&limit=` | **pat 전용** | scope: `available`(기본)·`claimed`·`all`·`assigned` |
 | POST `/api/v1/wbs/import` | **pat 전용** | export JSON upsert. 스코프 `work:claim` 필요 |
+| POST `/api/v1/agent/lead/lease` | **pat 전용** | 팀장 lease(v2.5) — `op:acquire\|renew\|release`. acquire 는 프로젝트 멤버만 |
 
 ## 응답 셰이프 (신규분)
 
@@ -93,10 +134,10 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 ```json
 { "ok": true, "user_email": "a@b.c", "token_name": "맥북 에어", "token_prefix": "OxMb1D1097Qz",
   "scopes": ["work:read"], "kind": "user_pat",
-  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.4",
+  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.8",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.4"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.8"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
 `projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
@@ -225,6 +266,7 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업
 | 409 | `cancelled` | 사람이 중단한 주문(heartbeat·progress·completion). 워커는 재시도하지 말고 멈춘다 — 2026-09-19 |
 | 409 | `apply_failed` | WBS 반영 실패 |
 | 409 | `wbs_item_missing` | 항목 삭제된 주문 |
+| 409 | `lead_lease_held` | 팀장 lease 가 다른 holder 에 있음(v2.5) — `held:[{project_id, host, agent, expires_at}]` 동반 |
 
 ## 로컬 클라이언트 계약
 

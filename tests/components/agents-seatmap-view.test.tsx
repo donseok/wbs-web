@@ -8,15 +8,20 @@ import type { Seatmap } from '@/lib/domain/seatmap'
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 const refresh = vi.fn()
-vi.mock('@/app/actions/agentSeatmap', () => ({ refreshSeatmap: (...a: unknown[]) => refresh(...(a as [])) }))
+const releaseLead = vi.fn()
+vi.mock('@/app/actions/agentSeatmap', () => ({
+  refreshSeatmap: (...a: unknown[]) => refresh(...(a as [])),
+  releaseLeadLease: (...a: unknown[]) => releaseLead(...(a as [])),
+}))
 const runOp = vi.fn()
 vi.mock('@/app/actions/agentHub', () => ({ runHubProcessOp: (...a: unknown[]) => runOp(...(a as [])) }))
+vi.mock('@/app/actions/agentWork', () => ({ getReportDecisions: vi.fn(async () => ({ ok: true, decisions: [] })) }))
 import { SeatmapView } from '@/components/agents/SeatmapView'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 const map = (over: Partial<Seatmap> = {}): Seatmap => ({
   floors: [{
-    id: 'p1', name: 'mes-base', seatCount: 2, doneCount: 0, watchers: [],
+    id: 'p1', name: 'mes-base', seatCount: 2, doneCount: 0, watchers: [], leads: [],
     zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 1, done: 0 }, seats: [
       { orderId: 'o1', id8: 'o1', projectId: 'p1', itemId: 'i1', code: 'TSK-04-01', name: '목록', state: 'BLOCKED', phase: 'blocked', anim: 'blocked', character: 'cat', agent: 'hong/mbp/w1', progress: 60, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'blocked', note: '어느 DB?', rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
       { orderId: 'o2', id8: 'o2', projectId: 'p1', itemId: 'i2', code: 'TSK-04-02', name: '상세', state: 'READY', phase: 'design', anim: 'empty', character: 'bot', agent: null, progress: 0, lastSignalAt: null, heartbeatAt: null, heartbeatPhase: null, note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
@@ -29,7 +34,7 @@ const map = (over: Partial<Seatmap> = {}): Seatmap => ({
 
 let host: HTMLDivElement, root: Root
 // 기본 보기는 에이전트다(2026-09-19). 좌석을 다루는 테스트가 대부분이라 평면도를 기억해 둔 브라우저로 시작한다.
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); runOp.mockReset(); window.localStorage.clear(); window.localStorage.setItem('dflow.office.view', 'floor'); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); runOp.mockReset(); releaseLead.mockReset(); window.localStorage.clear(); window.localStorage.setItem('dflow.office.view', 'floor'); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
 describe('SeatmapView', () => {
@@ -170,7 +175,7 @@ describe('SeatmapView — 좌석에서 바로 결재', () => {
   // WAIT 좌석 하나짜리 좌석표 — 승인(사유 없음)과 반려(사유 필수)가 둘 다 뜬다.
   const waitSeat = (): Seatmap => map({
     floors: [{
-      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [],
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [], leads: [],
       zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 0, wait: 1, ready: 0, done: 0 }, seats: [
         { orderId: 'o9', id8: 'o9', projectId: 'p1', itemId: 'i9', code: 'TSK-04-09', name: '승인 대기 건', state: 'WAIT', phase: 'verify', anim: 'empty', character: 'bot', agent: 'hong/mbp/w1', progress: 100, lastSignalAt: null, heartbeatAt: null, heartbeatPhase: null, note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
       ] }],
@@ -200,7 +205,7 @@ describe('SeatmapView — 좌석에서 바로 결재', () => {
   // 작업 중(ACTIVE) 좌석 — 중단 버튼만 뜬다.
   const activeSeat = (): Seatmap => map({
     floors: [{
-      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [],
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [], leads: [],
       zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 0, done: 0 }, seats: [
         { orderId: 'o7', id8: 'o7', projectId: 'p1', itemId: 'i7', code: 'TSK-04-07', name: '도는 중', state: 'ACTIVE', phase: 'build', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'build', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false, resumeRequestedAt: null, resumeRequestedHost: null, agentMine: false, agentOwnerName: null },
       ] }],
@@ -240,7 +245,7 @@ describe('SeatmapView — 완료 포함 보기', () => {
   // 진행 중 한 자리와 머지 완료 한 자리가 같은 구역에 있는 층.
   const withDoneSeat = (): Seatmap => map({
     floors: [{
-      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 1, watchers: [],
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 1, watchers: [], leads: [],
       zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 0, done: 1 }, seats: [
         { orderId: 'o1', id8: 'o1', projectId: 'p1', itemId: 'i1', code: 'TSK-04-01', name: '도는 중', state: 'ACTIVE', phase: 'typing', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'typing', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
         { orderId: 'o2', id8: 'o2', projectId: 'p1', itemId: 'i2', code: 'TSK-04-02', name: '승인된 건', state: 'DONE', phase: 'verify', anim: 'empty', character: 'bot', agent: null, progress: 100, lastSignalAt: null, heartbeatAt: null, heartbeatPhase: null, note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
@@ -298,7 +303,7 @@ describe('SeatmapView — 잡담 켬/끔(2026-09-18)', () => {
   // 작업 중(ACTIVE)이고 보고가 없는 자리 — 켜 두면 세 칸에 한 칸 한마디를 한다.
   const working = (): Seatmap => map({
     floors: [{
-      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [],
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [], leads: [],
       zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 0, done: 0 }, seats: [
         { orderId: 'o1', id8: 'o1', projectId: 'p1', itemId: 'i1', code: 'TSK-04-01', name: '도는 중', state: 'ACTIVE', phase: 'build', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'build', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
       ] }],
@@ -377,6 +382,113 @@ describe('SeatmapView — 잡담 켬/끔(2026-09-18)', () => {
     root = createRoot(host)
     act(() => root.render(<SeatmapView initial={working()} />))
     expect(toggle().getAttribute('aria-pressed')).toBe('false')
+  })
+})
+
+describe('SeatmapView — 팀장 lease 해제(0101)', () => {
+  const withLead = (canRelease: boolean): Seatmap => map({
+    floors: [{
+      id: 'p1', name: 'mes-base', seatCount: 0, doneCount: 0, watchers: [], zones: [],
+      leads: [{
+        userId: 'u9', host: 'air', agent: 'u9/air/lead', renewedAt: new Date(NOW - 5000).toISOString(),
+        expiresAt: new Date(NOW + 120_000).toISOString(), mine: false, ownerName: '홍길동', canRelease,
+      }],
+    }],
+    attention: [],
+  })
+  it('canRelease=true 면 「팀장 해제」→「정말 해제」로 releaseLeadLease 를 (floorId, userId) 로 부른다', async () => {
+    releaseLead.mockResolvedValue({ ok: true, released: 1 })
+    refresh.mockResolvedValue({ ok: true, seatmap: map() })
+    await act(async () => { root.render(<SeatmapView initial={withLead(true)} />) })
+    const btn = [...host.querySelectorAll('button')].find(b => b.textContent === '팀장 해제') as HTMLButtonElement
+    expect(btn).toBeTruthy()
+    await act(async () => { btn.click() })
+    const confirm = host.querySelector('[data-lead-confirm]') as HTMLButtonElement
+    expect(confirm?.textContent).toBe('정말 해제')
+    await act(async () => { confirm.click() })
+    expect(releaseLead).toHaveBeenCalledWith('p1', 'u9')
+  })
+  it('canRelease=false 면 「팀장 해제」 버튼이 없다', () => {
+    act(() => root.render(<SeatmapView initial={withLead(false)} />))
+    const btn = [...host.querySelectorAll('button')].find(b => b.textContent === '팀장 해제')
+    expect(btn).toBeUndefined()
+    expect(host.querySelector('[data-lead="u9"]')).not.toBeNull()
+  })
+})
+
+// 스펙 §7("오피스 화면의 팀장 좌석에 lease 표시") — 기본 보기(에이전트, RosterBoard)의 팀장
+// 책상에서도 같은 lease 정보·해제가 되는지 검증한다.
+describe('SeatmapView — 팀장 lease 해제 · 에이전트 보기', () => {
+  const withLead = (canRelease: boolean): Seatmap => map({
+    floors: [{
+      id: 'p1', name: 'mes-base', seatCount: 0, doneCount: 0, zones: [],
+      watchers: [{ agent: 'u9/air/lead', host: 'air', slots: 2, busy: 0, untilLabel: null, lastSeenAt: new Date(NOW - 5000).toISOString(), projectId: null }],
+      leads: [{
+        userId: 'u9', host: 'air', agent: 'u9/air/lead', renewedAt: new Date(NOW - 5000).toISOString(),
+        expiresAt: new Date(NOW + 120_000).toISOString(), mine: false, ownerName: '홍길동', canRelease,
+      }],
+    }],
+    attention: [],
+  })
+  // 전역 beforeEach 가 'dflow.office.view'='floor' 를 심어 두므로, 여기서 지워 저장된 보기가
+  // 없는 첫 방문 상태(기본값 = 에이전트)를 그대로 검증한다.
+  beforeEach(() => { window.localStorage.clear() })
+
+  it('기본(에이전트) 보기의 팀장 책상에서도 「팀장 해제」→「정말 해제」로 releaseLeadLease 를 (projectId, userId) 로 부른다', async () => {
+    releaseLead.mockResolvedValue({ ok: true, released: 1 })
+    refresh.mockResolvedValue({ ok: true, seatmap: map() })
+    await act(async () => { root.render(<SeatmapView initial={withLead(true)} />) })
+    expect(host.querySelector('[data-roster-board]')).not.toBeNull() // 기본 보기가 실제로 에이전트임을 확인
+    const btn = [...host.querySelectorAll('button')].find(b => b.textContent === '팀장 해제') as HTMLButtonElement
+    expect(btn).toBeTruthy()
+    await act(async () => { btn.click() })
+    const confirm = host.querySelector('[data-lead-confirm]') as HTMLButtonElement
+    expect(confirm?.textContent).toBe('정말 해제')
+    await act(async () => { confirm.click() })
+    expect(releaseLead).toHaveBeenCalledWith('p1', 'u9')
+  })
+
+  it('canRelease=false 면 에이전트 보기에도 「팀장 해제」 버튼이 없다', () => {
+    act(() => root.render(<SeatmapView initial={withLead(false)} />))
+    expect(host.querySelector('[data-roster-board]')).not.toBeNull()
+    const btn = [...host.querySelectorAll('button')].find(b => b.textContent === '팀장 해제')
+    expect(btn).toBeUndefined()
+    expect(host.querySelector('[data-lead="u9"]')).not.toBeNull()
+  })
+
+  it('해제 실패는 갱신 실패 배너가 아니라 「팀장 해제 실패」 제 이름의 배너로 보인다', async () => {
+    releaseLead.mockResolvedValue({ ok: false, error: '권한이 없습니다.' })
+    await act(async () => { root.render(<SeatmapView initial={withLead(true)} />) })
+    const btn = [...host.querySelectorAll('button')].find(b => b.textContent === '팀장 해제') as HTMLButtonElement
+    await act(async () => { btn.click() })
+    await act(async () => { (host.querySelector('[data-lead-confirm]') as HTMLButtonElement).click() })
+    expect(host.querySelector('[data-lead-error]')?.textContent).toContain('팀장 해제 실패')
+    expect(host.querySelector('[data-lead-error]')?.textContent).toContain('권한이 없습니다.')
+    expect(host.querySelector('[data-error]')).toBeNull() // 갱신 실패 배너와 문구가 섞이지 않는다
+  })
+
+  // scope=mine 이 다른 계정의 감시자는 지우지만 그 lease 는 남긴다(관리자가 풀 수 있어야 하므로) —
+  // 짝이 되는 감시자가 없으면 RosterBoard 는 책상을 지어내지 않고 목록 위 별도 띠에 보인다.
+  it('짝이 되는 감시자가 없는 lease 도 별도 띠에서 「팀장 해제」가 된다', async () => {
+    releaseLead.mockResolvedValue({ ok: true, released: 1 })
+    refresh.mockResolvedValue({ ok: true, seatmap: map() })
+    const noWatcher: Seatmap = map({
+      floors: [{
+        id: 'p1', name: 'mes-base', seatCount: 0, doneCount: 0, watchers: [], zones: [],
+        leads: [{
+          userId: 'u9', host: 'air', agent: 'u9/air/lead', renewedAt: new Date(NOW - 5000).toISOString(),
+          expiresAt: new Date(NOW + 120_000).toISOString(), mine: false, ownerName: '홍길동', canRelease: true,
+        }],
+      }],
+      attention: [],
+    })
+    await act(async () => { root.render(<SeatmapView initial={noWatcher} />) })
+    expect(host.querySelector('[data-roster-unmatched-leads]')).not.toBeNull()
+    const btn = [...host.querySelectorAll('[data-roster-unmatched-leads] button')].find(b => b.textContent === '팀장 해제') as HTMLButtonElement
+    expect(btn).toBeTruthy()
+    await act(async () => { btn.click() })
+    await act(async () => { (host.querySelector('[data-lead-confirm]') as HTMLButtonElement).click() })
+    expect(releaseLead).toHaveBeenCalledWith('p1', 'u9')
   })
 })
 
