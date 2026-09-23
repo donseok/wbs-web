@@ -176,5 +176,17 @@ describe('scaffold', () => {
   it('바인딩이 없으면 exit 2 PROJECT_MISMATCH', () => {
     const r = run(['scaffold'], { MINE_BODY: mine(), DFLOW_PROJECT_ID: '', DFLOW_PROJECT_MAP: '' })
     expect(r.status).toBe(2); expect(r.stderr).toContain('PROJECT_MISMATCH')
+    expect(r.stderr).toContain('프로젝트 바인딩 없음')
+  })
+  it('external_ref 마지막 조각이 .. 또는 . 이면 작업 폴더 밖으로 쓰지 않고 skipped 로 센다', () => {
+    const r = run(['scaffold'], { MINE_BODY: mine(order(O1, P1, 'MES/..'), order(O2, P1, 'MES/.')) })
+    expect(r.stdout.trim()).toBe('scaffold created=0 skipped=2 no_ref=0')
+    expect(existsSync(join(repo, 'docs/state.json'))).toBe(false)
+    expect(existsSync(join(repo, 'docs/tasks/state.json'))).toBe(false)
+    expect(git('log', '--oneline').trim().split('\n')).toHaveLength(1)   // 새 파일 0건 → 커밋 없음
+  })
+  it('/work/mine 응답이 JSON 이 아니면 exit 6', () => {
+    const r = run(['scaffold'], { MINE_BODY: 'not json' })
+    expect(r.status).toBe(6); expect(r.stderr).toContain('목록 해석 실패')
   })
 })

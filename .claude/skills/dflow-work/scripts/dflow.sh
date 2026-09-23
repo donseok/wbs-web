@@ -339,6 +339,7 @@ cmd_scaffold() {
   [ -n "$ALLOWED_PROJECTS" ] || die 2 "PROJECT_MISMATCH 프로젝트 바인딩 없음 — .dflow 의 project_id 또는 .dflow.local 의 project_map 을 넣으세요."
   _top=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "NOT_REPO git 리포 안에서 실행하세요."
   _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=assigned&limit=100") || exit $?
+  printf '%s' "$_body" | jq -e 'has("assigned")' >/dev/null 2>&1 || die 6 "목록 해석 실패"
   _rows=$(printf '%s' "$_body" | jq -c '[.assigned[]?]' | filter_projects '') || die 6 "목록 해석 실패"
   _total=$(printf '%s' "$_body" | jq '[.assigned[]?] | length')
   [ "$_total" -lt 100 ] || printf '⚠ 목록이 100건에서 잘렸을 수 있습니다 — 남은 작업은 다음 scaffold 에서 만듭니다.\n' >&2
@@ -351,6 +352,7 @@ cmd_scaffold() {
   while IFS="$(printf '\t')" read -r _oid _pid _tsk; do
     [ -n "$_oid" ] || continue
     [ -n "$_tsk" ] || { _noref=$((_noref + 1)); continue; }
+    case "$_tsk" in .|..|*[!A-Za-z0-9._-]*) _skipped=$((_skipped + 1)); continue ;; esac
     _dd=$(dflow_config_docs_dir "$_pid" 2>/dev/null) || { _skipped=$((_skipped + 1)); continue; }
     _rel="$_dd/tasks/$_tsk"
     [ ! -e "$_top/$_rel" ] || { _skipped=$((_skipped + 1)); continue; }
