@@ -2626,3 +2626,4 @@ Expected: pre-push 훅 G1~G4 통과(마이그레이션 없음). 훅 우회(`SKIP
 - Task 8: `team.sweep` 행에 `resolved` 를 더하면(스펙 §8) 기존 `dflow-team-backends.test.ts` 의 행 단정이 깨진다. 계획에 없던 그 한 줄을 새 행으로 고쳤다.
 - Task 8: E19 문단은 계획 원문대로면 `해소 워커의 \`/dflow-merge --resolve\` 가` 와 `개발 브랜치에 한 건을 머지·push 한다` 가 줄바꿈으로 갈려 같은 계획의 시험이 못 찾는다. 뜻은 두고 줄바꿈 위치만 옮겼다.
 - Task 10: 전체 검증(vitest·lint·tsc)까지만 했다. 첫 전체 실행에서 시간 의존 시험 4건(`dflow-lead-lease` lease keep 3건·`heartbeat-hook` 60초 절제)이 떨어졌으나 부하 평균 88 인 때였고, 단독 실행과 전체 재실행(533 파일·6216건)은 모두 통과했다. 빌드·origin 머지·staging push·화면 확인·H/C 조율은 컨트롤러 몫으로 남긴다.
+- 최종 리뷰 반영: (1) 반려(reported→claimed)가 남긴 표시를 지우려고 `clear` 는 claimed 에서도 받는다. 좌석표는 점유 중 주문의 merge_conflict 를 잔재로 무시한다. (2) 해소 워커 판별은 워크트리 접미사 `-resolve` 가 정본이다. `orig_kind` 는 가드의 필수 키로 넣지 않고, `readopt` 줄에만 요구하는 조건으로 넣었다. 필수 키로 두면 기존 new·resume·resolve spawn 줄이 모두 막히기 때문이다. (3) 게이트 기준선은 스펙 §5.5 의 "기준선 이상" 을 `max(개발 브랜치 총수, MERGE_HEAD 단독 총수)` 로 강화했다. (minor) 선행 머지 충돌 사유는 선행 대기 바로 다음에 두고, 결과 줄 head 는 전체 sha 로 적는다.
