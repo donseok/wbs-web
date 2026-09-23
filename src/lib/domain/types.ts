@@ -52,6 +52,15 @@ export interface WbsRow {
    * 받아들인다 — SSR 직후라 보유 값이 곧 최신이고, 버리면 갱신이 영영 오지 않는다.
    */
   updatedAt?: string | null
+  /**
+   * 「스텁 제거·실연결」 하위 Task 표식(0103) — 대신한 선행의 external_ref. 값이 있으면 구조에 투명하다
+   * (buildTree 가 children 이 아닌 subTasks 로 뺀다, 스펙 2026-09-23 F9). stage 와 같은 이유로 선택 필드다.
+   */
+  stubFor?: string | null
+  /** 업로드 매칭 키(0077). 스텁 배지의 링크·문구 재료. */
+  externalRef?: string | null
+  /** 강제 진행으로 면제한 선행 ref(0103). */
+  dependsWaived?: string[]
 }
 
 /** WBS 작업 간 일정 의존성. predecessor → successor 방향. */
@@ -83,6 +92,12 @@ export interface ComputedItem extends WbsRow {
   achievement: number | null  // rolledActual/planned, planned=0이면 null
   status: Status
   children: ComputedItem[]
+  /**
+   * 「스텁 제거·실연결」 하위 Task(0103 stub_for) — 롤업·리프 판정에 들어가지 않는 표시 전용 자식(스펙 2026-09-23 F9).
+   * 선택 필드인 이유는 WbsRow.stage 와 같다: 필수로 올리면 ComputedItem 리터럴을 만드는 테스트가 한꺼번에 깨진다.
+   * buildTree·computeNode 는 항상 채운다 — 읽는 쪽은 `?? []`.
+   */
+  subTasks?: ComputedItem[]
   depth: number
 }
 

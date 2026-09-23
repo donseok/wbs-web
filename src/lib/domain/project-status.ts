@@ -15,6 +15,8 @@ export interface CompletionRow {
   parentId: string | null
   projectId: string
   actualPct: number | null
+  /** 0103 stub_for — 스텁 제거 하위 Task 는 완료 판정에서 빠진다(구조에 투명, 스펙 2026-09-23 F9). */
+  stubFor?: string | null
 }
 
 export function projectLifecycleStatus(
@@ -36,10 +38,12 @@ export function projectLifecycleStatus(
 
 // done 판정은 원시값 >= 100 (statusOf와 동일 규약 — 반올림 금지)
 export function computeCompletionMap(rows: CompletionRow[]): Record<string, ProjectCompletion> {
+  // stub 하위(0103 stub_for)는 구조에 투명하다 — 부모 판정에도 리프 집합에도 넣지 않는다(스펙 2026-09-23 F9).
+  const live = rows.filter(r => !r.stubFor)
   const parents = new Set<string>()
-  for (const r of rows) if (r.parentId) parents.add(r.parentId)
+  for (const r of live) if (r.parentId) parents.add(r.parentId)
   const map: Record<string, ProjectCompletion> = {}
-  for (const r of rows) {
+  for (const r of live) {
     if (parents.has(r.id)) continue // 리프만 (자식 유무 판정 — level 아님)
     const cur = map[r.projectId] ?? { hasWbs: false, allDone: true }
     cur.hasWbs = true

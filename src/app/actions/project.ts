@@ -133,7 +133,7 @@ export async function updateLevelSettings(projectId: string, labels: string[]): 
 
   // 축소 검증용 선행 조회 — 실패하면 중단한다(검증 불가를 통과로 위장하지 않는다).
   const sb = await createServerClient()
-  const { data: rows, error: rowsErr } = await sb.from('wbs_items').select('id,parent_id').eq('project_id', projectId)
+  const { data: rows, error: rowsErr } = await sb.from('wbs_items').select('id,parent_id,stub_for').eq('project_id', projectId)
   if (rowsErr || !rows) return { ok: false, error: rowsErr?.message || 'WBS 조회에 실패했습니다.' }
 
   const v = validateLevelSettings({ labels, currentTreeMaxDepth: treeMaxDepth(rows) })

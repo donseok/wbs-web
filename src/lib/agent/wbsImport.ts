@@ -215,11 +215,11 @@ export async function runWbsImport(
   } else if (levels) {
     // 골격 업로드: level_labels 시드 — 설정 편집과 동일한 검증(축소 fail-closed 포함).
     const { data: rows, error: rowsErr } = await admin
-      .from('wbs_items').select('id, parent_id').eq('project_id', projectId)
+      .from('wbs_items').select('id, parent_id, stub_for').eq('project_id', projectId)
     if (rowsErr) throw new Error(`WBS 조회 실패: ${rowsErr.message}`)
     const v = validateLevelSettings({
       labels: levels.map(l => l.name),
-      currentTreeMaxDepth: treeMaxDepth((rows ?? []) as Array<{ id: string; parent_id: string | null }>),
+      currentTreeMaxDepth: treeMaxDepth((rows ?? []) as Array<{ id: string; parent_id: string | null; stub_for: string | null }>),
     })
     if (!v.ok) return { ok: false, code: 'validation_failed', message: `levels 시드 실패: ${v.error}` }
     const { error: seedErr } = await admin.from('project_settings').upsert({

@@ -54,7 +54,7 @@ export function parseWbsPayload(raw: unknown): WbsChangePayload | null {
 function findNode(ns: readonly ComputedItem[], id: string): ComputedItem | null {
   for (const n of ns) {
     if (n.id === id) return n
-    const hit = findNode(n.children, id)
+    const hit = findNode(n.children, id) ?? findNode(n.subTasks ?? [], id)
     if (hit) return hit
   }
   return null
@@ -69,9 +69,10 @@ function replaceNode(ns: readonly ComputedItem[], p: WbsChangePayload): Computed
       return { ...n, stage: p.stage, actualPct: p.actualPct, updatedAt: p.updatedAt }
     }
     const sub = replaceNode(n.children, p)
-    if (sub === null) return n
+    const st = replaceNode(n.subTasks ?? [], p) // stub 하위(0103)도 실시간으로 바뀐다
+    if (sub === null && st === null) return n
     changed = true
-    return { ...n, children: sub }
+    return { ...n, ...(sub ? { children: sub } : {}), ...(st ? { subTasks: st } : {}) }
   })
   return changed ? next : null
 }

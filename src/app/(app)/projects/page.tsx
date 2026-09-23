@@ -35,7 +35,7 @@ const STATUS: Record<ProjectLifecycleStatus, { labelKey: DictKey; chip: string; 
 // 리프 총수·완료 수뿐이고, 상태 배지는 카운트조차 필요 없어 getProjectsCompletion(레이아웃과
 // 공유·React cache dedupe)으로 대체된다. 여기서는 히어로용 카운트만 경량 1쿼리로 얻는다.
 
-type TaskRow = { id: string; parentId: string | null; projectId: string; actualPct: number | null }
+type TaskRow = { id: string; parentId: string | null; projectId: string; actualPct: number | null; stubFor?: string | null }
 
 // 반환 null = 조회 실패. 빈 배열(WBS 0건, 정상)과 반드시 구분한다 — 실패를 0건으로 뭉개면
 // 히어로가 '작업 0건'으로 위장된다(에러 3원칙 ① 표시 = 로깅).
@@ -44,7 +44,7 @@ async function fetchTaskRows(): Promise<TaskRow[] | null> {
   // RLS 가 authenticated 전체 읽기 개방이라 프로젝트 필터 없이 읽는다(getProjectsCompletion 과
   // 같은 컬럼 셋). 비공개 프로젝트 행이 섞여도 아래 heroTaskStats 가 가시 프로젝트 id 로만
   // 집계하므로 화면 유출은 없다. 필터를 넣으면 listProjects 결과를 기다려야 해 직렬 1단이 는다.
-  const { data, error } = await sb.from('wbs_items').select('id, parent_id, project_id, actual_pct')
+  const { data, error } = await sb.from('wbs_items').select('id, parent_id, project_id, actual_pct, stub_for')
   if (error) {
     console.error('[ProjectsHome] wbs_items 조회 실패:', error.message)
     return null
@@ -54,6 +54,7 @@ async function fetchTaskRows(): Promise<TaskRow[] | null> {
     parentId: (r.parent_id as string | null) ?? null,
     projectId: r.project_id as string,
     actualPct: (r.actual_pct as number | null) ?? null,
+    stubFor: (r.stub_for as string | null) ?? null,
   }))
 }
 
@@ -65,7 +66,8 @@ async function fetchTaskRows(): Promise<TaskRow[] | null> {
 function heroTaskStats(
   rows: TaskRow[], visibleProjectIds: ReadonlySet<string>,
 ): { tasks: number; done: number; donePct: number } {
-  const visible = rows.filter(r => visibleProjectIds.has(r.projectId))
+  // stub 하위(0103)는 구조에 투명하다 — 리프로도 부모 판정으로도 세지 않는다(computeCompletionMap 과 같다).
+  const visible = rows.filter(r => visibleProjectIds.has(r.projectId) && !r.stubFor)
   const parents = new Set<string>()
   for (const r of visible) if (r.parentId) parents.add(r.parentId)
   let tasks = 0
