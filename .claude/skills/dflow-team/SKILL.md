@@ -36,6 +36,10 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 - **`help`**: 인자가 `help`·`--help`·`-h`·`도움말`·`사용법` 중 하나면 `references/help.md` 를 Bash `cat` 으로 읽어
   그대로 보여 주고 **끝낸다.** 전제 검사·잠금·서버 호출을 하지 않는다. 그 파일은 이때만 읽는다. 이유: 사용 안내는
   사람이 요청할 때만 필요하고, 매 실행마다 읽으면 컨텍스트만 차지한다.
+- **강제 인수**: 인자에 `--takeover`·`강제 인수`·`넘겨받기` 가 있으면 「1. 시작」 의 `<TAKEOVER>` 를 `--takeover` 로,
+  없으면 빈 값으로 채운다. 같은 신원이 이 프로젝트의 팀장 lease 를 **다른 곳**(다른 clone·다른 PC)에서 쥐고 있을 때
+  그것을 빼앗는다. 밀려난 팀장은 20초 안에 `LEASE_LOST` 로 멈추고, 그 팀장의 워커는 하던 작업을 끝낸다. 사람이
+  명시할 때만 쓴다. 이유: 살아 있는 팀장을 빼앗으면 그 팀장의 슬롯·대기 큐가 보고만 남기고 끊긴다.
 - **키 판정**: `.dflow.local` 의 `pats`(레거시 `.env` 의 `DFLOW_PATS`)에 토큰이 둘 이상이면 어느 키로 돌지를 시작
   전에 정한다. 「1. 시작」 전제 검사
   **전**, 다른 인자의 질문보다 **먼저** 한다. 이유: 잠금을 쥔 채 사람의 답을 기다리지 않아야 하고, WP 범위
@@ -517,6 +521,13 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    { printf '%s %s %s\n' "$who/$host/lead" "$(date +%s)" "$LEAD_PID" > "$LOCK/owner" && date +%s > "$LOCK/beat"; } \
      || { rm -rf "$LOCK"; echo "FAIL LOCK_WRITE $LOCK"; exit 1; }
    rm -f "$(git rev-parse --git-path dflow-team.stop)"   # 지난 실행이 남긴 종료 요청을 지운다
+   rm -f "$(git rev-parse --git-path dflow-team.lease-lost)"   # 지난 실행이 남긴 lease 상실 표식을 지운다
+   TAKEOVER='<TAKEOVER>'   # --takeover 또는 빈 값(「인자」 강제 인수)
+   if [ "$TAKEOVER" = --takeover ]; then lr=$(.claude/skills/dflow-work/scripts/dflow.sh lease acquire --takeover)
+   else lr=$(.claude/skills/dflow-work/scripts/dflow.sh lease acquire); fi
+   lrc=$?
+   printf '%s\n' "$lr"
+   [ "$lrc" = 0 ] || { rm -rf "$LOCK"; echo "FAIL LEASE rc=$lrc"; exit 1; }
    echo "PRECHECK_OK lead_pid=$LEAD_PID BACKEND=$BACKEND TM=$TM"
    ```
    - **팀장 잠금**: 잠금은 디렉터리이며 `mkdir` 로 얻는다. `mkdir` 는 원자적이라 동시에 시작한 팀장 둘 중 하나만
@@ -552,6 +563,18 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      시각)로 본다. 이유: 세션 프로세스가
      살아 있어도 권한 확인 등에 멈춘 팀장은 기상하지 않아 제 몫을 못 하는데, `beat` 는 그 멈춤까지 드러낸다.
      살아 있는 팀장은 늦어도 `TICK`(30분)마다 깨어 `beat` 를 갱신하므로, 70분이면 두 `TICK` 을 연속으로 놓친 것이다.
+   - **팀장 lease**: 로컬 잠금은 같은 리포의 워크트리끼리만 본다. 같은 신원이 **다른 clone·다른 PC** 에서 같은
+     프로젝트의 팀장을 띄우는 것은 서버 lease 가 막는다(스펙 `docs/superpowers/specs/2026-09-23-dflow-lead-lease-design.md`).
+     로컬 잠금을 잡은 **뒤** 얻는다. 이유: 같은 리포의 두 팀장이 동시에 서버에 가서 같은 holder 로 서로를
+     밀어내지 않게, 로컬 경합을 먼저 끝낸다. 결과별 처리:
+     - `LEASE_OK <n>`: 계속한다.
+     - `LEAD_LEASE_HELD <project_id> <host> <agent> <만료 시각>` 줄(exit 4): 잠금을 지우고 멈춘다. 줄마다 "이 프로젝트는
+       `<host>` 의 `<agent>` 가 쥐고 있다(만료 `<시각>`)" 로 보고하고, "그 팀장이 이미 죽었다면 최대 3분 뒤 풀린다.
+       지금 넘겨받으려면 `/dflow-team … --takeover` 또는 오피스 화면의 「팀장 해제」" 를 덧붙인다.
+     - 그 밖(exit 2·3·5·6·7): 잠금을 지우고 사유를 보고하고 멈춘다. 서버에 lease 가 없는 구버전(exit 7, 404)도 여기다.
+       lease 를 확인하지 못한 채 시작하지 않는다(fail-closed).
+     `holder` 는 `~/.dflow/machine-id`(처음 쓸 때 만든다)와 이 체크아웃 경로로 정해진다. 같은 자리에서 다시 시작하면
+     즉시 넘겨받는다.
    - `KIT_NOT_PUSHED`: `.claude/skills` 가 git 추적되는 킷 복사형 리포면 `git fetch origin` 뒤
      `origin/<기본브랜치>` 의 `dflow-dev` SKILL.md 에 `--worker` 가, `dflow-merge` SKILL.md 에 원격 후보 지원
      (`origin/agent/*`)이 있어야 한다. fetch 가 실패하면 검사할 수 없으므로 실패로 친다. 이유: 팀원 워크트리는
@@ -690,6 +713,13 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    ```
    `-i` 는 시스템 유휴 절전만 막는다. 뚜껑을 닫으면 막지 못하므로 시작 보고에 "전원을 연결하고 뚜껑을 연 채로
    두라" 를 적는다. Linux 서버와 Windows 에서는 띄우지 않는다.
+   **lease 갱신**: 이어서 아래를 Bash `run_in_background` 로 띄운다(모든 OS). 60초마다 lease 를 갱신하고,
+   팀장 세션이 끝나면 lease 를 바로 반납하고 끝난다. lease 를 잃으면 표식 파일에 사유를 쓰고 끝나며, 감시 루프가
+   그것을 보고 `LEASE_LOST` 로 깨운다. `<lease-lost 절대경로>` 는
+   `git rev-parse --path-format=absolute --git-path dflow-team.lease-lost` 의 값을 **리터럴로** 박는다(루프와 같은 이유).
+   ```bash
+   .claude/skills/dflow-work/scripts/dflow.sh lease keep --pid <LEAD_PID> --lost-file '<lease-lost 절대경로>'
+   ```
    이 첫 watch 응답에도 `resume_requests` 가 실려 온다. 「2-3」 의 처리 규칙대로 읽어, `host` 가 이 PC 인 요청은
    4번에서 띄우지 못한 재개 대상에 더해 지금 띄운다. 이유: 이것을 넘기면 사람이 화면에서 누른 요청이 첫
    `TICK`(최대 30분)까지 그대로 놓인다.
@@ -774,11 +804,13 @@ printf '%s %s\n' "$gen" '<다음 TICK epoch 초>' > "$GEN_FILE"; echo "GEN_FILE=
 ```bash
 GEN_FILE='<세대 파일 절대경로>'; MY_GEN=<세대>; TICK_AT=<다음 TICK epoch 초>
 STOP_FILE='<팀장 체크아웃>/.git/dflow-team.stop'   # git rev-parse --git-path dflow-team.stop 의 절대경로
+LEASE_FILE='<팀장 체크아웃>/.git/dflow-team.lease-lost'   # git rev-parse --path-format=absolute --git-path dflow-team.lease-lost 의 값
 TM='<진짜 tmux 절대경로 또는 빈 값>'
 set -- '<워크트리1>/docs/tasks/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/docs/tasks/<TSK2>/.result|-|-'
 while :; do
   [ "$(cut -d' ' -f1 "$GEN_FILE" 2>/dev/null)" = "$MY_GEN" ] || { echo STALE; exit 0; }
   [ -e "$STOP_FILE" ] && { echo STOP_REQUESTED; exit 0; }
+  [ -e "$LEASE_FILE" ] && { echo "LEASE_LOST $(head -n 1 "$LEASE_FILE")"; exit 0; }
   hit=''; dead=''
   for s in "$@"; do
     f=${s%%|*}; rest=${s#*|}; prev=${rest%%|*}; pane=${rest#*|}
@@ -806,6 +838,8 @@ done
   도착한 `.result` 를 놓치지 않기 위해서다.
 - 종료 파일이 생기면 `STOP_REQUESTED` 를 출력하고 끝난다(「인자」 종료 요청). 결과보다 먼저 보는 이유: 사람이
   멈추라고 한 뒤에 새로 도착한 결과로 spawn 을 이어 가지 않게 한다. 결과 줄은 마감에서 그대로 처리된다.
+- lease 상실 표식(`dflow-team.lease-lost`)이 생기면 `LEASE_LOST <사유>` 를 출력하고 끝난다. 종료 요청 다음, 결과보다
+  먼저 본다. 이유: 밀려난 팀장이 새로 도착한 결과로 spawn·스윕을 이어 가지 않게 한다.
 - 두 백엔드 모두 `TICK_AT` 이 지나면 `TICK` 을 출력하고 끝난다. 한가한 구간에도 30분마다 승인 스윕과
   무응답 점검을 하기 위해서다.
 - 교체 시점: 진행 중 슬롯의 경로·처리 해시·pane id 집합이 바뀔 때와 루프가 끝나 있을 때 새로 띄운다(두
@@ -827,7 +861,8 @@ LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
   date +%s > "$LOCK/beat" && { echo LOCK_OK
     wr=$(.claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
-      --slots <N> --busy <M> --until '<UNTIL_LABEL>' --json) \
+      --slots <N> --busy <M> --until '<UNTIL_LABEL>' --json \
+      --holder "$(.claude/skills/dflow-work/scripts/dflow.sh lease holder)") \
       && ps=$(.claude/skills/dflow-work/scripts/dflow.sh config projects) \
       && printf '%s' "$wr" | jq -c --arg ps "$ps" '($ps | split("\n")) as $ok
            | {n: (.resume_requests | if . == null then "NULL" else length end),
@@ -839,6 +874,9 @@ if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
 else
   echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$LEAD_PID"
 fi
+LB=$(git rev-parse --git-path dflow-team.lease).beat
+lb=$(cat "$LB" 2>/dev/null); lb=${lb:-0}
+[ $(( $(date +%s) - lb )) -lt 180 ] || echo "LEASE_KEEP_DEAD 마지막 갱신 ${lb}"
 sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md   # 이벤트 기록 명령의 정본. 이 출력의 블록으로만 기록한다
 ```
 **`resume_requests` 는 좌석표의 「이어서 시작」 요청이다.** 사람이 화면에서 멈춘 좌석의 그 버튼을 누르면
@@ -860,6 +898,11 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
   팀장이 옛 요청을 계속 보면 이미 정상 점유된 주문에 워커를 겹쳐 띄운다.
 `WATCH_FAILED` 는 watch 호출 자체가 실패한 것이다. `beat` 는 이미 갱신됐으므로 잠금은 유효하고, 그 기상의
 요청 처리만 건너뛴다.
+
+`LEASE_KEEP_DEAD` 는 lease 갱신 프로세스가 3분 넘게 갱신하지 못한 것이다(죽었거나 서버에 닿지 못함). 그 기상에서
+`dflow.sh lease renew` 를 한 번 부른다. `LEASE_OK` 면 「1. 시작」 5번의 lease 갱신 블록을 다시 띄운다. `LEASE_LOST`
+(exit 4)나 `LEASE_NONE` 이면 「7. 마감」 의 lease 상실 마감으로 간다. 그 밖의 실패는 사유를 보고하고 다음 기상에 다시
+본다. 이유: 갱신 프로세스만 죽으면 이 팀장은 살아 있는데 lease 가 3분 뒤 만료돼 다른 곳이 가져갈 수 있다.
 
 `LOCK_LOST` 면 **잠금 상실**이다. "잠금 상실" 로 보고하고 새 spawn 을 멈추며, 잠금을 지우지 않은 채 「7. 마감」 의
 잠금 상실 마감으로 간다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓친 사이 다른 팀장이 잠금을 가져갔다면 두 팀장이
@@ -894,6 +937,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 | `PANE_DEAD <경로…>` (tmux) | 경로마다 「3. 결과 처리」. `.result` 가 있으면 그 줄, 없으면 죽은 pane 화면 폴백, 그것도 없으면 `failed no-result` |
 | 사람의 답 | 「6. blocked」 의 답 매칭 |
 | `TICK` | 다음 TICK 예정 시각을 지금+1800초로 새로 정한다. 진행 중 슬롯의 생존을 확인하고 무응답 슬롯의 생존 증거를 잰다(「3. 결과 처리」). 차단기가 걸려 있으면 시험 spawn 1건을 허용한다 |
+| `LEASE_LOST <사유>` | 다른 곳이 이 신원+프로젝트의 팀장 lease 를 가져갔거나(`LEASE_LOST <project_id…>`), 서버에 3분 넘게 닿지 못했다(`LEASE_UNREACHABLE`). 「7. 마감」 의 lease 상실 마감으로 간다 |
 | `STALE` | 잠금 소유 확인과 `beat` 갱신만 하고 나머지는 넘긴다 |
 
 poll exit 0 의 show 필터:
@@ -1218,8 +1262,8 @@ PushNotification 도구가 있으면(지연 로드면 ToolSearch 로 불러) 질
 ## 7. 마감
 
 poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종료 시각 경과, 종료 요청(`STOP_REQUESTED` 또는
-사람의 말)으로 온다. 잠금 상실은 1~6 을 타지
-않고 아래 「잠금 상실 마감」 으로 간다.
+사람의 말)으로 온다. 잠금 상실과 lease 상실은 1~6 을 타지
+않고 아래 「잠금 상실 마감」·「lease 상실 마감」 으로 간다.
 1. 새 spawn 을 멈춘다. 대기 큐는 보고만 하고 비운다.
 2. **기다림의 상한**: `blocked` 슬롯과 무응답 슬롯은 기다리지 않는다. 진행 중 슬롯은 마감에 들어선 뒤
    `TICK` 두 번까지만 결과를 기다린다. 이 동안 poll 은 재기동하지 않고 감시 루프만 재기동해 결과와 `TICK` 을
@@ -1265,6 +1309,7 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
      .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" --stop || :
    fi
    if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
+     .claude/skills/dflow-work/scripts/dflow.sh lease release || echo "LEASE_RELEASE_FAILED 3분 뒤 스스로 풀린다"
      rm -f "$(git rev-parse --git-path dflow-team.stop)"
      pkill -f "caffeinate -i -w $LEAD_PID" 2>/dev/null || :
      rm -rf "$LOCK" && echo LOCK_RELEASED
@@ -1272,6 +1317,8 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    ```
    종료 파일과 절전 방지도 여기서 거둔다. 종료 파일을 남기면 다음 팀장은 전제 검사에서 지우므로 해가 없지만,
    소유가 맞을 때만 지우는 이유는 잠금을 가져간 새 팀장에게 온 요청을 지우지 않기 위해서다.
+   lease 는 잠금보다 먼저 반납한다. 반납이 상태 파일을 지우면 lease 갱신 프로세스는 다음 확인(최대 5초)에서
+   스스로 끝난다. 반납이 실패해도 마감을 멈추지 않는다. lease 는 TTL(3분) 뒤 스스로 풀린다.
 7. **남은 에이전트 확인**: ListAgents 를 다시 불러 이 세션에 `running` 인 이름 붙은 에이전트가 남아 있으면
    그 이름으로 TaskStop 하고 보고한다. 정상이면 하나도 없다. 팀원과 그 Phase 손자는 별도 프로세스라 이 세션의
    목록에 나타나지 않고, 손자는 팀원이 스스로 회수한다. poll 태스크와 감시 루프는 Bash 태스크라 이
@@ -1285,6 +1332,22 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
 멈추는 것은 공유 상태를 건드리지 않으며, 남겨 두면 새 팀장의 poll 과 같은 작업을 두 번 돌려준다. 체크아웃과 이
 신원의 워크트리·세대 파일은 이제 새 팀장 것이고, 새 팀장의 재구성은 같은 `agent`·`repo` 의 마지막 `team.start`
 이후 이벤트를 읽으므로 이 팀장이 남기는 기록이 새 팀장의 슬롯 표와 제외 목록에 섞인다.
+
+**lease 상실 마감**(「2-3」 의 `LEASE_LOST`): 다른 곳의 같은 신원 팀장이 이 프로젝트를 넘겨받았다. 이 팀장은 즉시
+손을 뗀다.
+1. "팀장 lease 상실: <사유>. 이 프로젝트는 다른 곳의 팀장이 맡았다" 를 보고한다.
+2. 새 claim·새 spawn·승인 스윕·머지를 하지 않는다. 대기 큐는 보고만 하고 비운다.
+3. 떠 있는 poll 을 TaskStop 으로 멈추고, 세대 파일의 세대를 올려 감시 루프를 끝낸다. lease 갱신 프로세스는 이미
+   끝나 있다(표식을 쓰고 끝난다).
+4. **떠 있는 워커는 건드리지 않는다.** 워커는 하던 작업을 끝까지 하고 agent 브랜치 push 와 done 보고를 한다. 그
+   결과는 새 팀장의 승인 스윕이 서버에서 이어받는다. 팀원 pane·탭을 닫지 않고 `kill-server` 도 하지 않는다.
+5. 「7. 마감」 6번 블록을 그대로 실행한다: 좌석표 감시 종료, `lease release`, 로컬 잠금 삭제(소유 판정이 참일 때).
+   그 블록의 `lease release` 는 남의 lease 를 풀지 않는다. 서버가 holder·generation 이 맞는 행만 풀기 때문에
+   빼앗긴 lease 에는 0건으로 끝나고, 서버에 닿지 못해 끝난 경우(`LEASE_UNREACHABLE`)에는 아무도 가져가지 않은 내
+   lease 를 바로 풀어 준다. 이유(로컬 잠금 삭제): 같은 체크아웃에서 사람이 나중에 팀장을 다시 띄울 수 있어야 한다.
+   표식 파일(`dflow-team.lease-lost`)은 다음 시작의 전제 검사가 지운다.
+6. 7번(남은 에이전트 확인)을 그대로 한다.
+7. 보고에 남은 슬롯(TSK·id8·워크트리 경로·pane id)과 "워커 N명은 하던 작업을 끝낸 뒤 스스로 끝난다" 를 적는다.
 
 ## 좌석표 연동
 
