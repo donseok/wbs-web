@@ -304,7 +304,15 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 `<선행TSK>` 는 그 `depends_evidence` 원소의 `external_ref` 에서 마지막 `/` 뒤다(예 `dict/TSK-02-01` → `TSK-02-01`).
 선행 주문을 `show` 하지 않는 이유: 워커의 서버 조회는 자기 `{ID8}` 하나로 제한되고(worker-prompt.md 「5」),
 `depends_evidence[]` 에는 주문 UUID 가 없어 어차피 아래 state.json 을 읽어야 UUID 를 얻는다.
-줄마다 단독으로 실행해 출력을 읽는다(git 을 감싼 명령 치환은 워커 git 호출 규칙이 금지한다).
+**실행은 공용 스크립트 한 줄이다**(팀장의 선행 반영 사전 검사와 같은 판정, 2026-09-23). `git fetch origin` 을 먼저
+단독으로 실행한 뒤 부른다.
+```bash
+.claude/skills/dflow-dev/scripts/pred-reflected.sh <TASKS> <선행TSK> <기본브랜치>
+```
+`<TASKS>` 는 선행 Task 폴더의 부모다(이 리포에서는 `docs/tasks`, 작업 폴더가 `{TASK_DIR}` 로 주어지는 판에서는 그 부모).
+출력 첫 낱말이 `REFLECTED` 면 반영이 확인된 것이다. `NOT_REFLECTED`·`UNKNOWN` 은 모두 `skipped 선행 승인 대기` 다
+(지금 동작과 같다). 아래 블록은 스크립트가 하는 일의 설명이며 워커가 직접 치지 않는다. 스크립트 안에서 git 을
+부르는 것은 `deps.sh` 와 같은 방식이며, 워커 git 호출 규칙(명령 치환 금지)은 워커가 직접 치는 Bash 줄에 대한 것이다.
 
 판정은 `phase=merged` **AND** (아래 세 증거 중 하나라도 참) 이다. **첫 증거가 가장 강하다** — 선행 산출물이
 `origin/<기본브랜치>` 라는 기점에 실재한다는 직접 증거이기 때문이다. 커밋 그래프의 조상 관계는 git 이 보증하는
