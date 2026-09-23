@@ -95,7 +95,8 @@ dflow.sh claim <순번>
 `code=dependency_not_met`)든 같은 코드다. 이 경우 fetch/merge 후 재시도한다. 우회 금지.
 
 성공 시:
-- `docs/tasks/<TSK>/spec.md` 캐시가 생성된다 — **구현 전 반드시 읽는다**
+- `<DOCS_DIR>/tasks/<TSK>/spec.md`(DOCS_DIR = project_map 의 그 프로젝트 키, 없으면 docs — `dflow.sh taskdir <ref>`)
+  캐시가 생성된다 — **구현 전 반드시 읽는다**
   (명세 정본은 D'Flow DB, 이 파일은 claim 시점 스냅샷. 스크립트가 끝에 `spec 캐시: <경로>` 를 출력한다).
 
 ⚠️ **브랜치는 만들어지지 않는다** — dflow.sh 는 git 브랜치를 생성하지 않는다(스크립트에 해당 코드 없음).
@@ -105,6 +106,15 @@ git fetch origin && git switch -c agent/<주문id8>-<slug> origin/<기본브랜�
 ```
 main·staging 위에서 구현을 진행하지 말 것 — done 의 push 검증은 현재 브랜치를 그대로 쓰므로
 브랜치를 안 만들면 main push 사고로 이어진다.
+
+### 작업 폴더 조회
+
+```bash
+dflow.sh taskdir <ref>
+```
+
+이 작업의 작업 폴더(`<DOCS_DIR>/tasks/<TSK>`, 리포 최상위 기준 상대경로)를 출력한다. `<DOCS_DIR>` 를
+`docs` 로 박아 둔 고정 경로를 손으로 짓지 않고 이 명령으로 구한다.
 
 ### 진행 보고
 

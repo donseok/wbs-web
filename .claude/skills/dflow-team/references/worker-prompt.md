@@ -16,10 +16,16 @@
 | `{BACKEND}` | `BACKEND` | 언제나 `pane`. 팀원은 tmux pane 또는 Orca 탭에서 돌며 `blocked` 이후 동작이 같다 |
 | `{MODEL_FLAG}` | `MODEL` | `opus` 면 `--model opus`, `sonnet` 이면 `--model sonnet`, `default` 면 빈 값 |
 | `{DEV_BRANCH}` | `DEV_BRANCH` | 개발 브랜치 이름(`origin/` 없음). 팀장이 `dflow.sh branch dev` 로 해석해 넘긴다 |
+| `{TASK_DIR}` | `TASK_DIR` | 이 작업의 작업 폴더(`<TASKS>/<TSK>`). 팀장이 `dflow.sh taskdir <order>` 로 구해 넘긴다 |
 
 `<기본브랜치>` 는 팀장이 넘긴 `{DEV_BRANCH}` 다. 워커는 이 값을 다시 해석하지 않는다. detach 된 옛 커밋에는
 `.dflow` 가 없어 다른 값이 나올 수 있기 때문이다. `DEV_BRANCH` 인자가 비어 있으면 `.result` 에
-`{TSK} {ID8} - - - failed no-dev-branch` 를 쓰고 끝낸다.
+`{TSK} {ID8} - - - failed no-dev-branch` 를 쓰고 끝낸다. `{TASK_DIR}` 도 같은 이유로 다시 해석하지 않는다 —
+detach 된 옛 커밋에는 `.dflow.local` 의 `project_map` 이 없거나 지금과 달라, 워커가 스스로 구하면 팀장이
+구한 값과 다른 `TASK_DIR` 이 나올 수 있기 때문이다. **`TASK_DIR` 이 비어 있으면** — `DEV_BRANCH` 와 달리
+아직 워크트리 격리를 확인하기 전(포인터를 막 읽은 시점)일 수 있으므로 `.result` 를 **쓰지 않고** 1번의
+`not-isolated` 와 같은 방식으로 마지막 응답으로 `{TSK} {ID8} - - - failed no-task-dir` 한 줄만 출력하고
+끝낸다.
 
 ## 0. git 호출 규칙 (두 백엔드 공통, 모든 단계)
 
@@ -53,8 +59,8 @@ git rev-parse --git-dir --git-common-dir
 printf '%s\n' '{AGENT_ID}' > .dflow-agent
 ```
 워크트리 루트에 쓴다. 부트스트랩보다 먼저 쓰는 이유는, 부트스트랩이 실패해도(`failed auth` 등) 그 워크트리가
-팀장의 재구성·고아 스캔에 보이게 하기 위해서다. `docs/tasks/{TSK}/` 안에 두지 않는 이유는, `/dflow-dev` 가
-claim 하려는 작업의 `docs/tasks/<TSK>/` 가 이미 있으면 이전 시도의 잔재로 보고 `.prev-<날짜>` 로 옮기기
+팀장의 재구성·고아 스캔에 보이게 하기 위해서다. `{TASK_DIR}` 안에 두지 않는 이유는, `/dflow-dev` 가
+claim 하려는 작업의 `<TASKS>/<TSK>/` 가 이미 있으면 이전 시도의 잔재로 보고 `.prev-<날짜>` 로 옮기기
 때문이다. 워크트리 하나가 작업 하나라서 루트 파일로도 모호하지 않다.
 
 ## 3. 워크트리 부트스트랩
@@ -98,7 +104,7 @@ git fetch origin && git switch --detach origin/<기본브랜치>
   맞춘다. 기점 이동이 실패하면 claim 하지 않고 `{TSK} {ID8} - - - failed detach` 를 쓰고 끝낸다. 아직 claim
   전이라 서버에 흔적이 없다.
 - `blocked` 로 멈췄다가 답을 받아 이어 가는 경우에는 이 3번을 다시 하지 않는다. 같은 세션이 같은 워크트리·
-  브랜치에서 그대로 이어 가기 때문이다. 받은 답은 `docs/tasks/{TSK}/design.md` 에
+  브랜치에서 그대로 이어 가기 때문이다. 받은 답은 `{TASK_DIR}/design.md` 에
   `- 담당자 결정(blocked 응답): <답>` 한 줄로 남기고(커밋은 `/dflow-dev` 커밋 규칙을 따른다) 설계 판단에 쓴다.
 - 의존성은 여기서 설치하지 않는다. `/dflow-dev --worker` 가 브랜치 생성 또는 재개로 agent 브랜치에 들어온
   직후, 기준선과 Phase 02~05 게이트 전에 설치하고 실패하면 `failed deps` 로 끝낸다(「--worker」 H). 이유: 스택이면 기점이 선행 agent 브랜치라 선행
@@ -171,7 +177,7 @@ AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각�
 
 ## 7. 보고: `.result` 파일 계약
 
-작업을 끝내거나 멈출 때 `docs/tasks/{TSK}/.result` 에 한 줄을 쓰고(디렉터리가 없으면 만든다), **같은 줄을
+작업을 끝내거나 멈출 때 `{TASK_DIR}/.result` 에 한 줄을 쓰고(디렉터리가 없으면 만든다), **같은 줄을
 마지막 응답으로도 출력한다.** 죽은 pane 화면 폴백(`capture-pane -J -S -`)이자 Orca `terminal read` 용이다. 팀장은 이 줄만 파싱한다. 커밋하지 않고, 사유에 줄바꿈을 넣지 않는다.
 
 ```
@@ -193,7 +199,7 @@ AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각�
 
 ## 7-1. 문제 기록: `.issues` 파일
 
-작업을 진행하며 겪은 문제를 `docs/tasks/{TSK}/.issues` 에 한 줄씩 **추가**한다(디렉터리가 없으면 만든다).
+작업을 진행하며 겪은 문제를 `{TASK_DIR}/.issues` 에 한 줄씩 **추가**한다(디렉터리가 없으면 만든다).
 결과가 `done` 이어도 적는다. 팀장이 결과를 처리할 때 이 파일을 팀장 체크아웃의 문제 기록으로 옮기며, 그 기록은
 스킬과 환경을 개선하는 재료다. 문제가 없었으면 파일을 만들지 않는다. 커밋하지 않는다(`.result` 와 같다).
 

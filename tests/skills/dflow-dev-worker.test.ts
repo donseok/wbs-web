@@ -48,6 +48,12 @@ const CHANGED = [
   '       거짓이면 선행이 main 미반영 상태. **Phase 0-가 4번과 같은 절차로 지금 직접 머지한다**',
   '## Phase 1~4 — Design → Build → Verify → Refactor',
   '## Phase 5 — 마감 (오케스트레이터 본인)',
+  // 10. Task 6: 작업 폴더를 고정 docs/tasks 에서 <TASKS>(<DOCS_DIR>/tasks) 로 통일
+  '- Design 게이트: `docs/tasks/<TSK>/design.md` 를 Read 하고 dev-discipline 의 최소 구조 5절',
+  '- 로컬 `docs/tasks/<TSK>/state.json`:',
+  '- **재claim 시 이전 시도의 잔재 격리**: claim 하려는 작업의 `docs/tasks/<TSK>/` 가 이미 있으면',
+  '  `docs/tasks/<TSK>.prev-<날짜>/` 로 옮긴 뒤 시작한다(stale state 로 Phase 건너뜀 방지).',
+  '`docs/tasks/<TSK>/spec.md` + **design.md (Build 이후 Phase)** + **기준선 수치** + Phase 지시 +',
 ] as const
 
 /**

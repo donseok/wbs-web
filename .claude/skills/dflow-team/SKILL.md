@@ -228,11 +228,14 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 **정본**: 이 신원·이 PC 의 팀원 워크트리와 그 결과. `TM` 은 「1. 시작」 전제 검사가 출력한 tmux 절대경로다.
 ```bash
 TM='<진짜 tmux 절대경로>'   # Orca 백엔드면 빈 값
+dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs); rc=$?   # 팀장 체크아웃 기준 값이 정본. 워크트리마다 다시 부르지 않는다 — 팀원 워크트리는 detach 된 옛 커밋에 있어 project_map 이 다르게 나올 수 있다(DEV_BRANCH 와 같은 이유)
+{ [ "$rc" = 0 ] && [ -n "$dirs" ]; } || { echo "FAIL TASKS_DIRS rc=$rc"; exit 1; }
 git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w; do
   [ -f "$w/.dflow-agent" ] || continue
   a=$(head -n 1 "$w/.dflow-agent")
   case "$a" in "<신원>/<host>/"*) ;; *) continue ;; esac
-  rf=$(find "$w/docs/tasks" -mindepth 2 -maxdepth 2 -name .result 2>/dev/null | head -n 1)
+  rf=$(printf '%s\n' "$dirs" | while IFS= read -r dd; do
+    find "$w/$dd" -mindepth 2 -maxdepth 2 -name .result 2>/dev/null; done | head -n 1)
   r=$([ -n "$rf" ] && head -n 1 "$rf")
   b=$(git -C "$w" branch --show-current)
   p=$(head -n 1 "$w/.dflow-pane" 2>/dev/null); alive=-
@@ -243,9 +246,12 @@ git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w;
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$w" "${b:--}" "${r:--}" "${p:--}" "$alive"
 done
 ```
+- `FAIL TASKS_DIRS`: `config tasks-dirs` 가 실패하거나(exit≠0) 빈 값을 내면 재구성을 멈춘다. 계속 진행하면
+  `dirs` 가 빈 줄 하나가 되어 `find "$w/$dd"` 가 `find "$w/"` 로 풀려(빈 `$dd`), 워크트리 루트 두 단계 아래
+  전부를 훑는 사고로 번진다 — 엉뚱한 파일을 `.result` 로 오판할 수 있다.
 - 루트 `.dflow-agent` 값이 `<신원>/<host>/w` 로 시작하는 워크트리가 팀원 워크트리이고, 값의 슬롯 번호가 그
   워크트리의 슬롯이다. 값이 `<신원>/<host>/parked` 인 워크트리는 슬롯이 아니며 고아 스캔만 본다.
-- 그 워크트리 안의 `docs/tasks/*/.result` 가 팀원의 결과다.
+- 그 워크트리 안의 `<TASKS>/*/.result` 가 팀원의 결과다.
 - 그 워크트리의 브랜치 이름 `agent/<id8>-…`(있으면)과 워크트리 이름 `dflow-<id8>`(두 백엔드 공통)이 작업을
   알려 준다.
 - tmux 백엔드의 `.dflow-pane`(팀장이 spawn 때 쓴 pane id, backends.md)이 팀원 pane 의 생존을 알려 준다.
@@ -268,7 +274,7 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 - `team.result`·`team.blocked` 로 이미 판정한 작업, 제외 목록(`skipped` 는 일시, `failed`·`failed no-result`·
   `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit` 은 제외
   없음), 차단기 상태(끝에서부터 연속한 `failed…` 수. `failed not-assignee`·`cancelled` 는 세지도 끊지도 않고 건너뛴다), 결과 줄 경로별 마지막 처리 해시(경로는
-  `<worktree>/docs/tasks/<tsk>/.result`)를 복원한다.
+  `<worktree>/<TASKS>/<tsk>/.result`)를 복원한다.
 - 제외 목록은 id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다. 마지막이 `team.spawn` 이나
   `team.blocked` 면 진행 중(영구 제외)이고, `team.result` 면 위 status 별 제외다. `team.answer` 는 제외를 바꾸지
   않는다. 이유: 일시 제외가 풀려 다시 띄운 작업이 옛 `skipped` 로 다시 일시 제외되거나, 결과가 난 작업이 진행
@@ -414,6 +420,11 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
 이 문서의 `<기본브랜치>` 는 개발 브랜치, 즉 `dflow.sh branch dev` 의 값이다(`.dflow.local` 의 `dev_branch`,
 레거시는 `origin/HEAD`).
 
+작업 폴더 `<TASKS>` 는 `<DOCS_DIR>/tasks` 다(리포 최상위 기준). 한 주문의 폴더 `<TASKS>/<TSK>` 는
+`dflow.sh taskdir <ref>` 의 값이다 — `.dflow.local` 의 `project_map` 에서 그 주문의 프로젝트 키를, 없으면 `docs` 를 쓴다.
+여러 작업을 훑을 때는 `dflow.sh config tasks-dirs` 가 내는 폴더 전부를 본다. `<DOCS_DIR>` 를 `docs` 로 박아 둔
+고정 경로는 쓰지 않는다.
+
 1. **전제 검사**: 아래 블록 하나를 한 번의 Bash 호출로 돌린다. 블록은 실패한 항목을 모두 `FAIL …` 로 출력한 뒤
    0 이 아닌 값으로 끝나고, **exit 가 0 이 아니면 아무것도 띄우지 않고 중단·보고한다.** 이유: 실패를 출력만 하는
    검사는 읽고 넘어가면 그대로 진행된다. `<UNTIL>` 은 「인자」 에서 정규화한 종료 시각이다.
@@ -437,13 +448,13 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    who=$(printf '%s' "$email" | cut -d@ -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
    host=$(hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
    echo "user_email=$email lead=$who/$host/lead"
-   legacy=$(find docs/tasks -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null | while IFS= read -r f; do
+   legacy=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs | while IFS= read -r d; do find "$d" -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null; done | while IFS= read -r f; do
      jq -e '.phase == "reported" and ((.api_base // "") == "")' "$f" >/dev/null 2>&1 && printf '%s ' "$f"
    done)
    [ -z "$legacy" ] || bad "LEGACY_REPORTED $legacy"
    mkdir -p ~/.dflow
    ex=$(git rev-parse --git-path info/exclude); mkdir -p "$(dirname "$ex")"; touch "$ex"
-   for p in '**/.claude/worktrees/' '/dflow-*/' '.vitest/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' '/.dflow.local' 'docs/tasks/*/.result' 'docs/tasks/*/.issues' '/docs/dflow-team/'; do
+   for p in '**/.claude/worktrees/' '/dflow-*/' '.vitest/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' '/.dflow.local' '**/tasks/*/.result' '**/tasks/*/.issues' '/docs/dflow-team/'; do
      grep -qxF "$p" "$ex" || printf '%s\n' "$p" >> "$ex"
    done
    tracked=$(git ls-files .claude/skills | head -n 1)   # 비어 있지 않으면 킷 복사형(스킬이 git 추적됨)
@@ -610,7 +621,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      2026-09-19 mdm-dict-v2 실측. 빼면 재기동 때 `DIRTY` 에 걸린다), `.vitest/` 는 워커가 vitest 를 돌리면 남기는 결과
      파일(`.vitest/json/output.json`)이다(빼면 done 뒤 워크트리가 깨끗하지 않아 「고아 정리 규칙」 과 `orca worktree rm` 이
      실패한다. 2026-09-19 mdm-dict-v2 실측), `/.dflow-agent`·
-     `docs/tasks/*/.result`·`docs/tasks/*/.issues` 는 워커가 쓰는 미추적 파일, `/docs/dflow-team/` 은 팀장이 쓰는
+     `**/tasks/*/.result`·`**/tasks/*/.issues` 는 워커가 쓰는 미추적 파일(어느 `<TASKS>` 아래든 잡도록
+     `docs/` 접두를 고정하지 않는다), `/docs/dflow-team/` 은 팀장이 쓰는
      문제 기록(「3. 결과 처리」 문제 기록) 폴더, `/.dflow-prompt`·`/.dflow-pane`·`/.dflow-run` 은
      팀장이 spawn 때 쓰는 미추적 파일, `/.dflow.local` 은 워크트리 부트스트랩이 거는 심링크다. `.gitignore` 가
      `.dflow.local` 을 가리기 전에도 DIRTY 를 트립하지 않게 여기 둔다. `.dflow` 는 **넣지 않는다** — 스펙 §3.1 대로
@@ -620,7 +632,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      `git add` 가 거부되기 때문이다. 이유: 부산물이 `/dflow-dev` Phase 06 의 "미커밋 잔여물 커밋" 에 섞이면,
      브랜치마다 다른 `.dflow-agent` 가 스윕 머지를 충돌시키고 절대경로 심링크가 main 에 들어간다.
    - `DIRTY`: exclude 를 넣은 뒤 `git status --porcelain` 이 비어 있어야 한다. 팀장 체크아웃이 더러우면 승인
-     스윕이 위험하다. 실패 안내에 "미커밋 `docs/tasks/*/state.json` 은 파일명을 명시해 먼저 커밋하라(수동
+     스윕이 위험하다. 실패 안내에 "미커밋 `<TASKS>/*/state.json` 은 파일명을 명시해 먼저 커밋하라(수동
      `/dflow-dev` 가 남긴 것일 수 있다)" 를 넣는다.
    - `UNTIL_BAD`·`UNTIL_PAST`·`UNTIL_TOO_FAR`: 종료 시각은 에포크 초로 비교한다(BSD `date -j` 먼저, 없으면 GNU
      `date -d`. macOS·Linux 서버 모두에서 돈다). 형식이 틀리거나, 이미 지났거나, 7일을 넘으면 거부한다. `none` 은
@@ -710,7 +722,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
 
 ### 2-1. poll
 
-`docs/tasks/` 가 없는 빈 디렉터리를 cwd 로 두고 띄운다.
+작업 폴더가 없는 빈 디렉터리를 cwd 로 두고 띄운다.
 ```bash
 mkdir -p "$(git rev-parse --git-path dflow-team-poll)"
 POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
@@ -769,7 +781,7 @@ printf '%s %s\n' "$gen" '<다음 TICK epoch 초>' > "$GEN_FILE"; echo "GEN_FILE=
 칸 값을 그대로 쓴다. 이유: 루프를 자주 바꿔도 TICK 이 밀리지 않게 하고, 컨텍스트 압축 뒤에도 그 값을 되찾는다.
 
 그리고 아래 루프를 `run_in_background` 로 띄운다. `set --` 에는 진행 중 슬롯(`blocked` 포함)마다
-`'<워크트리>/docs/tasks/<TSK>/.result|<그 경로의 마지막 처리 해시 또는 ->|<pane id 또는 ->'` 를 작은따옴표로
+`'<워크트리>/<TASKS>/<TSK>/.result|<그 경로의 마지막 처리 해시 또는 ->|<pane id 또는 ->'` 를 작은따옴표로
 넣는다. pane id 는 tmux 팀원의 `.dflow-pane` 첫 줄이고 Orca 팀원은 `-` 다. 진행 중 슬롯이 없으면 `set --` 를
 비운다. 경로에 공백이나 작은따옴표가 든 워크트리는 지원하지 않는다. `TM` 은 **리터럴 절대경로**로 박는다.
 루프는 `run_in_background` 의 별도 셸이라 전제 검사의 변수를 물려받지 않고, PATH 에는 Orca shim 이 살아 있을
@@ -778,7 +790,7 @@ printf '%s %s\n' "$gen" '<다음 TICK epoch 초>' > "$GEN_FILE"; echo "GEN_FILE=
 GEN_FILE='<세대 파일 절대경로>'; MY_GEN=<세대>; TICK_AT=<다음 TICK epoch 초>
 STOP_FILE='<팀장 체크아웃>/.git/dflow-team.stop'   # git rev-parse --git-path dflow-team.stop 의 절대경로
 TM='<진짜 tmux 절대경로 또는 빈 값>'
-set -- '<워크트리1>/docs/tasks/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/docs/tasks/<TSK2>/.result|-|-'
+set -- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'
 while :; do
   [ "$(cut -d' ' -f1 "$GEN_FILE" 2>/dev/null)" = "$MY_GEN" ] || { echo STALE; exit 0; }
   [ -e "$STOP_FILE" ] && { echo STOP_REQUESTED; exit 0; }
@@ -954,7 +966,7 @@ git -C <워크트리> status --porcelain | cksum                                
 체크아웃의 `docs/dflow-team/issues.md` 에 항목 하나를 붙인다. 목적은 팀원이 보고한 에러·문제점을 모아 스킬과
 환경을 개선하는 것이다. 이 파일은 커밋하지 않는다(「1. 시작」 exclude 의 `/docs/dflow-team/`). 커밋하면 승인
 스윕의 머지와 `DIRTY` 검사가 흔들린다.
-- 재료는 둘이다. 하나는 워커가 쓴 `<워크트리>/docs/tasks/<TSK>/.issues`(worker-prompt.md 「7-1」, 줄마다
+- 재료는 둘이다. 하나는 워커가 쓴 `<워크트리>/<TASKS>/<TSK>/.issues`(worker-prompt.md 「7-1」, 줄마다
   `<phase>\t<분류>\t<내용>`)이고, 다른 하나는 `done` 이 아닌 결과의 사유(결과 줄 7번째 칸부터)다.
 - `done`·`needs-merge` 이고 `.issues` 가 없거나 비었으면 붙이지 않는다. 그 밖의 status 는 `.issues` 가 없어도
   사유 한 줄로 항목을 만든다.
@@ -964,7 +976,8 @@ git -C <워크트리> status --porcelain | cksum                                
 - 워크트리를 정리하기 전에 옮기는 이유: 정리(`git worktree remove --force`·`orca worktree rm`)가 미추적
   `.issues` 를 함께 지운다.
 ```bash
-f='<MAIN>/docs/dflow-team/issues.md'; i='<워크트리>/docs/tasks/<TSK>/.issues'; st='<status>'
+f='<MAIN>/docs/dflow-team/issues.md'; i='<워크트리>/<TASKS>/<TSK>/.issues'; st='<status>'
+reason=$(head -n 1 "$(dirname "$i")/.result" 2>/dev/null | cut -d' ' -f7-)
 if [ -s "$i" ] || { [ "$st" != done ] && [ "$st" != needs-merge ]; }; then
   mkdir -p "$(dirname "$f")"
   [ -s "$f" ] || printf '# /dflow-team 문제 기록\n\n팀원이 보고한 에러·문제점. 스킬·환경 개선 재료이며 커밋하지 않는다.\n' > "$f"
@@ -974,7 +987,8 @@ if [ -s "$i" ] || { [ "$st" != done ] && [ "$st" != needs-merge ]; }; then
   } >> "$f" || echo ISSUE_LOG_FAIL
 fi
 ```
-`$reason` 은 events.md 「기록 명령」 의 추출 명령으로 얻은 값이다. `ISSUE_LOG_FAIL` 이 나와도 결과 처리를 멈추지
+`reason` 은 events.md 「기록 명령」 과 같은 방법(`.result` 첫 줄의 7번째 칸부터)으로 이 블록 안에서 다시 뽑는다.
+기록 명령은 별도 Bash 호출이라 그 셸 변수를 이 블록이 못 보기 때문이다. `.result` 가 없으면(`failed no-result`) 빈 값이다. `ISSUE_LOG_FAIL` 이 나와도 결과 처리를 멈추지
 않고 보고에 한 줄 적는다. 기록 실패가 슬롯 해제를 막으면 안 되기 때문이다. 해시 중복 방지가 결과 줄을 한 번만
 처리하게 하므로 같은 결과가 두 번 기록되지 않는다.
 
@@ -1072,7 +1086,7 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
   ```bash
   [ -z "$(git branch --show-current)" ] && [ -z "$(git status --porcelain)" ] && git switch -q --detach origin/<기본브랜치>
   ```
-  이유: 팀장 체크아웃의 `docs/tasks/*/state.json` 은 `LEGACY_REPORTED` 검사가 읽는다. 옛 커밋에 머물면 이미
+  이유: 팀장 체크아웃의 `<TASKS>/*/state.json` 은 `LEGACY_REPORTED` 검사가 읽는다. 옛 커밋에 머물면 이미
   머지된 작업의 옛 state.json 을 보고 재기동을 거부할 수 있다.
 
 ## 5. 팀원 spawn
@@ -1081,12 +1095,28 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
    띄우기 위해서다.
 2. 슬롯 번호를 정하고(「팀장 상태」 의 발급 규칙) `AGENT_ID = <신원>/<host>/w<slot>` 을 만든다.
 3. TSK 는 show 필터의 `ref`(`.order.item.external_ref`)에서 마지막 `/` 뒤, order 는 `.order.id` 다.
+   **4번은 별도 Bash 호출이라 이 줄의 셸 변수를 못 본다 — 그래서 값을 이 자리에서 출력하고, 그 출력을
+   4번 포인터에 그대로 옮겨 쓴다.**
+   ```bash
+   order='<order>'   # show 출력의 .order.id(전체 UUID)를 옮겨 쓴다
+   TASK_DIR=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$order"); rc=$?
+   echo "TASK_DIR=${TASK_DIR:-없음} rc=$rc"
+   ```
+   로 이 작업의 작업 폴더(`<TASKS>/<TSK>`)를 구한다. `taskdir` 는 순번·id8·전체 UUID 만 받고 `external_ref` 는
+   모른다 — `ref` 가 아니라 `order`(전체 UUID, id8 도 된다)를 넘긴다. `rc` 가 0 이 아니면(exit 2
+   `PROJECT_MISMATCH`·`AMBIGUOUS_DOCS_DIR`, exit 6 `NO_REF`) **spawn 하지 않는다**: 그 id8 을 일시 제외에 넣고
+   사유 `작업 폴더 해석 실패(exit $rc)` 를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴 뒤 다음
+   후보로 간다(위 poll exit 0 갈래의 spec 부재·TSK 없음과 같은 처리). 성공하면 위 출력의 `TASK_DIR` 값을
+   4번 포인터의 `TASK_DIR=` 자리에 그대로 옮겨 쓴다.
 4. 포인터 **한 줄**을 만든다. 백엔드에는 워커 프롬프트 전문이 아니라 이 포인터를 넘기고, 워커가
    `references/worker-prompt.md` 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다.
    ```
-   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치>
+   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<작업 폴더>
    ```
    - `DEV_BRANCH` 는 전제 검사의 `base` 다. 워커가 detach 된 옛 커밋에서 다른 값을 읽지 않도록 팀장이 넘긴다.
+   - `TASK_DIR` 은 3번이 출력한 값이다. 워커는 이 값을 다시 해석하지 않는다 — detach 된 옛 커밋에는
+     `.dflow.local` 의 `project_map` 이 없거나 지금과 달라, 워커가 스스로 구하면 팀장이 구한 값과 다른
+     `TASK_DIR` 이 나올 수 있기 때문이다(`DEV_BRANCH` 와 같은 이유).
    - 전문을 셸 인자로 넘기면 백틱·따옴표·여러 줄이 섞여 깨진다(자동 제출은 한 줄에서 확인됐다).
    - `BACKEND` 는 언제나 `pane` 이다. 두 백엔드 모두 팀원이 화면에서 멈춰 답을 기다리므로 워커가 갈래를 타지
      않는다(worker-prompt.md).
@@ -1174,7 +1204,26 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
      git worktree add <MAIN>/.claude/worktrees/dflow-<id8> -B agent/<id8>-<slug> origin/agent/<id8>-<slug>
      ```
      `.dflow.local`(레거시 `.env`)·스킬 링크는 새 작업 spawn(5번)과 같게 건다.
-4. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.** 슬롯 번호는 `.dflow-prompt` 의 `AGENT_ID=` 에 박힌 번호를
+4. **`TASK_DIR` 을 구한다.** 슬롯을 정하고 `.dflow-agent` 를 되돌리기(5항) **전에** 한다 — 실패하면 이 재개
+   자체를 접어야 하는데, 이미 되돌린 `.dflow-agent` 는 그 워크트리를 `parked` 아닌 상태로 남겨 다음 기상의
+   고아 스캔·전제 검사가 살아 있는 팀원으로 오판하게 만든다. **6·8항은 별도 Bash 호출이라 여기서 구한 값을
+   못 보므로, 아래 값을 출력해 그 출력을 6·8항에 그대로 옮겨 쓴다.** 옛 `.dflow-prompt` 의 `TASK_DIR=` 토큰을
+   그대로 쓴다(5항의 슬롯 추출과 같은 sed 방식):
+   ```bash
+   task_dir=$(sed -n 's/.*TASK_DIR=\([^ ]*\).*/\1/p' <워크트리>/.dflow-prompt 2>/dev/null | head -n 1)
+   echo "task_dir=${task_dir:-없음}"
+   ```
+   비어 있으면(`TASK_DIR` 이전에 만들어진 옛 포인터) 다시 구한다:
+   ```bash
+   id8='<id8>'
+   task_dir=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$id8"); rc=$?
+   echo "task_dir=${task_dir:-없음} rc=$rc"
+   ```
+   `rc` 가 0 이 아니면(위 항목 1 과 같은 실패 갈래) **재개하지 않는다** — `.dflow-agent` 는 그대로 두고(아직
+   건드리지 않았다), 그 id8 을 일시 제외에 넣고 사유 `작업 폴더 해석 실패(exit $rc)` 를 보고하며
+   `team.result`(slot `-`, status `skipped`)를 남긴 뒤 다음 후보로 간다. 성공하면 위 출력의 작업 폴더 값을
+   아래 `<4항에서 출력된 작업 폴더>` 자리에 그대로 옮겨 쓴다.
+5. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.** 슬롯 번호는 `.dflow-prompt` 의 `AGENT_ID=` 에 박힌 번호를
    먼저 쓰고, 그 번호가 이미 찼거나 파일이 없으면 「팀장 상태」 의 발급 규칙으로 새로 낸다.
    ```bash
    slot=$(sed -n 's/.*AGENT_ID=[^ /]*\/[^ /]*\/w\([0-9][0-9]*\).*/\1/p' <워크트리>/.dflow-prompt 2>/dev/null | head -n 1)
@@ -1186,17 +1235,17 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
    만들어진 옛 Orca 워크트리뿐이며, 그때는 새로 발급한다.
    **이 되돌리기를 워커가 뜨기 전에 한다.** `dflow.sh heartbeat` 는 값이 `*/parked` 면 exit 2 로 거부하므로,
    `parked` 인 채로 띄우면 그 팀원은 좌석표에 진척을 하나도 알리지 못한다.
-5. **포인터를 다시 쓴다.** 5번 4항의 형식 그대로이며 `AGENT_ID` 는 4항에서 정한 슬롯이다. 옛 파일을 그대로
-   두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의 `AGENT_ID` 와 어긋나 팀원이 남의 좌석으로 heartbeat 를
-   보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
-6. **띄운다.** 백엔드별 명령은 5번 5항과 같다. tmux 는 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
+6. **포인터를 다시 쓴다.** 5번 4항의 형식 그대로이며 `AGENT_ID` 는 5항에서 정한 슬롯, `TASK_DIR` 은
+   `<4항에서 출력된 작업 폴더>` 다. 옛 파일을 그대로 두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의
+   `AGENT_ID` 와 어긋나 팀원이 남의 좌석으로 heartbeat 를 보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
+7. **띄운다.** 백엔드별 명령은 5번 5항과 같다. tmux 는 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
    워크트리에는 없고, 남아 있던 것은 옛 모델 인자를 달고 있다) pane id 를 `.dflow-pane` 에 덮어쓴다. **폴더 신뢰 확인 루프를 반드시 돈다.** 넘기면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가
    통째로 논다. Orca 는 포인터를 `--prompt` 로 넘겨 기존 워크트리에 탭을 다시 연다.
-7. **옛 `.result` 를 지운다**(`rm -f <워크트리>/docs/tasks/<TSK>/.result`). 이유: `failed…` 로 끝난 워크트리를
+8. **옛 `.result` 를 지운다**(`rm -f <워크트리>/<4항에서 출력된 작업 폴더>/.result`). 이유: `failed…` 로 끝난 워크트리를
    `--resume` 으로 이어받으면 옛 결과 줄이 그대로 남아 있는데, 재개한 팀원이 결과를 쓰기 전에 pane 이 한 번
    흔들리면 `PANE_DEAD` 폴백이 그 옛 줄을 읽어 방금 띄운 작업을 다시 실패로 판정한다. 해시가 같아 중복
    처리는 막히지만, 그 슬롯이 빈 것으로 돌아가 같은 작업이 두 번 뜬다.
-8. `team.spawn` 을 기록한다. 필드는 5번 6항과 같고 `spawn_kind` 는 `resume` 이다(events.md). 재시도 수를 이
+9. `team.spawn` 을 기록한다. 필드는 5번 6항과 같고 `spawn_kind` 는 `resume` 이다(events.md). 재시도 수를 이
    값으로 세므로, `new` 로 적으면 상한이 동작하지 않는다.
 
 재개한 팀원이 다시 최종 판정 없이 죽으면 다음 기상의 고아 스캔이 같은 판정을 하고, 재시도가 상한(3)에 닿으면

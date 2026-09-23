@@ -146,7 +146,7 @@ dflow.sh me
 ### cache 위치
 
 - 프로필: `~/.cache/dflow/profiles.json`
-- 명세 스냅샷: `docs/tasks/<TSK-ID>/spec.md` (작업 리포에서)
+- 명세 스냅샷: `<DOCS_DIR>/tasks/<TSK-ID>/spec.md` (작업 리포에서)
 
 ### 명세 스냅샷 갱신
 
