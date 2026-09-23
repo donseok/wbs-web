@@ -59,6 +59,21 @@ create trigger wbs_items_prune_waived
   before update of depends on public.wbs_items
   for each row execute function public.wbs_items_prune_waived();
 
+-- RLS 리프 판정(0022 wbs_is_leaf — member_update_actual 정책이 쓴다)도 stub 하위를 빼고 본다(스펙 F9).
+-- 그대로 두면 멤버가 스텁 하위가 달린 후행의 실적%를 고칠 때 RLS 가 0행으로 막아 "저장 권한이 없습니다" 가 된다.
+create or replace function public.wbs_is_leaf(p_item_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select not exists (select 1 from public.wbs_items c where c.parent_id = p_item_id and c.stub_for is null)
+$$;
+
+revoke all on function public.wbs_is_leaf(uuid) from public;
+grant execute on function public.wbs_is_leaf(uuid) to authenticated;
+
 -- 면제·해제 한 트랜잭션(스펙 F8·§3.2). 판정 순서는 도메인 forceProgress.waiveBlock 과 같다(서버가 정본).
 -- 권한은 서버 액션(requireSubtreeManagerOrAdmin)이 먼저 본다 — 이 함수는 service_role 전용.
 create or replace function public.set_dependency_waiver(

@@ -10,6 +10,18 @@ update public.agent_work_orders set status = 'cancelled', updated_at = now()
 delete from public.wbs_items where stub_for is not null;
 
 drop function if exists public.set_dependency_waiver(uuid, text, boolean, text, uuid);
+-- RLS 리프 판정을 0022 본문으로 되돌린다(stub_for 컬럼을 지우기 전에 — 본문이 그 컬럼을 참조한다).
+create or replace function public.wbs_is_leaf(p_item_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select not exists (select 1 from public.wbs_items c where c.parent_id = p_item_id)
+$$;
+revoke all on function public.wbs_is_leaf(uuid) from public;
+grant execute on function public.wbs_is_leaf(uuid) to authenticated;
 drop trigger if exists wbs_items_prune_waived on public.wbs_items;
 drop function if exists public.wbs_items_prune_waived();
 alter table public.project_settings drop constraint if exists project_settings_force_bottleneck_positive;

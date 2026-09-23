@@ -31,6 +31,13 @@ describe('0103 강제 진행', () => {
   it('전이 RPC 의 리프 판정은 stub 하위를 빼고 본다', () => {
     expect(fn('apply_workflow_event')).toContain('v_is_leaf := not exists (select 1 from public.wbs_items where parent_id = v_item_id and stub_for is null);')
   })
+  it('RLS 리프 판정(wbs_is_leaf — member_update_actual 정책)도 stub 하위를 빼고, rollback 은 0022 본문으로 되돌린다', () => {
+    expect(fn('wbs_is_leaf')).toContain('select not exists (select 1 from public.wbs_items c where c.parent_id = p_item_id and c.stub_for is null)')
+    expect(fn('wbs_is_leaf').split('as $$')[0]).toContain('security definer')
+    const rb = r()
+    expect(rb).toContain('select not exists (select 1 from public.wbs_items c where c.parent_id = p_item_id)\n')
+    expect(rb.indexOf('function public.wbs_is_leaf')).toBeLessThan(rb.indexOf('drop column if exists stub_for'))
+  })
   it('스텁 잔존 조건이 도메인 pendingStubs 와 같다(stage 가 xx 가 아닌 stub 하위)', () => {
     const f = fn('apply_workflow_event')
     expect(f).toContain(`where parent_id = v_item_id and stub_for is not null and stage is distinct from '${STUB_DONE_STAGE}'`)

@@ -30,6 +30,8 @@ begin
   -- 3. 재면제는 하위를 새로 만들지 않는다
   r := public.set_dependency_waiver(v_succ, 'zz0103/TSK-Z-01', true, '재시도', u);
   assert not (r->>'sub_task_created')::boolean and (r->>'sub_task_id')::uuid = v_sub, '재면제가 하위를 또 만들었다';
+  -- 3b. RLS 리프 판정(wbs_is_leaf)도 후행을 리프로 본다
+  assert public.wbs_is_leaf(v_succ), 'wbs_is_leaf 가 stub 하위를 자식으로 셌다';
   -- 4. 후행은 여전히 리프: 실적·단계 그대로, 승인은 stub_pending 으로 거부되고 주문은 reported 그대로
   assert (select stage = 'im' and actual_pct = 80 from public.wbs_items where id = v_succ), '후행 단계·실적이 바뀌었다';
   r := public.apply_workflow_event('approve', u, null, v_order);
