@@ -2851,3 +2851,17 @@ Expected: push 성공. force push 금지.
 - 마감 점검: 엑셀 내보내기는 트리 `children` 을 돌아 stub 하위가 빠진다. `/api/v1/wbs/structure` 는 raw `parent_id` 로 돌아 stub 하위를 일반 노드로 냈으므로 `stub_for` 행을 걸러 냈다(테스트 추가).
 - Task 11: push·origin/staging 머지·ego-browser 실동작 확인·워크트리 정리는 하지 않았다 — **반영 대기**(컨트롤러가 순서대로 머지). origin/staging 에는 그사이 과제 C(0102·계약 2.6)가 들어왔다. 0102 는 `agent_work_reports` 만 바꿔 0103 과 겹치지 않는다. 머지 때 `externalApi.ts`·`dflow.sh`·`api-contract.md` 의 계약 버전 줄이 충돌할 수 있다(이 과제 값은 2.8).
 - 최종 검증: `npx vitest run` 544 파일·6217 건 통과(부하가 높을 때 `tests/skills/dflow-lead-lease`·`heartbeat-hook`·`tests/domain/trend` 가 시간 초과로 간헐 실패했고 단독 재실행은 전부 통과 — 이번 변경과 무관), tsc 오류 28건(기준선과 같음), `npm run lint` 오류 0·경고 6(기존).
+
+### 최종 리뷰 반영 (2026-09-23)
+
+- stub-check 오탐: `.claude/`·`docs/`·`*.md` 를 제외하고 `FORCE-STUB: [A-Za-z0-9]`(ID 가 바로 뒤따르는 표식)만 센다. ref 를 준 호출은 설정 로드 전에 처리한다 — 이 리포처럼 `.dflow` 는 있고 `.dflow.local` 이 없는 곳에서 NO_LOCAL(exit 2)로 죽었다. 테스트 파일의 표식 문자열은 조립해 이 리포 HEAD 가 0건으로 통과한다(테스트로 고정).
+- AI 도구 저장소(`repositories/supabase/wbs.ts`)가 `stub_for`·`depends_waived` 를 읽고 `mergeSpecDepends` 에 부모·stub 표식을 넘긴다. 간트 합성은 스텁 하위의 부모(후행) 간선을 긋지 않는다.
+- 하위 취소: 사유 필수, 부모 기준 `change_logs(field=stub_cancelled)` 를 **주문 취소·삭제 전에** 남기고(이력 실패면 중단), 부모 `depends_waived` 에 그 선행이 있으면 거부(「먼저 면제를 해제하세요」). 사이드바는 면제가 살아 있으면 취소 버튼을 숨기고, 취소도 같은 확인 창에서 사유를 받는다.
+- 사이드바 권한: 페이지 로더(`lib/data/forceProgress.ts` → 순수 `domain/forceProgressRights.ts`)가 `isSubtreeManagerOf`(F15 포함)로 관리 대상 id 를 계산해 넘기고, 버튼은 `editable || canForce`. 조회 실패는 빈 목록(버튼 숨김) + 로그.
+- 오피스 진입점: 비용이 작아 구현했다 — 「선행 대기」 좌석 상세에 「강제 진행 검토」 링크. 링크가 사이드바까지 열도록 WBS 페이지에 `?open=1`(focusOpen)을 더했다. 기존 `?focus=` 만의 동작(사이드바 안 엶)은 그대로다. 스텁 잔존 링크(허브 큐·허브 표·좌석 상세)도 `&open=1` 을 붙였다. 좌석 상세에서 바로 면제하는 UI 는 두지 않았다 — 사유·계약 판정·해제·취소가 사이드바 한 곳에 있어야 판정이 갈리지 않는다.
+- 재업로드(F11): `runWbsImport` 가 RPC 전에 스텁 하위가 달린 후행 아래 일반 자식, 그리고 스텁 하위 ref 를 덮어쓰는 노드를 전량 보고하며 거부한다.
+- `deleteWbsItem` 은 스텁 하위를 지우지 않고 취소 경로를 안내한다(조회 실패는 중단).
+- 선행 도달 알림: 면제 간선은 충족으로 보고, 도달한 선행이 그 후행의 면제 간선이면 알리지 않는다(이미 착수 가능했다).
+- 하위 ref·code 는 선행 ref **전체**를 `[^A-Za-z0-9._-]→_` 로 치환해 만든다(`m/TSK-02.stub.m_TSK-01`). 0103 을 고쳐 마이그레이션 단독 커밋으로 두고, 스테이징은 rollback → 복원 확인 → 재적용 → 검증 SQL(`code`·`external_ref` 새 식 단언) → 잔존 0 → `wbs_is_leaf` 확인까지 다시 했다. 스텁 마커 검색 예시(`FORCE-STUB: <TSK>`)·`__stubs__/<TSK>/` 경로는 사람이 읽는 TSK 코드라 마지막 칸을 그대로 쓴다.
+- 강제 진행 버튼의 선행 도달은 롤업값이 아닌 원값(stage·actual_pct)으로 판정한다 — RPC 와 같다. 승인된 주문 축은 화면에 재료가 없어 여전히 RPC 가 최종 판정한다(버튼이 켜져 있어도 `already_reached` 로 거부될 수 있다).
+- 검증: `npx vitest run --testTimeout=60000` 546 파일·6240 건 통과, tsc 28(기준선), lint 오류 0·경고 6(기존), `dflow.sh stub-check HEAD` → FORCE_STUB_NONE.
