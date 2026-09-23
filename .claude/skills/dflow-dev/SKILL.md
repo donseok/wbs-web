@@ -104,10 +104,7 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 ## Phase 01 — Claim·브랜치·기준선 (오케스트레이터 본인)
 
 `<기본브랜치>` 는 개발 브랜치, 즉 `dflow.sh branch dev` 의 값이다(`.dflow.local` 의 `dev_branch`, 레거시는
-`origin/HEAD`).
-<!-- worker:begin -->
-팀원(`--worker`)은 팀장이 넘긴 `DEV_BRANCH` 를 쓴다.
-<!-- worker:end -->
+`origin/HEAD`). 팀원은 팀장이 넘긴 `DEV_BRANCH` 를 쓴다.
 
 1. `dflow.sh doctor` (세션 첫 호출 시). `dflow.sh show <ref>` 로 상태 확인:
    ready → 착수 가능 판정(2번) 후 claim / claimed → **반려 판정 먼저(아래), 아니면** 재개 판정(위 상태 모델) /
