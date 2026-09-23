@@ -2099,13 +2099,11 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
    W='<MAIN>/.claude/worktrees/dflow-<id8>-resolve'
    [ ! -e "$W" ] || echo "RESOLVE_WT_EXISTS $W"
    ```
-   - **tmux**: 팀장 체크아웃에서 만든다.
-     ```bash
-     git fetch origin
-     git worktree add --detach '<MAIN>/.claude/worktrees/dflow-<id8>-resolve' origin/<개발브랜치>
-     ```
-     그 뒤는 backends.md 「pane(tmux)」 의 spawn 과 같다: 링크, `.dflow-prompt`·`.dflow-run`, pane 띄우기, `.dflow-pane`,
-     이름표, **폴더 신뢰 확인 루프**. 달라지는 것은 포인터와 이름표 `w<slot> · 해소 <TSK> <id8>` 뿐이다.
+   - **tmux**: backends.md 「pane(tmux)」 의 spawn 블록을 그대로 한 번의 Bash 호출로 돌린다. 워크트리 생성
+     (`git worktree add --detach "$WT" origin/<기본브랜치>`)도 그 블록이 한다. 바꾸는 것은 셋이다: 블록 첫머리의
+     `WT="<MAIN>/.claude/worktrees/dflow-<id8>"` 를 `WT="<MAIN>/.claude/worktrees/dflow-<id8>-resolve"` 로 쓰고,
+     `<포인터 한 줄>` 을 아래 4번의 해소 포인터로 쓰고, 이름표를 `w<slot> · 해소 <TSK> <id8>` 로 붙인다. 그 뒤의
+     `.dflow-pane` 기록·**폴더 신뢰 확인 루프**는 같다.
    - **Orca**:
      ```
      orca worktree create --name dflow-<id8>-resolve --agent claude --no-parent \
@@ -2121,6 +2119,8 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
 5. `team.spawn` 을 기록한다. 필드는 「5. 팀원 spawn」 6번과 같고 `spawn_kind` 는 `resolve` 다. 이 줄의 개수가 해소
    카운터이므로 `new` 로 적으면 상한이 동작하지 않는다. id8 은 진행 중으로 영구 제외에 넣는다.
 6. 표시 note 를 `해소 중 w<slot> <n>/3` 으로 바꾼다(「3」).
+7. 감시 루프(SKILL.md 「2-2」)를 새로 띄울 때 이 슬롯의 `set --` 항목은 `'<워크트리>/<TASK_DIR>/.result|<해시 또는 ->|<pane id 또는 ->'`
+   다. 이 리포에서 `TASK_DIR` 은 `docs/tasks/<TSK>` 라 워커 슬롯과 모양이 같다.
 
 ## 3. 표시 heartbeat 대리 호출
 
@@ -2597,7 +2597,9 @@ Expected: pre-push 훅 G1~G4 통과(마이그레이션 없음). 훅 우회(`SKIP
     where id = '<approved 주문 UUID>' and status = 'approved';
    ```
    `npm run db:apply -- <스크래치 SQL 경로> --target staging` 으로 적용한다. `db-apply` 가 migrations 밖 경로를 거부하면 Supabase 대시보드(스테이징 프로젝트) SQL 편집기에서 같은 문장을 실행한다. **운영 DB 에는 하지 않는다.**
-3. ego-browser 로 staging 오피스(에이전트 보기)를 연다. 두 좌석에 자홍 「머지 충돌」 말풍선이 있고 네 점이 없는지 본다. 확인 필요 띠에서 두 줄이 BLOCKED 바로 뒤에 `머지 충돌 · <note>` 로 나오는지 본다. 좌석을 누르면 상세에 `머지 충돌: <note>` 인용이 나오는지 본다. 그 주문을 선행으로 갖는 ready 좌석이 있으면 대기 사유가 「선행 머지 충돌」 인지 본다. 화면을 캡처해 둔다.
+3. ego-browser 로 staging 오피스(에이전트 보기)를 연다. 두 좌석에 자홍 「머지 충돌」 말풍선이 있고 네 점이 없는지 본다. 확인 필요 띠에서 두 줄이 BLOCKED 바로 뒤에 `머지 충돌 · <note>` 로 나오는지 본다. 좌석을 누르면 상세에 `머지 충돌: <note>` 인용이 나오는지 본다. 그 주문을 선행으로 갖는 ready 좌석이 있으면 대기 사유가 「선행 머지 충돌」 인지 본다. 승인 대기 좌석은 막 올린
+   보고(10분)나 한마디 칸에서는 단계 말풍선 대신 대사를 띄우므로(`seatSpeech` 우선), 말풍선이 안 보이면 잠시 뒤 다시 본다.
+   화면을 캡처해 둔다.
 4. 되돌린다.
    ```sql
    update public.agent_work_orders set heartbeat_phase = null, heartbeat_note = null
