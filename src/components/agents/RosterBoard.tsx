@@ -5,6 +5,7 @@
 // 좌석 단위 보고 이력·처리량·토큰 연결은 아직 데이터가 없어 그리지 않는다(시안 notes 의 NEW 항목).
 import { useMemo, useState, type ReactNode } from 'react'
 import type React from 'react'
+import Link from 'next/link'
 import type { Seatmap } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName } from '@/lib/domain/seatState'
@@ -364,7 +365,14 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
 
       {seat && (
         <section className="flex flex-col gap-1.5">
-          <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">지금 하는 일</h3>
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">지금 하는 일</h3>
+            {/* 에이전트 상세(DetailPanel)와 같은 WBS 딥링크 — 명세·진행 표가 바로 열린다(2026-09-24 사용자 요청). */}
+            {seat.itemId && (
+              <Link href={`/p/${seat.projectId}/wbs?focus=${seat.itemId}&open=1`} data-roster-wbs-link={seat.itemId}
+                className="shrink-0 text-[11px] font-semibold text-brand underline-offset-2 hover:underline">WBS 에서 보기</Link>
+            )}
+          </div>
           <p className="text-sm font-semibold text-ink"><span className="font-mono text-ink-muted">{seat.code}</span> {seat.name}</p>
           <Progress pct={seat.progress} color={tone.color} />
           <p className="text-[11px] text-ink-subtle">진척 {seat.progress}%{seat.heartbeatPhase ? ` · 단계 ${seat.heartbeatPhase}` : ''}</p>
