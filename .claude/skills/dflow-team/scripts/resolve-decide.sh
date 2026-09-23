@@ -28,6 +28,8 @@ n=$(printf '%s\n' "$lines" | grep -c '^S$')
 # 마지막 해소 spawn 뒤의 마지막 판정 줄
 last=$(printf '%s\n' "$lines" | awk '/^S$/{l=""; next} NF{l=$0} END{print l}')
 case "$last" in
+  # blocked 도 RUNNING 이다. 답 없이 죽은 blocked 해소 워커는 이 스크립트가 알아채지 못한다 — 팀장의 무응답 규칙
+  # (SKILL.md 「3. 결과 처리」)이 failed no-result 결과를 남겨야 다음 판정으로 넘어간다.
   ''|B) echo "RUNNING"; exit 3 ;;
 esac
 [ "$n" -lt "$MAX" ] || { echo "HUMAN 해소 상한($n/$MAX)"; exit 1; }

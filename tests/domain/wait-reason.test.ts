@@ -92,8 +92,13 @@ describe('deriveWaitReason — 선행 머지 충돌(2026-09-23 §7.3)', () => {
   it('집어갈 에이전트가 있고 선행이 충돌 중이면 merge_conflict', () => {
     expect(deriveWaitReason({ depends: ['M/T1'], predecessorByRef: () => mc(true), assignee: null, watchers: [wl] }).kind).toBe('merge_conflict')
   })
-  it('선행이 충돌이 아니면 종전대로 pickup, 에이전트가 없으면 종전대로 agent_off(사람이 움직일 일이 먼저)', () => {
+  it('선행이 충돌이 아니면 종전대로 pickup', () => {
     expect(deriveWaitReason({ depends: ['M/T1'], predecessorByRef: () => mc(false), assignee: null, watchers: [wl] }).kind).toBe('pickup')
-    expect(deriveWaitReason({ depends: ['M/T1'], predecessorByRef: () => mc(true), assignee: null, watchers: [] }).kind).toBe('agent_off')
+  })
+  it('선행 머지 충돌은 선행 대기 바로 다음 — 에이전트가 꺼져 있거나 바빠도 충돌이 먼저다(2026-09-23 리뷰)', () => {
+    expect(deriveWaitReason({ depends: ['M/T1'], predecessorByRef: () => mc(true), assignee: null, watchers: [] }).kind).toBe('merge_conflict')
+    expect(deriveWaitReason({ depends: ['M/T1'], predecessorByRef: () => mc(true), assignee: null, watchers: [{ ...wl, busy: 2 }] }).kind).toBe('merge_conflict')
+    // 선행이 아직 끝나지 않았으면(stage 미달) 종전대로 dependency 가 앞선다
+    expect(deriveWaitReason({ depends: ['M/T1'], predecessorByRef: () => ({ ...mc(true), stage: 'dd' }), assignee: null, watchers: [wl] }).kind).toBe('dependency')
   })
 })

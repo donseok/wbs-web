@@ -313,8 +313,9 @@ force push 금지와 `merge-base --is-ancestor <head_sha>` 검사에 모두 걸�
    - 그 밖의 실패는 `RESOLVE_PUSH_FAILED <exit>` 다.
 8. **뒷정리**: 5번 뒷정리 그대로다(원격 agent 브랜치 삭제, 로컬 브랜치의 not found·checked out 건너뛰기).
 9. **결과 줄**: 성공하면
-   `RESOLVE_PUSHED <머지 커밋 짧은 sha> base=<기준 HEAD 짧은 sha> files=<충돌 파일 수> rules=<R번호,…|-> tests=<통과/총수>`.
-   머지 커밋 sha 는 `git rev-parse --short HEAD~1` 이다(HEAD 는 state.json 커밋).
+   `RESOLVE_PUSHED <머지 커밋 전체 sha> base=<기준 HEAD 짧은 sha> files=<충돌 파일 수> rules=<R번호,…|-> tests=<통과/총수>`.
+   머지 커밋 sha 는 `git rev-parse HEAD~1` 이다(HEAD 는 state.json 커밋). 전체 sha 로 넘기는 이유: 팀장이 이 값으로
+   조상 확인을 하는데, 짧은 sha 는 저장소가 커지면 모호해져 확인이 실패할 수 있다.
 
 `--resolve` 가 쓰는 파일은 호출한 워크트리 안뿐이다. 팀장 체크아웃은 건드리지 않으므로, 해소가 `RESOLVE_BLOCKED` 로
 멈춰도 팀장의 전제 검사는 깨지지 않는다.

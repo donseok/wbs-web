@@ -158,3 +158,17 @@ describe('heartbeat 훅 — 개발 브랜치의 state.json 이 merged·reported 
     expect(existsSync(log) ? readFileSync(log, 'utf8').trim() : '').toBe('')
   })
 })
+
+describe('리뷰 minor(2026-09-23) — 결과 줄 전체 sha, blocked RUNNING 의 전제', () => {
+  it('결과 줄 head 는 전체 sha 이고 팀장 조상 확인도 전체 sha 로 한다', () => {
+    const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+    const mc = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')
+    expect(PROMPT).toContain('`head` 칸에 push 한 머지 커밋의 **전체 sha**')
+    expect(merge).toContain('`RESOLVE_PUSHED <머지 커밋 전체 sha> base=')
+    expect(merge).not.toContain('git rev-parse --short HEAD~1')
+    expect(mc).toContain('`<결과 줄 head>` 는 결과 줄 넷째 칸의 **전체 sha** 다')
+  })
+  it('resolve-decide.sh 의 blocked RUNNING 은 무응답 규칙에 기댄다고 적는다', () => {
+    expect(readFileSync(DECIDE, 'utf8')).toContain('팀장의 무응답 규칙')
+  })
+})

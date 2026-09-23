@@ -49,7 +49,7 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
    | 출력 | 처리 |
    |---|---|
    | `RESOLVE <n>` | 해소 큐 끝에 `{id8, order, TSK, n, 충돌 파일}` 를 넣는다. 표시 note `충돌 <k>개(<첫 파일>…) · 해소 대기 <n>/3`. `team.conflict`(decision `queued`) |
-   | `RUNNING` | 아무것도 하지 않는다. 2번에서 걸렀어야 하므로 "재구성 누락: <id8>" 를 한 줄 보고한다 |
+   | `RUNNING` | 아무것도 하지 않는다. 2번에서 걸렀어야 하므로 "재구성 누락: <id8>" 를 한 줄 보고한다. 마지막이 `blocked` 인 해소 워커도 `RUNNING` 이다 — 그 워커가 답 없이 죽으면 이 스크립트는 알아채지 못하고, SKILL.md 「3. 결과 처리」 의 무응답 규칙이 `failed no-result` 결과를 남겨야 풀린다 |
    | `HUMAN <사유>` | "사람이 머지해야 함: <id8> (<사유>) · 충돌 파일 <…>" 로 보고한다. 표시 note `사람 머지 필요: <사유>`. `team.conflict`(decision `human`) |
    | `UNKNOWN <사유>` | 해소하지 않는다(fail-closed). "해소 판정 불가: <id8> (<사유>)" 로 보고한다. 표시 note `사람 머지 필요: 판정 불가`. `team.conflict`(decision `human`) |
 4. **보고**: 스윕 보고에 충돌 파일 목록을 싣는다.
@@ -141,6 +141,8 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
 ```bash
 git fetch origin && git merge-base --is-ancestor '<결과 줄 head>' origin/<개발브랜치>; echo "anc=$?"
 ```
+`<결과 줄 head>` 는 결과 줄 넷째 칸의 **전체 sha** 다(`resolve-prompt.md` 「결과 줄」). 짧은 값이 오면 모호할 수 있으므로
+`git rev-parse --verify -q '<값>^{commit}'` 로 먼저 전체 sha 로 바꾸고, 실패하면 조상 확인 거짓과 같이 처리한다.
 해제를 스윕 보고에 기대지 않는 이유가 있다. 해소 워커가 머지하면 `/dflow-merge` 뒷정리가 원격 agent 브랜치를 지운다.
 그래서 다음 스윕에서 그 주문은 후보가 아니고, "머지됨" 줄을 기다리면 표시가 영영 남는다.
 

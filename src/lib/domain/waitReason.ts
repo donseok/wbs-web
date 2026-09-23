@@ -57,6 +57,15 @@ export function deriveWaitReason(args: {
       text: `선행 작업이 아직 끝나지 않았습니다: ${unmetDependsList(unmet)}. 선행이 검수 대기(im) 이상이 되거나, 그 주문이 승인되거나, 실적이 100% 가 돼야 이 작업을 집어갈 수 있습니다.`,
     }
   }
+  // 선행이 머지 충돌 중이면 claim 게이트는 통과하지만 팀장 사전 필터가 거른다(2026-09-23 §6.3) — 그 이유를 보여 준다.
+  // 선행 대기 바로 다음에 본다 — 에이전트를 켜도 충돌이 풀리기 전에는 착수하지 않으므로 이쪽이 더 앞선 사유다.
+  const conflicted = (args.depends ?? []).map(r => args.predecessorByRef(r)).filter((p): p is PredecessorLike => p?.merge_conflict === true)
+  if (conflicted.length > 0) {
+    return {
+      kind: 'merge_conflict', label: '선행 머지 충돌',
+      text: `선행 ${conflicted.map(p => p.code).join(', ')} 가 개발 브랜치와 충돌해 머지 대기 중입니다. 해소되면 자동으로 착수합니다.`,
+    }
+  }
   const a = args.assignee
   const eligible = a ? args.watchers.filter(w => a.user_id !== null && w.user_id === a.user_id) : args.watchers
   if (eligible.length === 0) {
@@ -76,14 +85,6 @@ export function deriveWaitReason(args: {
     return {
       kind: 'agents_busy', label: '에이전트 바쁨',
       text: `에이전트 ${eligible.length}개가 켜져 있지만 모두 다른 작업 중입니다(${eligible.map(watcherLabel).join(', ')}). 자리가 비면 다음 확인 주기에 자동으로 집어갑니다.`,
-    }
-  }
-  // 선행이 머지 충돌 중이면 claim 게이트는 통과하지만 팀장 사전 필터가 거른다(2026-09-23 §6.3) — 그 이유를 보여 준다.
-  const conflicted = (args.depends ?? []).map(r => args.predecessorByRef(r)).filter((p): p is PredecessorLike => p?.merge_conflict === true)
-  if (conflicted.length > 0) {
-    return {
-      kind: 'merge_conflict', label: '선행 머지 충돌',
-      text: `선행 ${conflicted.map(p => p.code).join(', ')} 가 개발 브랜치와 충돌해 머지 대기 중입니다. 해소되면 자동으로 착수합니다.`,
     }
   }
   return {

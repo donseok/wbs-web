@@ -166,7 +166,7 @@ if [ "$new_fail" -eq 0 ] && [ "$total" -ge "$need" ]; then echo "GATE_PASS need=
 
 `{TASK_DIR}/.result` 에 한 줄을 쓰고(디렉터리가 없으면 만든다) 같은 줄을 마지막 응답으로도 출력한다. 형식은
 `worker-prompt.md` 「7」 과 같다: `{TSK} {ID8} <branch|-> <head|-> <done_exit|-> <status> <사유>`. 해소 워커는
-`branch` 칸에 `-`, `head` 칸에 push 한 머지 커밋의 짧은 sha(없으면 `-`), `done_exit` 칸에 `-` 를 쓴다. `branch` 칸에
+`branch` 칸에 `-`, `head` 칸에 push 한 머지 커밋의 **전체 sha**(`RESOLVE_PUSHED` 의 첫 값, 없으면 `-`), `done_exit` 칸에 `-` 를 쓴다. `branch` 칸에
 특별한 값을 넣지 않는 이유가 있다. 팀장 결과 표가 그 칸을 브랜치 이름으로 읽기 때문이다. 해소 결과인지는 슬롯의
 `spawn_kind` 로 가른다.
 
