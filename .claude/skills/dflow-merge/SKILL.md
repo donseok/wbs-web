@@ -54,9 +54,10 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
        done
      done
      ```
-     `tasks-dirs` 가 실패하거나(exit≠0) 빈 값을 내면 pathspec 을 하나도 못 만들어 `$dirs` 가 빈 줄 하나가
-     되고, 그러면 `"$d/*/state.json"` 이 `"/*/state.json"` 으로 풀려 이 프로젝트 밖의 `state.json` 까지 후보로
-     잡는 사고로 번진다 — 그래서 `rc`·빈 값을 먼저 확인하고 실패하면 후보 식별을 **하지 않고** "건너뜀(tasks-dirs
+     `tasks-dirs` 가 실패하거나(exit≠0) 빈 값을 내면 `$dirs` 가 빈 줄 하나가 되어 `"$d/*/state.json"` 이
+     `"/*/state.json"` 으로 풀린다. git 은 이런 pathspec 을 리포 바깥 경로로 보고 거부한다("outside
+     repository") — `git diff` 자체가 실패해 원격 후보를 **조용히 0건**으로 만든다(오류가 파이프 뒤로 사라져
+     눈에 띄지 않는다). 그래서 `rc`·빈 값을 먼저 확인하고 실패하면 후보 식별을 **하지 않고** "건너뜀(tasks-dirs
      조회 실패)" 로 보고한 뒤 멈춘다.
      여섯째 칸(`$p`)은 그 state.json 의 정확한 경로다. 4번 머지 단계가 이 값을 `<후보 state.json 경로>` 로
      그대로 쓴다 — 다시 `dflow.sh taskdir` 를 부르지 않는다.
@@ -247,7 +248,8 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    git fetch origin && git worktree add --detach "$W" origin/<기본브랜치> || echo MERGE_WT_FAILED
    ```
    - `MERGE_WT_FAILED` 면 이번 스윕은 아무것도 머지하지 않고 "머지 워크트리 생성 실패" 로 보고한다.
-   - 후보마다 위 1~5를 `<W>` 에서 한다. 달라지는 것은 셋뿐이다.
+   - 후보마다 위 1~5를 `<W>` 에서 한다. 달라지는 것은 셋뿐이다. 설정 블록과 후보 처리를 같은 셸 세션에서
+     이어 돈다면 `$W` 를 그대로 쓰고, 별도 호출로 나누면 그 블록이 만든 실제 경로를 `<W>` 자리에 옮겨 적는다.
      1. 1단계는 `git -C "$W" fetch origin && git -C "$W" switch --detach origin/<기본브랜치>` 다. `pull` 대신
         detach 하는 이유: `<W>` 는 브랜치를 잡지 않는다. 그 뒤 `git -C "$W" rev-parse HEAD` 를 머지 직전 HEAD 로 기록한다.
      2. 4단계의 state.json 은 `<W>/<후보 state.json 경로>` 를 고쳐 `<W>` 에서 커밋한다(같은 경로 재사용 규칙).

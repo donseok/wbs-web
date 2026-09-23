@@ -1093,21 +1093,25 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
    띄우기 위해서다.
 2. 슬롯 번호를 정하고(「팀장 상태」 의 발급 규칙) `AGENT_ID = <신원>/<host>/w<slot>` 을 만든다.
 3. TSK 는 show 필터의 `ref`(`.order.item.external_ref`)에서 마지막 `/` 뒤, order 는 `.order.id` 다.
+   **4번은 별도 Bash 호출이라 이 줄의 셸 변수를 못 본다 — 그래서 값을 이 자리에서 출력하고, 그 출력을
+   4번 포인터에 그대로 옮겨 쓴다.**
    ```bash
    TASK_DIR=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$order"); rc=$?
+   echo "TASK_DIR=${TASK_DIR:-없음} rc=$rc"
    ```
    로 이 작업의 작업 폴더(`<TASKS>/<TSK>`)를 구한다. `taskdir` 는 순번·id8·전체 UUID 만 받고 `external_ref` 는
    모른다 — `ref` 가 아니라 `order`(전체 UUID, id8 도 된다)를 넘긴다. `rc` 가 0 이 아니면(exit 2
    `PROJECT_MISMATCH`·`AMBIGUOUS_DOCS_DIR`, exit 6 `NO_REF`) **spawn 하지 않는다**: 그 id8 을 일시 제외에 넣고
    사유 `작업 폴더 해석 실패(exit $rc)` 를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴 뒤 다음
-   후보로 간다(위 poll exit 0 갈래의 spec 부재·TSK 없음과 같은 처리).
+   후보로 간다(위 poll exit 0 갈래의 spec 부재·TSK 없음과 같은 처리). 성공하면 위 출력의 `TASK_DIR` 값을
+   4번 포인터의 `TASK_DIR=` 자리에 그대로 옮겨 쓴다.
 4. 포인터 **한 줄**을 만든다. 백엔드에는 워커 프롬프트 전문이 아니라 이 포인터를 넘기고, 워커가
    `references/worker-prompt.md` 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다.
    ```
    <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<작업 폴더>
    ```
    - `DEV_BRANCH` 는 전제 검사의 `base` 다. 워커가 detach 된 옛 커밋에서 다른 값을 읽지 않도록 팀장이 넘긴다.
-   - `TASK_DIR` 은 3번에서 구한 값이다. 워커는 이 값을 다시 해석하지 않는다 — detach 된 옛 커밋에는
+   - `TASK_DIR` 은 3번이 출력한 값이다. 워커는 이 값을 다시 해석하지 않는다 — detach 된 옛 커밋에는
      `.dflow.local` 의 `project_map` 이 없거나 지금과 달라, 워커가 스스로 구하면 팀장이 구한 값과 다른
      `TASK_DIR` 이 나올 수 있기 때문이다(`DEV_BRANCH` 와 같은 이유).
    - 전문을 셸 인자로 넘기면 백틱·따옴표·여러 줄이 섞여 깨진다(자동 제출은 한 줄에서 확인됐다).
@@ -1199,18 +1203,22 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
      `.dflow.local`(레거시 `.env`)·스킬 링크는 새 작업 spawn(5번)과 같게 건다.
 4. **`TASK_DIR` 을 구한다.** 슬롯을 정하고 `.dflow-agent` 를 되돌리기(5항) **전에** 한다 — 실패하면 이 재개
    자체를 접어야 하는데, 이미 되돌린 `.dflow-agent` 는 그 워크트리를 `parked` 아닌 상태로 남겨 다음 기상의
-   고아 스캔·전제 검사가 살아 있는 팀원으로 오판하게 만든다. 옛 `.dflow-prompt` 의 `TASK_DIR=` 토큰을 그대로
-   쓴다(5항의 슬롯 추출과 같은 sed 방식):
+   고아 스캔·전제 검사가 살아 있는 팀원으로 오판하게 만든다. **6·8항은 별도 Bash 호출이라 여기서 구한 값을
+   못 보므로, 아래 값을 출력해 그 출력을 6·8항에 그대로 옮겨 쓴다.** 옛 `.dflow-prompt` 의 `TASK_DIR=` 토큰을
+   그대로 쓴다(5항의 슬롯 추출과 같은 sed 방식):
    ```bash
    task_dir=$(sed -n 's/.*TASK_DIR=\([^ ]*\).*/\1/p' <워크트리>/.dflow-prompt 2>/dev/null | head -n 1)
+   echo "task_dir=${task_dir:-없음}"
    ```
    비어 있으면(`TASK_DIR` 이전에 만들어진 옛 포인터) 다시 구한다:
    ```bash
    task_dir=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$id8"); rc=$?
+   echo "task_dir=${task_dir:-없음} rc=$rc"
    ```
    `rc` 가 0 이 아니면(위 항목 1 과 같은 실패 갈래) **재개하지 않는다** — `.dflow-agent` 는 그대로 두고(아직
    건드리지 않았다), 그 id8 을 일시 제외에 넣고 사유 `작업 폴더 해석 실패(exit $rc)` 를 보고하며
-   `team.result`(slot `-`, status `skipped`)를 남긴 뒤 다음 후보로 간다.
+   `team.result`(slot `-`, status `skipped`)를 남긴 뒤 다음 후보로 간다. 성공하면 위 출력의 작업 폴더 값을
+   아래 `<4항에서 출력된 작업 폴더>` 자리에 그대로 옮겨 쓴다.
 5. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.** 슬롯 번호는 `.dflow-prompt` 의 `AGENT_ID=` 에 박힌 번호를
    먼저 쓰고, 그 번호가 이미 찼거나 파일이 없으면 「팀장 상태」 의 발급 규칙으로 새로 낸다.
    ```bash
@@ -1223,13 +1231,13 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
    만들어진 옛 Orca 워크트리뿐이며, 그때는 새로 발급한다.
    **이 되돌리기를 워커가 뜨기 전에 한다.** `dflow.sh heartbeat` 는 값이 `*/parked` 면 exit 2 로 거부하므로,
    `parked` 인 채로 띄우면 그 팀원은 좌석표에 진척을 하나도 알리지 못한다.
-6. **포인터를 다시 쓴다.** 5번 4항의 형식 그대로이며 `AGENT_ID` 는 5항에서 정한 슬롯, `TASK_DIR` 은 4항에서
-   구한 `$task_dir` 이다. 옛 파일을 그대로 두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의 `AGENT_ID` 와
-   어긋나 팀원이 남의 좌석으로 heartbeat 를 보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
+6. **포인터를 다시 쓴다.** 5번 4항의 형식 그대로이며 `AGENT_ID` 는 5항에서 정한 슬롯, `TASK_DIR` 은
+   `<4항에서 출력된 작업 폴더>` 다. 옛 파일을 그대로 두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의
+   `AGENT_ID` 와 어긋나 팀원이 남의 좌석으로 heartbeat 를 보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
 7. **띄운다.** 백엔드별 명령은 5번 5항과 같다. tmux 는 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
    워크트리에는 없고, 남아 있던 것은 옛 모델 인자를 달고 있다) pane id 를 `.dflow-pane` 에 덮어쓴다. **폴더 신뢰 확인 루프를 반드시 돈다.** 넘기면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가
    통째로 논다. Orca 는 포인터를 `--prompt` 로 넘겨 기존 워크트리에 탭을 다시 연다.
-8. **옛 `.result` 를 지운다**(`rm -f <워크트리>/$task_dir/.result`). 이유: `failed…` 로 끝난 워크트리를
+8. **옛 `.result` 를 지운다**(`rm -f <워크트리>/<4항에서 출력된 작업 폴더>/.result`). 이유: `failed…` 로 끝난 워크트리를
    `--resume` 으로 이어받으면 옛 결과 줄이 그대로 남아 있는데, 재개한 팀원이 결과를 쓰기 전에 pane 이 한 번
    흔들리면 `PANE_DEAD` 폴백이 그 옛 줄을 읽어 방금 띄운 작업을 다시 실패로 판정한다. 해시가 같아 중복
    처리는 막히지만, 그 슬롯이 빈 것으로 돌아가 같은 작업이 두 번 뜬다.

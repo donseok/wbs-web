@@ -60,4 +60,21 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(unparkIdx).toBeGreaterThan(-1)
     expect(taskDirIdx).toBeLessThan(unparkIdx)
   })
+  it('작업 폴더 값이 별도 Bash 호출을 건너 셸 변수로 전달되지 않는다(5·5-1 은 출력값을 플레이스홀더로 옮겨 쓴다)', () => {
+    const t = read('dflow-team/SKILL.md')
+    // 「5. 팀원 spawn」: 3번(TASK_DIR 을 구하는 곳) 이후, 4번 포인터부터는 $TASK_DIR 을 다시 쓰지 않는다
+    const spawnStart = t.indexOf('## 5. 팀원 spawn')
+    const spawnStep4 = t.indexOf('4. 포인터 **한 줄**을 만든다', spawnStart)
+    const spawnEnd = t.indexOf('### 5-1. 재개 spawn')
+    expect(spawnStep4).toBeGreaterThan(-1)
+    expect(t.slice(spawnStep4, spawnEnd)).not.toMatch(/\$TASK_DIR\b/)
+    expect(t.slice(spawnStep4, spawnEnd)).toContain('TASK_DIR=<작업 폴더>')
+
+    // 「5-1. 재개 spawn」: 4번(TASK_DIR 을 구하는 곳) 이후, 5번부터는 $task_dir 을 다시 쓰지 않는다
+    const resumeStep5 = t.indexOf('5. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.**', spawnEnd)
+    const resumeEnd = t.indexOf('## 6. blocked')
+    expect(resumeStep5).toBeGreaterThan(-1)
+    expect(t.slice(resumeStep5, resumeEnd)).not.toMatch(/\$task_dir\b/)
+    expect(t.slice(resumeStep5, resumeEnd)).toContain('<4항에서 출력된 작업 폴더>')
+  })
 })
