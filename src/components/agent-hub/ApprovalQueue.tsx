@@ -6,6 +6,7 @@ import { useState } from 'react'
 import type { AgentHub, HubQueueEntry } from '@/lib/domain/agentHub'
 import { runHubProcessOp, type HubProcessOp } from '@/app/actions/agentHub'
 import { NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE } from './labels'
+import { DecisionList } from './DecisionList'
 
 type Props = {
   queue: HubQueueEntry[]
@@ -18,6 +19,8 @@ type Props = {
 }
 
 const when = (iso: string) => new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })
+/** 결정이 딸린 보고의 반려 안내 — 결정별 반려(스펙 §11)의 토대. 가드·동작은 바꾸지 않는다. */
+const REJECT_DECISION_PLACEHOLDER = '반려 사유 — 특정 결정이면 번호를 적어 주세요(예: D2 는 선택지 2로)'
 
 function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEntry } & Omit<Props, 'queue'>) {
   const [busy, setBusy] = useState(false)
@@ -40,6 +43,7 @@ function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEnt
     } finally { setBusy(false) }
   }
 
+  const decisionN = q.decisions.state === 'ok' ? q.decisions.items.length : 0
   return (
     <li data-queue-card={q.orderId} className="rounded-lg border border-line bg-surface p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -47,9 +51,17 @@ function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEnt
           <span className="font-mono text-[11px] text-ink-muted">{q.code}</span>
           <span className="ml-2 text-sm font-semibold text-ink">{q.name}</span>
         </div>
-        <span className="text-[11px] text-ink-subtle">{q.agent} · {when(q.reportedAt)} · {q.percent}%</span>
+        <span className="flex items-center gap-1.5">
+          {decisionN > 0 && (
+            <span data-queue-decision-chip title="워커가 스스로 고른 결정 — 아래 목록을 확인하세요"
+              className="rounded-full bg-accent-warning/15 px-1.5 text-[10px] font-semibold text-accent-warning">결정 {decisionN}</span>
+          )}
+          <span className="text-[11px] text-ink-subtle">{q.agent} · {when(q.reportedAt)} · {q.percent}%</span>
+        </span>
       </div>
       {q.summary && <p className="mt-1 whitespace-pre-wrap text-xs text-ink">{q.summary}</p>}
+      {/* 승인자의 일이 이것을 읽는 것이라 접지 않는다(과제 C). */}
+      <DecisionList decisions={q.decisions} />
       {q.links.length > 0 && (
         <ul className="mt-1 flex flex-wrap gap-2 text-[11px]">
           {q.links.map((l, i) => <li key={i}><a href={l.url} target="_blank" rel="noreferrer" className="text-brand underline-offset-2 hover:underline">{l.label ?? l.url}</a></li>)}
@@ -71,7 +83,7 @@ function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEnt
           {!(isAdmin || q.canManage) && <p className="text-[10px] text-ink-subtle">승인은 관리자가 합니다. 담당자는 반려로 자기 보고를 물릴 수 있습니다.</p>}
           {rejecting && (
             <div className="flex flex-col gap-1">
-              <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={NOTE_PLACEHOLDER.reject} className="app-input w-full text-xs" />
+              <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={decisionN > 0 ? REJECT_DECISION_PLACEHOLDER : NOTE_PLACEHOLDER.reject} className="app-input w-full text-xs" />
               <div>
                 <button type="button" data-queue-reject disabled={busy || note.trim() === ''}
                   onClick={() => { void run({ kind: 'reject', orderId: q.orderId, note: note.trim() }) }} className="btn btn-ghost h-8 px-3 text-xs">반려 확정</button>
