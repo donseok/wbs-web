@@ -26,13 +26,13 @@
 - 가상 오피스에서 에이전트 에서 바로 승인, 승인취소, 반려, 재작업요청, 회수(실행 중지인가?) 가능하도록 하자. 왜냐하면 WBS 에 들어가서 직접하기 너무 번거롭다. 그냥 가상 오피스에서 에이전트 실행과정을 모니터링 하면서 바로 처리 할 수 있는 것이 좋겠다. (완료)
 - 에이전트 보기 빈 팀원 자리를 소품으로도 표현(보류, 2026-09-19. "부재 사유 말풍선"은 staging 적용됨)
   - 빈 의자 위·옆에 부재 사유에 맞는 소품을 얹는다: 김 나는 커피 컵, 담배 연기, 의자에 걸친 재킷, "회의 중" 팻말, 택배 상자, 도시락 봉지, 포스트잇 "곧 옴".
-  - 사유 데이터는 말풍선 안의 { id, text } 에 prop 필드만 더한다. 소품이 붙으니 사유 교체 주기는 길게(5~15분). 잡담을 끄면 소품도 숨기고 빈 의자로 돌아간다.
+  - 사유 데이터는 말풍선 안의 { id, text } 에 prop 필드만 더한다. 소품이 붙으니 사유 교체 주기는 길게(5\~15분). 잡담을 끄면 소품도 숨기고 빈 의자로 돌아간다.
   - 새 이미지가 필요하다. 원화 시트(강아지·고양이·남자·봇·여자.png)에는 빈 의자 3장(대기·오프라인·완료)뿐이고 소품이 없다.
-    - 방법 1: scripts/sprites/props.py 픽셀 맵으로 소품을 그려 animate.py 로 empty_<소품>.png 굽기. cup·STEAM 은 재사용, 재킷·상자·팻말·포스트잇·봉지는 새로. empty.png 는 원화에서 잘라 낸 그림이라 화풍이 어긋날 수 있어 눈으로 확인해야 한다.
+    - 방법 1: scripts/sprites/props.py 픽셀 맵으로 소품을 그려 animate.py 로 empty\_&lt;소품&gt;.png 굽기. cup·STEAM 은 재사용, 재킷·상자·팻말·포스트잇·봉지는 새로. empty.png 는 원화에서 잘라 낸 그림이라 화풍이 어긋날 수 있어 눈으로 확인해야 한다.
     - 방법 2: 이미지 생성으로 소품이 놓인 빈자리 시트를 새로 뽑아 잘라 정렬(화풍은 맞지만 품이 크다).
     - 방법 3(시험용): 이모지나 lucide 아이콘을 CSS 로 겹치기. 이미지가 필요 없지만 픽셀 그림과 화풍이 다르고 OS 마다 이모지 모양이 다르다.
     - 권장 순서: 방법 3 으로 싸게 시험하고 반응이 좋으면 방법 1·2 로 그림을 만든다.
-  - 바꿀 곳: props.py·animate.py·public/sprites/empty_*.png, Sprite.tsx(POSE 가명 또는 src 선택), seatState.ts(AnimName), RosterBoard.tsx.
+  - 바꿀 곳: props.py·animate.py·public/sprites/empty\_\*.png, Sprite.tsx(POSE 가명 또는 src 선택), seatState.ts(AnimName), RosterBoard.tsx.
 
 ## 위임/승인
 
@@ -46,9 +46,11 @@
 
 ## 에이전트 스킬
 
-- 승인 처리
-  - 승인 없이 자동으로 머지 하고 진행하는 자율 주행모드
-  - 승인과 머지를 자동으로 하지 않고 확인 후에 하는 수종 주행모드
+- 완전자동/개발자동/수동 필요
+  - 완전자동 : 설계-완료
+  - 개발자동 : 설계는 수동(설계문서가 있어야한다.), 개발만 자동
+  - 수동 : 모두 사람이 명령  / 직접 코딩/LLM  실행 으로 개발
+
 - 팀원(`/dflow-dev --worker`)이 판단 분기마다 `blocked` 로 멈추지 않게 하자. 명백한 기본값이 없어도 합리적인 쪽을 골라 진행하고, 그 결정을 나중에 사람에게 알리는 방식으로 바꾼다.
   - 배경(2026-09-19, mdm-dict-v2 TSK-01-02): spec 제약("판정 로직과 라우트는 넣지 않는다")과 미승인 선행 산출물(decisions.md)의 구현 배정이 충돌해 Design 직후 `blocked` 로 멈췄다. 슬롯이 점유된 채 사람 답을 기다리느라 흐름이 끊겼다.
   - 현재 규칙: worker-prompt.md 「6. 판단 규칙」 이 "기본값이 없으면 blocked" 이다. 이것을 "합리적 선택 + 사후 통지" 로 바꾸고, `blocked` 는 되돌리기 어려운 결정(데이터 삭제·외부 공개·다른 Task 산출물 대폭 수정 등)에만 남긴다.
@@ -62,10 +64,13 @@
     - **머지 쪽에서 풀기**: 스윕이 충돌을 만나면 팀장이 충돌 해소 전용 팀원(또는 원래 워커)을 띄워 main 위로 rebase·해소·전체 시험 통과 뒤 다시 보고하게 한다. 해소 규약(예: "양쪽이 지운 스텁은 모두 지운다", "먼저 들어온 쪽의 등록 방식을 따른다")을 문서화한다.
     - **공회전 막기**: 선행이 서버상 `reached` 여도 main 에 없으면(머지 충돌 대기) 팀장이 사전 검사에서 걸러 후속을 띄우지 않는다. 지금은 워커가 떠야 알게 된다.
     - 충돌 대기 상태를 좌석표·가상오피스에 "머지 충돌" 로 드러내 사람이 바로 알게 한다.
+- 팀원 멈추었을 때 자동 재시작 기능
 
 ## 일반 수정
 
 - wbs 에서 Task 위에 마우스를 올리면 화살표가 잘 보이긴 한데 라인이 겹쳐져 있을 경우 표시가 잘 안난다. 화살표와 함께 각 테스크의 테두리에 표시가 되게 해줘.
+- SM 처리를 위한 WBS [설계](/Users/jji/project/wbs-web/docs/superpowers/specs/2026-09-21-sm-operations-design.md)
+- WBS 넣을때 tasks의 폴더를 미리 다 생성하자. state.json 을 생성해 놓으면 된다.
 
 
 
@@ -87,9 +92,9 @@
   - 변경이력 처음에는 최대 마지막 3개까지만 보이고 나머지는 접혀있는 것이 좋겠어.
   - 명세항목 개선필요 
   - 제일 처음 담당, 계획일정, 가중치, 산출물은 표형태로 단순하게
-  - 담당, 단계는  축약해서 높이를 줄이자.가상오피스 구현 — 정리본 · 스프라이트 참조 이미지 · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13) · ⚠️ 착수 전 남은 확인 사항 필독 · 배경: 자율 러너 설계. **2026-09-14 착수** — 결정 1~3 확정, v1 구현 스펙 2026-09-14-agent-office-v1-design.md(브랜치 `feat/agent-office`, 기점 staging). 좌석 식별 파일은 워크트리 루트 `.dflow-agent`.
-  - 팀장 스킬 /dflow-team 구현 — D'Flow 에서 내게 배정되고 agent 태그가 붙은 ready 작업을 상시 폴링해 팀원 슬롯(기본 3, 상한 4)에 나눠 주고, 끝나면 다음 작업을 보충한다. 팀원은 **자기 서브에이전트를 띄울 수 있는 독립 세션**이며(Orca=pane, 그 밖=에이전트 팀 `isolation: worktree`), 각자 워크트리에서 `/dflow-dev --worker` 를 돈다. 기존 스킬은 수동 동작이 퇴행하지 않는 조건에서 원문도 고친다. 사용법 `/dflow-team [인원] <종료시각> [모델]`. 문서: 스펙 · 계획(Task 1~10, 테스트 71건) · 남은 확인 사항 · 검토 원문 `superpowers/specs/reviews/`. 착수는 명시 지시 대기, 실행은 subagent-driven(계획서 "실행 준비" 의 `feat/dflow-team` 워크트리부터).
-    - [ ] Task 1 `/dflow-dev` 원문 수정(claim 전 detach·exit 4 재시도·Phase 0-가 는 `/dflow-merge` 절차·reported 커밋·`api_base`)과 `--worker` 블록(행 A~H), 보존 테스트
+  - 담당, 단계는  축약해서 높이를 줄이자.가상오피스 구현 — 정리본 · 스프라이트 참조 이미지 · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13) · ⚠️ 착수 전 남은 확인 사항 필독 · 배경: 자율 러너 설계. **2026-09-14 착수** — 결정 1\~3 확정, v1 구현 스펙 2026-09-14-agent-office-v1-design.md(브랜치 `feat/agent-office`, 기점 staging). 좌석 식별 파일은 워크트리 루트 `.dflow-agent`.
+  - 팀장 스킬 /dflow-team 구현 — D'Flow 에서 내게 배정되고 agent 태그가 붙은 ready 작업을 상시 폴링해 팀원 슬롯(기본 3, 상한 4)에 나눠 주고, 끝나면 다음 작업을 보충한다. 팀원은 **자기 서브에이전트를 띄울 수 있는 독립 세션**이며(Orca=pane, 그 밖=에이전트 팀 `isolation: worktree`), 각자 워크트리에서 `/dflow-dev --worker` 를 돈다. 기존 스킬은 수동 동작이 퇴행하지 않는 조건에서 원문도 고친다. 사용법 `/dflow-team [인원] <종료시각> [모델]`. 문서: 스펙 · 계획(Task 1\~10, 테스트 71건) · 남은 확인 사항 · 검토 원문 `superpowers/specs/reviews/`. 착수는 명시 지시 대기, 실행은 subagent-driven(계획서 "실행 준비" 의 `feat/dflow-team` 워크트리부터).
+    - [ ] Task 1 `/dflow-dev` 원문 수정(claim 전 detach·exit 4 재시도·Phase 0-가 는 `/dflow-merge` 절차·reported 커밋·`api_base`)과 `--worker` 블록(행 A\~H), 보존 테스트
     - [ ] Task 2 `/dflow-merge` 원격 후보·보고 분기·충돌 되돌림·push 순서·뒷정리
     - [ ] Task 3 `references/worker-prompt.md` — 격리 확인·부트스트랩·인증 판정·`.result` 계약
     - [ ] Task 4 `references/backends.md`·`events.md` — Orca·에이전트 팀 spawn·정리·이벤트
@@ -100,5 +105,5 @@
     - [ ] Task 9 에이전트 팀 백엔드 리허설과 권한 목록
     - [ ] Task 10 main·staging 머지와 적용 확인(사람 확인 후)
     - [ ] (후속) dev 플러그인(`~/project/dev-plugin`) hooks.json 로드 실패 수정 → tmux pane 백엔드
-    - [ ] (후속) 좌석표 S1 에 `.dflow-agent`→heartbeat_agent, `blocked` 상태, 팀장 STANDBY 신호 반영 요청 (스펙 §9)
+    - [ ] (후속) 좌석표 S1 에 `.dflow-agent`→heartbeat\_agent, `blocked` 상태, 팀장 STANDBY 신호 반영 요청 (스펙 §9)
 
