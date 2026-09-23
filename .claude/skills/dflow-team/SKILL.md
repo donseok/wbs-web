@@ -20,9 +20,9 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 참조: `references/backends.md`(백엔드별 spawn·정리 명령, 차이표, 고아 정리 규칙), `references/worker-prompt.md`
 (팀원 규칙. 팀장은 포인터로 넘기기만 한다), `references/events.md`(events.jsonl 이벤트 표·기록 명령).
 
-이 문서의 `dflow.sh` 는 `.claude/skills/dflow-work/scripts/dflow.sh` 이며, 부를 때마다 `set -a; . ./.env; set +a`
-를 앞에 붙인다. `<기본브랜치>` 는 「1. 시작」 전제 검사가 구한 이름이다(`origin/HEAD` 에서 `origin/` 을 뗀 값, 그 ref
-가 없으면 `git ls-remote --symref origin HEAD` 의 값).
+이 문서의 `dflow.sh` 는 `.claude/skills/dflow-work/scripts/dflow.sh` 이며, `.dflow`·`.dflow.local`(레거시는
+`.env`)을 스스로 읽으므로 접두를 붙이지 않는다. `<기본브랜치>` 는 「1. 시작」 전제 검사가 구한 이름이다(자세한
+정의는 「1. 시작」 첫머리).
 `<MAIN>`·`<MAIN_CHECKOUT>` 은 팀장 체크아웃의 절대경로, `<신원>`·`<host>` 는 「1. 시작」 전제 검사가 만든
 슬러그다.
 
@@ -36,15 +36,17 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 - **`help`**: 인자가 `help`·`--help`·`-h`·`도움말`·`사용법` 중 하나면 `references/help.md` 를 Bash `cat` 으로 읽어
   그대로 보여 주고 **끝낸다.** 전제 검사·잠금·서버 호출을 하지 않는다. 그 파일은 이때만 읽는다. 이유: 사용 안내는
   사람이 요청할 때만 필요하고, 매 실행마다 읽으면 컨텍스트만 차지한다.
-- **키 판정**: `.env` 의 `DFLOW_PATS` 에 토큰이 둘 이상이면 어느 키로 돌지를 시작 전에 정한다. 「1. 시작」 전제 검사
+- **키 판정**: `.dflow.local` 의 `pats`(레거시 `.env` 의 `DFLOW_PATS`)에 토큰이 둘 이상이면 어느 키로 돌지를 시작
+  전에 정한다. 「1. 시작」 전제 검사
   **전**, 다른 인자의 질문보다 **먼저** 한다. 이유: 잠금을 쥔 채 사람의 답을 기다리지 않아야 하고, WP 범위
-  선택지를 뽑는 `list` 도 전제 검사의 `me` 도 고른 키로 돌아야 한다. 정본은 `.env` 의 `DFLOW_AS=<prefix>` 이며
-  `dflow.sh`·`poll.sh`·팀원(`.env` 심링크)·heartbeat 훅이 모두 그 값을 따른다. 실행마다 골라 워커에 넘기지 않는
-  이유: 훅과 `/dflow-dev` 의 하위 Phase 는 그 값을 받지 못해 팀장과 팀원의 신원이 갈라진다. `.env` 는 팀장
+  선택지를 뽑는 `list` 도 전제 검사의 `me` 도 고른 키로 돌아야 한다. 정본은 `.dflow.local` 의 `as=<prefix>`(레거시
+  `.env` 의 `DFLOW_AS`)이며
+  `dflow.sh`·`poll.sh`·팀원(`.dflow.local` 심링크)·heartbeat 훅이 모두 그 값을 따른다. 실행마다 골라 워커에 넘기지 않는
+  이유: 훅과 `/dflow-dev` 의 하위 Phase 는 그 값을 받지 못해 팀장과 팀원의 신원이 갈라진다. `.dflow.local` 은 팀장
   체크아웃마다(주 체크아웃, 그리고 「두 번째 팀장」 의 팀장 워크트리마다) **워크트리마다 따로** 있으므로, 키도
-  워크트리마다 정한다. 팀원의 `.env` 링크는 자기 팀장의 체크아웃을 가리키므로 팀원은 자기 팀장의 키를 따른다.
+  워크트리마다 정한다. 팀원의 `.dflow.local` 링크는 자기 팀장의 체크아웃을 가리키므로 팀원은 자기 팀장의 키를 따른다.
   ```bash
-  (set -a; . ./.env; set +a; echo "DFLOW_AS=${DFLOW_AS:-없음}"; .claude/skills/dflow-work/scripts/dflow.sh profiles) \
+  (echo "as=$(.claude/skills/dflow-work/scripts/dflow.sh config as)"; .claude/skills/dflow-work/scripts/dflow.sh profiles) \
     | .claude/skills/dflow-team/scripts/live-leads.sh --mark
   ```
   토큰마다 한 줄 JSON 이 나온다(`n`·`prefix`·`name`·`email`·`who`·`expires_at`·`projects`·`bound`·`selected`·`in_use`,
@@ -58,7 +60,7 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 
   | 상태 | 처리 |
   |---|---|
-  | `DFLOW_AS` 가 있다(값이 비어 있지 않다) | 묻지 않는다. `selected` 가 `true` 인 행이 없으면 `KEY_NOT_FOUND`, 그 행의 `in_use` 가 `null` 이 아니면 `KEY_IN_USE` 로 끝낸다 |
+  | `as`(레거시 `DFLOW_AS`) 가 있다(값이 비어 있지 않다) | 묻지 않는다. `selected` 가 `true` 인 행이 없으면 `KEY_NOT_FOUND`, 그 행의 `in_use` 가 `null` 이 아니면 `KEY_IN_USE` 로 끝낸다 |
   | 없고 토큰이 1개 | 그 행의 `in_use` 가 `null` 이 아니면 `KEY_IN_USE` 로 끝내고, 아니면 그대로 간다 |
   | 없고 토큰이 2개 이상 | `error` 가 없고 `bound` 가 `true` 이고 `in_use` 가 `null` 인 행이 후보다 |
   | → 후보 0개 | `bound` 가 `true` 인 행이 하나도 없으면 `NO_KEY_FOR_PROJECT`, 있는데 모두 `in_use` 면 `NO_FREE_KEY` 로 끝낸다 |
@@ -72,24 +74,34 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
     기본값이 없다.
   - 키를 묻는 호출에서는 WP 범위 선택지를 서버에서 뽑지 않고 `전체 (기본)` 과 "Other 로 직접 적는다" 만 둔다. 이유:
     그 목록은 고른 키로 조회해야 하는데, 키는 같은 호출의 답으로 정해진다.
-  - 자동 선택이든 답이든, 고른 prefix 를 `.env` 끝에 더하고 한 줄 보고한다. 자동 선택한 키가 첫 토큰이어도
-    더한다. 이유: 나중에 토큰을 더하거나 순서를 바꿔도 이 리포의 키가 바뀌지 않는다.
+  - 자동 선택이든 답이든, 고른 prefix 를 `.dflow.local` 끝에 더하고 한 줄 보고한다. 자동 선택한 키가 첫 토큰이어도
+    더한다. 이유: 나중에 토큰을 더하거나 순서를 바꿔도 이 리포의 키가 바뀌지 않는다. `.dflow.local` 이 아직 없으면
+    새로 만든다. 새 방식이 아닌 리포(레거시)는 `.env` 에 `DFLOW_AS` 로 적는다.
     ```bash
-    printf '\nDFLOW_AS=%s\n' '<prefix>' >> .env
+    if [ "$(.claude/skills/dflow-work/scripts/dflow.sh config --source | sed -n 's/^mode=//p')" = new ]; then
+      printf '\nas=%s\n' '<prefix>' >> .dflow.local
+    else
+      printf '\nDFLOW_AS=%s\n' '<prefix>' >> .env
+    fi
     ```
-    보고: "키: <이름> (<email>, <prefix>). `.env` 에 `DFLOW_AS` 로 저장했습니다. 바꾸려면 그 줄을 고치십시오."
-    `.env` 는 gitignore 대상이라 전제 검사의 `DIRTY` 에 걸리지 않는다.
-  - `KEY_NOT_FOUND`: "`.env` 의 `DFLOW_AS` 가 어느 토큰과도 맞지 않는다. `dflow.sh profiles` 의 `prefix` 로 고쳐라" 와
-    profiles 출력을 표로 내고 끝낸다. `DFLOW_AS` 는 prefix 만 받는다(이메일·이름 불가). 훅이 네트워크 없이 같은 키를
+    보고: "키: <이름> (<email>, <prefix>). `.dflow.local` 에 `as` 로 저장했습니다(레거시는 `.env` 의 `DFLOW_AS`).
+    바꾸려면 그 줄을 고치십시오." `.dflow.local`(레거시 `.env`)은 gitignore 대상이라 전제 검사의 `DIRTY` 에 걸리지
+    않는다.
+  - `KEY_NOT_FOUND`: "`.dflow.local` 의 `as`(레거시 `.env` 의 `DFLOW_AS`)가 어느 토큰과도 맞지 않는다. `dflow.sh
+    profiles` 의 `prefix` 로 고쳐라" 와
+    profiles 출력을 표로 내고 끝낸다. `as`·`DFLOW_AS` 는 prefix 만 받는다(이메일·이름 불가). 훅이 네트워크 없이 같은 키를
     골라야 하기 때문이다.
   - `KEY_IN_USE`: "이 키의 신원(`<who>`)은 `<in_use 경로>` 의 팀장이 쓰고 있다. 같은 신원으로는 팀장을 둘 띄울 수
-    없다(`SAME_IDENTITY_LEAD`)" 와 profiles 출력을 표로 내고 끝낸다. `DFLOW_AS` 가 있었다면 "이 워크트리의 `.env` 에서
-    `DFLOW_AS` 줄을 지우고 다시 실행하면 남은 키에서 고른다" 를 덧붙인다. 다른 키로 **자동으로 바꾸지 않는다.** 사람이
-    적어 둔 `DFLOW_AS` 를 조용히 무시하면 의도한 계정이 아닌 신원으로 작업이 claim 된다.
+    없다(`SAME_IDENTITY_LEAD`)" 와 profiles 출력을 표로 내고 끝낸다. `as`(레거시 `DFLOW_AS`)가 있었다면 "이
+    워크트리의 `.dflow.local`(레거시 `.env`)에서 그
+    줄을 지우고 다시 실행하면 남은 키에서 고른다" 를 덧붙인다. 다른 키로 **자동으로 바꾸지 않는다.** 사람이
+    적어 둔 값을 조용히 무시하면 의도한 계정이 아닌 신원으로 작업이 claim 된다.
   - `NO_FREE_KEY`: "이 리포의 프로젝트에 속한 키가 모두 다른 워크트리의 팀장이 쓰는 신원이다. 다른 계정의 PAT 를 이
-    워크트리의 `.env` 의 `DFLOW_PATS` 에 더하거나, 그 팀장에 인원과 WP 범위를 더 주어라" 와 profiles 출력을 표로 내고
+    워크트리의 `.dflow.local`(레거시 `.env`)의 `pats`(레거시 `DFLOW_PATS`)에 더하거나, 그 팀장에 인원과 WP 범위를 더
+    주어라" 와 profiles 출력을 표로 내고
     끝낸다.
-  - `NO_KEY_FOR_PROJECT`: "이 리포의 D'Flow 프로젝트에 속한 키가 `.env` 에 없다" 와 profiles 출력을 표로 내고 끝낸다.
+  - `NO_KEY_FOR_PROJECT`: "이 리포의 D'Flow 프로젝트에 속한 키가 `.dflow.local`(레거시 `.env`)에 없다" 와 profiles
+    출력을 표로 내고 끝낸다.
     `error` 가 `auth` 인 행은 "폐기·만료된 키", `unreachable` 인 행은 "서버에 닿지 못함" 으로 적는다. 조회 실패를
     후보 없음으로 뭉개지 않기 위해서다.
   - 프로필 행이 하나도 나오지 않으면 `profiles` 가 실패한 것이다(파이프 뒤라 종료 코드는 보이지 않는다). 그 stderr 를
@@ -172,15 +184,16 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 - poll 조회 주기는 180초(3분)로 고정하고, 일시 제외는 `--recheck-cycles 10`(10주기 = 30분)으로 유지한다. 이유: 조회는
   셸 프로세스의 `curl` 이라 토큰을 쓰지 않으므로 발견만 빨라진다. 주기만 줄이면 일시 제외가 빨리 풀려 팀장 기상(토큰)이
   늘므로, 주기 수를 함께 늘려 유지 시간을 30분으로 둔다.
-- **자동 머지 `DFLOW_AUTOMERGE=1`**(`.env`, 기본 꺼짐): 켜면 팀원이 완료 보고(`done`)를 하는 즉시 팀장이 그
+- **자동 머지 `automerge=1`**(`.dflow.local`, 개인 설정, 기본 0. 레거시는 `.env` 의 `DFLOW_AUTOMERGE=1`): 켜면
+  팀원이 완료 보고(`done`)를 하는 즉시 팀장이 그
   agent 브랜치를 기본 브랜치에 머지하고 다음 Task 를 착수한다. **승인은 사후 확인이다.** 스윕이 `/dflow-merge --on-report`
   로 돌며(「4. 승인 스윕」), 승인 전에 머지한 작업은 state.json 에 `phase: "merged"` 와 `unapproved: true` 를 남긴다.
   나중에 사람이 승인하면 다음 스윕이 표식만 지우고, 반려하면 "반려(머지됨)" 으로 보고한다(되돌리기는 사람이 고른다).
   꺼져 있으면 종전대로 approved 만 머지하며, 승인 대기인 선행의 후속은 승인·머지 뒤에야 풀린다.
-  인자가 아니라 `.env` 로 받는 이유: 컨텍스트 압축 뒤에도 스윕마다 같은 값을 다시 읽어야 하고, 리포마다 정하는
+  인자가 아니라 설정으로 받는 이유: 컨텍스트 압축 뒤에도 스윕마다 같은 값을 다시 읽어야 하고, 사람마다 정하는
   운영 정책이라 실행마다 다르게 줄 일이 아니다. 값은 스윕마다 아래로 읽는다.
   ```bash
-  (set -a; . ./.env; set +a; [ "${DFLOW_AUTOMERGE:-}" = 1 ] && echo AUTOMERGE_ON || echo AUTOMERGE_OFF)
+  [ "$(.claude/skills/dflow-work/scripts/dflow.sh config automerge)" = 1 ] && echo AUTOMERGE_ON || echo AUTOMERGE_OFF
   ```
   켜는 이유: 의존 사슬이 있는 WBS 에서 선행이 승인될 때까지 후속이 착수하지 못하면, 사람이 Task 마다 승인해야
   진척된다(2026-09-19 mdm-dict-v2 실측: 팀원 4명 중 3명이 `skipped 선행 승인 대기`). 대가는 사람이 보기 전에
@@ -300,7 +313,7 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
      ```bash
      w='<워크트리>'; id8='<id8>'
      br=$(git -C "$w" branch --show-current)
-     (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show "$id8") \
+     (.claude/skills/dflow-work/scripts/dflow.sh show "$id8") \
        | jq -c --arg h 'claude-<host>' '.order | {status, mine,
            same_host: (((.claimed_by // "") | ascii_downcase) == $h)}'
      jq -r --arg a '<신원>/<host>/lead' --arg r '<MAIN>' --arg i "$id8" \
@@ -352,24 +365,26 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 ```bash
 .claude/skills/dflow-team/scripts/lead-worktree.sh <이름>
 ```
-- 스크립트는 `<주 체크아웃>/.claude/worktrees/lead-<이름>` 을 `origin/<기본브랜치>` 에서 detached 로 만들고,
-  `.claude/skills` 를 주 체크아웃의 것으로 링크하고, 주 체크아웃의 `.env` 를 **복사**한다. `DFLOW_AS` 줄은 빼고
-  복사하며 값은 출력하지 않는다. 이유: 그 줄은 주 체크아웃 팀장의 키라서, 따라가면 이 워크트리의 키 판정이 묻지
+- 스크립트는 `<주 체크아웃>/.claude/worktrees/lead-<이름>` 을 개발 브랜치(`dflow.sh branch dev`)에서 detached 로
+  만들고, `.claude/skills` 를 주 체크아웃의 것으로 링크한다. 새 방식이면 주 체크아웃의 `.dflow.local` 을 `as`
+  줄을 빼고 복사하고(값은 출력하지 않는다), 커밋되지 않은 `.dflow` 는 링크한다. 레거시는 `.env` 를 `DFLOW_AS` 줄은 빼고
+  복사한다. 줄을 빼는 이유: 그 줄은 주 체크아웃 팀장의 키라서, 따라가면 이 워크트리의 키 판정이 묻지
   않고 같은 신원으로 넘어가 `SAME_IDENTITY_LEAD` 에 걸린다.
 - 사람은 그 워크트리에서 `claude` 를 띄워 `/dflow-team …` 을 실행한다. 키는 그 실행의 키 판정(「인자」)이 정한다.
   다른 워크트리의 팀장이 쓰는 신원을 후보에서 빼고, 남은 키가 하나면 자동으로 고르고 둘 이상이면 물은 뒤 그
-  워크트리의 `.env` 에 `DFLOW_AS` 로 적는다. 미리 정하려면 그 `.env` 에 `DFLOW_AS=<prefix>` 를 직접 적는다.
-- `.env` 를 링크하지 않고 복사하는 이유: 두 팀장이 서로 다른 키를 써야 하는데, 링크하면 한쪽의 키 변경이 도는
-  다른 팀장과 그 팀원에게 번진다. 팀원 워크트리의 `.env` 링크는 팀장 체크아웃(`<MAIN>`)의 것을 가리키므로 두
-  번째 팀장의 팀원은 그 워크트리의 `.env` 를 쓴다.
+  워크트리의 `.dflow.local`(레거시 `.env`)에 `as`(레거시 `DFLOW_AS`)로 적는다. 미리 정하려면 그 파일에
+  `as=<prefix>`(레거시 `DFLOW_AS=<prefix>`)를 직접 적는다.
+- `.dflow.local`(레거시 `.env`)을 링크하지 않고 복사하는 이유: 두 팀장이 서로 다른 키를 써야 하는데, 링크하면
+  한쪽의 키 변경이 도는 다른 팀장과 그 팀원에게 번진다. 팀원 워크트리의 `.dflow.local`(레거시 `.env`) 링크는
+  팀장 체크아웃(`<MAIN>`)의 것을 가리키므로 두 번째 팀장의 팀원은 그 워크트리의 것을 쓴다.
 - 팀장 워크트리에는 `node_modules` 를 설치하지 않는다. 팀장은 테스트를 돌리지 않는다. 팀원은 `/dflow-dev
   --worker` 행 H 가 설치한다.
 - 이 팀장의 `<MAIN>` 은 그 워크트리 경로다. 잠금·종료 파일·poll 디렉터리(`git rev-parse --git-path`)가 워크트리마다
   따로 풀리고, events.jsonl 의 `repo` 도 달라지므로 두 팀장의 상태는 섞이지 않는다. 공유하는 것은
   `info/exclude`(넣는 패턴이 같다)와 로컬 브랜치 저장소, 그리고 `git worktree list` 다.
 - 같은 신원으로는 두 번째 팀장을 띄울 수 없다(`SAME_IDENTITY_LEAD`, 「1. 시작」).
-- 다 쓴 팀장 워크트리는 마감한 뒤 `git worktree remove .claude/worktrees/lead-<이름>` 으로 지운다. `.env` 복사본이
-  미추적 파일이라 거부되면 `--force` 를 붙인다.
+- 다 쓴 팀장 워크트리는 마감한 뒤 `git worktree remove .claude/worktrees/lead-<이름>` 으로 지운다. `.dflow.local`
+  (레거시 `.env`) 복사본이 미추적 파일이라 거부되면 `--force` 를 붙인다.
 
 ## 0. 환경 감지 (시작 맨 처음)
 
@@ -394,6 +409,9 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
 
 ## 1. 시작
 
+이 문서의 `<기본브랜치>` 는 개발 브랜치, 즉 `dflow.sh branch dev` 의 값이다(`.dflow.local` 의 `dev_branch`,
+레거시는 `origin/HEAD`).
+
 1. **전제 검사**: 아래 블록 하나를 한 번의 Bash 호출로 돌린다. 블록은 실패한 항목을 모두 `FAIL …` 로 출력한 뒤
    0 이 아닌 값으로 끝나고, **exit 가 0 이 아니면 아무것도 띄우지 않고 중단·보고한다.** 이유: 실패를 출력만 하는
    검사는 읽고 넘어가면 그대로 진행된다. `<UNTIL>` 은 「인자」 에서 정규화한 종료 시각이다.
@@ -401,18 +419,18 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    fail=0; bad() { echo "FAIL $*"; fail=1; }
    MAIN=$(git rev-parse --show-toplevel); [ -z "$(git rev-parse --show-prefix)" ] || bad NOT_REPO_ROOT
    case "$MAIN" in *' '*) bad SPACE_IN_PATH ;; esac
-   base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); base=${base#origin/}
-   [ -n "$base" ] || base=$(git ls-remote --symref origin HEAD 2>/dev/null | sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p')
+   base=$(.claude/skills/dflow-work/scripts/dflow.sh branch dev) || bad CONFIG
    [ -n "$base" ] || bad NO_DEFAULT_BRANCH
+   [ -z "$base" ] || git rev-parse -q --verify "refs/remotes/origin/$base" >/dev/null || bad "NO_REMOTE_DEV_BRANCH $base"
    cur=$(git branch --show-current)   # detached HEAD 면 빈 값
    [ -n "$base" ] && [ -n "$cur" ] && [ "$cur" != "$base" ] && bad "NOT_DEFAULT_BRANCH $base 또는 detached HEAD 여야 한다"
    for s in dflow-dev dflow-work dflow-poll dflow-merge dflow-team; do [ -e ".claude/skills/$s/SKILL.md" ] || bad "NO_SKILL $s"; done
    grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || bad OLD_DFLOW_DEV
    grep -q 'origin/agent/\*' .claude/skills/dflow-merge/SKILL.md || bad OLD_DFLOW_MERGE
-   test -f .env || bad NO_ENV
-   (set -a; . ./.env; set +a; [ -n "${DFLOW_PROJECT_ID:-}${DFLOW_PROJECT_MAP:-}" ]) || bad "NO_PROJECT .env 에 DFLOW_PROJECT_ID 또는 DFLOW_PROJECT_MAP 을 넣어라"
-   (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor)   # 진단 출력용. 종료 코드로 판정하지 않는다
-   email=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh me | jq -r '.user_email // empty')
+   .claude/skills/dflow-work/scripts/dflow.sh config --source >/dev/null || bad "CONFIG .dflow·.dflow.local 을 확인하라(위 사유 코드)"
+   [ -n "$(.claude/skills/dflow-work/scripts/dflow.sh config projects)" ] || bad "NO_PROJECT .dflow 의 project_id 또는 .dflow.local 의 project_map 을 넣어라"
+   .claude/skills/dflow-work/scripts/dflow.sh doctor   # 진단 출력용. 종료 코드로 판정하지 않는다
+   email=$(.claude/skills/dflow-work/scripts/dflow.sh me | jq -r '.user_email // empty')
    [ -n "$email" ] || bad AUTH
    who=$(printf '%s' "$email" | cut -d@ -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
    host=$(hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
@@ -541,21 +559,28 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      push 하지 않으면 작업트리 검사(`OLD_DFLOW_DEV`)는 통과하고 팀원은 전원 `failed no-worker-flag` 로 끝난다.
      안내에 "킷 커밋을 기본 브랜치에 push 한 뒤 다시 시작하라" 를 넣는다. 심링크 배포 리포는 워커가 메인
      체크아웃의 스킬을 링크하므로 이 검사를 하지 않는다.
-   - `NO_PROJECT`: `.env` 에 리포 ↔ D'Flow 프로젝트 바인딩(`DFLOW_PROJECT_ID` 또는 `DFLOW_PROJECT_MAP`)이 없으면
+   - `NO_PROJECT`: `.dflow` 의 `project_id` 또는 `.dflow.local` 의 `project_map`(레거시 `.env` 의
+     `DFLOW_PROJECT_ID`·`DFLOW_PROJECT_MAP`)에 리포 ↔ D'Flow 프로젝트 바인딩이 없으면
      시작을 거부한다. 이유: 서버의 작업 목록(`/work/mine`)은 PAT 주인이 속한 **모든 프로젝트**의 주문을 돌려준다.
      `dflow.sh list` 가 바인딩으로 거르고(poll·"멈춤" 재구성 모두 이 목록을 쓴다) `dflow.sh claim` 이 바인딩 밖
      주문을 `PROJECT_MISMATCH` 로 거부하는데, 바인딩이 없으면 거를 기준이 없어 다른 프로젝트의 작업을 이 리포에서
      개발하게 된다. 같은 모듈 이름·같은 TSK 번호 체계를 쓰는 프로젝트끼리는 겉으로 드러나지도 않는다.
+   - `CONFIG`: `dflow.sh config --source` 가 실패하면(`.dflow`·`.dflow.local`·레거시 `.env` 어느 것도 읽지 못했거나
+     설정에 문제가 있으면) 시작을 거부한다. `dflow.sh` 가 stderr 에 낸 사유 코드(`NO_LOCAL`·`NO_DFLOW`·
+     `NO_DEV_BRANCH`·`PERSONAL_KEY_IN_DFLOW`)대로 파일을 고친 뒤 다시 시작한다.
    - `SPACE_IN_PATH`: 메인 체크아웃 절대경로에 공백이 있으면 시작을 거부한다. 이유: 포인터 한 줄 형식과
      워커 부트스트랩의 `ln -s` 링크가 공백을 다루지 않는다.
-   - `NO_DEFAULT_BRANCH`·`NOT_DEFAULT_BRANCH`: 기본 브랜치는 `origin/HEAD` 에서 구하고, 그 ref 가 없으면
-     `git ls-remote --symref origin HEAD` 에서 구한다(`origin/HEAD` 는 clone 할 때만 생긴다). 팀장 체크아웃은
-     그 기본 브랜치 위에 있거나 **detached HEAD** 여야 한다. 다른 이름 있는 브랜치면 거부한다. 이유: 기본 브랜치
+   - `NO_DEFAULT_BRANCH`·`NOT_DEFAULT_BRANCH`: 개발 브랜치는 `dflow.sh branch dev` 로 구한다(`.dflow.local` 의
+     `dev_branch`, 레거시는 `origin/HEAD`, 그 ref 가 없으면 `git ls-remote --symref origin HEAD`). 팀장 체크아웃은
+     그 개발 브랜치 위에 있거나 **detached HEAD** 여야 한다. 다른 이름 있는 브랜치면 거부한다. 이유: 개발 브랜치
      위의 팀장은 그 체크아웃에서 머지하고, detached HEAD 인 팀장은 `/dflow-merge` 가 임시 머지 워크트리에서
      머지해 `HEAD:<기본브랜치>` 로 push 한다(「4. 승인 스윕」). 이름 있는 다른 브랜치를 허용하지 않는 이유는 그
      브랜치가 사람의 작업 브랜치일 수 있어, 스윕 뒤 최신으로 다시 detach 하는 일이 그 작업을 흔들기 때문이다.
-     detached HEAD 를 허용하는 이유: 기본 브랜치는 워크트리 하나만 체크아웃할 수 있으므로, 같은 리포에서 두 번째
-     팀장을 링크드 워크트리로 띄우려면 기본 브랜치를 잡지 않아야 한다(「두 번째 팀장」).
+     detached HEAD 를 허용하는 이유: 개발 브랜치는 워크트리 하나만 체크아웃할 수 있으므로, 같은 리포에서 두 번째
+     팀장을 링크드 워크트리로 띄우려면 개발 브랜치를 잡지 않아야 한다(「두 번째 팀장」).
+   - `NO_REMOTE_DEV_BRANCH`: 개발 브랜치를 원격에 먼저 push 하라(`git push -u origin <브랜치>`). 이유: 팀원
+     워크트리와 「4. 승인 스윕」 의 머지는 `origin/<기본브랜치>` 를 기점으로 삼으므로, 로컬에만 있는 개발
+     브랜치로는 그 어느 쪽도 동작하지 않는다.
    - `SAME_IDENTITY_LEAD`: 같은 리포의 다른 워크트리에 잠금 `owner` 가 같은 `<신원>/<host>/lead` 이고 `beat` 가
      살아 있는 팀장이 있으면 거부한다. 잠금은 워크트리마다 따로 생기므로 잠금만으로는 이 경우를 막지 못한다.
      이유: 팀원 재구성과 고아 스캔은 `git worktree list` 로 리포의 모든 워크트리를 보고 `<신원>/<host>/` 접두로
@@ -622,7 +647,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    계보의 워커임이 드러나므로 같은 모호함이 없다. 답을 기다리는 `blocked` 를 빼는 이유: 그 작업은 claimed 이면서 슬롯도
    잡고 있어 재개 대상이 아니다. 그 팀원은 자기 화면에서 답을 기다리는 중이고, 4번이 답 대기 목록을 이어받는다.
    ```bash
-   (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh list --scope claimed) | awk -F'\t' 'NF>=4 && $2=="CL" {print $4}'
+   (.claude/skills/dflow-work/scripts/dflow.sh list --scope claimed) | awk -F'\t' 'NF>=4 && $2=="CL" {print $4}'
    ```
    상태 열이 `CL` 인 행만 센다. 이유: `--scope claimed` 는 보고까지 끝난 `RP`(reported) 행도 돌려주는데, 그 작업은
    승인 대기이지 재개 대상이 아니다.
@@ -652,7 +677,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    마지막 신호 뒤 70분에 꺼지므로 시작과 매 기상마다 보낸다.
    ```bash
    LOCK=$(git rev-parse --git-path dflow-team.lock); lead=$(cut -d' ' -f1 "$LOCK/owner")
-   set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$lead" \
+   .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$lead" \
      --slots <N> --busy <M> --until '<UNTIL_LABEL>' --json || :
    ```
    **절전 방지**: `<UNTIL>` 이 오늘이 아니거나 `none` 이고 `uname -s` 가 `Darwin` 이면, 이어서 아래를 Bash
@@ -666,7 +691,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    4번에서 띄우지 못한 재개 대상에 더해 지금 띄운다. 이유: 이것을 넘기면 사람이 화면에서 누른 요청이 첫
    `TICK`(최대 30분)까지 그대로 놓인다.
    `<N>` 은 「인자」 에서 정한 인원, `<M>` 은 지금 슬롯 표에서 찬 슬롯 수, `<UNTIL_LABEL>` 은 「인자」 의 표시 문자열이다.
-   `--project` 는 넘기지 않는다. `dflow.sh watch` 는 `.env` 에서 export 된 `DFLOW_PROJECT_ID` 를 기본값으로 쓰고,
+   `--project` 는 넘기지 않는다. `dflow.sh watch` 는 설정에서 읽은 `project_id` 를 기본값으로 쓰고,
    `${V:+--project "$V"}` 꼴은 zsh 에서 한 단어로 넘어가 호출이 usage 로 끝나기 때문이다.
    신원은 `$who`·`$host` 를 다시 쓰지 않고 방금 쓴 잠금 `owner` 에서 읽는다. 이 5번이 1번과 다른 Bash 호출이라
    env 가 남아 있지 않기 때문이다.
@@ -683,16 +708,17 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
 ```bash
 mkdir -p "$(git rev-parse --git-path dflow-team-poll)"
 POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
-( cd "$POLL_DIR" && DFLOW_ENV_FILE="<MAIN>/.env" DFLOW_WATCH=0 \
+( cd "$POLL_DIR" && DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0 \
     "<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until '<UNTIL>' --interval 180 --recheck-cycles 10 \
     [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] )
 ```
 대괄호는 선택 플래그 표기이며 실제 명령에는 쓰지 않는다. `<MAIN>` 경로는 따옴표로 감싼다. 경로에 공백이 있으면
-`DFLOW_ENV_FILE` 값이 끊기고 poll.sh 를 찾지 못해 poll 이 곧바로 죽기 때문이다.
+`DFLOW_CONFIG_DIR` 값이 끊기고 poll.sh 를 찾지 못해 poll 이 곧바로 죽기 때문이다.
 - 빈 디렉터리를 cwd 로 두는 이유: 그러면 승인·반려 감지 재료가 없어 poll exit 9·10 이 팀장에게 절대 오지
   않는다. 9·10 감지는 `--exclude` 를 보지 않으므로, 팀장 체크아웃에 수동 마감한 state.json 이 있으면
   재기동마다 즉시 다시 울려 공회전한다. 팀장은 기상마다 승인 스윕을 하므로 9·10 이 필요 없다.
-- `DFLOW_ENV_FILE` 을 주는 이유: poll.sh 는 `.env` 를 `$PWD/.env` 에서 찾는다. dflow.sh 경로는 poll.sh 가 자기
+- `DFLOW_CONFIG_DIR` 을 주는 이유: poll 의 cwd 는 git 작업 트리 밖(`.git/…`)이라 설정 위치를 스스로 찾지
+  못한다. 레거시 리포는 `<MAIN>/.env` 를 읽는다. dflow.sh 경로는 poll.sh 가 자기
   위치로 풀므로 따로 주지 않는다. `git rev-parse --git-path` 는 상대경로를 돌려줄 수 있어 `cd … && pwd` 로
   절대경로를 만든다.
 - `DFLOW_WATCH=0` 을 주는 이유: 팀장이 자기 식별자로 watch 를 이미 보내므로, poll.sh 의 watch 까지 더하면 같은
@@ -797,10 +823,9 @@ LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
 if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
   date +%s > "$LOCK/beat" && { echo LOCK_OK
-    wr=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
+    wr=$(.claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
       --slots <N> --busy <M> --until '<UNTIL_LABEL>' --json) \
-      && ps=$(set -a; . ./.env; set +a; { printf '%s\n' "${DFLOW_PROJECT_ID:-}"
-           printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | sed -n 's/^[^=]*=//p'; } | tr -d ' ' | sed '/^$/d') \
+      && ps=$(.claude/skills/dflow-work/scripts/dflow.sh config projects) \
       && printf '%s' "$wr" | jq -c --arg ps "$ps" '($ps | split("\n")) as $ok
            | {n: (.resume_requests | if . == null then "NULL" else length end),
            err: (.resume_requests_error // "-"),
@@ -870,7 +895,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 
 poll exit 0 의 show 필터:
 ```bash
-(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show <id8>) \
+(.claude/skills/dflow-work/scripts/dflow.sh show <id8>) \
   | jq -c '{order: .order.id, ref: .order.item.external_ref, spec_empty: ((.order.item.spec // "") | length == 0),
             deps_unmet: [.depends_evidence[]? | select(has("reached") and .reached == false) | .external_ref]}'
 ```
@@ -911,7 +936,7 @@ mdm-dict-v2 실측: 한 선행에 걸린 후속 5건). 사유 문자열이 「�
 ```bash
 git -C <워크트리> log -1 --format=%ct                                        # 1. 워크트리가 있으면 HEAD 커밋 시각
 git fetch origin && git log -1 --format=%ct 'origin/agent/<id8>-<slug>'   # 1. 워크트리가 없으면 원격 tip 커밋 시각
-(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show <id8>) | jq -r '[.reports[]?] | last | .created_at // empty'   # 2. 서버 최신 progress
+(.claude/skills/dflow-work/scripts/dflow.sh show <id8>) | jq -r '[.reports[]?] | last | .created_at // empty'   # 2. 서버 최신 progress
 git -C <워크트리> status --porcelain | cksum                                 # 3. 미커밋 변경 목록
 ```
 2번의 show 가 실패하면 증거 없음이 아니라 측정 실패로 기록하고, 그 `TICK` 에서는 2번을 비교에서 뺀다.
@@ -970,9 +995,9 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
 ## 4. 승인 스윕
 
 Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지(`AUTOMERGE_ON`, 「인자」)면 `--on-report` 하나만 붙여
-실행한다. 스윕마다 `.env` 를 다시 읽어 정한다. 후보가 원격 `origin/agent/*` tip 에서도 오므로 팀장
+실행한다. 스윕마다 `.dflow`·`.dflow.local`(레거시 `.env`)을 다시 읽어 정한다. 후보가 원격 `origin/agent/*` tip 에서도 오므로 팀장
 체크아웃의 state.json 유무와 무관하다. 판정은 서버 `show` 로만 하고 approved 만 머지한다. 후보는 state.json 의
-`api_base` 가 팀장의 `DFLOW_API_BASE` 와 같은 것만 받는다. `api_base` 가 없는 로컬 후보는 전제 검사가 시작 전에 막는다(「1. 시작」 `LEGACY_REPORTED`).
+`api_base` 가 팀장의 `api_base` 설정(`.dflow`, 레거시 `DFLOW_API_BASE`)과 같은 것만 받는다. `api_base` 가 없는 로컬 후보는 전제 검사가 시작 전에 막는다(「1. 시작」 `LEGACY_REPORTED`).
 - **반려(머지됨)**: 자동 머지로 이미 기본 브랜치에 들어간 작업이 반려되면 `/dflow-merge` 가 "반려(머지됨)" 과 그 위에
   쌓였을 수 있는 작업 목록을 낸다. 팀장은 "main 에 머지된 반려 작업: <id8> (<review_note>). 그 위에 쌓였을 수 있는
   작업: <id8…>. 되돌리기(`git revert -m 1 <머지 커밋>`)나 수동 `/dflow-dev <id8>` 재작업을 사람이 고른다" 로 보고하고
@@ -1025,8 +1050,9 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
 4. 포인터 **한 줄**을 만든다. 백엔드에는 워커 프롬프트 전문이 아니라 이 포인터를 넘기고, 워커가
    `references/worker-prompt.md` 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다.
    ```
-   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default>
+   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치>
    ```
+   - `DEV_BRANCH` 는 전제 검사의 `base` 다. 워커가 detach 된 옛 커밋에서 다른 값을 읽지 않도록 팀장이 넘긴다.
    - 전문을 셸 인자로 넘기면 백틱·따옴표·여러 줄이 섞여 깨진다(자동 제출은 한 줄에서 확인됐다).
    - `BACKEND` 는 언제나 `pane` 이다. 두 백엔드 모두 팀원이 화면에서 멈춰 답을 기다리므로 워커가 갈래를 타지
      않는다(worker-prompt.md).
@@ -1036,7 +1062,7 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
 5. backends.md 의 해당 절 명령 그대로 띄운다.
    - **pane(tmux)**: 팀장 체크아웃에서
      `git worktree add --detach <MAIN>/.claude/worktrees/dflow-<id8> origin/<기본브랜치>` 로 워크트리를 만들고
-     `.env`·스킬 링크를 건 뒤, 포인터를 `<워크트리>/.dflow-prompt` 에, 실행 스크립트를 `<워크트리>/.dflow-run`
+     `.dflow.local`(레거시 `.env`)·스킬 링크를 건 뒤, 포인터를 `<워크트리>/.dflow-prompt` 에, 실행 스크립트를 `<워크트리>/.dflow-run`
      에 쓰고, 서버가 없으면 `new-session` 있으면 `split-window` 로 pane 을 띄운다(명령 전문은 backends.md
      「pane(tmux)」). pane id 를 `<워크트리>/.dflow-pane` 에 쓰고, `allow-set-title off` 를 걸고 `select-pane -T` 로 그 pane 에 `w<slot> · <TSK> <id8> · <작업 이름>` 이름표를 붙인다(순서와 테두리 표시 설정은 backends.md. 옵션을 먼저 걸지 않으면 claude 가 제목을 자기 진행 표시로 덮는다). **이어서 폴더 신뢰 확인 루프를 반드시 돈다.**
      그 확인을 넘기지 않으면 팀원이 첫 화면에서 멈춘 채 살아 있어 한 슬롯이 통째로 놀게 된다. 기점은
@@ -1113,7 +1139,7 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
      git fetch origin
      git worktree add <MAIN>/.claude/worktrees/dflow-<id8> -B agent/<id8>-<slug> origin/agent/<id8>-<slug>
      ```
-     `.env`·스킬 링크는 새 작업 spawn(5번)과 같게 건다.
+     `.dflow.local`(레거시 `.env`)·스킬 링크는 새 작업 spawn(5번)과 같게 건다.
 4. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.** 슬롯 번호는 `.dflow-prompt` 의 `AGENT_ID=` 에 박힌 번호를
    먼저 쓰고, 그 번호가 이미 찼거나 파일이 없으면 「팀장 상태」 의 발급 규칙으로 새로 낸다.
    ```bash
@@ -1215,8 +1241,8 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    이 소켓은 **사용자 단위**이지 리포 단위가 아니다. 자기 슬롯 표만 보고 거두면 같은 PC 의 다른 체크아웃에서
    도는 팀장의 살아 있는 팀원이 미커밋 산출물을 안은 채 죽는다. 목록이 비지 않으면 서버를 남기며, 대가는
    서버 하나가 계속 도는 것뿐이고 다음 팀장의 재구성이 그 pane 들을 흡수한다.
-   `--force` 는 미추적 부산물(`.result`·`.dflow-agent`·`.dflow-prompt`·`.dflow-pane`·`.dflow-run`·`.env` 링크·
-   스킬 링크) 때문에 필요하다.
+   `--force` 는 미추적 부산물(`.result`·`.dflow-agent`·`.dflow-prompt`·`.dflow-pane`·`.dflow-run`·`.dflow.local`
+   (레거시 `.env`) 링크·`.dflow` 링크·스킬 링크) 때문에 필요하다.
 5. **agent 브랜치는 남긴다.** 승인은 사람이 D'Flow 웹에서 하고, 승인 뒤 머지는 다음 `/dflow-team` 의 스윕이나
    `/dflow-merge` 가 한다.
 6. poll 이 떠 있으면 TaskStop 으로 멈추고(태스크 id 를 모르면 종료 시각에 스스로 끝난다), 세대 파일의 세대를
@@ -1233,7 +1259,7 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
    { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
    if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
-     set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" --stop || :
+     .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" --stop || :
    fi
    if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
      rm -f "$(git rev-parse --git-path dflow-team.stop)"

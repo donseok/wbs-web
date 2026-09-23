@@ -213,6 +213,7 @@ describe('/dflow-team 키 판정(스펙 §6)', () => {
   })
   it('고른 prefix 를 .env 끝에 더한다 — 첫 토큰이어도', () => {
     expect(sk).toContain(`printf '\\nDFLOW_AS=%s\\n' '<prefix>' >> .env`)
+    expect(sk).toContain(`printf '\\nas=%s\\n' '<prefix>' >> .dflow.local`)
     expect(sk).toContain('자동 선택한 키가 첫 토큰이어도')
   })
   it('조회 실패를 후보 없음으로 뭉개지 않는다', () => {

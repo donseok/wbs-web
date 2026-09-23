@@ -58,7 +58,9 @@ find_tmux() {
 TM=$(find_tmux)
 WT="<MAIN>/.claude/worktrees/dflow-<id8>"
 git fetch -q origin && git worktree prune && git worktree add --detach "$WT" origin/<기본브랜치> || echo SPAWN_FAILED_WORKTREE
-[ -e "$WT/.env" ] || ln -s "<MAIN>/.env" "$WT/.env"
+[ -e "$WT/.dflow.local" ] || [ ! -e "<MAIN>/.dflow.local" ] || ln -s "<MAIN>/.dflow.local" "$WT/.dflow.local"
+[ -e "$WT/.dflow" ] || [ ! -e "<MAIN>/.dflow" ] || ln -s "<MAIN>/.dflow" "$WT/.dflow"
+[ -e "$WT/.dflow.local" ] || [ -e "$WT/.env" ] || ln -s "<MAIN>/.env" "$WT/.env"
 if [ ! -e "$WT/.claude/skills/dflow-dev/SKILL.md" ]; then
   if [ -d "$WT/.claude/skills" ] && [ ! -L "$WT/.claude/skills" ]; then
     for s in dflow-dev dflow-work; do [ -e "$WT/.claude/skills/$s" ] || ln -s "<MAIN>/.claude/skills/$s" "$WT/.claude/skills/$s"; done
@@ -123,13 +125,14 @@ cat "$WT/.dflow-pane"
   돌고 있는지 읽을 수 있다. 프롬프트도 `.dflow-prompt` 파일 경유라 따옴표·백틱을 걱정하지 않는다.
 - `claude "<프롬프트>"` 는 대화형 세션을 띄우면서 그 문자열을 첫 턴으로 제출한다(실측). `-p` 를 쓰지 않으므로
   세션은 대화형으로 남고, 사람이 화면을 보며 끼어들 수 있다.
-- `.env`·스킬 링크를 팀장이 먼저 만드는 이유: claude 는 시작할 때 cwd 의 `.claude/skills` 를 읽으므로, 링크가
+- `.dflow.local`(레거시 `.env`)·`.dflow`·스킬 링크를 팀장이 먼저 만드는 이유: claude 는 시작할 때 cwd 의 `.claude/skills` 를 읽으므로, 링크가
   먼저 있어야 팀원의 Skill 도구가 `dflow-dev` 를 안다. 워커 부트스트랩(worker-prompt.md 「3」)의 같은 명령은
   이미 있으면 건너뛴다. 스킬 폴더가 실제 폴더로 있는데 `dflow-dev` 가 없으면 폴더째 링크하지 않고 워커가 쓰는
   스킬만 하나씩 링크한다(있는 폴더에 폴더째 링크를 걸면 `.claude/skills/skills` 가 생긴다).
-- Windows(Git Bash) 에서는 `ln -s` 가 링크 대신 복사본을 만든다. 복사본으로도 동작한다: `.env` 는 정적이고
+- Windows(Git Bash) 에서는 `ln -s` 가 링크 대신 복사본을 만든다. 복사본으로도 동작한다: `.dflow.local`(레거시
+  `.env`)은 정적이고
   스킬은 읽기 전용이며, 두 경로 모두 `info/exclude`·`.gitignore` 로 가려진다. 대가로 팀장이 스킬을 고쳐도 이미
-  뜬 팀원의 복사본에는 반영되지 않고, 워크트리마다 `.env` 사본이 생기므로 정리 규칙이 워크트리를 지울 때 함께
+  뜬 팀원의 복사본에는 반영되지 않고, 워크트리마다 `.dflow.local`(레거시 `.env`) 사본이 생기므로 정리 규칙이 워크트리를 지울 때 함께
   지워진다.
 - `git worktree add` 가 실패하면(`SPAWN_FAILED_WORKTREE`, 대개 같은 경로가 남아 있음) 띄우지 않고 경로를
   보고한다. 같은 id8 의 옛 워크트리는 결과 처리가 지웠거나 `parked` 로 남아 있다. `parked` 면 「6. blocked」 대로
@@ -185,7 +188,7 @@ done
 `CLAUDE` 로 자르는 이유**: 실측에서 `CLAUDECODE`(밑줄 없음)·`CLAUDE_PID`·`CLAUDE_EFFORT`·
 `CLAUDE_PLUGIN_DATA` 넷이 `CLAUDE_CODE_` 접두를 벗어나 있었다. `CLAUDE_CONFIG_DIR` 만 예외로 남긴다.
 사람이 설정하는 값이라 벗기면 팀원이 다른 설정 디렉터리를 쓴다. 팀원에게 필요한 설정은 모두
-`~/.claude/settings.json` 과 워크트리의 `.env` 에서 오므로 잃는 것이 없다. PATH 에서 shim 디렉터리를 빼도
+`~/.claude/settings.json` 과 워크트리의 `.dflow`·`.dflow.local`(레거시 `.env`)에서 오므로 잃는 것이 없다. PATH 에서 shim 디렉터리를 빼도
 `claude` 해석은 안전하다(실측: 그 디렉터리에는 `tmux` 하나뿐이고 `claude` 는 다른 곳에 있다).
 
 **생존·화면·답·회수**
@@ -249,8 +252,8 @@ done
 ```bash
 git worktree remove --force "$WT"
 ```
-`--force` 는 미추적 부산물(`.result`·`.dflow-agent`·`.dflow-prompt`·`.dflow-pane`·`.dflow-run`·`.env` 링크·
-스킬 링크) 때문에 필요하다. 먼저 「고아 정리 규칙」 을 따른다. 살아 있는 팀원의 워크트리는 지우지 않는다.
+`--force` 는 미추적 부산물(`.result`·`.dflow-agent`·`.dflow-prompt`·`.dflow-pane`·`.dflow-run`·`.dflow.local`
+(레거시 `.env`) 링크·`.dflow` 링크·스킬 링크) 때문에 필요하다. 먼저 「고아 정리 규칙」 을 따른다. 살아 있는 팀원의 워크트리는 지우지 않는다.
 
 ## pane(Orca)
 
@@ -301,14 +304,14 @@ orca worktree list        # 누수 확인. dflow-<id8> 가 남아 있으면 같�
 지운다.
 1. **부트스트랩 실패**(`.result` 의 branch 칸이 `-`, 브랜치를 만들기 전에 끝남): 미커밋 목록이 알려진
    부산물(`.dflow-agent`, `.dflow-prompt`, `.dflow-pane`, `.dflow-run`, `.result`, `docs/tasks/<TSK>/spec.md`
-   캐시, `.env` 링크, 스킬 링크(`.claude/skills` 또는 그 안의 `dflow-dev`·`dflow-work`))뿐일 때만 정리한다
+   캐시, `.dflow.local`(레거시 `.env`) 링크, `.dflow` 링크, 스킬 링크(`.claude/skills` 또는 그 안의 `dflow-dev`·`dflow-work`))뿐일 때만 정리한다
    (tmux 는 `git worktree remove --force`, Orca 는 `orca worktree rm --worktree path:<경로> --force`). 두 백엔드
    모두 `--force` 를 쓰는 이유: 알려진 부산물 중 `spec.md` 캐시와 스킬 폴더 안의 개별 링크는 공유 `info/exclude` 가
    가리지 않는 미추적 파일이라 `--force` 없이는 제거가 거부될 수 있다. Orca 의 `--force` 는 워크트리 강제 제거만
    하고 브랜치 삭제는 강제하지 않는다.
    ```bash
    git -C <워크트리> status --porcelain --untracked-files=all \
-     | grep -v -E '^\?\? (\.dflow-(agent|prompt|pane|run)|\.env|\.claude/skills(/dflow-(dev|work)(/.*)?)?|docs/tasks/<TSK>/(spec\.md|\.result))$'
+     | grep -v -E '^\?\? (\.dflow-(agent|prompt|pane|run)|\.env|\.dflow|\.dflow\.local|\.claude/skills(/dflow-(dev|work)(/.*)?)?|docs/tasks/<TSK>/(spec\.md|\.result))$'
    ```
    출력이 비어 있어야 한다. 그 밖의 변경이 있으면 보존하고 경로와 목록을 보고한다. 이유: 브랜치가 없어도
    워커가 무언가를 고쳤다면 그것은 사람이 판단할 산출물이다.
@@ -364,7 +367,7 @@ orca worktree list        # 누수 확인. dflow-<id8> 가 남아 있으면 같�
 | tmux | 대개 설치되어 있거나 패키지 관리자로 깐다 | **MSYS2 로 따로 깔아야 한다. 미검증** |
 | 호스트 이름 | `hostname` 의 첫 점 앞부분(`hostname \| cut -d. -f1`) | 같다. Windows 의 hostname.exe 에는 `-s` 가 없다 |
 | 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`) | `CLAUDE_PID`(필수. 없으면 전제 검사가 `NO_CLAUDE_PID` 로 중단). `$PPID` 는 부모가 Cygwin 프로세스가 아니면 1 이다 |
-| `.env`·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다(「pane(tmux)」 spawn) |
+| `.dflow.local`(레거시 `.env`)·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다(「pane(tmux)」 spawn) |
 | 필요한 명령 | bash·coreutils·tmux·git·jq·curl | Git for Windows 의 bash·coreutils 와 MSYS2 tmux·git·jq·curl |
 
 - **Windows tmux 미검증**: MSYS2 tmux 가 Git Bash 에서 실제로 도는지 확인한 적이 없다. Git for Windows 기본
@@ -373,7 +376,8 @@ orca worktree list        # 누수 확인. dflow-<id8> 가 남아 있으면 같�
 - **`ln -s`**: 복사본을 만든다(파일·폴더 모두). `MSYS=winsymlinks:nativestrict` 를 주면 진짜 심링크가
   되지만 설계는 복사본을 전제로 한다.
 - **줄끝**: Windows 기본 `core.autocrlf=true` 클론은 스크립트를 CRLF 로 바꾼다. 킷과 설치 대상의
-  `.gitattributes`(install.sh 가 넣는다)가 LF 로 고정하고, `dflow.sh`·heartbeat 훅이 `.env` 값의 `\r`
+  `.gitattributes`(install.sh 가 넣는다)가 LF 로 고정하고, `dflow.sh`·heartbeat 훅이 `.dflow`·`.dflow.local`
+  (레거시 `.env`) 값의 `\r`
   을 걷어낸다.
 - **미확인**: 실제 Windows Claude Code 세션의 Bash 도구가 `CLAUDE_PID` 를 내보내는지는 러너에서 잴 수
   없었다(세션이 없다). 그래서 전제 검사가 `NO_CLAUDE_PID` 로 막는다(SKILL.md 「1. 시작」 전제 검사).

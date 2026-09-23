@@ -15,10 +15,11 @@
 | `{MAIN_CHECKOUT}` | `MAIN_CHECKOUT` | 팀장의 상주 체크아웃 절대경로 |
 | `{BACKEND}` | `BACKEND` | 언제나 `pane`. 팀원은 tmux pane 또는 Orca 탭에서 돌며 `blocked` 이후 동작이 같다 |
 | `{MODEL_FLAG}` | `MODEL` | `opus` 면 `--model opus`, `sonnet` 이면 `--model sonnet`, `default` 면 빈 값 |
+| `{DEV_BRANCH}` | `DEV_BRANCH` | 개발 브랜치 이름(`origin/` 없음). 팀장이 `dflow.sh branch dev` 로 해석해 넘긴다 |
 
-`<기본브랜치>` 는 `git symbolic-ref --short refs/remotes/origin/HEAD` 가 돌려주는 값에서 `origin/` 을 뗀
-이름이다. 이 ref 가 없으면 `git ls-remote --symref origin HEAD` 의 `ref: refs/heads/<이름>` 줄에서 구한다.
-`origin/HEAD` 는 clone 할 때만 생기기 때문이다.
+`<기본브랜치>` 는 팀장이 넘긴 `{DEV_BRANCH}` 다. 워커는 이 값을 다시 해석하지 않는다. detach 된 옛 커밋에는
+`.dflow` 가 없어 다른 값이 나올 수 있기 때문이다. `DEV_BRANCH` 인자가 비어 있으면 `.result` 에
+`{TSK} {ID8} - - - failed no-dev-branch` 를 쓰고 끝낸다.
 
 ## 0. git 호출 규칙 (두 백엔드 공통, 모든 단계)
 
@@ -58,13 +59,16 @@ claim 하려는 작업의 `docs/tasks/<TSK>/` 가 이미 있으면 이전 시도
 
 ## 3. 워크트리 부트스트랩
 
-`.env` 는 gitignore 대상이라 새 워크트리에 없으므로 메인 체크아웃에서 심링크한다. `.claude/skills` 는 커밋된
+`.dflow.local`(레거시 `.env`)은 gitignore 대상이라 새 워크트리에 없으므로 메인 체크아웃에서 심링크한다.
+`.dflow` 는 커밋돼 있으면 이미 있고, 없으면 링크한다. `.claude/skills` 는 커밋된
 리포면 이미 있고, gitignore 된 심링크로 배포한 리포면 없으므로 없을 때 메인 체크아웃의 것을 심링크한다.
 tmux 백엔드에서는 팀장이 spawn 전에 같은 링크를 만들어 두므로 아래 두 줄은 건너뛰어진다. Windows(Git Bash)
 에서는 `ln -s` 가 복사본을 만들며 복사본으로도 동작한다(backends.md 「플랫폼 차이」). 그
 다음 인증을 확인하고 기점을 `origin/<기본브랜치>` 로 맞춘다. 줄마다 결과를 보며 실행한다.
 ```bash
-[ -e .env ] || ln -s {MAIN_CHECKOUT}/.env .env
+[ -e .dflow.local ] || [ ! -e {MAIN_CHECKOUT}/.dflow.local ] || ln -s {MAIN_CHECKOUT}/.dflow.local .dflow.local
+[ -e .dflow ] || [ ! -e {MAIN_CHECKOUT}/.dflow ] || ln -s {MAIN_CHECKOUT}/.dflow .dflow
+[ -e .dflow.local ] || [ -e .env ] || ln -s {MAIN_CHECKOUT}/.env .env
 if [ ! -e .claude/skills/dflow-dev/SKILL.md ]; then
   if [ -d .claude/skills ] && [ ! -L .claude/skills ]; then
     for s in dflow-dev dflow-work; do
@@ -102,8 +106,9 @@ git fetch origin && git switch --detach origin/<기본브랜치>
   ```bash
   grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || echo NO_WORKER_FLAG
   ```
-- dflow.sh 를 부를 때마다 접두를 붙이지 않는다. dflow.sh 가 환경에 PAT 가 없으면 현재 디렉터리의
-  `.env`(부트스트랩에서 만든 심링크)를 스스로 읽는다. 격리 가드가 `.` 소싱 접두를 거부하기 때문이다.
+- dflow.sh 를 부를 때마다 접두를 붙이지 않는다. dflow.sh 가 환경에 PAT 가 없으면
+  워크트리 루트의 `.dflow`·`.dflow.local`(레거시 `.env`, 모두 부트스트랩의 링크)을 스스로 읽는다. 격리 가드가
+  `.` 소싱 접두를 거부하기 때문이다.
 - 심링크와 `.dflow-agent`·`.result` 는 커밋하지 않는다. 팀장이 공유 `info/exclude` 에 넣어 두고,
   `/dflow-dev` 는 파일명을 명시해 stage 한다. 워크트리 루트의 `.dflow-prompt`·`.dflow-pane`·`.dflow-run`
   은 팀장이 쓰는 파일이다. 읽지도 고치지도 않는다.

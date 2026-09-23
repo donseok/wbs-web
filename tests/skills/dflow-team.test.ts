@@ -73,8 +73,10 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     expect(p()).toContain('.claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"')
     expect(p()).not.toContain('. ./.env')
     expect(p()).toContain('git fetch origin && git switch --detach origin/<기본브랜치>')
-    expect(p()).toContain('symbolic-ref --short refs/remotes/origin/HEAD')
-    expect(p()).toContain('git ls-remote --symref origin HEAD')
+    // .dflow 전환(2026-09-23): <기본브랜치> 는 팀장이 넘긴 {DEV_BRANCH} 다. 워커는 symbolic-ref·ls-remote 로
+    // 다시 해석하지 않는다(dflow-config-docs.test.ts 가 이 계약을 단정한다).
+    expect(p()).toContain('`<기본브랜치>` 는 팀장이 넘긴 `{DEV_BRANCH}` 다')
+    expect(p()).not.toContain('symbolic-ref --short refs/remotes/origin/HEAD')
     expect(p()).toContain("grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || echo NO_WORKER_FLAG")
   })
 
@@ -442,8 +444,8 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(stopCalls.length).toBeGreaterThanOrEqual(1)
     const slotsCalls = [...t.matchAll(/dflow\.sh watch --agent[\s\S]{0,200}?--slots\b/g)]
     expect(slotsCalls.length).toBeGreaterThanOrEqual(2)
-    // DFLOW_ENV_FILE 과 같은 줄에 DFLOW_WATCH=0 이 있다
-    expect(t).toMatch(/DFLOW_ENV_FILE="<MAIN>\/\.env" DFLOW_WATCH=0 \\/)
+    // DFLOW_CONFIG_DIR 과 같은 줄에 DFLOW_WATCH=0 이 있다(.dflow 전환, 2026-09-23)
+    expect(t).toMatch(/DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0 \\/)
   })
 
   it('「좌석표 연동」 절은 70분 STANDBY 계약을 확정하고 team.start 로 대신한다는 옛 문장이 없다', () => {

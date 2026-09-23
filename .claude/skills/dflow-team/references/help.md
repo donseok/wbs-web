@@ -53,11 +53,13 @@ D'Flow 에서 나에게 배정되고 `agent` 태그가 켜진 ready 작업을 �
 
 ## 시작 전 준비
 
-- 팀장 체크아웃은 기본 브랜치(main)이고 깨끗해야 한다.
-- `.env` 에 세 가지가 있어야 한다: `DFLOW_API_BASE`, `DFLOW_PATS`,
-  `DFLOW_PROJECT_ID`(또는 `DFLOW_PROJECT_MAP`). 프로젝트 바인딩이 없으면 시작하지 않는다. 한 사람이 여러 프로젝트에
+- 팀장 체크아웃은 개발 브랜치이고 깨끗해야 한다.
+- 준비물은 `.dflow`(커밋, `api_base`·`project_id`) 와 `.dflow.local`(개인, `pats`·`dev_branch` 필수, `as`·
+  `automerge`·`project_map` 선택)이다. 예시는 `.claude/skills/dflow-work/dflow.example`·`dflow.local.example`.
+  두 파일이 없으면 종전 `.env` 로 동작한다. 프로젝트 바인딩이 없으면 시작하지 않는다. 한 사람이 여러 프로젝트에
   속하면 다른 프로젝트의 작업을 이 리포에서 개발하게 되기 때문이다.
-- `DFLOW_PATS` 에 토큰이 둘 이상이면 팀장이 시작할 때 이 리포가 쓸 키를 정해 `.env` 에 `DFLOW_AS=<prefix>` 로 적는다.
+- `pats`(레거시 `DFLOW_PATS`)에 토큰이 둘 이상이면 팀장이 시작할 때 이 리포가 쓸 키를 정해 `.dflow.local` 에
+  `as=<prefix>`(레거시는 `.env` 에 `DFLOW_AS=<prefix>`)로 적는다.
   이 리포의 프로젝트에 속한 키가 하나면 묻지 않고 고르고, 둘 이상이면 묻는다. 바꾸려면 그 줄을 고친다. 키 목록은
   `.claude/skills/dflow-work/scripts/dflow.sh profiles` 로 본다. 시작 보고에 `키: <이름> (<email>, <prefix>)` 가 나온다.
 - 팀원이 잡을 작업은 D'Flow 에서 `agent` 태그를 켠다. 태그가 없는 작업은 사람 몫이라 건드리지 않는다.
@@ -65,8 +67,10 @@ D'Flow 에서 나에게 배정되고 `agent` 태그가 켜진 ready 작업을 �
   ```
   .claude/skills/dflow-team/scripts/lead-worktree.sh <이름>     # 주 체크아웃 루트에서
   ```
-  `.claude/worktrees/lead-<이름>` 이 생기고 `.env` 가 복사된다(`DFLOW_AS` 줄은 빼고 복사한다). 그 폴더에서 `claude` 를
-  띄워 `/dflow-team …` 을 실행하면, 다른 팀장이 쓰는 계정을 뺀 나머지 키에서 이 팀장의 키를 정해 그 폴더의 `.env` 에
+  `.claude/worktrees/lead-<이름>` 이 생기고 `.dflow.local`(레거시 `.env`)이 복사된다(`as` 줄, 레거시 `DFLOW_AS` 줄은 빼고
+  복사한다). 그 폴더에서 `claude` 를
+  띄워 `/dflow-team …` 을 실행하면, 다른 팀장이 쓰는 계정을 뺀 나머지 키에서 이 팀장의 키를 정해 그 폴더의
+  `.dflow.local`(레거시 `.env`)에
   적는다. 키는 폴더(워크트리)마다 따로다. 팀장 워크트리에는 `node_modules` 가 필요 없다. 다 쓰면
   `git worktree remove --force .claude/worktrees/lead-<이름>` 으로 지운다.
 - 같은 계정으로는 팀장을 둘 띄울 수 없다(`SAME_IDENTITY_LEAD`). 일을 더 나누려면 팀장 하나에 인원과 WP 범위를 준다.
@@ -90,9 +94,10 @@ D'Flow 에서 나에게 배정되고 `agent` 태그가 켜진 ready 작업을 �
 
 - 승인은 사람이 D'Flow 웹에서 한다. 팀장은 30분마다(그리고 결과가 올 때마다) 승인된 작업을 main 에 머지한다.
   팀장 워크트리의 팀장은 main 을 잡지 않고 임시 워크트리에서 머지해 올린다.
-- **자동 머지**: `.env` 에 `DFLOW_AUTOMERGE=1` 을 넣으면 완료 보고된 작업을 승인 전에 바로 main 에 머지하고 다음
+- **자동 머지**: `.dflow.local` 에 `automerge=1` 을 넣으면(레거시는 `.env` 에 `DFLOW_AUTOMERGE=1`) 완료 보고된
+  작업을 승인 전에 바로 개발 브랜치에 머지하고 다음
   Task 를 착수한다. 의존 사슬이 있는 WBS 가 승인 한 번에 멈추지 않게 하는 설정이다. 승인은 사후에 하며, 승인되면
-  다음 스윕이 표식(`unapproved`)만 지운다. 반려되면 "main 에 머지된 반려 작업" 과 그 위에 쌓였을 수 있는 작업을
+  다음 스윕이 표식(`unapproved`)만 지운다. 반려되면 "개발 브랜치에 머지된 반려 작업" 과 그 위에 쌓였을 수 있는 작업을
   보고하고, 되돌리기(`git revert`)와 재작업 중 무엇을 할지는 사람이 고른다. 기본은 꺼짐이다.
 - 반려된 작업은 자동으로 다시 잡지 않는다. `/dflow-dev <id8>` 로 사람이 재작업을 시작한다.
 - 마감 보고의 "멈춤" 표에는 자동으로 잇지 못한 작업과 이어받는 명령이 함께 나온다.

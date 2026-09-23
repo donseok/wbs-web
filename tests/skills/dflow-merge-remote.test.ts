@@ -150,8 +150,9 @@ describe('/dflow-merge --on-report 와 /dflow-team 자동 머지(2026-09-19)', (
     expect(skill).toContain('예외는 `--on-report` 의 반려되지 않은 `reported` 하나뿐이다')
   })
 
-  it('팀장은 DFLOW_AUTOMERGE=1 일 때만 --on-report 로 스윕하고, done 결과에서 곧바로 스윕한다', () => {
-    expect(team).toContain('[ "${DFLOW_AUTOMERGE:-}" = 1 ] && echo AUTOMERGE_ON || echo AUTOMERGE_OFF')
+  it('팀장은 automerge=1 일 때만 --on-report 로 스윕하고, done 결과에서 곧바로 스윕한다', () => {
+    // .dflow 전환(2026-09-23): automerge 는 dflow.sh config automerge 로 읽는다(레거시는 .env 의 DFLOW_AUTOMERGE).
+    expect(team).toContain('[ "$(.claude/skills/dflow-work/scripts/dflow.sh config automerge)" = 1 ] && echo AUTOMERGE_ON || echo AUTOMERGE_OFF')
     expect(team).toContain('자동 머지(`AUTOMERGE_ON`, 「인자」)면 `--on-report` 하나만 붙여')
     expect(team).toContain('자동 머지(`AUTOMERGE_ON`)면 **먼저 승인 스윕을 곧바로 한다**')
   })
