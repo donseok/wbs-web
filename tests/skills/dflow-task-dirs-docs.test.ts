@@ -22,9 +22,37 @@ describe('스킬 문서의 작업 폴더', () => {
   })
   it('팀장이 taskdir 에 order(전체 UUID·id8) 를 넘기고 external_ref 를 넘기지 않는다', () => {
     const t = read('dflow-team/SKILL.md')
-    expect(t).toContain('taskdir "$order"')
-    expect(t).toContain('taskdir "$id8"')
     expect(t).not.toContain('taskdir <ref>)` 로 이 작업의 작업 폴더')
+  })
+  it('taskdir 를 부르는 블록마다 넘기는 변수를 같은 블록 첫머리에서 자리표시로 묶는다', () => {
+    const t = read('dflow-team/SKILL.md')
+    const blocks = [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
+      .filter((b) => b.includes('dflow.sh taskdir'))
+    const vars = blocks.map((b) => /dflow\.sh taskdir "\$(\w+)"/.exec(b)?.[1])
+    expect(vars.sort()).toEqual(['id8', 'order'])
+    for (const b of blocks) {
+      const v = /dflow\.sh taskdir "\$(\w+)"/.exec(b)![1]
+      const bind = b.indexOf(`${v}='<${v}>'`)
+      expect(bind, b).toBeGreaterThan(-1)
+      expect(bind, b).toBeLessThan(b.indexOf('dflow.sh taskdir'))
+      expect(b, b).toMatch(/echo ".*rc=\$rc"/)
+    }
+  })
+  it('작업 폴더를 훑는 다른 블록도 앞 블록의 셸 변수에 기대지 않는다', () => {
+    const bashBlocks = (t: string) => [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
+    // dflow-merge 로컬 후보 스캔: $api 를 같은 블록에서 구한다(원격 스캔 블록과 별도 호출)
+    const local = bashBlocks(read('dflow-merge/SKILL.md'))
+      .find((b) => b.includes('find "$d" -mindepth 2 -maxdepth 2 -name state.json'))!
+    expect(local).toBeDefined()
+    expect(local.indexOf('api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}'))
+      .toBeGreaterThan(-1)
+    expect(local.indexOf('api=$(')).toBeLessThan(local.indexOf('--arg api "$api"'))
+    // dflow-team 문제 기록: $reason 을 같은 블록에서 .result 첫 줄로부터 구한다(기록 명령과 별도 호출)
+    const issues = bashBlocks(read('dflow-team/SKILL.md')).find((b) => b.includes('docs/dflow-team/issues.md'))!
+    expect(issues).toBeDefined()
+    const bind = issues.indexOf('reason=$(')
+    expect(bind).toBeGreaterThan(-1)
+    expect(bind).toBeLessThan(issues.indexOf('"$reason"'))
   })
   it('워커는 빈 TASK_DIR 을 failed no-task-dir 로 끝낸다', () => {
     expect(read('dflow-team/references/worker-prompt.md')).toContain('failed no-task-dir')

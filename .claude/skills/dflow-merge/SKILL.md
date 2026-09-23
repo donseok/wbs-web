@@ -81,6 +81,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      만든 state.json)는 지금처럼 판정한다. `/dflow-team` 팀장은 그런 후보가 있으면 시작하지 않는다. 로컬
      후보의 값은 아래로 본다.
      ```bash
+     api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}   # 원격 스캔 블록과 별도 호출이라 다시 구한다
      .claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs | while IFS= read -r d; do
        find "$d" -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null
      done | while IFS= read -r f; do

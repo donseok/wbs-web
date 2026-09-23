@@ -977,6 +977,7 @@ git -C <워크트리> status --porcelain | cksum                                
   `.issues` 를 함께 지운다.
 ```bash
 f='<MAIN>/docs/dflow-team/issues.md'; i='<워크트리>/<TASKS>/<TSK>/.issues'; st='<status>'
+reason=$(head -n 1 "$(dirname "$i")/.result" 2>/dev/null | cut -d' ' -f7-)
 if [ -s "$i" ] || { [ "$st" != done ] && [ "$st" != needs-merge ]; }; then
   mkdir -p "$(dirname "$f")"
   [ -s "$f" ] || printf '# /dflow-team 문제 기록\n\n팀원이 보고한 에러·문제점. 스킬·환경 개선 재료이며 커밋하지 않는다.\n' > "$f"
@@ -986,7 +987,8 @@ if [ -s "$i" ] || { [ "$st" != done ] && [ "$st" != needs-merge ]; }; then
   } >> "$f" || echo ISSUE_LOG_FAIL
 fi
 ```
-`$reason` 은 events.md 「기록 명령」 의 추출 명령으로 얻은 값이다. `ISSUE_LOG_FAIL` 이 나와도 결과 처리를 멈추지
+`reason` 은 events.md 「기록 명령」 과 같은 방법(`.result` 첫 줄의 7번째 칸부터)으로 이 블록 안에서 다시 뽑는다.
+기록 명령은 별도 Bash 호출이라 그 셸 변수를 이 블록이 못 보기 때문이다. `.result` 가 없으면(`failed no-result`) 빈 값이다. `ISSUE_LOG_FAIL` 이 나와도 결과 처리를 멈추지
 않고 보고에 한 줄 적는다. 기록 실패가 슬롯 해제를 막으면 안 되기 때문이다. 해시 중복 방지가 결과 줄을 한 번만
 처리하게 하므로 같은 결과가 두 번 기록되지 않는다.
 
@@ -1096,6 +1098,7 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
    **4번은 별도 Bash 호출이라 이 줄의 셸 변수를 못 본다 — 그래서 값을 이 자리에서 출력하고, 그 출력을
    4번 포인터에 그대로 옮겨 쓴다.**
    ```bash
+   order='<order>'   # show 출력의 .order.id(전체 UUID)를 옮겨 쓴다
    TASK_DIR=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$order"); rc=$?
    echo "TASK_DIR=${TASK_DIR:-없음} rc=$rc"
    ```
@@ -1212,6 +1215,7 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
    ```
    비어 있으면(`TASK_DIR` 이전에 만들어진 옛 포인터) 다시 구한다:
    ```bash
+   id8='<id8>'
    task_dir=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$id8"); rc=$?
    echo "task_dir=${task_dir:-없음} rc=$rc"
    ```
