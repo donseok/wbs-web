@@ -16,7 +16,7 @@
 | `{BACKEND}` | `BACKEND` | 언제나 `pane`. 팀원은 tmux pane 또는 Orca 탭에서 돌며 `blocked` 이후 동작이 같다 |
 | `{MODEL_FLAG}` | `MODEL` | `opus` 면 `--model opus`, `sonnet` 이면 `--model sonnet`, `default` 면 빈 값 |
 | `{DEV_BRANCH}` | `DEV_BRANCH` | 개발 브랜치 이름(`origin/` 없음). 팀장이 `dflow.sh branch dev` 로 해석해 넘긴다 |
-| `{TASK_DIR}` | `TASK_DIR` | 이 작업의 작업 폴더(`<TASKS>/<TSK>`). 팀장이 `dflow.sh taskdir <ref>` 로 구해 넘긴다 |
+| `{TASK_DIR}` | `TASK_DIR` | 이 작업의 작업 폴더(`<TASKS>/<TSK>`). 팀장이 `dflow.sh taskdir <order>` 로 구해 넘긴다 |
 
 `<기본브랜치>` 는 팀장이 넘긴 `{DEV_BRANCH}` 다. 워커는 이 값을 다시 해석하지 않는다. detach 된 옛 커밋에는
 `.dflow` 가 없어 다른 값이 나올 수 있기 때문이다. `DEV_BRANCH` 인자가 비어 있으면 `.result` 에

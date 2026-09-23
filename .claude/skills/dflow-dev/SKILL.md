@@ -312,7 +312,8 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 선행 기준으로는 부를 수 없다. 대신 **이 작업 자신의 작업 폴더에서 유도한다**: `<TASKS>` 는 팀장이 넘긴
 `{TASK_DIR}` 의 부모 디렉터리다. 선행은 같은 프로젝트·모듈 안에 있으므로(의존은 프로젝트 경계를 넘지
 않는다) 같은 `<TASKS>` 아래 `<TASKS>/<선행TSK>/` 에 있다고 본다.
-줄마다 단독으로 실행해 출력을 읽는다(git 을 감싼 명령 치환은 워커 git 호출 규칙이 금지한다).
+줄마다 단독으로 실행해 출력을 읽는다(git 을 감싼 명령 치환은 워커 git 호출 규칙이 금지한다) — 줄 사이에
+셸 변수를 넘기지 않으므로, `<TASKS>` 는 그 줄 자신의 `$(dirname {TASK_DIR})` 로 매번 그 자리에서 구한다.
 
 판정은 `phase=merged` **AND** (아래 세 증거 중 하나라도 참) 이다. **첫 증거가 가장 강하다** — 선행 산출물이
 `origin/<기본브랜치>` 라는 기점에 실재한다는 직접 증거이기 때문이다. 커밋 그래프의 조상 관계는 git 이 보증하는
@@ -321,8 +322,7 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 
 ```bash
 git fetch origin
-TASKS=$(dirname {TASK_DIR})   # 이 작업의 작업 폴더 부모. 선행은 같은 프로젝트·모듈이라 같은 <TASKS> 아래에 있다
-git show origin/<기본브랜치>:$TASKS/<선행TSK>/state.json   # phase 가 merged 여야 하고, 여기서 order 와 head_sha 를 읽는다
+git show "origin/<기본브랜치>:$(dirname {TASK_DIR})/<선행TSK>/state.json"   # phase 가 merged 여야 하고, 여기서 order 와 head_sha 를 읽는다
 git merge-base --is-ancestor <head_sha> origin/<기본브랜치>   # 증거 1. head_sha 가 있을 때만 실행. exit 0 이면 참
 git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h   # 증거 2. 한 줄이라도 나오면 참
 git log origin/<기본브랜치> --merges --grep='^merge: <선행TSK> ' --format=%h   # 증거 3. 한 줄이라도 나오면 참. TSK 뒤 공백까지 넣는다 — 안 넣으면 TSK-03-1 이 TSK-03-10·03-11 도 함께 집어 오탐이 된다

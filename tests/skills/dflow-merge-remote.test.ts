@@ -42,6 +42,8 @@ const CHANGED = [
   '6. **보고**: 머지된 목록 / 승인 대기로 남은 목록 / 건너뛴 목록(사유)을 표로.',
   // 7. Task 6: 작업 폴더를 고정 docs/tasks 에서 <TASKS>(<DOCS_DIR>/tasks) 로 통일
   '1. **후보 식별**: 인자 없으면 대상 저장소의 `docs/tasks/*/state.json` 에서 `phase=reported`',
+  // 8. Task 6 fix round 2: add·commit 이 실패하면 push 하지 않도록 && 로 묶는다(코드 블록 자체가 멈추게)
+  '   git push origin <기본브랜치>',
 ] as const
 
 describe('/dflow-merge 원문 보존(스펙 §6-1)', () => {
@@ -122,8 +124,9 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
     expect(skill).toContain('그 작업과 그 후손')
     expect(skill).not.toContain('훅에 거부되든 경합으로 거부되든')
     expect(skill).toContain('`origin` 으로 리셋하지 않는다')
-    expect(skill).toMatch(/git merge --no-ff <머지 대상>[\s\S]*git add "<후보 state\.json 경로>"[\s\S]*\n {3}git push origin <기본브랜치>\n/)
+    expect(skill).toMatch(/git add "<후보 state\.json 경로>" && git commit -m "chore\(<TSK>\): phase=merged" \\\n\s*&& git push origin <기본브랜치>/)
     expect(skill).not.toMatch(/git add "\$\(dflow\.sh taskdir/) // 다시 서버를 부르지 않는다(1번에서 이미 찾은 경로를 재사용)
+    expect(skill).not.toMatch(/git commit -m "chore\(<TSK>\): phase=merged"\s*\n\s*git push/) // add·commit 과 push 가 분리돼 있으면 실패해도 push 될 수 있다
   })
 
   it('뒷정리: 로컬 브랜치가 없거나 다른 워크트리가 잡고 있으면 건너뛰고 보고한다', () => {

@@ -39,7 +39,8 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      ```bash
      api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}
      git fetch origin
-     dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs)
+     dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs); rc=$?
+     { [ "$rc" = 0 ] && [ -n "$dirs" ]; } || { echo "건너뜀(tasks-dirs 조회 실패, exit $rc)"; exit 1; }
      set --
      while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done <<EOF
      $dirs
@@ -53,6 +54,10 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
        done
      done
      ```
+     `tasks-dirs` 가 실패하거나(exit≠0) 빈 값을 내면 pathspec 을 하나도 못 만들어 `$dirs` 가 빈 줄 하나가
+     되고, 그러면 `"$d/*/state.json"` 이 `"/*/state.json"` 으로 풀려 이 프로젝트 밖의 `state.json` 까지 후보로
+     잡는 사고로 번진다 — 그래서 `rc`·빈 값을 먼저 확인하고 실패하면 후보 식별을 **하지 않고** "건너뜀(tasks-dirs
+     조회 실패)" 로 보고한 뒤 멈춘다.
      여섯째 칸(`$p`)은 그 state.json 의 정확한 경로다. 4번 머지 단계가 이 값을 `<후보 state.json 경로>` 로
      그대로 쓴다 — 다시 `dflow.sh taskdir` 를 부르지 않는다.
    - 브랜치 이름의 id8 과 state.json `order` 의 앞 8자가 일치해야 하고, **`phase` 가 `merged` 가 아니면
@@ -170,8 +175,8 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    git merge-base --is-ancestor <증적 head_sha> <머지 대상>   # 증적에 head_sha 가 있을 때만. 0 이 아니면(커밋이 없거나 조상이 아님) 머지하지 않는다
    git diff --name-only <증적 head_sha>..<머지 대상>   # 증적에 head_sha 가 있을 때만. 실패하면 머지하지 않고, 그 작업의 state.json 뿐이거나 비어 있어야 머지한다
    git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)" -m "DFlow-Order: <order>"   # 로컬 후보 agent/<id8>-<slug>, 원격 전용 후보 origin/agent/<id8>-<slug>. 승인 전 머지는 (reported, 승인 전). <order> 는 그 후보 state.json 의 order. git merge 는 --trailer 를 모른다(git commit 전용) — 둘째 -m 이 빈 줄 뒤 문단이 되어 트레일러로 인식된다
-   git add "<후보 state.json 경로>" && git commit -m "chore(<TSK>): phase=merged"   # state.json 을 phase=merged 로 고친 뒤, push 전에
-   git push origin <기본브랜치>
+   git add "<후보 state.json 경로>" && git commit -m "chore(<TSK>): phase=merged" \
+     && git push origin <기본브랜치>   # state.json 을 phase=merged 로 고친 뒤 push. add·commit 이 실패하면(경로 없음 등) && 사슬이 끊겨 push 하지 않는다
    ```
    후보마다 다음 순서로 한다.
    1. `git fetch origin && git switch <기본브랜치> && git pull --ff-only origin <기본브랜치>` 뒤 머지 직전
