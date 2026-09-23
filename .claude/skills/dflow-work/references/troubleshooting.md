@@ -13,6 +13,9 @@
 - `DFLOW_API_BASE` 미설정
 - `progress` 명령에서 진행률 100을 시도
 - `done` 명령 호출 시 git push 미완료
+- `BAD_DOCS_DIR <키>` — `.dflow.local` 의 `project_map` 키가 빈 값·`/` 로 시작(절대경로)·`..` 칸을 가졌다. 키는 리포
+  최상위 기준 상대경로(예 `docs/mdm`)여야 한다. 고치기 전에는 그 프로젝트가 바인딩되지 않고, `claim`·`taskdir`·
+  `config tasks-dirs`·`/dflow-poll` 이 멈춘다
 
 **해결**:
 1. 명령 사용법 확인: `dflow.sh <명령> --help` (있으면)
@@ -110,6 +113,8 @@ projects: Project A (admin), Project B (member)
 **HTTP 5xx / 네트워크 불가 / 로컬 환경 실패** — 서버 응답 파싱 실패, spec 캐시 파일
 쓰기·이동 실패도 여기다(선행 문제가 아니므로 exit 4 로 내지 않는다 — "선행 기다렸다
 재시도" 오분기 방지).
+`BAD_REF` 도 exit 6 이다 — 주문의 `external_ref` 마지막 칸이 `.`·`..` 이거나 `[A-Za-z0-9._-]` 밖 문자를 가져 작업
+폴더 이름으로 쓸 수 없다. `claim` 은 claim 요청 전에 거부하므로 주문은 잡히지 않는다. WBS 의 external_ref 를 고친다.
 
 **해결**:
 1. 네트워크 연결 확인:
