@@ -39,7 +39,7 @@ id8 만 나온다.
 
 | 상태 | 뜻 | 처리 |
 |---|---|---|
-| `RESTART_DUE` | `next` 가 `restart`(기록 뒤 spawn 전에 끊김) 또는 `wait`(차단기·보류로 미룸) | **재시작 대기 목록**. SKILL.md 「2-3」 4번의 재개 대상이며 새 작업보다 먼저다. 「재투입」 으로 띄운다 |
+| `RESTART_DUE` | `next` 가 `restart`(기록 뒤 spawn 전에 끊김) 또는 `wait`(차단기·보류로 미룸) | **재시작 대기 목록**. SKILL.md 「2-3」 4번의 재개 대상이며 새 작업보다 먼저다. 「재투입」 의 재투입 전 확인(`REINJECT_OK`)을 통과할 때만 띄운다 |
 | `RL_WAIT` | rate-limit 대기, `restart_at` 전 | 「rate-limit 대기」. 무응답 판정에서 뺀다 |
 | `RL_DUE` | rate-limit 대기, `restart_at` 이 지났다 | 「rate-limit 대기」 의 재측정 |
 | `PARKED` | `next=park` | 「멈춤」 표에 둔다. 자동으로 다시 띄우지 않는다 |
@@ -49,8 +49,10 @@ id8 만 나온다.
   다시 띄우지 않는다. 이유: 한도는 계정 단위라 팀장·팀원이 같은 로그인이면 누구를 띄워도 같은 벽에 선다. 예외는
   `RL_DUE` 슬롯 자신의 재투입 하나다(보류를 푸는 길이다).
 - 고아 스캔 "재개 가능" 의 다섯째 조건: 그 id8 이 `PARKED`·`RL_WAIT`·`RL_DUE` 면 재개하지 않는다. `RL_DUE` 는
-  「rate-limit 대기」 가 재측정한 뒤 띄운다. `RESTART_DUE` 는 재개 가능이며, 고아 스캔의 "재개 가능" 과 id8 으로
-  합쳐 한 번만 띄운다.
+  「rate-limit 대기」 가 재측정한 뒤 띄운다. `RESTART_DUE` 는 그 자체로 재개 가능이 아니다. 고아 스캔 "재개
+  가능" 조건(서버 `claimed`+`mine`+이 PC, 재시도 3 미만, 살아 있는 팀원 없음)과의 **교집합**일 때만 띄우며, 그 판정은
+  「재투입」 의 재투입 전 확인 블록이 이번 기상의 값으로 한다. 이벤트는 과거의 기록이라 그 사이 서버 status 가 바뀌었거나
+  (사람이 중단·재배정) 다른 기상이 이미 띄웠을 수 있다. 고아 스캔 목록과는 id8 으로 합쳐 한 번만 띄운다.
 
 ## 판정
 
@@ -133,17 +135,26 @@ esac
 | 조건 | `team.lost` 의 `next` | 처리 |
 |---|---|---|
 | `tries` ≥ 3 | `park` | 「멈춤」(사유 `재시도 상한`). `team.result` 를 쓰지 않는다. 쓰면 다음 팀장 시작의 고아 스캔이 재시도 0 으로 읽고 또 재개한다 |
-| 차단기가 걸렸거나 rate-limit 보류 중이고, 이번이 그 TICK 의 시험 1건이 아니다 | `wait`(`restart_at` 은 `-`) | 슬롯만 해제한다. 다음 기상에 `RESTART_DUE` 로 다시 본다 |
+| 차단기가 걸렸거나 rate-limit 보류 중이고, 이번이 그 TICK 의 시험 1건이 아니다 | `wait`(`restart_at` 은 `-`) | 슬롯만 해제한다. 다음 기상에 `RESTART_DUE` 로 다시 본다. `next=wait` 인 `team.lost` 는 차단기 연속 실패 수에 넣지 않는다(미룬 것이지 새 실패가 아니다. 세면 대기 중인 손실이 차단기를 스스로 붙잡는다) |
 | 그 밖 | `restart` | 같은 기상 안에서 「재투입」 |
 
 차례(세 갈래 공통):
 1. **거두기**를 먼저 한다. tmux 는 아래 블록이다. `REAPED <pane>` 이 나와야 다음으로 간다.
    ```bash
    TM='<진짜 tmux 절대경로>'; w='<워크트리>'; pane='<pane id>'
+   [ -n "$TM" ] || { echo REAP_NO_TMUX; exit; }
    "$TM" -L dflow kill-pane -t "$pane" 2>/dev/null || :
-   "$TM" -L dflow select-layout -t dflow tiled 2>/dev/null || :
-   printf '%s\n' '<신원>/<host>/parked' > "$w/.dflow-agent" && echo "REAPED $pane"
+   if [ "$("$TM" -L dflow display-message -p -t "$pane" '#{pane_id}' 2>/dev/null)" = "$pane" ]; then
+     echo "REAP_FAILED $pane"
+   else
+     "$TM" -L dflow select-layout -t dflow tiled 2>/dev/null || :
+     printf '%s\n' '<신원>/<host>/parked' > "$w/.dflow-agent" && echo "REAPED $pane"
+   fi
    ```
+   `REAPED` 는 kill 뒤 그 pane 을 다시 찾지 못했을 때만 나온다(pane 이 실제로 없어졌다는 확인). 종료 코드가 아니라
+   출력한 pane id 로 가르는 이유: tmux 3.7 은 없는 pane id 에도 `display-message` 를 0 으로 끝내고 빈 값을 낸다(실측). `REAP_FAILED`(pane 이
+   아직 있다)나 `REAP_NO_TMUX`(tmux 경로 없음)면 `team.lost` 를 쓰지 않고 재투입하지 않으며 「멈춤」(사유 `거두기 실패`)
+   으로 보고한다. 이유: 살아 있는 팀원 옆에 같은 작업을 겹쳐 띄우면 한 워크트리를 두 세션이 고친다.
 2. 그 다음 `team.lost` 를 기록한다(events.md 조각. `slot` 은 그 슬롯 번호, `worktree` 는 워크트리 절대경로).
    거두기를 기록보다 먼저 하는 이유: 기록 뒤 거두기 전에 컨텍스트가 끊기면 다음 기상이 `RESTART_DUE` 로 보고
    살아 있는 pane 옆에 같은 작업을 겹쳐 띄운다. 거두기 뒤 기록 전에 끊기면 고아 스캔이 평범한 재개로 잇는다.
@@ -156,13 +167,46 @@ esac
 ## 재투입
 
 SKILL.md 「5-1. 재개 spawn」 을 그대로 따르고 아래만 다르다.
+
+**재투입 전 확인**(모든 재투입 — 같은 기상의 `restart`, `RESTART_DUE`, `RL_DUE` — 에서 거두기 뒤·띄우기 전에 한 번).
+이번 기상의 `show` 로 서버가 `claimed`+`mine`+이 PC 인지, 워크트리의 `.dflow-pane` 이 가리키는 팀원이 살아 있지 않은지,
+재시도 수가 3 미만인지를 다시 본다. 고아 스캔 "재개 가능" 조건과의 교집합이다. `REINJECT_OK` 가 아니면 띄우지 않고
+「멈춤」(사유는 출력의 사유: `서버 조회 실패`·`서버 <status>`·`다른 PC claim`·`살아 있는 팀원`·`재시도 상한`)으로 보고한다.
+```bash
+w='<워크트리>'; id8='<id8>'; TM='<진짜 tmux 절대경로 또는 빈 값>'
+g=$( (.claude/skills/dflow-work/scripts/dflow.sh show "$id8") 2>/dev/null \
+  | jq -r --arg h 'claude-<host>' 'select((.order.id // "") != "") | .order
+      | [.id, .status, (.mine == true | tostring), ((((.claimed_by // "") | ascii_downcase) == $h) | tostring)] | join(" ")' 2>/dev/null )
+t=$(jq -r --arg a '<신원>/<host>/lead' --arg r '<MAIN>' --arg i "$id8" \
+  'select(.agent == $a and .repo == $r and (.id8 // "") == $i)
+   | select(.event == "team.result" or (.event == "team.spawn" and (.spawn_kind // "new") == "resume"))
+   | .event' ~/.dflow/events.jsonl 2>/dev/null \
+  | awk '/team\.result/{n=0; next} {n++} END{print n+0}')
+p=$(head -n 1 "$w/.dflow-pane" 2>/dev/null); live=no
+if [ -n "$p" ]; then
+  if [ -z "$TM" ]; then live=unknown
+  elif [ "$("$TM" -L dflow display-message -p -t "$p" '#{pane_id} #{pane_dead}' 2>/dev/null)" = "$p 0" ]; then live=yes; fi
+fi
+o=$(printf '%s\n' "$g" | cut -d' ' -f1); st=$(printf '%s\n' "$g" | cut -d' ' -f2)
+mi=$(printf '%s\n' "$g" | cut -d' ' -f3); hs=$(printf '%s\n' "$g" | cut -d' ' -f4)
+if [ -z "$g" ]; then echo "REINJECT_BLOCKED show-failed"
+elif [ "$st" != claimed ]; then echo "REINJECT_BLOCKED server $st"
+elif [ "$mi" != true ] || [ "$hs" != true ]; then echo "REINJECT_BLOCKED other-claim"
+elif [ "$live" != no ]; then echo "REINJECT_BLOCKED live-pane $p"
+elif [ "${t:-0}" -ge 3 ]; then echo "REINJECT_BLOCKED tries=$t"
+else echo "REINJECT_OK order=$o st=$st tries=$t"; fi
+```
+사유 대응: `show-failed` → `서버 조회 실패`, `server <status>` → `서버 <status>`, `other-claim` → `다른 PC claim`,
+`live-pane` → `살아 있는 팀원`, `tries=` → `재시도 상한`. `live=unknown`(tmux 경로 없음)도 살아 있는 것으로 본다(fail-closed).
+
 1. 1항의 손실 보고 한 줄은 「알림 한 줄」 의 재시작 줄로 바꾼다. 워크트리가 있으므로 "잃는 것" 은 늘 `없음` 이다.
 2. 3항: 있는 워크트리를 그대로 쓴다.
 3. 4항: 슬롯은 `.dflow-prompt` 의 `AGENT_ID` 번호다. 방금 거둬 비었으므로 대개 같은 번호이고, 이미 찼으면 발급
    규칙으로 새로 낸다.
-4. 6항(띄우기) **직전**에 「중단 표식 정리」 블록을 돈다. `st` 는 「판정」 블록의 `gate` 의 `status`(= `claimed`)다.
+4. 6항(띄우기) **직전**에 「중단 표식 정리」 블록을 돈다. `order`·`st` 는 **이번 기상의** 재투입 전 확인이 낸 `order=`·`st=`
+   값만 쓴다(이벤트나 이전 기상의 값을 쓰지 않는다).
    `CANCEL_MARK_RM_FAILED` 면 띄우지 않고 「멈춤」(사유 `중단 표식 삭제 실패`)으로 보고한다.
-5. claim 은 하지 않는다. 주문은 `claimed`·`mine` 이며(「판정」 이 확인했다), 이어받은 `/dflow-dev --worker` 가 재claim
+5. claim 은 하지 않는다. 주문은 `claimed`·`mine` 이며(재투입 전 확인이 이번 기상에 확인했다), 이어받은 `/dflow-dev --worker` 가 재claim
    을 건너뛴다.
 6. 8항의 `team.spawn` 은 `spawn_kind=resume` 이다. 재시도 수가 이 값으로 늘어난다. `team.lost` 는 이미 앞에서 기록했다.
 
@@ -177,14 +221,17 @@ e2=$( (.claude/skills/dflow-work/scripts/dflow.sh show "$id8") 2>/dev/null \
 e3=$(git -C "$w" status --porcelain 2>/dev/null | cksum | cut -d' ' -f1)
 printf 'evidence=%s\n' "$(printf '%s|%s|%s\n' "$e1" "${e2:-SHOW_FAILED}" "$e3" | cksum | cut -d' ' -f1)"
 ```
-rate-limit 횟수는 마지막 `team.result` 이후 `cause=rate-limit` 인 `team.lost` 수다. `team.start` 로 자르지 않는다.
+rate-limit 횟수는 **한도 에피소드** 안의 `cause=rate-limit` 인 `team.lost` 수다. 에피소드는 첫 rate-limit `team.lost`
+(`next=wait`)부터 재개 성공까지이며, 마지막 `team.result` 나 `spawn_kind=readopt` 인 `team.spawn`(워커가 스스로 이어 감)에서
+끊긴다. 그래서 워커가 스스로 이어 간 뒤 새 한도에 서면 새 에피소드라 다시 1회 재시작한다. 재투입(`resume`)은 끊지 않는다.
+재투입한 워커가 곧바로 또 한도에 서면 같은 에피소드의 둘째라 「멈춤」(`rate-limit 반복`)이다. `team.start` 로 자르지 않는다.
 ```bash
 id8='<id8>'
 jq -r --arg a '<신원>/<host>/lead' --arg r '<MAIN>' --arg i "$id8" \
   'select(.agent == $a and .repo == $r and (.id8 // "") == $i)
-   | select(.event == "team.result" or (.event == "team.lost" and .cause == "rate-limit"))
+   | select(.event == "team.result" or (.event == "team.spawn" and .spawn_kind == "readopt") or (.event == "team.lost" and .cause == "rate-limit"))
    | .event' ~/.dflow/events.jsonl 2>/dev/null \
-  | awk '/team\.result/{n=0; next} {n++} END{print "rl=" n+0}'
+  | awk '/team\.(result|spawn)/{n=0; next} {n++} END{print "rl=" n+0}'
 ```
 
 | 때 | 처리 |

@@ -175,6 +175,7 @@ Orca 는 §7.
   카운터를 나눠 쓴다. 사람이 누른 「이어서 시작」 과 `--resume` 이 상한을 무시하는 규칙(`SKILL.md:1173-1174`)은 그대로다.
 - **rate-limit 횟수** = 마지막 `team.result` 이후 `event=="team.lost" and cause=="rate-limit"` 개수. 2 이상이면 재시작하지
   않는다(H9).
+  - (2026-09-23 리뷰 보충) "1회" 는 **한도 에피소드** 기준이다. 에피소드는 첫 rate-limit `team.lost`(`next=wait`)부터 재개 성공까지이며 `team.result` 와 `readopt` spawn(워커가 스스로 이어 감)에서 끊긴다. 스스로 이어 간 뒤 새 한도면 새 에피소드다. 재투입(`resume`)은 끊지 않는다.
 - 둘 다 `team.start` 로 구간을 자르지 않는다. 팀장을 다시 띄워도 이어진다.
 
 ### 5-3. 재구성·제외·차단기 규칙에 더할 것

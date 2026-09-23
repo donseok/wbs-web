@@ -231,3 +231,108 @@ describe('restart.md 계약', () => {
     expect(s).toMatch(/재시작하지 않는다/)
   })
 })
+
+// 리뷰 반영(2026-09-23): 거두기 확인·재투입 전 확인·한도 에피소드·차단기 wait 제외.
+function fakeTmux(alive: Set<string>): string {
+  // -L dflow <cmd> ... — kill-pane 은 성공만 하고(실제로 죽이지 않는 경우를 흉내 내려면 alive 에 남긴다),
+  // display-message 는 alive 에 있는 pane 이면 그 id 를 내고, 없는 pane 이면 진짜 tmux 3.7 처럼 빈 줄과 0 으로 끝난다.
+  const f = join(tmp, 'faketmux')
+  const list = [...alive].join(' ')
+  writeFileSync(f, `#!/bin/sh
+cmd=$3; t=''; all="$*"
+while [ $# -gt 0 ]; do [ "$1" = -t ] && t=$2; shift; done
+case "$cmd" in
+  display-message) for p in ${list ? `'${list.split(' ').join("' '")}'` : ''}; do [ "$p" = "$t" ] && { case "$all" in *pane_dead*) echo "$p 0" ;; *) echo "$p" ;; esac; exit 0; }; done; echo; exit 0 ;;
+  *) exit 0 ;;
+esac
+`)
+  chmodSync(f, 0o755)
+  return f
+}
+
+describe('거두기 확인(리뷰 Important 1)', () => {
+  function reap(tm: string): { out: string; agent: string | null } {
+    const w = join(tmp, 'wt'); mkdirSync(w, { recursive: true })
+    const code = block('## 재시작 후보를 띄울지')
+      .replace("TM='<진짜 tmux 절대경로>'", `TM='${tm}'`).replace("w='<워크트리>'", `w='${w}'`)
+      .replace("pane='<pane id>'", "pane='%7'").replace("'<신원>/<host>/parked'", "'me/h/parked'")
+    const out = sh(code).stdout.trim()
+    const f = join(w, '.dflow-agent')
+    return { out, agent: existsSync(f) ? readFileSync(f, 'utf8').trim() : null }
+  }
+  it('kill 뒤 pane 이 사라졌으면 REAPED 와 parked', () => {
+    expect(reap(fakeTmux(new Set()))).toEqual({ out: 'REAPED %7', agent: 'me/h/parked' })
+  })
+  it('kill 뒤에도 pane 이 살아 있으면 REAP_FAILED 이고 parked 로 바꾸지 않는다', () => {
+    expect(reap(fakeTmux(new Set(['%7'])))).toEqual({ out: 'REAP_FAILED %7', agent: null })
+  })
+  it('tmux 경로가 비면 REAP_NO_TMUX', () => {
+    expect(reap('').out).toBe('REAP_NO_TMUX')
+  })
+  it('실패하면 기록·재투입 없이 멈춤으로 보낸다고 적는다', () => {
+    expect(section(R(), '## 재시작 후보를 띄울지')).toMatch(/`REAP_FAILED`[^\n]*\n?[^\n]*`team\.lost` 를 쓰지 않고 재투입하지 않으며/)
+  })
+})
+
+describe('재투입 전 확인(리뷰 Important 2)', () => {
+  const HOST = 'claude-h'
+  function pre(o: { show?: string | null; pane?: string; alive?: string[]; tm?: boolean; resumes?: number }): string {
+    const fake = join(tmp, 'fakedflow')
+    const show = o.show === undefined ? JSON.stringify({ order: { id: 'o1', status: 'claimed', mine: true, claimed_by: HOST } }) : o.show
+    writeFileSync(fake, show === null ? '#!/bin/sh\nexit 3\n' : `#!/bin/sh\ncat <<'J'\n${show}\nJ\n`); chmodSync(fake, 0o755)
+    const w = join(tmp, 'wt'); mkdirSync(w, { recursive: true })
+    if (o.pane) writeFileSync(join(w, '.dflow-pane'), `${o.pane}\n`)
+    events(Array.from({ length: o.resumes ?? 1 }, () => spawnEv('a1b2c3d4', 'resume')))
+    const tm = o.tm === false ? '' : fakeTmux(new Set(o.alive ?? []))
+    const code = lead(block('## 재투입'))
+      .replace('.claude/skills/dflow-work/scripts/dflow.sh', fake)
+      .replace("w='<워크트리>'", `w='${w}'`).replace("id8='<id8>'", "id8='a1b2c3d4'")
+      .replace("TM='<진짜 tmux 절대경로 또는 빈 값>'", `TM='${tm}'`).replace("'claude-<host>'", `'${HOST}'`)
+    return sh(code).stdout.trim()
+  }
+  it('claimed·mine·이 PC·살아 있는 팀원 없음·재시도 3 미만이면 이번 기상의 order·st 를 낸다', () => {
+    expect(pre({ pane: '%7' })).toBe('REINJECT_OK order=o1 st=claimed tries=1')
+  })
+  it('.dflow-pane 의 팀원이 살아 있으면 띄우지 않는다', () => {
+    expect(pre({ pane: '%7', alive: ['%7'] })).toBe('REINJECT_BLOCKED live-pane %7')
+  })
+  it('tmux 경로를 모르면 살아 있는지 모르므로 띄우지 않는다(fail-closed)', () => {
+    expect(pre({ pane: '%7', tm: false })).toBe('REINJECT_BLOCKED live-pane %7')
+  })
+  it('서버가 claimed 가 아니거나 내 것·이 PC 가 아니면 띄우지 않는다', () => {
+    expect(pre({ show: JSON.stringify({ order: { id: 'o1', status: 'cancelled', mine: true, claimed_by: HOST } }) })).toBe('REINJECT_BLOCKED server cancelled')
+    expect(pre({ show: JSON.stringify({ order: { id: 'o1', status: 'reported', mine: true, claimed_by: HOST } }) })).toBe('REINJECT_BLOCKED server reported')
+    expect(pre({ show: JSON.stringify({ order: { id: 'o1', status: 'claimed', mine: false, claimed_by: HOST } }) })).toBe('REINJECT_BLOCKED other-claim')
+    expect(pre({ show: JSON.stringify({ order: { id: 'o1', status: 'claimed', mine: true, claimed_by: 'claude-other' } }) })).toBe('REINJECT_BLOCKED other-claim')
+  })
+  it('show 실패·오류 JSON 이면 띄우지 않는다', () => {
+    expect(pre({ show: null })).toBe('REINJECT_BLOCKED show-failed')
+    expect(pre({ show: '{"ok":false}' })).toBe('REINJECT_BLOCKED show-failed')
+  })
+  it('재시도 3 이면 띄우지 않는다', () => {
+    expect(pre({ resumes: 3 })).toBe('REINJECT_BLOCKED tries=3')
+  })
+  it('문서: RESTART_DUE 는 고아 스캔 재개 가능 조건과의 교집합이고, 표식 정리의 st 는 이번 기상 값만 쓴다', () => {
+    expect(section(R(), '## 이벤트로 본 상태')).toMatch(/`RESTART_DUE` 는 그 자체로 재개 가능이 아니다/)
+    expect(section(R(), '## 이벤트로 본 상태')).toContain('**교집합**')
+    expect(section(R(), '## 재투입')).toMatch(/\*\*이번 기상의\*\* 재투입 전 확인이 낸 `order=`·`st=`/)
+    expect(SKILL()).toMatch(/`RESTART_DUE` 는 이 다섯 조건과의 교집합일 때만 재개 가능/)
+  })
+})
+
+describe('한도 에피소드(리뷰 Minor 3)·차단기 wait 제외(Minor 4)', () => {
+  const code = () => lead(block('## rate-limit 대기', 1)).replace("id8='<id8>'", "id8='a1'")
+  it('워커가 스스로 이어 간(readopt) 뒤의 새 한도는 새 에피소드라 1 이다', () => {
+    events([lostEv('a1', 'rate-limit', 'wait', '1'), spawnEv('a1', 'readopt'), lostEv('a1', 'rate-limit', 'wait', '2')])
+    expect(sh(code()).stdout.trim()).toBe('rl=1')
+  })
+  it('재투입(resume) 은 에피소드를 끊지 않는다', () => {
+    events([lostEv('a1', 'rate-limit', 'wait', '1'), spawnEv('a1', 'resume'), lostEv('a1', 'rate-limit', 'wait', '2')])
+    expect(sh(code()).stdout.trim()).toBe('rl=2')
+  })
+  it('차단기: next=wait 인 team.lost 는 세지 않는다', () => {
+    expect(section(R(), '## 재시작 후보를 띄울지')).toMatch(/`next=wait` 인 `team\.lost` 는 차단기 연속 실패 수에 넣지 않는다/)
+    expect(SKILL()).toContain('단 `next=wait` 인 `team.lost` 는 세지도 끊지도 않는다')
+    expect(SKILL()).toContain('단 `next=wait` 인 `team.lost` 는 세지 않는다')
+  })
+})
