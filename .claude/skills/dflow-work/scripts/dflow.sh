@@ -37,7 +37,8 @@ usage() {
   release <ref>
   profiles               토큰마다 한 줄 JSON(n·prefix·name·email·expires_at·projects·bound·selected). 토큰 값은 내지 않는다
   doctor                 설정·의존성·계약 버전 점검
-  config <key>|projects|--source   설정 값·바인딩·판정 출처(비밀 키는 거부)
+  config <key>|projects|--source|docs-dir <uuid>|tasks-dirs
+                         설정 값·바인딩·판정 출처·작업 폴더 역매핑(비밀 키는 거부)
   branch dev|release               개발 브랜치(.dflow.local dev_branch)·운영 브랜치(.dflow release_branch)
 exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨
       10 = 사람이 D'Flow 에서 작업을 중단했다(409 code=cancelled). 더 진행하지 말고 멈춘다
@@ -500,6 +501,8 @@ cmd_config() {
   case "${1:-}" in
     --source) printf 'mode=%s\ndflow=%s\nlocal=%s\n' "$DFLOW_CONFIG_MODE" "${DFLOW_CONFIG_DOT:--}" "${DFLOW_CONFIG_LOCAL:--}" ;;
     projects) dflow_config_projects ;;
+    docs-dir) [ -n "${2:-}" ] || usage; dflow_config_docs_dir "$2" || exit 2 ;;
+    tasks-dirs) dflow_config_tasks_dirs ;;
     pats|pat) die 2 "SECRET 비밀 값은 출력하지 않는다" ;;
     '') usage ;;
     *) _n=$(_dfc_env "$1") || die 2 "UNKNOWN_KEY $1"; eval "printf '%s\n' \"\${$_n:-}\"" ;;

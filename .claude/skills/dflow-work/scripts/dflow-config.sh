@@ -127,3 +127,27 @@ dflow_config_projects() {
     printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | sed -n 's/^[^=]*=//p'
   } | tr -d ' \r' | grep -v '^$' | sort -u
 }
+
+# 작업 폴더 역매핑: $1=프로젝트 UUID → DOCS_DIR 한 줄(끝 / 제거). 작업 폴더는 <DOCS_DIR>/tasks/<TSK>.
+# project_map 의 키가 먼저, 없고 project_id 와 같으면 docs. 추측하지 않는다(스펙 2026-09-23-dflow-task-scaffold §3).
+dflow_config_docs_dir() {
+  _dfc_u=$(printf '%s' "${1:-}" | tr -d ' \r')
+  [ -n "$_dfc_u" ] || { echo "사용: dflow_config_docs_dir <project_uuid>" >&2; return 2; }
+  _dfc_keys=$(printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | tr -d ' \r' \
+    | awk -F= -v u="$_dfc_u" 'NF == 2 && $2 == u { sub(/\/+$/, "", $1); if ($1 != "") print $1 }' | sort -u)
+  _dfc_n=$(printf '%s' "$_dfc_keys" | grep -c .)
+  if [ "$_dfc_n" -gt 1 ]; then
+    echo "AMBIGUOUS_DOCS_DIR 프로젝트 ${_dfc_u%%-*} 가 project_map 에 여러 키로 있다" >&2; return 2
+  fi
+  [ "$_dfc_n" -eq 1 ] && { printf '%s\n' "$_dfc_keys"; return 0; }
+  [ "$(printf '%s' "${DFLOW_PROJECT_ID:-}" | tr -d ' \r')" = "$_dfc_u" ] && { echo docs; return 0; }
+  echo "PROJECT_MISMATCH 프로젝트 ${_dfc_u%%-*} 는 이 리포 바인딩(project_id·project_map) 밖이다" >&2; return 2
+}
+
+# 바인딩된 작업 폴더 목록(리포 최상위 기준 상대경로). 여러 작업을 훑는 스윕·감지가 쓴다.
+dflow_config_tasks_dirs() {
+  { [ -n "$(printf '%s' "${DFLOW_PROJECT_ID:-}" | tr -d ' \r')" ] && echo docs
+    printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | tr -d ' \r' \
+      | awk -F= 'NF == 2 && $2 != "" { sub(/\/+$/, "", $1); if ($1 != "") print $1 }'
+  } | sed 's|$|/tasks|' | sort -u
+}
