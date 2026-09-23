@@ -45,6 +45,10 @@ async function loadResumeRequests(
       .eq('user_id', userId).eq('holder', holder).gt('expires_at', new Date().toISOString())
     if (lErr) { console.error('[agent-api] lease 조회 실패:', lErr.message); return null }
     leased = new Set(((ls ?? []) as Array<{ project_id: string }>).map(r => r.project_id))
+    // lease 가 하나도 없으면 이 신원은 어느 프로젝트에서도 팀장이 아니다 — orders 조회 자체를
+    // 건너뛴다. 건너뛰지 않으면 held 프로젝트가 없는 신원이라도 RESUME_MAX(50)를 다른(비-lease)
+    // 프로젝트의 오래된 요청이 다 채워, 뒤에 오는 held 프로젝트 요청이 잘릴 수 있다.
+    if (leased.size === 0) return []
   }
   let q = admin
     .from('agent_work_orders')
@@ -52,6 +56,9 @@ async function loadResumeRequests(
     .eq('claimed_by_user_id', userId).eq('status', 'claimed')
     .not('resume_requested_at', 'is', null)
   if (projectId !== null) q = q.eq('project_id', projectId)
+  // leased 가 있으면 DB 단에서 먼저 그 프로젝트로 좁혀 limit(RESUME_MAX) 가 held 프로젝트를
+  // 밀어내지 않게 한다. 아래 in-memory 필터는 그대로 두어 이중 방어선을 유지한다.
+  if (leased !== null) q = q.in('project_id', [...leased])
   const { data, error } = await q.order('resume_requested_at', { ascending: true }).limit(RESUME_MAX)
   if (error) { console.error('[agent-api] 재개 요청 조회 실패:', error.message); return null }
   const allRows = (data ?? []) as Array<{
