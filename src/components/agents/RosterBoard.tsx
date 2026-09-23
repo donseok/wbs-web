@@ -103,6 +103,17 @@ export function RosterBoard({ roster, nowMs, onReleaseLead }: { roster: Roster; 
             감시 중인 작업 PC 도, 주문을 잡은 에이전트도 없습니다. 에이전트가 dflow 로 감시를 시작하거나 위임된 주문을 잡으면 여기에 자리가 생깁니다.
           </p>
         )}
+        {/* identity(agent 문자열)가 같은 감시자가 없어 어느 책상에도 못 붙은 lease(0101) — 다른 계정
+            감시자는 scope=mine 이 지워도 그 lease 는 남는다(관리자가 남의 것도 풀 수 있어야 하므로).
+            없는 "감시 중" 책상을 지어내는 대신 여기 따로 보인다. */}
+        {roster.unmatchedLeads.length > 0 && (
+          <div data-roster-unmatched-leads className="flex flex-wrap gap-1 rounded-2xl border border-dashed border-line bg-surface px-3 py-2">
+            {roster.unmatchedLeads.map(l => (
+              <LeadChip key={`${l.projectId}:${l.userId}`} lead={l} projectLabel={l.floorName}
+                onRelease={onReleaseLead ? () => onReleaseLead(l.projectId, l.userId) : undefined} />
+            ))}
+          </div>
+        )}
         {roster.hosts.map(h => (
           <HostCard key={h.key} host={h} nowMs={nowMs} selectedKey={current?.d.key ?? null} onSelect={setSelected} onReleaseLead={onReleaseLead} />
         ))}
@@ -185,8 +196,10 @@ function Desk({ desk, host, nowMs, selected, onSelect, onReleaseLead }: {
           선택 버튼 안에 넣으면(중첩 button) 잘못된 HTML 이 되고 클릭이 선택과 뒤섞인다. */}
       {desk.leads.length > 0 && (
         <div className="flex flex-wrap gap-1">
+          {/* 한 책상(identity)이 여러 프로젝트의 팀장이면 칩마다 층 이름을 붙여 구분한다. */}
           {desk.leads.map(l => (
-            <LeadChip key={`${l.projectId}:${l.userId}`} lead={l} onRelease={onReleaseLead ? () => onReleaseLead(l.projectId, l.userId) : undefined} />
+            <LeadChip key={`${l.projectId}:${l.userId}`} lead={l} projectLabel={desk.leads.length > 1 ? l.floorName : undefined}
+              onRelease={onReleaseLead ? () => onReleaseLead(l.projectId, l.userId) : undefined} />
           ))}
         </div>
       )}

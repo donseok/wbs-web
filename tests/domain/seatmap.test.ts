@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { animFor, OFFLINE_MS, STALE_MS } from '@/lib/domain/seatState'
 import { ageLabel, assembleSeatmap, seatmapChannelProjectIds, type LeaseRow, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
+import { assembleRoster } from '@/lib/domain/agentRoster'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
@@ -306,6 +307,21 @@ describe('층의 팀장 lease', () => {
     const m = assembleSeatmap(rows({ leases: [lease('u9', 120_000)] }), NOW,
       { mine: { userId: 'u1', memberIds: new Set(['m1']) }, viewer: v(false) })
     expect(m.floors[0].leads.map(l => l.userId)).toEqual(['u9'])
+  })
+  it('실제 파이프라인(리뷰 라운드 2): scope=mine 이 다른 계정의 감시자를 지워도 그 lease 는 남고, ' +
+    '에이전트 보기(assembleRoster)에서는 짝이 되는 감시자가 없어 unmatchedLeads 로 간다 — 관리자는 그래도 풀 수 있다', () => {
+    const m = assembleSeatmap(rows({
+      watchers: [{ id: 'w9', user_id: 'u9', project_id: null, agent: 'u9/x/lead', host: 'air', slots: 2, busy: 0, until_label: null, last_seen_at: ago(60_000) }],
+      leases: [lease('u9', 120_000)],
+    }), NOW, { mine: { userId: 'u1', memberIds: new Set(['m1']) }, viewer: v(true) })
+    // 감시자는 mine 필터에 걸려 층에서 빠지지만, lease 는 남는다(round-0).
+    expect(m.floors[0].watchers).toEqual([])
+    expect(m.floors[0].leads.map(l => l.userId)).toEqual(['u9'])
+    expect(m.floors[0].leads[0].canRelease).toBe(true) // 관리자라 풀 수 있다
+    const roster = assembleRoster({ floors: m.floors })
+    expect(roster.hosts.flatMap(h => h.desks).some(d => d.kind === 'lead')).toBe(false) // 감시자가 없으니 "감시 중" 책상을 지어내지 않는다
+    expect(roster.unmatchedLeads.map(l => l.userId)).toEqual(['u9'])
+    expect(roster.unmatchedLeads[0]).toMatchObject({ projectId: P1, canRelease: true })
   })
 })
 

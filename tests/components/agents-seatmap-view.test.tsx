@@ -415,9 +415,9 @@ describe('SeatmapView — 팀장 lease 해제(0101)', () => {
   })
 })
 
-// 리뷰 라운드 2 — 스펙 §7("오피스 화면의 팀장 좌석에 lease 표시")은 계획서의 평면도 한정 배치보다
-// 우선한다. 기본 보기(에이전트, RosterBoard)의 팀장 책상에서도 같은 lease 정보·해제가 되는지 검증한다.
-describe('SeatmapView — 팀장 lease 해제 · 에이전트 보기(라운드2)', () => {
+// 스펙 §7("오피스 화면의 팀장 좌석에 lease 표시") — 기본 보기(에이전트, RosterBoard)의 팀장
+// 책상에서도 같은 lease 정보·해제가 되는지 검증한다.
+describe('SeatmapView — 팀장 lease 해제 · 에이전트 보기', () => {
   const withLead = (canRelease: boolean): Seatmap => map({
     floors: [{
       id: 'p1', name: 'mes-base', seatCount: 0, doneCount: 0, zones: [],
@@ -455,7 +455,7 @@ describe('SeatmapView — 팀장 lease 해제 · 에이전트 보기(라운드2)
     expect(host.querySelector('[data-lead="u9"]')).not.toBeNull()
   })
 
-  it('해제 실패는 갱신 실패 배너가 아니라 「팀장 해제 실패」 제 이름의 배너로 보인다(리뷰 지적 2)', async () => {
+  it('해제 실패는 갱신 실패 배너가 아니라 「팀장 해제 실패」 제 이름의 배너로 보인다', async () => {
     releaseLead.mockResolvedValue({ ok: false, error: '권한이 없습니다.' })
     await act(async () => { root.render(<SeatmapView initial={withLead(true)} />) })
     const btn = [...host.querySelectorAll('button')].find(b => b.textContent === '팀장 해제') as HTMLButtonElement
@@ -464,6 +464,30 @@ describe('SeatmapView — 팀장 lease 해제 · 에이전트 보기(라운드2)
     expect(host.querySelector('[data-lead-error]')?.textContent).toContain('팀장 해제 실패')
     expect(host.querySelector('[data-lead-error]')?.textContent).toContain('권한이 없습니다.')
     expect(host.querySelector('[data-error]')).toBeNull() // 갱신 실패 배너와 문구가 섞이지 않는다
+  })
+
+  // scope=mine 이 다른 계정의 감시자는 지우지만 그 lease 는 남긴다(관리자가 풀 수 있어야 하므로) —
+  // 짝이 되는 감시자가 없으면 RosterBoard 는 책상을 지어내지 않고 목록 위 별도 띠에 보인다.
+  it('짝이 되는 감시자가 없는 lease 도 별도 띠에서 「팀장 해제」가 된다', async () => {
+    releaseLead.mockResolvedValue({ ok: true, released: 1 })
+    refresh.mockResolvedValue({ ok: true, seatmap: map() })
+    const noWatcher: Seatmap = map({
+      floors: [{
+        id: 'p1', name: 'mes-base', seatCount: 0, doneCount: 0, watchers: [], zones: [],
+        leads: [{
+          userId: 'u9', host: 'air', agent: 'u9/air/lead', renewedAt: new Date(NOW - 5000).toISOString(),
+          expiresAt: new Date(NOW + 120_000).toISOString(), mine: false, ownerName: '홍길동', canRelease: true,
+        }],
+      }],
+      attention: [],
+    })
+    await act(async () => { root.render(<SeatmapView initial={noWatcher} />) })
+    expect(host.querySelector('[data-roster-unmatched-leads]')).not.toBeNull()
+    const btn = [...host.querySelectorAll('[data-roster-unmatched-leads] button')].find(b => b.textContent === '팀장 해제') as HTMLButtonElement
+    expect(btn).toBeTruthy()
+    await act(async () => { btn.click() })
+    await act(async () => { (host.querySelector('[data-lead-confirm]') as HTMLButtonElement).click() })
+    expect(releaseLead).toHaveBeenCalledWith('p1', 'u9')
   })
 })
 

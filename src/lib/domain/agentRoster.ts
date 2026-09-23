@@ -11,8 +11,9 @@ import type { SeatState } from './seatState'
 const OCCUPIED: readonly SeatState[] = ['ACTIVE', 'REJECTED', 'BLOCKED', 'STALE', 'OFFLINE']
 
 /** 팀장 lease(0101) — Floor.leads 는 프로젝트(층)별인데 여기서는 identity(agent) 로 다시 묶으므로,
- *  어느 프로젝트의 lease 인지(「팀장 해제」 호출에 필요)를 같이 들고 다닌다. */
-export interface RosterLease extends LeadLease { projectId: string }
+ *  어느 프로젝트의 lease 인지(「팀장 해제」 호출에 필요) · 그 층 이름(한 책상이 여러 프로젝트의
+ *  팀장이면 칩끼리 구분할 근거)을 같이 들고 다닌다. */
+export interface RosterLease extends LeadLease { projectId: string; floorName: string }
 
 export type DeskKind = 'lead' | 'member' | 'empty' | 'external'
 export interface RosterDesk {
@@ -41,7 +42,13 @@ export interface RosterHost {
   desks: RosterDesk[]
 }
 export interface RosterTiles { working: number; blocked: number; stale: number; offline: number; empty: number }
-export interface Roster { hosts: RosterHost[]; tiles: RosterTiles; agentCount: number }
+export interface Roster {
+  hosts: RosterHost[]; tiles: RosterTiles; agentCount: number
+  /** identity(agent 문자열)가 같은 감시자가 없어 어느 책상에도 못 붙은 lease — scope=mine 이 다른 계정의
+   *  감시자를 지워도 그 lease 는 남기므로(관리자가 남의 것도 풀 수 있어야 한다) 생긴다. 책상을 지어내지
+   *  않는다("감시 중" 인데 감시자가 없는 거짓 책상) — RosterBoard 가 이 목록을 따로 그린다. */
+  unmatchedLeads: RosterLease[]
+}
 
 export function parseAgentId(raw: string): { owner: string; host: string; slot: string } | null {
   const p = raw.split('/')
@@ -73,11 +80,14 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
 
   // 팀장 lease(0101) — 감시자와 같은 identity(agent 문자열)로 묶는다. Floor.leads 는 이미 그 층(프로젝트)의
   // 것만 실려 있으므로, 여러 층에 걸쳐 같은 identity 가 여러 프로젝트의 팀장이면 목록으로 모인다.
+  // agent 가 없는 lease(비정상 행)는 애초에 묶을 근거가 없어 바로 미매칭으로 보낸다.
   const leadsByAgent = new Map<string, RosterLease[]>()
+  const unmatchedLeads: RosterLease[] = []
   for (const f of map.floors) for (const l of f.leads) {
-    if (!l.agent) continue
+    const rl: RosterLease = { ...l, projectId: f.id, floorName: f.name }
+    if (!l.agent) { unmatchedLeads.push(rl); continue }
     const arr = leadsByAgent.get(l.agent) ?? []
-    arr.push({ ...l, projectId: f.id })
+    arr.push(rl)
     leadsByAgent.set(l.agent, arr)
   }
 
@@ -87,6 +97,10 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     const cur = watchers.get(w.agent)
     if (!cur || Date.parse(w.lastSeenAt) > Date.parse(cur.lastSeenAt)) watchers.set(w.agent, w)
   }
+  // scope=mine 은 다른 계정의 감시자를 지운다(다른 계정 팀장이 떠 있는 것처럼 보이면 안 되므로) —
+  // 하지만 그 계정의 lease 는 지우지 않는다(관리자가 남의 것도 풀 수 있어야 한다, round-0 결정).
+  // 그래서 감시자가 없는 채로 lease 만 남는 identity 가 생긴다 — 지금 살아 있는 감시자와 짝이 맞는
+  // lease 만 책상에 붙이고, 짝이 없는 lease 는 존재하지 않는 "감시 중" 책상을 지어내지 않는다.
   for (const w of watchers.values()) {
     const id = parseAgentId(w.agent)
     const h = id ? ensure(`${id.owner}/${id.host}`, `${id.owner} / ${id.host}`, true) : ensure(w.agent, w.agent, false)
@@ -95,6 +109,7 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     const slot = id?.slot ?? 'lead'
     h.desks.push({ key: `watch:${w.agent}`, slot, label: id ? slotLabel(slot) : '감시', kind: 'lead', seat: null, watcher: w, raw: w.agent, leads: leadsByAgent.get(w.agent) ?? [] })
   }
+  for (const [agent, leases] of leadsByAgent) if (!watchers.has(agent)) unmatchedLeads.push(...leases)
 
   const seats: Seat[] = []
   for (const f of map.floors) for (const z of f.zones) for (const s of z.seats) {
@@ -141,7 +156,8 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
   // 내 팀 먼저, 그다음 규칙을 따르는 작업 PC(감시 중인 곳 먼저), 규칙 밖 한 줄짜리는 뒤로.
   const list = [...hosts.values()].sort((a, b) =>
     Number(b.mine) - Number(a.mine) || Number(b.conforming) - Number(a.conforming) || Number(b.watcher !== null) - Number(a.watcher !== null) || a.label.localeCompare(b.label))
-  return { hosts: list, tiles, agentCount: seats.length }
+  unmatchedLeads.sort((a, b) => (a.agent ?? '').localeCompare(b.agent ?? '') || a.floorName.localeCompare(b.floorName))
+  return { hosts: list, tiles, agentCount: seats.length, unmatchedLeads }
 }
 
 /** 명찰에 쓰는 모델 표기 — 제조사 표식·색과 짧은 이름. 모르는 값은 원문을 그대로 둔다(추측해 바꾸지 않는다). */

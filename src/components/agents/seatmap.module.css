@@ -62,7 +62,9 @@
 .doneNote { font-size: 12px; color: var(--sm-ink-3); margin: 8px 0 0; }
 
 /* 팀장 lease 칩 — 감시 표시(.watch)와 같은 크기, 층 머리 전체 폭에 새 줄로 놓는다. */
-.lead { grid-column: 1 / -1; font-size: 11px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--sm-line); color: var(--sm-ink-3); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; width: fit-content; }
+/* 층 머리(FloorCard)는 grid-column 이 적용되고(그리드 컨테이너), 에이전트 보기(RosterBoard 172px
+   책상 칸)에서는 그냥 무시된다. 텍스트 줄바꿈을 허용해야 좁은 책상 칸에서 옆 칸을 침범하지 않는다. */
+.lead { grid-column: 1 / -1; font-size: 11px; padding: 4px 9px; border-radius: 10px; border: 1px solid var(--sm-line); color: var(--sm-ink-3); display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; width: fit-content; max-width: 100%; }
 .leadRelease { font: inherit; font-size: 11px; color: var(--sm-warn); background: none; border: 0; padding: 0 2px; cursor: pointer; text-decoration: underline dotted; }
 .leadRelease:hover { color: var(--sm-reject-bar); }
 .leadRelease:disabled { color: var(--sm-ink-3); cursor: default; text-decoration: none; }
