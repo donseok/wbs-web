@@ -48,6 +48,8 @@ const CHANGED = [
   '       거짓이면 선행이 main 미반영 상태. **Phase 0-가 4번과 같은 절차로 지금 직접 머지한다**',
   '## Phase 1~4 — Design → Build → Verify → Refactor',
   '## Phase 5 — 마감 (오케스트레이터 본인)',
+  // 10. Phase 06 3번: 결정 목록을 done --decisions 로 넘긴다(과제 C, docs/superpowers/specs/2026-09-23-worker-decision-report-design.md §6)
+  '   `dflow.sh done <ref> "<요약>" --auto-links`.',
 ] as const
 
 /**

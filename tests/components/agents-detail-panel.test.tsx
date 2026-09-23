@@ -1,12 +1,13 @@
 // tests/components/agents-detail-panel.test.tsx
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Seat } from '@/lib/domain/seatmap'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
+vi.mock('@/app/actions/agentWork', () => ({ getReportDecisions: vi.fn(async () => ({ ok: true, decisions: [] })) }))
 import { DetailPanel } from '@/components/agents/DetailPanel'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
@@ -111,5 +112,16 @@ describe('DetailPanel — 강제 진행(스펙 2026-09-23)', () => {
     const a = host.querySelector('[data-stub-link="s1"]')!
     expect(a.textContent).toBe('스텁 잔존: TSK-01 대체')
     expect(a.getAttribute('href')).toBe('/p/p1/wbs?focus=s1&open=1')
+  })
+})
+
+describe('DetailPanel — 머지 충돌 인용(2026-09-23)', () => {
+  it('phase 가 merge_conflict 이고 note 가 있으면 "머지 충돌: <note>" 를 인용한다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'WAIT', phase: 'merge_conflict', heartbeatPhase: 'merge_conflict', note: '충돌 2개(src/a.ts…) · 해소 중 w2 1/3' })} nowMs={NOW} {...OPS} />))
+    expect(host.textContent).toContain('머지 충돌: 충돌 2개(src/a.ts…) · 해소 중 w2 1/3')
+  })
+  it('note 가 없으면 인용하지 않는다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'DONE', phase: 'merge_conflict', heartbeatPhase: 'merge_conflict', note: null })} nowMs={NOW} {...OPS} />))
+    expect(host.textContent).not.toContain('머지 충돌:')
   })
 })

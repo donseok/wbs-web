@@ -81,7 +81,13 @@ unset TMUX TMUX_PANE
 PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v 'claude-agent-teams-bin' | paste -sd: -)
 export PATH
 RUNEOF
-printf 'exec claude --dangerously-skip-permissions %s "$(cat .dflow-prompt)"\n' '<모델 플래그>' >> "$WT/.dflow-run"
+LIM="$HOME/.dflow/limits"; mkdir -p "$LIM"
+jq -n --arg f "$LIM/<id8>.json" '{statusLine: {type: "command", command: ("jq -c \"{at: (now | floor), rate_limits: (.rate_limits // null)}\" > \"" + $f + ".tmp\" && mv -f \"" + $f + ".tmp\" \"" + $f + "\"; printf dflow")}}' > "$LIM/<id8>.settings.json"
+cat >> "$WT/.dflow-run" <<'RUNEOF'
+S="$HOME/.dflow/limits/<id8>.settings.json"
+[ -f "$S" ] && exec claude --dangerously-skip-permissions --settings "$S" <모델 플래그> "$(cat .dflow-prompt)"
+exec claude --dangerously-skip-permissions <모델 플래그> "$(cat .dflow-prompt)"
+RUNEOF
 chmod +x "$WT/.dflow-run"
 if "$TM" -L dflow has-session -t dflow 2>/dev/null; then
   PANE=$("$TM" -L dflow split-window -t dflow -c "$WT" -P -F '#{pane_id}' './.dflow-run')
@@ -98,7 +104,18 @@ fi
 printf '%s\n' "$PANE" > "$WT/.dflow-pane"
 cat "$WT/.dflow-pane"
 ```
+`<id8>`·`<모델 플래그>` 는 팀장이 글자 그대로 바꿔 쓴다(heredoc 은 따옴표로 막아 `$S`·`$HOME` 이 팀원 실행 시점에 풀린다).
+설정 파일 경로를 실행 시점에 다시 만들고 없으면 `--settings` 없이 띄우는 이유: Claude Code 2.1.280 은 없는 설정 파일을
+받으면 `Settings file not found` 로 곧바로 끝난다. 팀장의 Bash 호출은 변수를 이어받지 않으므로 「5-1」 이 `.dflow-run` 을
+다시 쓸 때 `LIM` 줄을 빠뜨리면 경로가 비고, 그러면 재시작한 팀원이 전부 첫 화면에서 죽어 상한 3 에서 멈춘다.
 
+- **statusLine 덤프**: `--settings` 로 붙인 statusLine 이 입력 JSON 의 `.rate_limits`(구독자일 때 `five_hour`·`seven_day`
+  마다 `used_percentage`·`resets_at`)를 `~/.dflow/limits/<id8>.json` 에 쓴다. 팀장은 이것으로 한도와 해제 시각을
+  정한다(`references/restart.md` 「한도 판정」). 워크트리 밖(`~/.dflow/limits`)에 쓰는 이유: 워크트리 안에 쓰면
+  `git status --porcelain` 이 더러워져 `DIRTY` 검사와 「고아 정리 규칙」 2번이 깨진다. 임시 파일에 쓰고 옮기는 이유: 깨진
+  입력이 반쯤 쓴 파일을 남기지 않게 한다. 팀원 pane 에서는 사람의 statusLine 설정이 이것으로 덮인다(표시는 `dflow`).
+  「5-1. 재개 spawn」 도 `.dflow-run` 을 이 블록대로 새로 쓰므로 재개·재시작 팀원도 덤프를 남긴다. 파일은 지우지 않는다
+  (작고, 같은 id8 을 다시 띄우면 덮어쓴다).
 - **전용 소켓 `-L dflow`** 라 팀장이 tmux 안이든 밖이든 코드 경로가 하나다. 사람의 기존 tmux 세션도 건드리지
   않는다. 서버가 없으면 `new-session`, 있으면 `split-window` 로 갈리는 분기 한 줄이 전부다.
 - `-x 200 -y 60` 은 detached 동안의 가상 크기다. 사람이 붙으면 클라이언트 크기를 따른다. 팀장이
@@ -261,7 +278,9 @@ git worktree remove --force "$WT"
 
 ## pane(Orca)
 
-tmux 를 찾지 못한 Orca 환경에서만 이 백엔드로 온다. 그런 조합이 실제로 있는지는 확인된 바 없다.
+Orca 안에서 띄운 팀장은 이 백엔드를 먼저 고른다(SKILL.md 「0. 환경 감지」). 자동 재시작의 재투입(`orca terminal close`·
+`orca terminal create`)은 실측 관문 전이라 쓰지 않는다(`references/restart.md` 「Orca」). Orca 팀원은 `.dflow-run` 을 쓰지 않아
+statusLine 덤프가 없다.
 
 **spawn**
 ```bash
@@ -325,6 +344,19 @@ orca worktree list        # 누수 확인. dflow-<id8> 가 남아 있으면 같�
    git fetch origin
    test "$(git -C <워크트리> rev-parse HEAD)" = "$(git -C <워크트리> rev-parse origin/<agent 브랜치>)"
    ```
+2-1. **해소 워크트리**(이름 `dflow-<id8>-resolve`, detached, SKILL.md 「5-2. 해소 spawn」): 1·2번 대신 아래 둘이 모두
+   참일 때 정리한다. 결과 줄 branch 칸이 늘 `-` 여도 1번(부트스트랩 실패)을 쓰지 않는다.
+   ```bash
+   git -C <워크트리> status --porcelain --untracked-files=all \
+     | grep -v -E '^\?\? (\.dflow-(agent|prompt|pane|run)|\.env|\.dflow|\.dflow\.local|\.claude/skills(/dflow-(dev|work|merge|team)(/.*)?)?|<TASK_DIR>/\.result)$'
+   git fetch origin
+   git -C <워크트리> merge-base --is-ancestor HEAD origin/<개발브랜치>
+   ```
+   첫 명령 출력이 비고 둘째가 0 이면 지운다(push 했거나 `reset --keep` 으로 버렸다. 잃을 것이 없다). tmux 는
+   `git worktree remove --force <경로>`, Orca 는 `orca worktree rm --worktree path:<경로> --force` 다. 아니면 3번으로
+   간다. 해소 워크트리는 "재개 가능" 이 아니므로 `parked` 로 바꾸고 "멈춤" 표에 넣는다. 사유는 결과 줄 status
+   (`blocked` 해소 중 멈춤 등)다. 살아 있는 해소 워커(`blocked` 포함)의 워크트리는 4번대로 지우지 않는다.
+
 3. 하나라도 거짓이면 지우지 않는다. 그 다음 SKILL.md 「팀장 상태」 고아 스캔의 **"재개 가능"** 조건을 보고
    가른다. 재개 가능이면 `.dflow-agent` 를 **건드리지 않고** 그대로 두어 「5-1. 재개 spawn」 이 이어받게 한다
    (그 절차가 슬롯 값을 다시 쓴다). 재개 가능이 아니면 경로와 미커밋 목록

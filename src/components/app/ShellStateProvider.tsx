@@ -21,6 +21,10 @@ type ShellPayload = {
   unreadAnnouncements: number
   /** 메뉴 문맥 프로젝트에서 내가 승인할 수 있는 에이전트 결재 대기 수. 옛 응답(필드 없음)은 0. */
   pendingApprovals?: number
+  /** 그 결재 대기에 딸린 확인 필요 결정 수(과제 C). null = 서버에서 조회 실패. 옛 응답(필드 없음)은 0 으로 본다. */
+  pendingDecisions?: number | null
+  /** 구 CLI 보고가 섞여 결정 수가 하한일 뿐인가. */
+  pendingDecisionsPartial?: boolean
   headerAnnouncements: AnnouncementSummary[]
 }
 
@@ -36,6 +40,9 @@ type ShellState = {
   menuUnreadAnnouncements: number
   /** 메뉴 문맥 프로젝트의 에이전트 결재 대기 수(내가 승인할 수 있는 것만) — 사이드바 「에이전트」 배지. */
   menuPendingApprovals: number
+  /** 메뉴 문맥 프로젝트의 결재 대기에 딸린 확인 필요 결정 수. null = 조회 실패(0 으로 위장하지 않는다). */
+  menuPendingDecisions: number | null
+  menuPendingDecisionsPartial: boolean
   headerAnnouncements: AnnouncementSummary[]
   refresh: () => void
 }
@@ -52,6 +59,8 @@ export function ShellStateProvider({ children }: { children: React.ReactNode }) 
   const [notifLoading, setNotifLoading] = useState(false)
   const [menuUnreadAnnouncements, setMenuUnreadAnnouncements] = useState(0)
   const [menuPendingApprovals, setMenuPendingApprovals] = useState(0)
+  const [menuPendingDecisions, setMenuPendingDecisions] = useState<number | null>(0)
+  const [menuPendingDecisionsPartial, setMenuPendingDecisionsPartial] = useState(false)
   const [headerAnnouncements, setHeaderAnnouncements] = useState<AnnouncementSummary[]>([])
   // 내비게이션 연타 시 늦게 도착한 이전 응답이 최신 상태를 덮지 않도록 시퀀스로 가드.
   const seq = useRef(0)
@@ -68,7 +77,10 @@ export function ShellStateProvider({ children }: { children: React.ReactNode }) 
       setNotifLoading(false)
       setHeaderAnnouncements([])
     }
-    if (!menuProjectId) { setMenuUnreadAnnouncements(0); setMenuPendingApprovals(0) }
+    if (!menuProjectId) {
+      setMenuUnreadAnnouncements(0); setMenuPendingApprovals(0)
+      setMenuPendingDecisions(0); setMenuPendingDecisionsPartial(false)
+    }
     try {
       const qs = new URLSearchParams()
       if (routeProjectId) qs.set('route', routeProjectId)
@@ -87,6 +99,9 @@ export function ShellStateProvider({ children }: { children: React.ReactNode }) 
       if (menuProjectId) {
         setMenuUnreadAnnouncements(data.unreadAnnouncements)
         setMenuPendingApprovals(data.pendingApprovals ?? 0)
+        // 필드 없음(옛 응답) = 문구 없음(0), 명시적 null = 서버 조회 실패.
+        setMenuPendingDecisions(data.pendingDecisions === undefined ? 0 : data.pendingDecisions)
+        setMenuPendingDecisionsPartial(data.pendingDecisionsPartial === true)
       }
     } catch {
       if (id === seq.current) setInboxFailed(true)
@@ -110,7 +125,8 @@ export function ShellStateProvider({ children }: { children: React.ReactNode }) 
       value={{
         inbox, setInbox, inboxLoading, inboxFailed,
         notifs, setNotifs, notifLoading,
-        menuUnreadAnnouncements, menuPendingApprovals, headerAnnouncements, refresh,
+        menuUnreadAnnouncements, menuPendingApprovals, menuPendingDecisions, menuPendingDecisionsPartial,
+        headerAnnouncements, refresh,
       }}
     >
       {children}

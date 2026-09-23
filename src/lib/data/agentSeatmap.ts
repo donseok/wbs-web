@@ -58,7 +58,8 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
   const liveIds = orders.filter(o => o.status === 'claimed' || o.status === 'reported').map(o => o.id)
   const [parents, reviews, watchers, projects, members, reports, leases] = await Promise.all([
     parentIds.length ? fetchAncestors(admin, parentIds) : Promise.resolve([] as ItemRow[]),
-    admin.from('agent_work_reports').select('work_order_id, review_action, review_note, created_at')
+    // decision_count 만 싣는다 — 본문은 상세 패널이 좁게 읽는다(주문 최대 2000건, 과제 C).
+    admin.from('agent_work_reports').select('work_order_id, review_action, review_note, created_at, decision_count')
       .in('work_order_id', orderIds).eq('kind', 'completion').then(r => must<ReviewRow[]>('완료 보고', r)),
     admin.from('agent_watchers').select('id, user_id, project_id, agent, host, slots, busy, until_label, last_seen_at')
       .gte('last_seen_at', new Date(nowMs - WATCHER_TTL_MS).toISOString()).then(r => must<WatcherRow[]>('감시자', r)),
@@ -76,7 +77,7 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
       return lq.then(r => must<LeaseRow[]>('팀장 lease', r))
     })(),
   ])
-  // 선행 항목 — ready 주문 항목의 depends 만 모아 프로젝트 안 external_ref 로 1회, 그 id 의 approved 주문 1회. ref 가 없으면 0회.
+  // 선행 항목 — ready 주문 항목의 depends 만 모아 프로젝트 안 external_ref 로 1회, 그 id 의 reported·approved 주문 1회. ref 가 없으면 0회.
   // 승인 주문은 위 주문 조회(7일 창)에 없을 수 있어 따로 본다 — 오래전 승인된 선행을 미충족으로 말하면 화면이 거짓말한다.
   const readyItemIds = new Set(orders.filter(o => o.status === 'ready').map(o => o.wbs_item_id))
   const refs = [...new Set(items.filter(i => readyItemIds.has(i.id)).flatMap(i => i.depends ?? []))]
@@ -84,12 +85,14 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
   if (refs.length) {
     const found = must<Array<Omit<PredecessorRow, 'order_approved'>>>('선행 항목',
       await admin.from('wbs_items').select('id, project_id, external_ref, code, name, stage, actual_pct').in('project_id', projIds).in('external_ref', refs))
-    const approved = found.length
-      ? must<Array<{ wbs_item_id: string }>>('선행 승인 주문',
-        await admin.from('agent_work_orders').select('wbs_item_id').in('wbs_item_id', found.map(p => p.id)).eq('status', 'approved'))
+    // reported 도 함께 읽는다 — 선행의 머지 충돌 표시(heartbeat_phase=merge_conflict)가 후속 대기 사유가 된다(2026-09-23).
+    const preds = found.length
+      ? must<Array<{ wbs_item_id: string; status: string; heartbeat_phase: string | null }>>('선행 주문',
+        await admin.from('agent_work_orders').select('wbs_item_id, status, heartbeat_phase').in('wbs_item_id', found.map(p => p.id)).in('status', ['reported', 'approved']))
       : []
-    const ok = new Set(approved.map(a => a.wbs_item_id))
-    predecessors = found.map(p => ({ ...p, order_approved: ok.has(p.id) }))
+    const ok = new Set(preds.filter(a => a.status === 'approved').map(a => a.wbs_item_id))
+    const conflict = new Set(preds.filter(a => a.heartbeat_phase === 'merge_conflict').map(a => a.wbs_item_id))
+    predecessors = found.map(p => ({ ...p, order_approved: ok.has(p.id), merge_conflict: conflict.has(p.id) }))
   }
   // 스텁 제거 하위(0103) — 좌석 대상 items 에 섞지 않는다(섞으면 주문 없는 좌석으로 오해된다). 스텁 잔존 배지 재료.
   const stubs = itemIds.length

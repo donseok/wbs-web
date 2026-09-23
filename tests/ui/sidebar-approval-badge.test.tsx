@@ -109,3 +109,73 @@ describe('Sidebar 에이전트 결재 대기 배지', () => {
     expect(agentLink().querySelector('[data-nav-badge]')).toBeNull()
   })
 })
+
+function stubShellWith(extra: Record<string, unknown>) {
+  vi.stubGlobal('fetch', vi.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      inbox: { items: [], unseen: 0 },
+      notifications: { items: [], count: 0 },
+      unreadAnnouncements: 0,
+      headerAnnouncements: [],
+      ...extra,
+    }),
+  })))
+}
+
+describe('Sidebar 결재 대기 배지 — 확인 필요 결정(과제 C)', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    mocks.pathname = '/p/p1/dashboard'
+    localStorage.removeItem('dflow-sidebar')
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    vi.unstubAllGlobals()
+  })
+
+  async function render() {
+    await act(async () => {
+      root.render(
+        <ProjectNavigationProvider projects={projects} initialLastProjectId="p1">
+          <ShellStateProvider>
+            <Sidebar projects={projects} />
+          </ShellStateProvider>
+        </ProjectNavigationProvider>,
+      )
+    })
+    await act(async () => {})
+  }
+  const badge = () => container.querySelector('a[href="/p/p1/agents/office"] [data-nav-badge="nav.projectAgents"]')
+
+  it('결정이 딸리면 수는 그대로, title 에 결정 수, 배지에 점', async () => {
+    stubShellWith({ pendingApprovals: 3, pendingDecisions: 2, pendingDecisionsPartial: false })
+    await render()
+    expect(badge()?.textContent).toBe('3')
+    expect(badge()?.getAttribute('title')).toBe('결재 대기 3건 · 확인 필요 결정 2건')
+    expect(badge()?.querySelector('[data-nav-decision-dot]')).not.toBeNull()
+  })
+  it('구 CLI 보고가 섞이면 "이상 · 일부 구버전 보고"', async () => {
+    stubShellWith({ pendingApprovals: 3, pendingDecisions: 2, pendingDecisionsPartial: true })
+    await render()
+    expect(badge()?.getAttribute('title')).toBe('결재 대기 3건 · 확인 필요 결정 2건 이상 · 일부 구버전 보고')
+  })
+  it('결정 수 조회 실패(null)는 실패라고 말하고 점을 달지 않는다', async () => {
+    stubShellWith({ pendingApprovals: 3, pendingDecisions: null, pendingDecisionsPartial: false })
+    await render()
+    expect(badge()?.getAttribute('title')).toBe('결재 대기 3건 · 확인 필요 결정 수 조회 실패')
+    expect(badge()?.querySelector('[data-nav-decision-dot]')).toBeNull()
+  })
+  it('결정 0건이면 종전 그대로', async () => {
+    stubShellWith({ pendingApprovals: 3, pendingDecisions: 0, pendingDecisionsPartial: false })
+    await render()
+    expect(badge()?.getAttribute('title')).toBe('결재 대기 3건')
+    expect(badge()?.querySelector('[data-nav-decision-dot]')).toBeNull()
+  })
+})

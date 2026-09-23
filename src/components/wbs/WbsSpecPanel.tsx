@@ -18,7 +18,8 @@ import {
   type AgentOrderBrief,
   type AgentOrderStatus,
 } from '@/app/actions/agentWork'
-import { isClaimStale } from '@/lib/domain/agentWork'
+import { isClaimStale, parseDecisions } from '@/lib/domain/agentWork'
+import { DecisionList } from '@/components/agent-hub/DecisionList'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -375,6 +376,25 @@ const ORDER_STATUS_LABEL: Record<string, DictKey> = {
 }
 
 /**
+ * 완료 보고 한 회차의 결정 목록(과제 C, 스펙 §7.2). 승인 대기 회차는 펼치고, 반려·재작업된 옛 회차는
+ * 결정 수만 보이게 접는다 — 회차마다 무엇이 반려됐는지(review_note)와 나란히 읽힌다.
+ */
+function ReportDecisions({ raw, open, latest }: { raw: unknown; open: boolean; latest: boolean }) {
+  const parsed = parseDecisions(raw)
+  if (open) return <DecisionList decisions={parsed} compact />
+  if (parsed.state === 'ok' && parsed.items.length === 0) return null
+  // 미제출(0102 이전·구 CLI)은 가장 최근 completion 회차에만 알린다 — 옛 회차마다 붙으면 잡음이다.
+  if (parsed.state === 'none' && !latest) return null
+  const head = parsed.state === 'ok' ? `결정 ${parsed.items.length}건` : parsed.state === 'none' ? '결정 목록 미제출' : '결정 목록 오류'
+  return (
+    <details data-report-decisions-fold className="mt-1">
+      <summary className="cursor-pointer text-[10px] text-ink-subtle">{head}</summary>
+      <DecisionList decisions={parsed} compact />
+    </details>
+  )
+}
+
+/**
  * "진행 상황" — 이 항목의 최신 에이전트 주문(2026-08-24, agent-ops 화면 대체). 승인·반려는 여전히
  * 사람만 하는 행위라 여기 남는다 — 발행·취소는 위임 체크 하나로 되므로 이 섹션에 버튼을 두지 않는다.
  * 위임한 적 없거나(order:null) 조회 실패면 아무것도 렌더하지 않는다(빈 패널에 소음을 더하지 않는다) —
@@ -421,6 +441,11 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
   if (!order || (order.status === 'cancelled' && priorOrders.length === 0)) return null
 
   const lastReport = order.reports.at(-1)
+  // 승인 대기 회차 = 주문이 reported 일 때의 마지막 completion. 그 밖의 completion 은 옛 회차다.
+  const latestCompletionId = [...order.reports].reverse().find(r => r.kind === 'completion')?.id ?? null
+  const pendingCompletionId = order.status === 'reported'
+    ? ([...order.reports].reverse().find(r => r.kind === 'completion')?.id ?? null)
+    : null
 
   // warning: 본 동작은 성공했지만 실적·단계 같은 후속이 남았다는 신호. 조용히 삼키면 사람이
   // 반쪽 상태를 못 보고, 에러 자리에 넣으면 성공한 동작이 실패로 읽힌다 — 자리를 나눈다.
@@ -478,6 +503,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
                   ))}
                 </div>
               )}
+              {r.kind === 'completion' && <ReportDecisions raw={r.decisions} open={r.id === pendingCompletionId} latest={r.id === latestCompletionId} />}
             </li>
           ))}
         </ul>

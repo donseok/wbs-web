@@ -6,6 +6,10 @@
 // 서브트리 관리자로서 승인할 수 있는 것만 센다(seatOps.ts: 승인은 관리자·서브트리 관리자만).
 // service_role 로 읽으므로 RLS 가 없다 — 판정은 여기서 세션 actor 로 직접 한다. 셸 라우트에 가드가 없어
 // 임의의 menu=<uuid> 가 들어올 수 있으니, 관리자가 아니면 로스터에 내가 없을 때 0 이다(남의 프로젝트 수를 흘리지 않는다).
+//
+// 확인 필요 결정 수(과제 C, 스펙 §7.4) — 이미 고른 승인 가능 주문의 completion 보고에서만 센다(같은 성질을 잇는다).
+// 주문마다 최신 completion 의 decision_count 만 더한다(반려된 옛 회차와 합산하지 않는다). null(구 CLI)은 0 으로 세지
+// 않고 partial 로 알린다. 결정 수 조회만 실패하면 건수는 두고 decisions:null — 모름을 0 으로 위장하지 않는다.
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getActorForView } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
@@ -16,37 +20,68 @@ import { viewerEmail } from '@/lib/data/agentSeatmap'
 import { stubPendingByItem } from '@/lib/domain/forceProgress'
 
 type ItemRow = { id: string; parent_id: string | null; assignee_member_id: string | null; stub_for?: string | null }
+type OrderRow = { id: string; wbs_item_id: string | null }
+type DecisionReportRow = { work_order_id: string; decision_count: number | null; created_at: string }
 
 type StubRow = { id: string; parent_id: string | null; stub_for: string | null; stage: string | null }
 
 /** 순수 판정 — 관리자면 전부, 아니면 내가 조상 담당자인(서브트리 관리자) 항목의 주문만.
- *  스텁 잔존(강제 진행 스펙 §3.6) 주문은 지금 승인할 수 없으므로 세지 않는다 — stubRows 는 주문 항목들의 stub 하위. */
+ *  스텁 잔존(강제 진행 스펙 §3.6) 주문은 지금 승인할 수 없으므로 고르지 않는다 — stubRows 는 주문 항목들의 stub 하위. */
+export function pickApprovable<T extends { wbs_item_id: string | null }>(
+  orders: readonly T[],
+  items: ReadonlyArray<ItemRow>,
+  viewer: { isAdmin: boolean; memberIds: readonly string[] },
+  stubRows: ReadonlyArray<StubRow> = [],
+): T[] {
+  const locked = stubPendingByItem(stubRows)
+  const approvable = orders.filter(o => o.wbs_item_id === null || !locked.has(o.wbs_item_id))
+  if (viewer.isAdmin) return approvable
+  if (viewer.memberIds.length === 0) return []
+  const itemById = new Map(items.map(i => [i.id, i]))
+  const mine = new Set(viewer.memberIds)
+  return approvable.filter(o => o.wbs_item_id !== null && isSubtreeManagerOf(o.wbs_item_id, itemById, mine))
+}
+
 export function countApprovable(
   orders: ReadonlyArray<{ wbs_item_id: string | null }>,
   items: ReadonlyArray<ItemRow>,
   viewer: { isAdmin: boolean; memberIds: readonly string[] },
   stubRows: ReadonlyArray<StubRow> = [],
 ): number {
-  const locked = stubPendingByItem(stubRows)
-  const approvable = orders.filter(o => o.wbs_item_id === null || !locked.has(o.wbs_item_id))
-  if (viewer.isAdmin) return approvable.length
-  if (viewer.memberIds.length === 0) return 0
-  const itemById = new Map(items.map(i => [i.id, i]))
-  const mine = new Set(viewer.memberIds)
-  return approvable.filter(o => o.wbs_item_id !== null && isSubtreeManagerOf(o.wbs_item_id, itemById, mine)).length
+  return pickApprovable(orders, items, viewer, stubRows).length
 }
 
-/** 이 프로젝트에서 내가 승인할 수 있는 결재 대기 수. 비로그인·잘못된 id 는 0. 조회 실패는 throw(호출부가 로깅). */
-export async function getPendingApprovalCount(projectId: string): Promise<number> {
-  if (!isUuidLike(projectId)) return 0
+/** 주문마다 최신 completion 의 결정 수 합. 최신이 null(구 CLI)이거나 보고가 없으면 더하지 않고 partial. */
+export function sumLatestDecisions(orderIds: readonly string[], reports: ReadonlyArray<DecisionReportRow>): { known: number; partial: boolean } {
+  const latest = new Map<string, DecisionReportRow>()
+  for (const r of reports) {
+    const cur = latest.get(r.work_order_id)
+    if (!cur || Date.parse(r.created_at) > Date.parse(cur.created_at)) latest.set(r.work_order_id, r)
+  }
+  let known = 0
+  let partial = false
+  for (const id of orderIds) {
+    const n = latest.get(id)?.decision_count
+    if (typeof n === 'number') known += n
+    else partial = true
+  }
+  return { known, partial }
+}
+
+export type PendingApprovals = { count: number; decisions: number | null; decisionsPartial: boolean }
+const NONE: PendingApprovals = { count: 0, decisions: 0, decisionsPartial: false }
+
+/** 이 프로젝트에서 내가 승인할 수 있는 결재 대기 수와 거기 딸린 확인 필요 결정 수. 주문 조회 실패는 throw(호출부가 로깅). */
+export async function getPendingApprovals(projectId: string): Promise<PendingApprovals> {
+  if (!isUuidLike(projectId)) return NONE
   const actor = await getActorForView()
-  if (!actor) return 0
+  if (!actor) return NONE
   const admin = createAdminClient()
   const { data: orders, error } = await admin.from('agent_work_orders')
-    .select('wbs_item_id').eq('project_id', projectId).eq('status', 'reported').limit(500)
+    .select('id, wbs_item_id').eq('project_id', projectId).eq('status', 'reported').limit(500)
   if (error) throw new Error(`[approvals] 결재 대기 조회 실패: ${error.message}`)
-  const rows = (orders ?? []) as Array<{ wbs_item_id: string | null }>
-  if (rows.length === 0) return 0
+  const rows = (orders ?? []) as OrderRow[]
+  if (rows.length === 0) return NONE
   // 스텁 잔존 주문은 세지 않는다 — 주문 항목들의 stub 하위만 좁게 읽는다(셸 조회 원칙).
   const orderItemIds = rows.map(r => r.wbs_item_id).filter((x): x is string => x !== null)
   const { data: stubData, error: stubErr } = orderItemIds.length === 0
@@ -54,12 +89,31 @@ export async function getPendingApprovalCount(projectId: string): Promise<number
     : await admin.from('wbs_items').select('id, parent_id, stub_for, stage').in('parent_id', orderItemIds).not('stub_for', 'is', null)
   if (stubErr) throw new Error(`[approvals] 스텁 하위 조회 실패: ${stubErr.message}`)
   const stubRows = (stubData ?? []) as StubRow[]
-  if (isProjectAdmin(actor, projectId)) return countApprovable(rows, [], { isAdmin: true, memberIds: [] }, stubRows)
-  const email = await viewerEmail(admin, actor.userId)
-  const memberIds = await myMemberIds(admin, { userId: actor.userId, userEmail: email ?? '', projectId })
-  if (memberIds.length === 0) return 0
-  const { data: items, error: itemErr } = await admin.from('wbs_items')
-    .select('id, parent_id, assignee_member_id, stub_for').eq('project_id', projectId)
-  if (itemErr) throw new Error(`[approvals] 항목 트리 조회 실패: ${itemErr.message}`)
-  return countApprovable(rows, (items ?? []) as ItemRow[], { isAdmin: false, memberIds }, stubRows)
+  let approvable: OrderRow[]
+  if (isProjectAdmin(actor, projectId)) {
+    approvable = pickApprovable(rows, [], { isAdmin: true, memberIds: [] }, stubRows)
+  } else {
+    const email = await viewerEmail(admin, actor.userId)
+    const memberIds = await myMemberIds(admin, { userId: actor.userId, userEmail: email ?? '', projectId })
+    if (memberIds.length === 0) return NONE
+    const { data: items, error: itemErr } = await admin.from('wbs_items')
+      .select('id, parent_id, assignee_member_id, stub_for').eq('project_id', projectId)
+    if (itemErr) throw new Error(`[approvals] 항목 트리 조회 실패: ${itemErr.message}`)
+    approvable = pickApprovable(rows, (items ?? []) as ItemRow[], { isAdmin: false, memberIds }, stubRows)
+  }
+  if (approvable.length === 0) return NONE
+  const ids = approvable.map(o => o.id)
+  const { data: reps, error: repErr } = await admin.from('agent_work_reports')
+    .select('work_order_id, decision_count, created_at').in('work_order_id', ids).eq('kind', 'completion')
+  if (repErr) {
+    console.error('[approvals] 확인 필요 결정 수 조회 실패:', repErr.message)
+    return { count: approvable.length, decisions: null, decisionsPartial: false }
+  }
+  const s = sumLatestDecisions(ids, (reps ?? []) as DecisionReportRow[])
+  return { count: approvable.length, decisions: s.known, decisionsPartial: s.partial }
+}
+
+/** 수만 필요한 호출부용(종전 이름). */
+export async function getPendingApprovalCount(projectId: string): Promise<number> {
+  return (await getPendingApprovals(projectId)).count
 }

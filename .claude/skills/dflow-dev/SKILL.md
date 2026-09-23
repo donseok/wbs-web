@@ -54,8 +54,9 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   state.json 을 `phase=cancelled` 로 바꾸고, 산출물은 로컬 커밋만 남긴다(**push 하지 않는다**, done 하지 않는다).
   사용자에게는 `"{TSK} 중단됨 — D'Flow 에서 사람이 멈췄습니다. 로컬 커밋만 남겼습니다."` 한 줄로 알린다.
   PostToolUse heartbeat 훅도 같은 신호(409 `cancelled`)를 받으면 `~/.dflow/hb/<order>.cancelled` 표식을 남기고
-  세션을 세운다(`continue:false`). 표식이 남은 동안 훅은 도구를 부를 때마다 다시 세우므로, 같은 주문을 다시
-  위임받아 이어 갈 때만 그 파일을 지운다. `cancelled` 는 진행 중 phase 가 아니다 — 스윕·재개 판정은 건너뛴다.
+  세션을 세운다(`continue:false`). 표식이 남은 동안 훅은 도구를 부를 때마다 다시 세운다. 그 파일은
+  `/dflow-team` 팀장이 spawn 직전에 서버 status(`ready`·`claimed`)로 확인하고 지운다. 수동 `/dflow-dev` 세션은 사람이
+  지운다. `cancelled` 는 진행 중 phase 가 아니다 — 스윕·재개 판정은 건너뛴다.
   **`api_base` 는 claim 한 시점의 `DFLOW_API_BASE` 에서 끝 `/` 를 뺀 값이다**(dflow.sh `base()` 와 같은
   정규화). Phase 01 에서 state.json 을 처음 쓰는 곳에서 기록한다. 스택이면 3번의 `branch_base`·`risk` 기록,
   아니면 4번의 기준선 기록이다. 반려 재작업이 기존 state.json 에 `phase=rejected` 를 쓸 때 `api_base` 가
@@ -285,7 +286,15 @@ Refactor 는 supervised 에서 기본 실행, 실패 시 Refactor 커밋만 되�
 2. 미커밋 잔여물 커밋(파일명 명시) → `git push origin <agent 브랜치>`.
    push 가 훅(G1~G4)에 거부되면 SKIP_GUARD 금지 — 중단하고 사람에게 보고.
 3. `dflow.sh show <ref>` 로 spec 개정 여부 최종 확인(낡은 명세로 done 방지) →
-   `dflow.sh done <ref> "<요약>" --auto-links`.
+   `docs/tasks/<TSK>/decisions.json` 작성 →
+   `dflow.sh done <ref> "<요약>" --auto-links --decisions docs/tasks/<TSK>/decisions.json`.
+   decisions.json 은 design.md `## 담당자 확인 필요 결정` 절의 결정 목록이다 — JSON 배열, 항목은 `key`(절의 번호 `D1`…)·
+   `question`·`options`(2~6개)·`chosen`(택한 선택지의 0부터 센 색인)·`rationale`·`on_reject`. 절이 없거나 0건이면 `[]` 를 쓴다.
+   supervised 모드(플래그 없음)도 넘긴다 — 사람과 대화로 정한 결정은 확인이 끝났으므로 `[]` 다. 이렇게 해야 서버의
+   `null` 이 "구 도구" 한 가지 뜻만 갖는다. 이 파일은 커밋하지 않는다. done 이 exit 0 이면 지우고, 실패하면 남겨 재시도
+   재료로 쓴다. `DECISIONS_INVALID …`(exit 2)는 파일 형식 오류다 — 고쳐 다시 부른다. stderr 경고
+   `DECISIONS_COUNT_MISMATCH`·`DECISIONS_SUFFIX_MISSING` 은 요약 접미사와 목록 건수가 어긋났다는 뜻이고,
+   `서버가 결정 목록을 모릅니다(계약 < 2.6)` 는 서버가 옛 버전이라 결정이 요약 접미사로만 전달됐다는 뜻이다(둘 다 보고는 됐다).
 4. state.json 을 `phase=reported` 로 갱신하고, 그 파일을 파일명을 명시해 커밋한 뒤 `git push origin <agent 브랜치>` 한다.
    원격 agent 브랜치 tip 에도 `reported` 가 남고, 미커밋 state.json 이 다음 브랜치 전환을 막지 않게 하기
    위해서다. push 가 훅에 거부되면 우회하지 않고 보고한다. done 은 이미 보고됐으므로 되돌리지 않는다. 이
@@ -309,7 +318,7 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 | A | Phase 01-가 승인 스윕 | claim 앞에서 매번 스윕한다 | **건너뛴다.** 스윕은 팀장 몫이며, 이유를 한 줄 남긴다 |
 | B | Phase 01 2번, 선행이 approved 인데 main 미반영이면 직접 머지 | 직접 머지한다 | **머지하지 않는다.** 기점을 그 `head_sha` 로 잡고, Phase 01 2번 공통 규칙대로 claim 전에 그 기점으로 detach 한 뒤 claim 하고 스택 브랜치를 만든다. state.json 에 `branch_base` 와 `risk: "선행 main 미반영(팀장 머지 대기)"` 를 기록한다 |
 | C | Phase 01 1번 재개 판정의 approved 갈래 | 즉시 머지하고 종료한다 | **머지하지 않고** `.result` 를 `{TSK} {ID8} <branch> <head_sha> - needs-merge approved` 로 쓰고 종료한다 |
-| D | 사람 판단이 필요한 분기(AskUserQuestion, `--only` 확인) | 지금처럼 묻는다 | **AskUserQuestion 을 쓰지 않는다.** 합리적으로 고른 뒤 나중에 알린다. 기본값이 있으면 택해 한 줄 남기고 진행한다. 없어도 근거가 더 강한 쪽을 골라 진행하고, design.md `## 담당자 확인 필요 결정` 절에 질문·선택지·택한 것·근거·반려 시 재작업 방향을 남긴다. Phase 06 `done` 요약 끝에 `확인 필요 결정 N건: …` 을 싣는다. `blocked` 는 되돌리기 어려운 결정(데이터 삭제·외부 공개·다른 Task 산출물의 대폭 수정·보안·권한 변경)에만 쓴다(worker-prompt.md 판단 규칙). 팀장은 `--only` 를 넘기지 않으므로 `--only` 확인은 워커 경로에 없다 |
+| D | 사람 판단이 필요한 분기(AskUserQuestion, `--only` 확인) | 지금처럼 묻는다 | **AskUserQuestion 을 쓰지 않는다.** 합리적으로 고른 뒤 나중에 알린다. 기본값이 있으면 택해 한 줄 남기고 진행한다. 없어도 근거가 더 강한 쪽을 골라 진행하고, design.md `## 담당자 확인 필요 결정` 절에 질문·선택지·택한 것·근거·반려 시 재작업 방향을 남긴다. Phase 06 `done` 요약 끝에 `확인 필요 결정 N건: …` 을 싣는다. 결정마다 `D` 번호를 붙이고, Phase 06 에서 그 절을 `docs/tasks/<TSK>/decisions.json` 으로 옮겨 `done --decisions` 로 넘긴다(0건이면 `[]`). `blocked` 는 되돌리기 어려운 결정(데이터 삭제·외부 공개·다른 Task 산출물의 대폭 수정·보안·권한 변경)에만 쓴다(worker-prompt.md 판단 규칙). 팀장은 `--only` 를 넘기지 않으므로 `--only` 확인은 워커 경로에 없다 |
 | E | Phase 02~05 공통 프롬프트 | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로를 글자 그대로 적어 호출한다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다" 한 줄을 덧붙인다. 오케스트레이터 자신도 같은 규칙을 따른다. 손자 서브에이전트까지 rtk 격리 가드 차단을 피하게 하기 위해서다 |
 | F | Phase 01 2번 claim exit 4 재시도 | `git fetch origin` 뒤 기점을 다시 정해 1회 재시도하고, 그래도 4 면 중단·보고한다(merge 없음) | 같다. 그래도 4 면 `.result` 에 `skipped` 를 쓴다 |
 | G | Phase 01 2번 `head_sha` 없는 선행의 갈래 1·2 | 갈래 1(미승인·stage 미달)은 로컬 선행 산출물이 있으면 스택하고, 갈래 2(`stage >= im`·`order_approved:false`, 완료 보고 뒤 승인 대기)는 한 줄 남기고 진행한다 | **스택하지 않는다.** 갈래 1(`reached` 가 거짓)은 `skipped 선행 미승인` 으로 끝내고 팀장이 일시 제외한다. 갈래 2(`reached` 가 참인데 `head_sha` 가 없음)는 아래 **기본 브랜치 반영 확인**을 거쳐, 반영이 확인되면 `origin/<기본브랜치>` 기점으로 **스택 없이 진행**하고 그 사실을 한 줄 남긴다. 확인되지 않으면 `skipped 선행 승인 대기` 로 끝낸다. 이유: 종전에는 갈래 2 도 `skipped` 였으나, 그 근거였던 「`head_sha` 가 없으면 선행 코드도 없다」 가 참이 아니다. 승인 전에 기본 브랜치로 머지하는 운영에서는 선행 산출물이 `origin/<기본브랜치>` 에 이미 있고, 그때 워커만 멈추면 그 선행에 걸린 후속 전부가 승인 버튼 하나를 기다리며 영영 착수하지 못한다(2026-09-17 mdm-dict 실측: 기능 12건이 한 선행에 함께 막혔다). 수동 경로는 같은 갈래에서 이미 「한 줄 남기고 진행」 이므로, 이 변경은 새 정책이 아니라 워커에만 있던 이탈을 없애는 것이다. 워커의 스택은 `head_sha` 가 있는 선행(행 B)에만 한다. `waived:true` 간선은 이 행의 대상이 아니다 — Phase 01 2번의 강제 진행 갈래로 간다(기본 브랜치 반영 확인 없음) |
@@ -319,7 +328,15 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 `<선행TSK>` 는 그 `depends_evidence` 원소의 `external_ref` 에서 마지막 `/` 뒤다(예 `dict/TSK-02-01` → `TSK-02-01`).
 선행 주문을 `show` 하지 않는 이유: 워커의 서버 조회는 자기 `{ID8}` 하나로 제한되고(worker-prompt.md 「5」),
 `depends_evidence[]` 에는 주문 UUID 가 없어 어차피 아래 state.json 을 읽어야 UUID 를 얻는다.
-줄마다 단독으로 실행해 출력을 읽는다(git 을 감싼 명령 치환은 워커 git 호출 규칙이 금지한다).
+**실행은 공용 스크립트 한 줄이다**(팀장의 선행 반영 사전 검사와 같은 판정, 2026-09-23). `git fetch origin` 을 먼저
+단독으로 실행한 뒤 부른다.
+```bash
+.claude/skills/dflow-dev/scripts/pred-reflected.sh <TASKS> <선행TSK> <기본브랜치>
+```
+`<TASKS>` 는 선행 Task 폴더의 부모다(이 리포에서는 `docs/tasks`, 작업 폴더가 `{TASK_DIR}` 로 주어지는 판에서는 그 부모).
+출력 첫 낱말이 `REFLECTED` 면 반영이 확인된 것이다. `NOT_REFLECTED`·`UNKNOWN` 은 모두 `skipped 선행 승인 대기` 다
+(지금 동작과 같다). 아래 블록은 스크립트가 하는 일의 설명이며 워커가 직접 치지 않는다. 스크립트 안에서 git 을
+부르는 것은 `deps.sh` 와 같은 방식이며, 워커 git 호출 규칙(명령 치환 금지)은 워커가 직접 치는 Bash 줄에 대한 것이다.
 
 판정은 `phase=merged` **AND** (아래 세 증거 중 하나라도 참) 이다. **첫 증거가 가장 강하다** — 선행 산출물이
 `origin/<기본브랜치>` 라는 기점에 실재한다는 직접 증거이기 때문이다. 커밋 그래프의 조상 관계는 git 이 보증하는

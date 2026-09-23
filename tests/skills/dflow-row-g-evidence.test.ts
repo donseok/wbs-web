@@ -41,6 +41,11 @@ describe('행 G 기본 브랜치 반영 확인: head_sha 조상 확인을 첫 �
     expect(dev).toContain('TSK-03-07·03-09·03-11·03-12')
     expect(dev).toContain('TSK-03-10·03-13·04-01')
   })
+  it('워커는 반영 확인을 공용 스크립트 한 줄로 실행한다(팀장 사전 필터와 같은 판정, 2026-09-23)', () => {
+    expect(dev).toContain('.claude/skills/dflow-dev/scripts/pred-reflected.sh <TASKS> <선행TSK> <기본브랜치>')
+    expect(dev).toContain('`REFLECTED` 면 반영이 확인된 것이다')
+    expect(dev).toContain('`NOT_REFLECTED`·`UNKNOWN` 은 모두 `skipped 선행 승인 대기` 다')
+  })
 })
 
 describe('커밋 규칙: 모든 커밋에 DFlow-Order 트레일러를 붙인다', () => {

@@ -14,6 +14,11 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
 진척된다(2026-09-19 mdm-dict-v2 실측: 팀원 4명 중 3명이 `skipped 선행 승인 대기`). 자율로 돌고 사람은 사후에
 확인한다는 팀장 설계와 어긋난다. 플래그가 없으면 종전대로 approved 만 머지한다.
 
+**`--resolve <ref>`(팀장이 띄운 해소 워커 전용)**: `/dflow-team` 팀장이 머지 충돌을 풀라고 띄운 해소 워커만 쓴다.
+사람이 직접 쓰지 않으며 description 의 사용법에 노출하지 않는다. ref 는 정확히 하나이고 `--attempt <n>`(1~3)이 함께
+온다. `--on-report` 가 함께 오면 그 판정도 그대로다. 절차는 아래 「해소 머지(`--resolve`)」 절이다. 플래그 없는 수동
+사용과 팀장 스윕은 충돌 파일 목록을 보고하는 것만 바뀌고 여전히 `--abort` 한다(2026-09-23 머지 충돌 설계 §5.1).
+
 > **위치 선언**: /dflow-dev 는 done(reported, 승인 대기)에서 끝난다. 사람이 D'Flow 웹에서
 > approve 한 뒤 그 브랜치를 main 에 합치는 것이 이 스킬이다. 이게 없으면 후속 작업의 선행
 > 게이트(`merge-base --is-ancestor` 검사)가 영원히 거짓이고 스택 브랜치가 무한히 깊어진다.
@@ -172,12 +177,18 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
       머지 전에 `dflow.sh stub-check <머지 대상>` 을 돌린다. exit 4 면 머지하지 않고 「스텁 잔존 — 개발 브랜치 미설정 리포라
       운영에 스텁이 들어간다」 로 보고한 뒤 다음 후보로 간다(스펙 2026-09-23 §4). 두 브랜치가 다르면 이 검사를 하지 않는다 —
       스텁은 개발 브랜치에 머지되는 것이 정상이고(F5), 관문은 운영 승격이다.
-   3. `git merge --no-ff <머지 대상>`. 충돌하면 `git merge --abort` 로 되돌리고 "머지 실패(충돌)" 로
+   3. `git merge --no-ff <머지 대상>`. 충돌하면 먼저 충돌 파일 목록을 읽은 뒤 `git merge --abort` 로 되돌리고 "머지 실패(충돌)" 로
       보고한 뒤 다음 후보로 간다. 이유: 충돌 상태로 남으면 체크아웃이 더러워져, 팀장이면 이후 모든
       기상이 전제 검사에서 멈추고 수동이면 사람이 그 상태를 치워야 한다. 사람이 그 자리에서 충돌을
       손으로 풀어 `git merge --abort` 대신 직접 `git commit` 으로 머지를 완성하는 경로도 있다 — 이
       경로에도 아래 트레일러 규칙이 그대로 적용된다. "자동 스윕이 아니다" 는 트레일러를 빠뜨릴
       이유가 되지 않는다.
+      충돌 파일 목록은 `--abort` **전에** 읽는다(뒤에는 비어 있다). 보고 줄은 `머지 실패(충돌) <파일,…>` 다.
+      임시 머지 워크트리에서는 두 명령 모두 `git -C "$W"` 로 부른다.
+      ```bash
+      git diff --name-only --diff-filter=U | paste -sd, -   # 충돌 파일 목록(쉼표로 이음)
+      git merge --abort
+      ```
    4. state.json 을 `phase=merged` 로 갱신해 기본 브랜치에 커밋한다(파일명 명시). 이 커밋을 **push 전에**
       만든다. 승인 전 머지면 같은 커밋에서 `unapproved: true` 를 함께 넣는다. `phase` 를 `merged` 가 아닌 새 값으로
       만들지 않는 이유: `/dflow-dev` 「--worker」 행 G 의 기본 브랜치 반영 확인이 `phase` 가 `merged` 인지를 보고,
@@ -241,10 +252,77 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      브랜치를 잡고 있을 수 있기 때문이다. 아직 미승인 후손 스택 브랜치는 **삭제·rebase
      하지 않는다** — 이미 머지된 커밋을 조상으로 포함하므로 그대로 두면 제 차례에 깨끗이 머지된다.
 6. **보고**: 머지됨 / 머지됨(승인 전) / 승인 반영(이미 머지됨) / 승인 대기 / 승인 대기(머지됨) / 반려: 재작업 필요 (<review_note>) /
-   반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>, 그 위에 쌓였을 수 있는 작업) / 머지 실패(충돌) / push 실패(경합) /
+   반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>, 그 위에 쌓였을 수 있는 작업) / 머지 실패(충돌) <파일,…> / push 실패(경합) /
    push 실패(훅) / push 실패 / 건너뜀(서버 <status>·조회 실패·다른 D'Flow·조상 미승인·기점 미반영·승인 뒤 변경·
    승인 뒤 변경 확인 불가·로컬 브랜치 삭제 건너뜀)을 표로. 반려·머지 실패(충돌)·push 실패(훅)는 id8 과 함께 따로
    적는다. 반려(머지됨)도 따로 적는다. 호출자(`/dflow-team` 팀장 등)가 이 목록으로 후속 처리를 한다.
+
+## 해소 머지(`--resolve`)
+
+팀장이 띄운 해소 워커(`dflow-team/references/resolve-prompt.md`)만 이 절을 탄다. 목적은 충돌한 작업 한 건을
+**개발 브랜치 위의 머지 커밋 안에서** 푸는 것이다. agent 브랜치는 건드리지 않는다. 건드리면 다음 스윕의 2단계
+「승인 뒤 변경 확인」 이 그 작업을 "건너뜀(승인 뒤 변경)" 으로 내기 때문이다. rebase 도 하지 않는다. rebase 는
+force push 금지와 `merge-base --is-ancestor <head_sha>` 검사에 모두 걸린다. 결과는 마지막 출력 줄 **하나**로 호출자에게
+넘긴다(아래 「결과 줄」).
+
+1. **후보·판정**: 1·2단계를 그대로 하되 후보는 인자 ref 하나뿐이다. 2단계가 머지 대상이 아니라고 판정하면(승인 대기·
+   반려·이미 머지됨·조회 실패 등) 해소하지 않고 `RESOLVE_SKIPPED <그 보고 문구>` 로 끝난다. 3단계의 스택 판정에서
+   선행이 개발 브랜치에 없으면 `RESOLVE_SKIPPED 건너뜀(기점 미반영)` 이다. 해소 워커는 선행까지 머지하지 않는다.
+2. 머지 자리는 **호출한 워크트리 자신**이다. 임시 머지 워크트리 `<ROOT>/.claude/worktrees/dflow-merge` 는 쓰지 않는다.
+   팀장 스윕의 임시 워크트리와 경로가 겹치기 때문이다. 이 워크트리는 `origin/<기본브랜치>` 에 detach 돼 있어야 한다.
+   ```bash
+   git fetch origin
+   git branch --show-current                  # 비어 있어야 한다(detached). 아니면 RESOLVE_NOT_DETACHED 로 멈춘다
+   git rev-parse HEAD origin/<기본브랜치>      # 두 줄이 같아야 한다. 다르면 RESOLVE_BASE_MOVED <origin 짧은 sha> 로 멈춘다
+   ```
+   `RESOLVE_BASE_MOVED` 는 실패가 아니다. 호출자가 새 `origin/<기본브랜치>` 로 다시 detach 하고 기준선을 다시 잰 뒤
+   이 절을 다시 부른다. 기준선과 머지 기점이 어긋나면 게이트가 개발 브랜치의 새 실패를 해소 탓으로 돌리거나, 그
+   반대가 되기 때문이다. 이때 `git rev-parse HEAD` 를 **기준 HEAD** 로 기록한다.
+3. **승인 뒤 변경 확인**: 4단계 2번 그대로다. 걸리면 `RESOLVE_SKIPPED 건너뜀(승인 뒤 변경)` 또는
+   `RESOLVE_SKIPPED 건너뜀(승인 뒤 변경 확인 불가)` 로 끝난다.
+4. **머지**: 충돌 여부와 무관하게 늘 커밋 없이 머지한다. 그래야 `resolution.md` 와 트레일러 둘이 한 커밋에 실린다.
+   rerere 는 명령줄 `-c` 로만 켠다. `git config` 로 켜지 않는 이유: 워크트리의 `git config` 는 공용 `.git/config` 에
+   써져 사람 체크아웃까지 바뀐다. rerere 기록(`rr-cache`)은 공용 디렉터리에 남으므로, push 경합 뒤 재머지와 다음
+   시도가 같은 해소를 다시 쓴다. 기록은 커밋 때 남으므로 `commit` 에도 `-c` 를 붙인다.
+   ```bash
+   git -c rerere.enabled=true merge --no-ff --no-commit <머지 대상>
+   git diff --name-only --diff-filter=U        # 충돌 파일 목록. 비었으면 텍스트 충돌은 없다(files=0)
+   ```
+   - 충돌 파일마다 `dflow-team/references/resolve-prompt.md` 「해소 규약」 의 R1~R8 로 푼다. 그 규약의 「blocked 로
+     멈추는 경우」 에 걸리면 머지를 워크트리에 멈춘 채 두고 `RESOLVE_BLOCKED <질문과 선택지 한 줄>` 로 끝난다
+     (`--abort` 하지 않는다. 사람이 답하면 그 자리에서 이어 간다).
+   - 해소 기록 `<TASKS>/<TSK>/resolution.md` 에 `## 시도 <n>` 절을 덧붙인다. 파일마다 적용한 규약 번호와 판단을
+     한 줄씩 적는다. `<TASKS>/<TSK>` 는 호출자가 넘긴 작업 폴더다.
+   - 푼 파일과 `resolution.md` 를 파일명으로 stage 한 뒤 커밋한다. 둘째 `-m` 은 요약(충돌 파일 수·규약 번호)이다.
+   ```bash
+   git -c rerere.enabled=true commit -m "merge: <TSK> <제목> (approved) — 충돌 해소" -m "충돌 <N>개 · 규약 <R…>" \
+     --trailer "DFlow-Order: <order>" --trailer "DFlow-Resolve: <n>/3"
+   ```
+   승인 전 머지(`--on-report`)면 제목 괄호는 `(reported, 승인 전)` 이다. `<n>` 은 `--attempt` 값이다. 트레일러
+   `DFlow-Order` 는 「트레일러 고정」 과 같은 이유로 빠뜨리지 않는다(행 G 증거 2).
+5. **게이트**: 머지 커밋 **직후, state.json 커밋 전에** 한 번 돈다. 충돌이 없었어도 돈다. 의미 충돌은 텍스트 충돌
+   없이 오기 때문이다(2026-09-21 가드 Task: 텍스트 충돌 한 줄에 시험 85건이 401). 판정은
+   `dflow-team/references/resolve-prompt.md` 「게이트」 이며, 기준선은 호출자가 기준 HEAD 에서 잰 총수와 머지 대상
+   단독 총수 중 큰 쪽이다. 통과하지
+   못하면 `git reset --keep <기준 HEAD>` 로 버리고 `RESOLVE_GATE_FAILED <신규 실패 수>` 로 끝난다.
+6. **state.json**: 4단계 4번 그대로 `phase=merged`(승인 전이면 `unapproved: true` 도) 커밋을 만든다. 이 커밋과 머지
+   커밋 사이에 게이트를 다시 돌지 않는다.
+7. **push**: `git push origin HEAD:<기본브랜치>`. 실패하면 먼저 `git reset --keep <기준 HEAD>` 로 되돌리고 모양으로
+   가른다.
+   - `non-fast-forward`·`fetch first` 면 경합이다. `git fetch origin && git switch -q --detach origin/<기본브랜치>`
+     뒤 `RESOLVE_BASE_MOVED <새 origin 짧은 sha>` 로 끝난다. 호출자가 기준선을 다시 재고 이 절을 1번부터 다시 부른다.
+     rerere 가 앞서 푼 덩어리를 되살린다. 기준 이동과 합친 **이 재시도는 한 세션 안에서 2회까지**이며 호출자가 센다.
+     넘으면 호출자가 `failed push-race` 로 끝낸다.
+   - 그런 문구 없이 1 로 끝나면 훅 거부다. 우회하지 않고 `RESOLVE_PUSH_HOOK` 으로 끝난다.
+   - 그 밖의 실패는 `RESOLVE_PUSH_FAILED <exit>` 다.
+8. **뒷정리**: 5번 뒷정리 그대로다(원격 agent 브랜치 삭제, 로컬 브랜치의 not found·checked out 건너뛰기).
+9. **결과 줄**: 성공하면
+   `RESOLVE_PUSHED <머지 커밋 전체 sha> base=<기준 HEAD 짧은 sha> files=<충돌 파일 수> rules=<R번호,…|-> tests=<통과/총수>`.
+   머지 커밋 sha 는 `git rev-parse HEAD~1` 이다(HEAD 는 state.json 커밋). 전체 sha 로 넘기는 이유: 팀장이 이 값으로
+   조상 확인을 하는데, 짧은 sha 는 저장소가 커지면 모호해져 확인이 실패할 수 있다.
+
+`--resolve` 가 쓰는 파일은 호출한 워크트리 안뿐이다. 팀장 체크아웃은 건드리지 않으므로, 해소가 `RESOLVE_BLOCKED` 로
+멈춰도 팀장의 전제 검사는 깨지지 않는다.
 
 ## 금지
 
@@ -253,4 +331,6 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
   있어도 금지.
 - force push. 훅 우회(SKIP_GUARD).
 - 머지 순서 뒤집기(후손 먼저).
+- `--resolve` 의 agent 브랜치 수정·rebase, 시험 삭제·`skip`·기대값 완화로 게이트 통과. `--resolve` 도 force push·훅 우회
+  금지는 같다.
 - 대상 저장소가 wbs-web 자신이면 G1~G4 훅 제약을 사용자에게 사전 경고.

@@ -4,7 +4,7 @@
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 import { deriveWaitReason, type WaitReason } from './waitReason'
-import { stageLockedForHuman } from './agentWork'
+import { parseDecisions, stageLockedForHuman, type DecisionsParse } from './agentWork'
 import { stubPendingByItem, type StubPendingEntry } from './forceProgress'
 
 export interface HubItemRow {
@@ -20,6 +20,8 @@ export interface HubMemberRow { id: string; name: string; email: string | null; 
 export interface HubReportRow {
   work_order_id: string; percent: number; summary: string; links: { label?: string; url: string }[]; agent: string
   review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string
+  /** 워커 결정 목록(0102). null = 제출 안 됨. 항목 모양은 parseDecisions 가 다시 본다. 옛 시험 픽스처는 비워 둘 수 있다. */
+  decisions?: unknown
 }
 export interface AgentHubRows {
   project: { id: string; name: string } | null
@@ -63,6 +65,8 @@ export interface HubQueueEntry {
   canManage: boolean
   /** 스텁 잔존 — HubRow.stubPending 과 같다. 있으면 승인 버튼을 끈다(RPC 도 stub_pending 으로 거부). */
   stubPending?: StubPendingEntry[]
+  /** 최신 completion 보고의 결정 목록 상태(과제 C). 보고 행이 없으면 none. */
+  decisions: DecisionsParse
 }
 export interface AgentHub {
   projectId: string; projectName: string
@@ -229,6 +233,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         assigneeMine: it?.assignee_member_id != null && mine.has(it.assignee_member_id),
         canManage: it ? isSubtreeManagerOf(it.id, itemById, mine) : false,
         stubPending: o.wbs_item_id ? (stubsByItem.get(o.wbs_item_id) ?? []) : [],
+        decisions: rep ? parseDecisions(rep.decisions) : { state: 'none' as const },
       }
     })
     .sort((a, b) => Date.parse(a.reportedAt) - Date.parse(b.reportedAt))

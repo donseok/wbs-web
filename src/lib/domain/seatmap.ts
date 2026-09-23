@@ -36,7 +36,11 @@ export interface ItemRow {
 }
 /** 에이전트 위임 태그 — src/app/actions/wbsSpec.ts AGENT_TAG·dflow-poll 자동 착수 계약과 같은 값. 좌석표는 이 태그가 붙은 항목의 주문만 대상으로 한다. */
 export const AGENT_TAG = 'agent'
-export interface ReviewRow { work_order_id: string; review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string }
+export interface ReviewRow {
+  work_order_id: string; review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string
+  /** 워커 결정 수(0102 생성 컬럼). null = 제출 안 됨. 옛 픽스처는 비워 둘 수 있다. */
+  decision_count?: number | null
+}
 /** 에이전트 보기의 보고 말풍선 재료 — 점유·보고 중 주문의 최근 보고 행(progress · completion). */
 export interface ReportRow { work_order_id: string; kind: 'progress' | 'completion'; summary: string; created_at: string }
 export interface WatcherRow {
@@ -96,6 +100,9 @@ export interface Seat {
   agentOwnerName: string | null
   /** 스텁 잔존(강제 진행 스펙 F13) — 승인 버튼 비활성·배지 재료. 선택 필드: 옛 픽스처 호환, 조립은 항상 채운다. */
   stubPending?: StubPendingEntry[]
+  /** 승인 대기(reported) 주문의 최신 completion 에 딸린 결정 수(과제 C). 그 밖의 상태·구 CLI 보고는 null.
+   *  말풍선과 달리 승인될 때까지 칩으로 계속 보인다. 옛 시험 픽스처가 비워 둘 수 있게 선택 필드다. */
+  decisionCount?: number | null
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher {
@@ -117,7 +124,11 @@ export interface Floor {
   /** 병목 제안(강제 진행 스펙 F14) — 선택 필드(옛 층 픽스처 호환), 조립은 항상 채운다. 자동 면제는 하지 않는다. */
   bottlenecks?: { text: string; predRef: string; successorIds: string[] }[]
 }
-export interface Attention { orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string }
+export interface Attention {
+  orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string
+  /** 머지 충돌 표시(팀장 대리, 2026-09-23). state 는 좌석 상태(WAIT·DONE) 그대로이고 이 표식이 띠 순서를 정한다. */
+  mergeConflict?: boolean
+}
 export interface Seatmap {
   floors: Floor[]
   counters: { active: number; standby: number; idle: number; offline: number }
@@ -169,6 +180,10 @@ export function isSubtreeManagerOf(
 
 const WORK_STATES: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED']
 const ATTENTION_ORDER: readonly SeatState[] = ['BLOCKED', 'STALE', 'OFFLINE', 'REJECTED']
+/** 확인 필요 띠 순서 — 머지 충돌은 BLOCKED 바로 뒤. WAIT·DONE 은 ATTENTION_ORDER 밖(-1)이라 따로 매긴다. */
+function attentionRank(a: Attention): number {
+  return a.mergeConflict ? 0.5 : ATTENTION_ORDER.indexOf(a.state)
+}
 
 export function ageLabel(fromIso: string | null, nowMs: number): string {
   if (!fromIso) return '—'
@@ -206,8 +221,11 @@ function ownerOf(accountId: string | null, viewerId: string | undefined, nameOf:
 }
 
 function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }, report: ReportRow | undefined, owner: { mine: boolean; name: string | null }): Seat {
+  // 반려(reject)는 reported→claimed 로 바꾸며 heartbeat_phase 를 남긴다(0097). 점유 중 주문의 merge_conflict 는
+  // 지난 표시의 잔재라 무시한다 — 머지 충돌은 승인 대기·승인 좌석에서만 뜻이 있다(2026-09-23 리뷰).
+  const hbPhase = o.status === 'claimed' && o.heartbeat_phase === 'merge_conflict' ? null : o.heartbeat_phase
   const input = {
-    status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
+    status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: hbPhase,
     updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
   }
   const state = deriveSeatState(input, nowMs)
@@ -223,8 +241,8 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     state, phase, anim: animFor(state, phase, idleSlot + fnv1a32(o.id) % 3), character: pickCharacter(agent ?? o.id),
     agent, progress: Math.max(0, Math.min(100, Math.round(item?.actual_pct ?? 0))),
     lastSignalAt: o.status === 'claimed' ? signal : null,
-    heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
-    note: o.heartbeat_phase === 'blocked' ? o.heartbeat_note : null,
+    heartbeatAt: o.last_heartbeat_at, heartbeatPhase: hbPhase,
+    note: hbPhase === 'blocked' || hbPhase === 'merge_conflict' ? o.heartbeat_note : null,
     // 표식은 점유 중인 주문에서만 뜻이 있다 — 중단·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
     resumeRequestedAt: o.status === 'claimed' ? (o.resume_requested_at ?? null) : null,
     resumeRequestedHost: o.status === 'claimed' ? (o.resume_requested_host ?? null) : null,
@@ -238,6 +256,7 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
       : null,
     agentMine: owner.mine, agentOwnerName: owner.name,
     stubPending: [],
+    decisionCount: o.status === 'reported' ? (review?.decision_count ?? null) : null,
   }
 }
 
@@ -408,6 +427,10 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const counters = { active: 0, standby: aliveWatchers.length, idle: 0, offline: 0 }
   const attention: Attention[] = []
   for (const f of floors) for (const z of f.zones) for (const s of z.seats) {
+    // 머지 충돌은 승인 대기·승인 좌석에서 난다 — DONE 을 건너뛰기 전에 띠에 넣는다(카운터에는 넣지 않는다).
+    if (s.heartbeatPhase === 'merge_conflict' && (s.state === 'WAIT' || s.state === 'DONE')) {
+      attention.push({ orderId: s.orderId, id8: s.id8, floorName: f.name, code: s.code, name: s.name, state: s.state, why: `머지 충돌 · ${s.note ?? '확인 필요'}`, mergeConflict: true })
+    }
     if (s.state === 'DONE') continue // 승인분은 doneCount 로 따로 센다 — 현황판 넷에 끼우지 않는다
     if (WORK_STATES.includes(s.state)) counters.active++
     else if (s.state === 'WAIT') counters.idle++
@@ -416,7 +439,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       attention.push({ orderId: s.orderId, id8: s.id8, floorName: f.name, code: s.code, name: s.name, state: s.state, why: attentionWhy(s, nowMs) })
     }
   }
-  attention.sort((a, b) => ATTENTION_ORDER.indexOf(a.state) - ATTENTION_ORDER.indexOf(b.state))
+  attention.sort((a, b) => attentionRank(a) - attentionRank(b))
 
   return { floors, counters, attention, fetchedAt: new Date(nowMs).toISOString(), scope: mine ? 'mine' : 'all' }
 }

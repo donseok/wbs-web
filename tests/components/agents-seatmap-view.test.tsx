@@ -15,6 +15,7 @@ vi.mock('@/app/actions/agentSeatmap', () => ({
 }))
 const runOp = vi.fn()
 vi.mock('@/app/actions/agentHub', () => ({ runHubProcessOp: (...a: unknown[]) => runOp(...(a as [])) }))
+vi.mock('@/app/actions/agentWork', () => ({ getReportDecisions: vi.fn(async () => ({ ok: true, decisions: [] })) }))
 import { SeatmapView } from '@/components/agents/SeatmapView'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')

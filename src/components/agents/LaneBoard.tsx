@@ -8,6 +8,7 @@ import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { STATE_LABEL, SeatMark, seatMetaLine } from './Seat'
 import { OwnerTag, ownerLabel } from './OwnerTag'
+import { DecisionChip } from './DecisionChip'
 import { IconFolded, IconStale, IconWait } from './icons'
 import css from './seatmap.module.css'
 
@@ -86,7 +87,7 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
                       <span className={css.cardZone}>{showFloorName ? `${floorName} · ${zoneLabel}` : zoneLabel}</span>
                       <span className={css.deskName}>{seat.code} {seat.name}</span>
                       {owner && <span className="flex min-w-0"><OwnerTag owner={owner} /></span>}
-                      <span className={css.cardMeta}><PhaseBadge seat={seat} size="chip" /><span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span></span>
+                      <span className={css.cardMeta}><PhaseBadge seat={seat} size="chip" /><DecisionChip count={seat.decisionCount} /><span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span></span>
                     </span>
                     <SeatMark state={seat.state} anim={seat.anim} />
                   </span>

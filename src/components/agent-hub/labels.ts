@@ -32,7 +32,7 @@ export const STATE_TONE: Record<HubOrderState, string> = {
 }
 
 /**
- * 착수 대기 사유 칩 색(waitReason.ts 의 네 종류). 위 둘은 사람이 움직여야 풀리고, 아래 둘은
+ * 착수 대기 사유 칩 색(waitReason.ts 의 다섯 종류 — 선행 머지 충돌은 선행 대기와 같은 색). 위 둘은 사람이 움직여야 풀리고, 아래 둘은
  * 시간이 지나면 저절로 풀린다 — 색이 그 차이를 말한다.
  */
 export const REASON_TONE: Record<WaitReasonKind, string> = {
@@ -40,6 +40,7 @@ export const REASON_TONE: Record<WaitReasonKind, string> = {
   agent_off: 'bg-pending-weak text-accent-warning',
   agents_busy: 'bg-progress-weak text-progress',
   pickup: 'bg-pending-weak text-pending',
+  merge_conflict: 'bg-delayed-weak text-delayed',
 }
 
 /** 위임이 안 된 개발 리프 — 사유 칩과 같은 자리에 같은 모양으로 둔다(사람이 체크를 켜야 풀린다). */

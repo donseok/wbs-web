@@ -297,6 +297,7 @@ describe('GET /agent/work/[id] — reports[].evidence', () => {
     const res = await detail(PAT.token)
     expect(res.status).toBe(200)
     expect(selects.agent_work_reports?.[0]).toContain('evidence')
+    expect(selects.agent_work_reports?.[0]).toContain('decisions')
   })
 
   it('레거시 시크릿 응답은 evidence 를 요구하지 않는다(v1 회귀 기준선)', async () => {
@@ -309,5 +310,6 @@ describe('GET /agent/work/[id] — reports[].evidence', () => {
     const res = await detail('legacy-secret')
     expect(res.status).toBe(200)
     expect(selects.agent_work_reports?.[0]).not.toContain('evidence')
+    expect(selects.agent_work_reports?.[0]).not.toContain('decisions')
   })
 })
