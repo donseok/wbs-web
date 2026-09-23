@@ -1,4 +1,4 @@
-# dflow-lease.sh — 팀장 lease(docs/superpowers/specs/2026-09-23-dflow-lead-lease-design.md §6). dflow.sh 가 source 한다.
+# dflow-lease.sh — 팀장 lease(wbs-web docs/superpowers/specs/2026-09-23-dflow-lead-lease-design.md §6). dflow.sh 가 source 한다.
 # dflow.sh 의 api_raw·die·slug·host_short·profile_email·ALLOWED_PROJECTS·TOK 을 쓴다. 토큰은 env 로만 넘긴다.
 
 # PC ID — hostname 은 겹칠 수 있어 쓰지 않는다. 처음 쓸 때 /dev/urandom 으로 만든다(uuidgen 이 없는 Git Bash 대비).

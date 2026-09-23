@@ -1,6 +1,6 @@
 # /dflow-team 자동 재시작: 멈춘 팀원을 원인별로 다시 띄운다
 
-스펙 `docs/superpowers/specs/2026-09-23-worker-auto-restart-design.md`(과제 H·G). SKILL.md 「2-3」「3. 결과 처리」
+스펙 wbs-web docs/superpowers/specs/2026-09-23-worker-auto-restart-design.md(과제 H·G). SKILL.md 「2-3」「3. 결과 처리」
 「5. 팀원 spawn」「5-1. 재개 spawn」「7. 마감」 이 이 문서를 부른다. 블록은 events.md 의 기록 명령처럼 **그대로**
 쓰고 기억으로 재구성하지 않는다. 이벤트는 events.md 「기록 명령」 의 블록과 `team.lost` 조각으로만 기록한다.
 

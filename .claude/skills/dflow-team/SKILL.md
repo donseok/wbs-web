@@ -592,7 +592,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      살아 있어도 권한 확인 등에 멈춘 팀장은 기상하지 않아 제 몫을 못 하는데, `beat` 는 그 멈춤까지 드러낸다.
      살아 있는 팀장은 늦어도 `TICK`(30분)마다 깨어 `beat` 를 갱신하므로, 70분이면 두 `TICK` 을 연속으로 놓친 것이다.
    - **팀장 lease**: 로컬 잠금은 같은 리포의 워크트리끼리만 본다. 같은 신원이 **다른 clone·다른 PC** 에서 같은
-     프로젝트의 팀장을 띄우는 것은 서버 lease 가 막는다(스펙 `docs/superpowers/specs/2026-09-23-dflow-lead-lease-design.md`).
+     프로젝트의 팀장을 띄우는 것은 서버 lease 가 막는다(스펙 wbs-web docs/superpowers/specs/2026-09-23-dflow-lead-lease-design.md).
      로컬 잠금을 잡은 **뒤** 얻는다. 이유: 같은 리포의 두 팀장이 동시에 서버에 가서 같은 holder 로 서로를
      밀어내지 않게, 로컬 경합을 먼저 끝낸다. 결과별 처리:
      - `LEASE_OK <n>`: 계속한다.
