@@ -31,7 +31,7 @@ language plpgsql as $$
 #variable_conflict use_column
 begin
   insert into public.agent_lead_leases (user_id, project_id)
-    select p_user, x from unnest(p_projects) as x
+    select p_user, x from unnest(p_projects) as x order by x
     on conflict do nothing;
   perform 1 from public.agent_lead_leases l
     where l.user_id = p_user and l.project_id = any(p_projects)
