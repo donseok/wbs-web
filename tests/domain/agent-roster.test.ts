@@ -9,7 +9,7 @@ const seat = (orderId: string, agent: string | null, state: Seat['state']): Seat
 const watcher = (agent: string, slots: number | null, lastSeenAt = '2026-09-18T00:00:00Z'): Watcher =>
   ({ agent, host: null, slots, busy: null, untilLabel: null, lastSeenAt, projectId: null })
 const floor = (seats: Seat[], watchers: Watcher[]): Floor =>
-  ({ id: 'p', name: 'P', seatCount: seats.length, doneCount: 0, watchers, zones: [{ key: 'z', code: 'Z', name: 'Z', seats, summary: { work: 0, wait: 0, ready: 0, done: 0 } }] })
+  ({ id: 'p', name: 'P', seatCount: seats.length, doneCount: 0, watchers, leads: [], zones: [{ key: 'z', code: 'Z', name: 'Z', seats, summary: { work: 0, wait: 0, ready: 0, done: 0 } }] })
 
 describe('parseAgentId · slotLabel', () => {
   it('<신원>/<host>/<자리> 세 토막만 작업 PC 로 인정한다', () => {

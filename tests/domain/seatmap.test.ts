@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { animFor, OFFLINE_MS, STALE_MS } from '@/lib/domain/seatState'
-import { ageLabel, assembleSeatmap, seatmapChannelProjectIds, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
+import { ageLabel, assembleSeatmap, seatmapChannelProjectIds, type LeaseRow, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
@@ -277,6 +277,35 @@ describe('재개 요청 표식(0099) — 멈춘 좌석에서 사람이 누른 �
     expect(s.state).toBe('DONE')
     expect(s.resumeRequestedAt).toBeNull()
     expect(s.resumeRequestedHost).toBeNull()
+  })
+})
+
+describe('층의 팀장 lease', () => {
+  const lease = (user_id: string, expInMs: number): LeaseRow => ({
+    user_id, project_id: P1, host: user_id === 'u1' ? 'mbp' : 'air', agent: `${user_id}/x/lead`,
+    renewed_at: ago(30_000), expires_at: new Date(NOW + expInMs).toISOString(),
+  })
+  const v = (admin: boolean) => ({ userId: 'u1', memberIds: new Set<string>(), adminProjectIds: new Set<string>(admin ? [P1] : []) })
+  it('유효한 lease 를 층에 싣고, 본인·관리자만 canRelease', () => {
+    const m = assembleSeatmap(rows({ leases: [lease('u1', 120_000), lease('u9', 120_000)] }), NOW, { viewer: v(false) })
+    const by = Object.fromEntries(m.floors[0].leads.map(l => [l.userId, l]))
+    expect(by.u1).toMatchObject({ mine: true, canRelease: true, host: 'mbp' })
+    expect(by.u9).toMatchObject({ mine: false, canRelease: false, host: 'air' })
+    const adm = assembleSeatmap(rows({ leases: [lease('u9', 120_000)] }), NOW, { viewer: v(true) })
+    expect(adm.floors[0].leads[0].canRelease).toBe(true)
+  })
+  it('만료된 lease 는 싣지 않는다', () => {
+    const m = assembleSeatmap(rows({ leases: [lease('u1', -1000)] }), NOW, { viewer: v(false) })
+    expect(m.floors[0].leads).toEqual([])
+  })
+  it('viewer 가 없으면 canRelease 는 모두 false(fail-closed)', () => {
+    const m = assembleSeatmap(rows({ leases: [lease('u1', 120_000)] }), NOW)
+    expect(m.floors[0].leads[0].canRelease).toBe(false)
+  })
+  it('scope=mine 이어도 남의 lease 를 빼지 않는다 — 팀장 해제 대상은 남의 것이다', () => {
+    const m = assembleSeatmap(rows({ leases: [lease('u9', 120_000)] }), NOW,
+      { mine: { userId: 'u1', memberIds: new Set(['m1']) }, viewer: v(false) })
+    expect(m.floors[0].leads.map(l => l.userId)).toEqual(['u9'])
   })
 })
 

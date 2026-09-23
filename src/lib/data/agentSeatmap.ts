@@ -6,7 +6,7 @@ import { isProjectAdmin, type Actor } from '@/lib/domain/authz'
 import { seatmapProjectIds } from '@/lib/authz/agentsAccess'
 import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
 import {
-  assembleSeatmap, type ItemRow, type MemberRow, type OrderRow, type PredecessorRow, type ProjectRow, type ReportRow, type ReviewRow, type Seatmap, type SeatmapRows, type SeatmapScope, type SeatmapViewer, type WatcherRow,
+  assembleSeatmap, type ItemRow, type LeaseRow, type MemberRow, type OrderRow, type PredecessorRow, type ProjectRow, type ReportRow, type ReviewRow, type Seatmap, type SeatmapRows, type SeatmapScope, type SeatmapViewer, type WatcherRow,
 } from '@/lib/domain/seatmap'
 
 /** DONE(approved) 은 최근 7일 것만 층에 접어 둔다. */
@@ -36,7 +36,7 @@ async function fetchAncestors(admin: AdminClient, seedIds: string[]): Promise<It
 }
 
 export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] | null, nowMs: number): Promise<SeatmapRows> {
-  const empty: SeatmapRows = { orders: [], items: [], parents: [], reviews: [], watchers: [], projects: [], members: [], predecessors: [] }
+  const empty: SeatmapRows = { orders: [], items: [], parents: [], reviews: [], watchers: [], projects: [], members: [], predecessors: [], leases: [] }
   if (projectIds !== null && projectIds.length === 0) return empty
 
   const doneSince = new Date(nowMs - DONE_WINDOW_MS).toISOString()
@@ -56,7 +56,7 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
   const parentIds = [...new Set(items.map(i => i.parent_id).filter((x): x is string => !!x))]
   // 보고 말풍선 — 점유·보고 중 주문의 최근 하루치만. 말풍선은 주문마다 마지막 한 줄이면 된다.
   const liveIds = orders.filter(o => o.status === 'claimed' || o.status === 'reported').map(o => o.id)
-  const [parents, reviews, watchers, projects, members, reports] = await Promise.all([
+  const [parents, reviews, watchers, projects, members, reports, leases] = await Promise.all([
     parentIds.length ? fetchAncestors(admin, parentIds) : Promise.resolve([] as ItemRow[]),
     admin.from('agent_work_reports').select('work_order_id, review_action, review_note, created_at')
       .in('work_order_id', orderIds).eq('kind', 'completion').then(r => must<ReviewRow[]>('완료 보고', r)),
@@ -70,6 +70,11 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
         .in('work_order_id', liveIds).gte('created_at', new Date(nowMs - REPORT_WINDOW_MS).toISOString())
         .order('created_at', { ascending: false }).limit(500).then(r => must<ReportRow[]>('최근 보고', r))
       : Promise.resolve([] as ReportRow[]),
+    (() => {
+      const lq = admin.from('agent_lead_leases').select('user_id, project_id, host, agent, renewed_at, expires_at')
+        .not('holder', 'is', null).gt('expires_at', new Date(nowMs).toISOString()).in('project_id', projIds)
+      return lq.then(r => must<LeaseRow[]>('팀장 lease', r))
+    })(),
   ])
   // 선행 항목 — ready 주문 항목의 depends 만 모아 프로젝트 안 external_ref 로 1회, 그 id 의 approved 주문 1회. ref 가 없으면 0회.
   // 승인 주문은 위 주문 조회(7일 창)에 없을 수 있어 따로 본다 — 오래전 승인된 선행을 미충족으로 말하면 화면이 거짓말한다.
@@ -86,7 +91,7 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
     const ok = new Set(approved.map(a => a.wbs_item_id))
     predecessors = found.map(p => ({ ...p, order_approved: ok.has(p.id) }))
   }
-  return { orders, items, parents, reviews, watchers, projects, members, predecessors, reports }
+  return { orders, items, parents, reviews, watchers, projects, members, predecessors, reports, leases }
 }
 
 /**

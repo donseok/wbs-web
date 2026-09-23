@@ -10,7 +10,7 @@ function admin(queues: Record<string, Resp[]>, calls: Record<string, unknown[][]
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: [], error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'in', 'eq', 'or', 'gte', 'gt', 'order', 'limit']) {
+      for (const k of ['select', 'in', 'eq', 'or', 'gte', 'gt', 'not', 'order', 'limit']) {
         b[k] = (...a: unknown[]) => { (calls[`${table}.${k}`] ??= []).push(a); return b }
       }
       b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
@@ -21,7 +21,7 @@ function admin(queues: Record<string, Resp[]>, calls: Record<string, unknown[][]
 const O = { id: '11111111-1111-4111-8111-111111111111', project_id: 'p1', wbs_item_id: 'i1', status: 'claimed', claimed_by: 'x', claimed_by_user_id: 'u1', claimed_at: null, created_at: '2026-09-14T08:00:00Z', updated_at: '2026-09-14T08:59:00Z', last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, heartbeat_note: null }
 
 describe('fetchSeatmapRows', () => {
-  it('주문 → 항목 → 부모 → 보고 → watcher → 프로젝트 6개 조회를 하고 행 묶음을 돌려준다', async () => {
+  it('주문 → 항목 → 부모 → 보고 → watcher → 프로젝트 → 팀장 lease 7개 조회를 하고 행 묶음을 돌려준다', async () => {
     const calls: Record<string, unknown[][]> = {}
     const a = admin({
       agent_work_orders: [{ data: [O] }],

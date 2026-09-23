@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { Seat, Seatmap, SeatmapScope } from '@/lib/domain/seatmap'
 import { seatmapChannelProjectIds } from '@/lib/domain/seatmap'
-import { refreshSeatmap } from '@/app/actions/agentSeatmap'
+import { refreshSeatmap, releaseLeadLease } from '@/app/actions/agentSeatmap'
 import { runHubProcessOp, type HubProcessOp } from '@/app/actions/agentHub'
 import { OfficeNav } from './OfficeNav'
 import { AttentionBand } from './AttentionBand'
@@ -111,6 +111,19 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
       setError({ at: new Date().toISOString(), message: e instanceof Error ? e.message : String(e) })
     } finally { inflight.current = false }
   }, [projectId])
+
+  /** 「팀장 해제」 — 성공하면 좌석표를 다시 읽는다. 실패는 삼키지 않고 갱신 실패 배너 자리에 보여 준다
+   *  (이 액션은 특정 좌석에 매인 op 가 아니라 층 전체에 관한 것이라 상세 팝업이 없다). */
+  const releaseLead = useCallback(async (pid: string, userId: string) => {
+    try {
+      const r = await releaseLeadLease(pid, userId)
+      if (!r.ok) { setError({ at: new Date().toISOString(), message: r.error }); return }
+      setError(null)
+      await refresh(undefined, true)
+    } catch (e) {
+      setError({ at: new Date().toISOString(), message: e instanceof Error ? e.message : String(e) })
+    }
+  }, [refresh])
 
   /** 결재 실행 — 실패는 삼키지 않고 상세 패널에 그대로 띄운다(에러 3원칙). 성공하면 좌석표를 다시 읽는다. */
   const runOp = useCallback(async (seat: Seat, kind: SeatOpKind, text: string) => {
@@ -231,7 +244,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
               : <p className={css.doneNote}>표시할 주문이 없습니다. 에이전트 위임(agent 태그) 항목의 주문만 보이며, 내가 속한 프로젝트에 그런 주문이 생기면 여기 층이 생깁니다.</p>)}
           {view === 'floor'
             ? map.floors.map(f => (
-              <FloorCard key={f.id} floor={f} selectedId={selected} nowMs={nowMs} busyOrderId={busyOrderId} withDone={withDone} onSelect={setSelected} onOp={onOp} />
+              <FloorCard key={f.id} floor={f} selectedId={selected} nowMs={nowMs} busyOrderId={busyOrderId} withDone={withDone} onSelect={setSelected} onOp={onOp} onReleaseLead={releaseLead} />
             ))
             : map.floors.length > 0 && (
               <LaneBoard map={map} selectedId={selected} nowMs={nowMs} busyOrderId={busyOrderId}

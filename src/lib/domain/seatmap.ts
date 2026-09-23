@@ -34,6 +34,11 @@ export interface WatcherRow {
   slots: number | null; busy: number | null; until_label: string | null; last_seen_at: string
 }
 export interface ProjectRow { id: string; name: string }
+/** 팀장 lease 행(agent_lead_leases, 0101) — 신원+프로젝트당 하나. */
+export interface LeaseRow {
+  user_id: string; project_id: string; host: string | null; agent: string | null
+  renewed_at: string | null; expires_at: string
+}
 /** 층 프로젝트의 로스터 행 — 담당자 이름과 PAT 계정(user_id) 매칭 재료. */
 export interface MemberRow { id: string; project_id: string; user_id: string | null; name: string }
 /** ready 주문 항목의 선행 항목(프로젝트 안 external_ref 매칭) + 승인 주문 유무. */
@@ -43,6 +48,8 @@ export interface SeatmapRows {
   members: MemberRow[]; predecessors: PredecessorRow[]
   /** 최근 보고(없으면 말풍선 없음). 옛 호출부·시험이 비워 둘 수 있게 선택 필드다. */
   reports?: ReportRow[]
+  /** 팀장 lease(0101). 옛 호출부·시험이 비워 둘 수 있게 선택 필드다. */
+  leases?: LeaseRow[]
 }
 
 export interface Seat {
@@ -82,7 +89,14 @@ export interface Watcher {
   /** 다른 계정의 감시자면 그 계정의 로스터 이름(없으면 null). */
   ownerName?: string | null
 }
-export interface Floor { id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[] }
+/** 팀장 lease(0101) — 신원+프로젝트당 팀장 하나. 오피스 층 머리에 보이고 「팀장 해제」의 대상이다. */
+export interface LeadLease {
+  userId: string; host: string | null; agent: string | null; renewedAt: string | null; expiresAt: string
+  mine: boolean; ownerName: string | null
+  /** 본인 lease 이거나 이 층 관리자. 서버 액션이 같은 판정(canReleaseLeadLease)을 다시 한다. */
+  canRelease: boolean
+}
+export interface Floor { id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[]; leads: LeadLease[] }
 export interface Attention { orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string }
 export interface Seatmap {
   floors: Floor[]
@@ -318,6 +332,18 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     })
     .sort((a, b) => a.agent.localeCompare(b.agent))
 
+  // lease 는 mine 필터로 거르지 않는다 — 「팀장 해제」는 남의 lease(다른 PC 에 남은 내 신원, 또는 관리자가 보는 남의 것)가 대상이다.
+  const liveLeases = (rows.leases ?? []).filter(l => Date.parse(l.expires_at) > nowMs)
+  const leadsOf = (pid: string): LeadLease[] => liveLeases
+    .filter(l => l.project_id === pid)
+    .map(l => {
+      const owner = ownerOf(l.user_id, viewerId, ownerName(l.project_id))
+      // canRelease 는 mine 필터로 대체되지 않는다 — opts.viewer 가 없으면 fail-closed(서버 액션 canReleaseLeadLease 와 같은 축).
+      const canRelease = !!opts.viewer?.userId && (opts.viewer.userId === l.user_id || opts.viewer.adminProjectIds.has(pid))
+      return { userId: l.user_id, host: l.host, agent: l.agent, renewedAt: l.renewed_at, expiresAt: l.expires_at, mine: owner.mine, ownerName: owner.name, canRelease }
+    })
+    .sort((a, b) => (a.agent ?? '').localeCompare(b.agent ?? ''))
+
   const floorIds = new Set<string>([...floorMap.keys(), ...done.keys()])
   const floors: Floor[] = [...floorIds].map(id => {
     const zones = [...(floorMap.get(id)?.values() ?? [])]
@@ -328,6 +354,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       seatCount: zones.reduce((n, z) => n + z.seats.filter(s => s.state !== 'DONE').length, 0),
       doneCount: done.get(id) ?? 0,
       watchers: aliveWatchers.filter(w => w.projectId === null || w.projectId === id),
+      leads: leadsOf(id),
     }
   }).sort((a, b) => a.name.localeCompare(b.name))
 

@@ -61,6 +61,12 @@
 .watchOn::before { background: var(--sm-standby); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-standby) 25%, transparent); }
 .doneNote { font-size: 12px; color: var(--sm-ink-3); margin: 8px 0 0; }
 
+/* 팀장 lease 칩 — 감시 표시(.watch)와 같은 크기, 층 머리 전체 폭에 새 줄로 놓는다. */
+.lead { grid-column: 1 / -1; font-size: 11px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--sm-line); color: var(--sm-ink-3); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; width: fit-content; }
+.leadRelease { font: inherit; font-size: 11px; color: var(--sm-warn); background: none; border: 0; padding: 0 2px; cursor: pointer; text-decoration: underline dotted; }
+.leadRelease:hover { color: var(--sm-reject-bar); }
+.leadRelease:disabled { color: var(--sm-ink-3); cursor: default; text-decoration: none; }
+
 /* 구역 하나가 층의 폭을 쓰되, 넓은 화면에서는 둘로 나눈다. 하한 660px 은 좌석 두 줄(각 300px)과
    통로(26px), 구역 안쪽 여백(20px)을 더한 값이다 — 이보다 잘게 쪼개면 책상이 먼저 짜부라져
    항목 이름이 한 글자씩 세로로 쪼개진다(스테이징 실측: 구역 440px → 책상 129px).
