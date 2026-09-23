@@ -39,7 +39,7 @@ beforeEach(() => {
     git clone -q origin.git repo 2>/dev/null
     cd repo && git checkout -q -b main
     mkdir -p docs/tasks/TSK-01-01 && printf '{"phase":"reported"}\\n' > docs/tasks/TSK-01-01/state.json
-    printf 'x\\n' > a.txt && printf '.env\\n' > .gitignore
+    printf 'x\\n' > a.txt && printf '.env\\n.dflow.local\\n' > .gitignore
     git add a.txt .gitignore docs && git commit -qm init && git push -q origin main
     git remote set-head origin main
     git switch -q -c agent/aaaaaaaa-x && printf 'y\\n' > b.txt && git add b.txt && git commit -qm feat && git push -q origin agent/aaaaaaaa-x
@@ -140,6 +140,31 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     writeFileSync(join(lock, 'owner'), `alice/pc/lead ${now} 1\n`)
     writeFileSync(join(lock, 'beat'), `${now - 5000}\n`)
     expect(run().out).toContain('DUP=[]')
+  })
+
+  it('새 방식: 개발 브랜치에서 detach 하고, as 를 뺀 .dflow.local 사본(600)을 만들며 토큰을 출력하지 않는다', () => {
+    const r0 = sh(primary, `git switch -q -c dev/me && printf 'z\\n' > d.txt && git add d.txt && git commit -qm dev && git push -q origin dev/me && git switch -q main`)
+    expect(r0.code, r0.out).toBe(0)
+    mkdirSync(join(primary, '.claude/skills/dflow-team'), { recursive: true })
+    writeFileSync(join(primary, '.claude/skills/dflow-team/SKILL.md'), 'x')
+    writeFileSync(join(primary, '.dflow'), 'api_base=https://x.test\n')
+    writeFileSync(join(primary, '.dflow.local'), 'pats=dflow_pat_AAAAAAAAAAAA_topsecrettopsecret\nas=AAAAAAAAAAAA\ndev_branch=dev/me\n')
+    const r = sh(primary, `bash '${LEAD_WT}' k3`)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).not.toContain('topsecret')
+    const lw = join(primary, '.claude/worktrees/lead-k3')
+    expect(existsSync(join(lw, 'd.txt'))).toBe(true)                       // origin/dev/me 기점
+    const local = readFileSync(join(lw, '.dflow.local'), 'utf8')
+    expect(local).toContain('dev_branch=dev/me'); expect(local).not.toMatch(/^as=/m)
+    expect(statSync(join(lw, '.dflow.local')).mode & 0o777).toBe(0o600)
+    expect(lstatSync(join(lw, '.dflow')).isSymbolicLink()).toBe(true)        // 커밋되지 않은 .dflow 는 링크
+    expect(r.out).toContain('LOCAL_COPIED')
+  })
+  it('새 방식 설정이 깨졌으면(NO_LOCAL) 워크트리를 만들지 않고 exit 2', () => {
+    writeFileSync(join(primary, '.dflow'), 'api_base=https://x.test\n')
+    const r = sh(primary, `bash '${LEAD_WT}' k4`)
+    expect(r.code).toBe(2); expect(r.out).toContain('NO_LOCAL')
+    expect(existsSync(join(primary, '.claude/worktrees/lead-k4'))).toBe(false)
   })
 })
 
