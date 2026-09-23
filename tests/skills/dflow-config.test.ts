@@ -130,6 +130,16 @@ describe('.dflow 위치 폴백과 브랜치(스펙 §5-2·§6)', () => {
     const r = load(repo, 'echo "$DFLOW_CONFIG_DOT"')
     expect(r.out.trim()).toBe('origin/HEAD:.dflow')
   })
+  it('.dflow.local 에 dev_branch 가 중복이면 폴백도 첫 값을 쓴다(_dfc_apply 의 첫 값 우선과 일치)', () => {
+    // .dflow 는 dev/first 에만 푸시한다. dev_branch 폴백이 뒤(tail) 값을 쓰면 존재하지 않는 dev/second 로
+    // 갔다가 origin/HEAD(main, .dflow 없음)까지 밀려 NO_DFLOW 로 실패한다 — head 면 dev/first 로 바로 맞는다.
+    const r0 = sh(repo, `git switch -q -c dev/first && printf '${DOT.replace(/\n/g, '\\n')}' > .dflow && git add .dflow && git commit -qm dflow && git push -q origin dev/first && git switch -q main`)
+    expect(r0.code, r0.err).toBe(0)
+    writeFileSync(join(repo, '.dflow.local'), 'pats=x\ndev_branch=dev/first\ndev_branch=dev/second\n')
+    const r = load(repo, 'echo "$DFLOW_CONFIG_DOT|$DFLOW_API_BASE|$DFLOW_DEV_BRANCH"')
+    expect(r.code, r.err).toBe(0)
+    expect(r.out.trim()).toBe('origin/dev/first:.dflow|https://p.test|dev/first')
+  })
   it('branch dev 는 dev_branch, release 는 release_branch. legacy 는 origin/HEAD', () => {
     writeFileSync(join(repo, '.dflow'), DOT); writeFileSync(join(repo, '.dflow.local'), LOCAL)
     expect(load(repo, 'dflow_config_branch dev; dflow_config_branch release').out).toBe('dev/me\nmain\n')

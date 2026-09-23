@@ -64,7 +64,8 @@ dflow_config_load() {
     _dfc_dot=$(cat "$DFLOW_CONFIG_TOP/.dflow"); DFLOW_CONFIG_DOT="$DFLOW_CONFIG_TOP/.dflow"
   elif [ -n "$DFLOW_CONFIG_TOP" ] && git -C "$DFLOW_CONFIG_TOP" rev-parse --git-dir >/dev/null 2>&1; then
     # detach 된 옛 커밋에는 .dflow 가 없을 수 있다. 개발 브랜치는 개인 파일에서 이미 알므로 순환이 없다.
-    _dfc_dev=${DFLOW_DEV_BRANCH:-$(printf '%s\n' "$_dfc_local" | _dfc_parse 2>/dev/null | sed -n 's/^dev_branch=//p' | tail -n 1)}
+    # _dfc_apply 는 중복 키 중 첫 값을 쓴다(50행) — 이 폴백도 같은 규칙이어야 한다. tail 이면 값이 갈린다.
+    _dfc_dev=${DFLOW_DEV_BRANCH:-$(printf '%s\n' "$_dfc_local" | _dfc_parse 2>/dev/null | sed -n 's/^dev_branch=//p' | head -n 1)}
     for _dfc_ref in ${_dfc_dev:+"origin/$_dfc_dev"} origin/HEAD; do
       if _dfc_dot=$(git -C "$DFLOW_CONFIG_TOP" show "$_dfc_ref:.dflow" 2>/dev/null); then
         DFLOW_CONFIG_DOT="$_dfc_ref:.dflow"; break
