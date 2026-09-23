@@ -2615,3 +2615,14 @@ Expected: pre-push 훅 G1~G4 통과(마이그레이션 없음). 훅 우회(`SKIP
 - H 작성자(`feat/worker-auto-restart`)에게 알린다: "`spawn_kind: resolve` 인 해소 워커는 자동 재시작 대상이 아니다. 죽으면 `failed no-result` 로 판정하고 `team.lost` 를 쓰지 않는다. events.md 가드 줄은 `team.lost` 와 `team.conflict` 를 둘 다 남긴다."
 - 과제 C 작성자에게 계약 버전(2.6/2.7)의 머지 순서를 알린다.
 - 보고: staging 반영 커밋, 화면 확인 결과(캡처), 리허설 여부. main·킷 반영은 제안하지 않는다(staging 까지).
+
+---
+
+## 실행 기록
+
+- Task 0: `git fetch origin` 뒤 `git merge origin/staging` 은 이미 최신(Already up to date). 기준선 148 파일·1978건 통과, 편집 원문 확인 `ANCHOR_CHECK_DONE`.
+- Task 6: 계획의 (d) 절 본문은 `2. **머지 자리는 호출한 워크트리 자신**이다` 였으나 같은 계획의 시험은 `머지 자리는 **호출한 워크트리 자신**` 을 찾는다. 뜻이 같아 강조 위치만 시험에 맞췄다.
+- Task 8: events.md 표의 `team.spawn` 행에 「5-2. 해소 spawn」 을 덧붙이는 변경은 하지 않았다. 기존 `dflow-team-backends.test.ts` 가 그 행 원문을 그대로 단정하고, 스펙 §8 이 요구하지 않으며, 병행 H 가 같은 파일을 고쳐 충돌 면적만 늘기 때문이다. `spawn_kind` 네 값 설명은 계획대로 넣었다.
+- Task 8: `team.sweep` 행에 `resolved` 를 더하면(스펙 §8) 기존 `dflow-team-backends.test.ts` 의 행 단정이 깨진다. 계획에 없던 그 한 줄을 새 행으로 고쳤다.
+- Task 8: E19 문단은 계획 원문대로면 `해소 워커의 \`/dflow-merge --resolve\` 가` 와 `개발 브랜치에 한 건을 머지·push 한다` 가 줄바꿈으로 갈려 같은 계획의 시험이 못 찾는다. 뜻은 두고 줄바꿈 위치만 옮겼다.
+- Task 10: 전체 검증(vitest·lint·tsc)까지만 했다. 첫 전체 실행에서 시간 의존 시험 4건(`dflow-lead-lease` lease keep 3건·`heartbeat-hook` 60초 절제)이 떨어졌으나 부하 평균 88 인 때였고, 단독 실행과 전체 재실행(533 파일·6216건)은 모두 통과했다. 빌드·origin 머지·staging push·화면 확인·H/C 조율은 컨트롤러 몫으로 남긴다.
