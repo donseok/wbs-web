@@ -43,8 +43,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
     // evidence 는 PAT 응답만 — depends_evidence 와 같은 규칙이다(레거시는 v1 회귀 기준선).
     // 이게 빠져 있어서 완료 보고가 증적을 실었는지를 DB 직접 조회 없이는 못 봤다(2026-08-27).
+    // decisions 도 PAT 응답만 — 재작업하는 워커가 반려 사유(review_note)가 어느 결정(D2 등)을 가리키는지 볼 재료다(과제 C).
     const reportColumns = 'id, kind, percent, summary, links, agent, review_action, review_note, created_at'
-      + (principal.kind === 'pat' ? ', evidence' : '')
+      + (principal.kind === 'pat' ? ', evidence, decisions' : '')
     const { data: reports, error: repErr } = await admin
       .from('agent_work_reports')
       .select(reportColumns)

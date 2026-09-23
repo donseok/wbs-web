@@ -13,6 +13,7 @@
 - `DFLOW_API_BASE` 미설정
 - `progress` 명령에서 진행률 100을 시도
 - `done` 명령 호출 시 git push 미완료
+- `done --decisions` 파일의 형식 오류(`DECISIONS_FILE`·`DECISIONS_JSON`·`DECISIONS_INVALID <사유>`)
 
 **해결**:
 1. 명령 사용법 확인: `dflow.sh <명령> --help` (있으면)
@@ -29,6 +30,17 @@
    ```
    `--auto-links` 를 빼먹으면 `evidence` 가 `{}` 로 영구 고정된다 — 후속 작업의
    선행 도달 검사가 그 값을 쓰므로 무해하지 않다.
+5. `done --decisions` 경고·오류의 뜻(계약 2.6):
+   - `DECISIONS_FILE …` — 파일이 없다. `DECISIONS_JSON …` — JSON 이 아니거나 값이 하나가 아니다(빈 파일 포함).
+   - `DECISIONS_INVALID <사유>` — 서버와 같은 규칙 위반(사유는 필드 경로를 담는다, 예 `decisions[0].chosen이 options 범위를 벗어났습니다.`).
+     보고는 나가지 않았다. 파일을 고쳐 다시 부른다. `chosen` 은 선택지 문구가 아니라 0부터 센 색인이다.
+   - `DECISIONS_COUNT_MISMATCH …` / `DECISIONS_SUFFIX_MISSING …` — 요약의 `확인 필요 결정 N건` 과 목록 건수가 어긋났다.
+     **보고는 됐다**(exit 0). design.md 절과 decisions.json 을 대조해 다음 보고부터 맞춘다.
+   - `서버가 결정 목록을 모릅니다(계약 < 2.6) — 요약 접미사로만 전달됐습니다.` — 서버가 옛 버전이라 결정이 버려졌다.
+     **보고는 됐다**(exit 0). 승인자는 요약 접미사로만 본다.
+   ```bash
+   dflow.sh done <순번> "<요약> — 확인 필요 결정 2건: …" --auto-links --decisions docs/tasks/<TSK>/decisions.json
+   ```
 
 ### exit 3 — 인증 실패
 

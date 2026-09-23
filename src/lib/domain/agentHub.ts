@@ -4,7 +4,7 @@
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 import { deriveWaitReason, type WaitReason } from './waitReason'
-import { stageLockedForHuman } from './agentWork'
+import { parseDecisions, stageLockedForHuman, type DecisionsParse } from './agentWork'
 
 export interface HubItemRow {
   id: string; project_id: string; parent_id: string | null; code: string; name: string; sort_order: number
@@ -17,6 +17,8 @@ export interface HubMemberRow { id: string; name: string; email: string | null; 
 export interface HubReportRow {
   work_order_id: string; percent: number; summary: string; links: { label?: string; url: string }[]; agent: string
   review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string
+  /** 워커 결정 목록(0102). null = 제출 안 됨. 항목 모양은 parseDecisions 가 다시 본다. 옛 시험 픽스처는 비워 둘 수 있다. */
+  decisions?: unknown
 }
 export interface AgentHubRows {
   project: { id: string; name: string } | null
@@ -56,6 +58,8 @@ export interface HubQueueEntry {
   /** 서브트리 관리자(트랙 B) — 큐 항목은 항상 리프의 reported 주문이므로 그 리프의 strict 조상
    *  중 담당자가 나면 true. HubRow.canManage 와 같은 규칙. */
   canManage: boolean
+  /** 최신 completion 보고의 결정 목록 상태(과제 C). 보고 행이 없으면 none. */
+  decisions: DecisionsParse
 }
 export interface AgentHub {
   projectId: string; projectName: string
@@ -217,6 +221,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         links: rep?.links ?? [], reportedAt: rep?.created_at ?? o.updated_at,
         assigneeMine: it?.assignee_member_id != null && mine.has(it.assignee_member_id),
         canManage: it ? isSubtreeManagerOf(it.id, itemById, mine) : false,
+        decisions: rep ? parseDecisions(rep.decisions) : { state: 'none' as const },
       }
     })
     .sort((a, b) => Date.parse(a.reportedAt) - Date.parse(b.reportedAt))

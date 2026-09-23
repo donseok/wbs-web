@@ -220,6 +220,8 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     for (const p of ["'**/.claude/worktrees/'", "'/.dflow-agent'", "'/.dflow-pane'", "'/.dflow-prompt'", "'/.dflow-run'", "'docs/tasks/*/.result'", "'/.claude/skills'"]) {
       expect(s(), p).toContain(p)
     }
+    // 결정 목록 전송 파일(과제 C) — 커밋하지 않는 워커 부산물이라 .result 와 같은 자리에서 뺀다.
+    expect(s()).toMatch(/'[^']*tasks\/\*\/decisions\.json'/)
     expect(s()).toContain('git rev-parse --git-path info/exclude')
     expect(s()).toContain('git ls-files .claude/skills')
     expect(s()).toContain('파일명을 명시해 먼저 커밋하라')

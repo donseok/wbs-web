@@ -133,3 +133,84 @@ export function resumeHostFromClaimLabel(claimedBy: string | null): string | nul
   const slug = raw.toLowerCase().replace(/[^a-z0-9-]/g, '-')
   return slug === '' || /^-+$/.test(slug) ? null : slug
 }
+
+// ---- 워커 결정 목록(과제 C, 스펙 2026-09-23-worker-decision-report-design.md §3.3) ----
+// 상한은 DB CHECK(0102, 20건)·CLI 선검사(dflow.sh DECISION* 변수)와 같다. 대조는 tests/skills/dflow-done-decisions.test.ts.
+export const AGENT_DECISIONS_MAX = 20
+export const AGENT_DECISION_OPTIONS_MIN = 2
+export const AGENT_DECISION_OPTIONS_MAX = 6
+export const AGENT_DECISION_QUESTION_MAX = 300
+export const AGENT_DECISION_OPTION_MAX = 200
+export const AGENT_DECISION_RATIONALE_MAX = 1000
+export const AGENT_DECISION_ON_REJECT_MAX = 500
+const DECISION_KEY_RE = /^D[1-9][0-9]?$/
+const DECISION_FIELDS = new Set(['key', 'question', 'options', 'chosen', 'rationale', 'on_reject'])
+
+/** 워커가 기본값 없는 분기에서 스스로 고른 결정 하나. chosen 은 options 의 색인이다(문구 일치 검증을 피한다, D4). */
+export interface AgentDecision {
+  key: string; question: string; options: string[]; chosen: number; rationale: string; on_reject: string
+}
+/** 화면용 상태 — none = 제출 안 됨(구 CLI·구 서버), ok = 형식 통과(0건 포함), invalid = 저장 값이 앱 규칙을 어김. */
+export type DecisionsParse = { state: 'none' } | { state: 'ok'; items: AgentDecision[] } | { state: 'invalid' }
+
+/** trim 뒤 코드포인트 1~max 자면 trim 값, 아니면 null. jq 의 length 와 같은 축으로 센다(CLI 선검사와 경계가 같아야 한다). */
+function decisionText(v: unknown, max: number): string | null {
+  if (typeof v !== 'string') return null
+  const t = v.trim()
+  const n = Array.from(t).length
+  return n >= 1 && n <= max ? t : null
+}
+
+/**
+ * decisions 형식 검증 — 내용의 참·거짓은 판정하지 않는다(evidence §6 과 같은 입장). 실패 사유는 필드 경로를 담는다.
+ * undefined = 필드 없음(제출 안 됨) → decisions:null. 명시적 null 은 배열이 아니므로 거부한다(fail-loud).
+ */
+export function validateDecisions(raw: unknown):
+  { ok: true; decisions: AgentDecision[] | null } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, decisions: null }
+  if (!Array.isArray(raw)) return { ok: false, error: 'decisions는 배열이어야 합니다.' }
+  if (raw.length > AGENT_DECISIONS_MAX) return { ok: false, error: `decisions는 ${AGENT_DECISIONS_MAX}건 이하여야 합니다.` }
+  const out: AgentDecision[] = []
+  const seen = new Set<string>()
+  for (let i = 0; i < raw.length; i++) {
+    const p = `decisions[${i}]`
+    const d = raw[i]
+    if (typeof d !== 'object' || d === null || Array.isArray(d)) return { ok: false, error: `${p}는 객체여야 합니다.` }
+    const r = d as Record<string, unknown>
+    for (const k of Object.keys(r)) {
+      if (!DECISION_FIELDS.has(k)) return { ok: false, error: `${p}에 알 수 없는 필드: ${k}` }
+    }
+    if (typeof r.key !== 'string' || !DECISION_KEY_RE.test(r.key)) return { ok: false, error: `${p}.key는 D1~D99 형식이어야 합니다.` }
+    if (seen.has(r.key)) return { ok: false, error: `${p}.key가 중복됩니다: ${r.key}` }
+    seen.add(r.key)
+    const question = decisionText(r.question, AGENT_DECISION_QUESTION_MAX)
+    if (question === null) return { ok: false, error: `${p}.question은 1~${AGENT_DECISION_QUESTION_MAX}자여야 합니다.` }
+    if (!Array.isArray(r.options) || r.options.length < AGENT_DECISION_OPTIONS_MIN || r.options.length > AGENT_DECISION_OPTIONS_MAX) {
+      return { ok: false, error: `${p}.options는 ${AGENT_DECISION_OPTIONS_MIN}~${AGENT_DECISION_OPTIONS_MAX}개여야 합니다.` }
+    }
+    const options: string[] = []
+    for (let j = 0; j < r.options.length; j++) {
+      const o = decisionText(r.options[j], AGENT_DECISION_OPTION_MAX)
+      if (o === null) return { ok: false, error: `${p}.options[${j}]는 1~${AGENT_DECISION_OPTION_MAX}자여야 합니다.` }
+      options.push(o)
+    }
+    if (typeof r.chosen !== 'number' || !Number.isInteger(r.chosen)) return { ok: false, error: `${p}.chosen은 정수여야 합니다.` }
+    if (r.chosen < 0 || r.chosen >= options.length) return { ok: false, error: `${p}.chosen이 options 범위를 벗어났습니다.` }
+    const rationale = decisionText(r.rationale, AGENT_DECISION_RATIONALE_MAX)
+    if (rationale === null) return { ok: false, error: `${p}.rationale은 1~${AGENT_DECISION_RATIONALE_MAX}자여야 합니다.` }
+    const onReject = decisionText(r.on_reject, AGENT_DECISION_ON_REJECT_MAX)
+    if (onReject === null) return { ok: false, error: `${p}.on_reject는 1~${AGENT_DECISION_ON_REJECT_MAX}자여야 합니다.` }
+    out.push({ key: r.key, question, options, chosen: r.chosen, rationale, on_reject: onReject })
+  }
+  return { ok: true, decisions: out }
+}
+
+/**
+ * 저장된 decisions 를 화면 상태로. DB CHECK 가 배열만 보장하고 항목 모양은 앱 검증뿐이라 다시 본다.
+ * null 을 0건으로 그리지 않는다(스펙 §10 "모름을 0건으로 보이지 않는다").
+ */
+export function parseDecisions(raw: unknown): DecisionsParse {
+  if (raw === null || raw === undefined) return { state: 'none' }
+  const v = validateDecisions(raw)
+  return v.ok && v.decisions !== null ? { state: 'ok', items: v.decisions } : { state: 'invalid' }
+}
