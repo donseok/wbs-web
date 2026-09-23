@@ -19,10 +19,14 @@ export interface PredecessorLike {
 }
 export interface UnmetDepend { ref: string; found: boolean; code?: string; name?: string; stage?: string | null }
 
-/** 미충족 선행 — 검수 대기(im) 이상·승인된 주문·실적 100 중 하나면 충족(predecessorReached). 프로젝트에 없는 ref 는 미충족(fail-closed, 클레임 게이트와 동일). */
-export function unmetDepends(depends: string[] | null, byRef: (ref: string) => PredecessorLike | undefined): UnmetDepend[] {
+/** 미충족 선행 — 면제(waived)·검수 대기(im) 이상·승인된 주문·실적 100 중 하나면 충족(predecessorReached). 프로젝트에 없는 ref 는 미충족(fail-closed, 클레임 게이트와 동일) — 단 면제된 ref 는 조회 전에 충족이다. */
+export function unmetDepends(
+  depends: string[] | null, byRef: (ref: string) => PredecessorLike | undefined, waived: readonly string[] = [],
+): UnmetDepend[] {
   const out: UnmetDepend[] = []
+  const w = new Set(waived)
   for (const ref of depends ?? []) {
+    if (w.has(ref)) continue
     const p = byRef(ref)
     if (!p) { out.push({ ref, found: false }); continue }
     if (predecessorReached({ stage: p.stage, orderApproved: p.order_approved, actualPct: p.actual_pct })) continue
@@ -47,8 +51,10 @@ export function deriveWaitReason(args: {
   assignee: { name: string; user_id: string | null } | null
   /** 이 층을 보는 살아 있는 감시자(project_id null 포함). */
   watchers: WatcherLike[]
+  /** 강제 진행으로 면제한 선행 ref(wbs_items.depends_waived). */
+  waived?: readonly string[]
 }): WaitReason {
-  const unmet = unmetDepends(args.depends, args.predecessorByRef)
+  const unmet = unmetDepends(args.depends, args.predecessorByRef, args.waived ?? [])
   if (unmet.length > 0) {
     return {
       kind: 'dependency', label: '선행 대기',

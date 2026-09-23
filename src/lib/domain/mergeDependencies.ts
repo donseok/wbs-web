@@ -9,6 +9,8 @@ export interface SpecDependSource {
   projectId: string
   externalRef: string | null
   depends: string[] | null
+  /** 면제한 선행 ref(0103 depends_waived). 없으면 면제 없음. */
+  dependsWaived?: string[] | null
 }
 
 export interface MergedDependencies {
@@ -63,12 +65,14 @@ export function mergeSpecDepends(
 
   for (const item of items) {
     const seenRefs = new Set<string>()
+    const waivedRefs = new Set(item.dependsWaived ?? [])
     for (const ref of item.depends ?? []) {
       if (seenRefs.has(ref)) continue // 같은 ref 가 두 번 적혀도 한 번만 센다
       seenRefs.add(ref)
 
       const predecessorId = idByExternalRef.get(ref)
       if (!predecessorId) {
+        if (waivedRefs.has(ref)) continue // 면제된 간선은 claim 게이트도 통과한다 — 미해석으로 세면 거짓 차단이다
         const list = unresolvedBySuccessorId.get(item.id) ?? []
         list.push(ref)
         unresolvedBySuccessorId.set(item.id, list)
@@ -88,6 +92,7 @@ export function mergeSpecDepends(
         type: 'FS', // depends 는 유형이 없다. 앞이 끝나야 뒤를 한다 = FS
         lagDays: 0,
         origin: 'spec',
+        ...(waivedRefs.has(ref) ? { waived: true } : {}),
       })
     }
   }

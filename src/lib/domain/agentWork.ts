@@ -12,11 +12,14 @@ export const STAGE_ORDER = ['as', 'ip', 'im', 'xx'] as const
 export const REACHED_STAGES: ReadonlySet<string> = new Set(['im', 'xx'])
 
 /**
- * 선행 충족(§3.7) = stage ∈ {im,xx} ∨ 승인된 주문 ∨ 실적 ≥ 100. 세 번째 축은 위임하지 않은 사람 Task 가
+ * 선행 충족(§3.7) = 면제(강제 진행, 스펙 2026-09-23 F2) ∨ stage ∈ {im,xx} ∨ 승인된 주문 ∨ 실적 ≥ 100.
+ * 면제는 간선 단위다 — 호출부가 그 선행이 후행의 depends_waived 에 드는지 넘긴다.
+ * 세 번째 축은 위임하지 않은 사람 Task 가
  * 선행일 때 드롭다운 없이 풀리게 한다. claim 게이트·대기 사유·WBS 착수 판정·unblocked 알림이 전부 이 함수다.
  * 실적은 원시값 비교(statusOf 의 done 판정과 같다 — 99.6 은 완료가 아니다).
  */
-export function predecessorReached(p: { stage: string | null; orderApproved?: boolean; actualPct?: number | null }): boolean {
+export function predecessorReached(p: { stage: string | null; orderApproved?: boolean; actualPct?: number | null; waived?: boolean }): boolean {
+  if (p.waived === true) return true
   if (p.stage !== null && REACHED_STAGES.has(p.stage)) return true
   if (p.orderApproved === true) return true
   return typeof p.actualPct === 'number' && Number.isFinite(p.actualPct) && p.actualPct >= 100

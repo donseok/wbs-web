@@ -70,6 +70,8 @@ export interface TaskDependency {
    * 선택 필드로 두지 않는다 — 합성 행에 삭제 버튼이 붙는 사고를 타입이 잡아야 한다.
    */
   origin: DependencyOrigin
+  /** 강제 진행으로 면제한 spec 간선(스펙 2026-09-23 F1) — origin 'spec' 에만 뜻이 있다. 착수 판정은 충족으로 본다. */
+  waived?: boolean
 }
 
 /** @see TaskDependency.origin */
