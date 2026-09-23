@@ -40,6 +40,14 @@ const CHANGED = [
   '4. state.json `phase=reported`. 사용자에게 **"승인 대기로 보고했습니다"** 로 전달(완료 아님).',
   '   다음 `/dflow-dev` 호출의 Phase 0-가 스윕이 자동으로 처리한다(수동으로 지금 당장 머지만 하고',
   '   싶으면 `/dflow-merge` 를 여전히 따로 쓸 수 있다).',
+  // 9. Phase 번호 01 기반 전환(16f1573d, 2026-09-17): 제목과 본문 상호 참조의 번호만 바뀐다
+  '## Phase 0-가 — 승인 스윕(머지, 오케스트레이터 본인)',
+  '## Phase 0 — Claim·브랜치·기준선 (오케스트레이터 본인)',
+  '   reported → 종료 / approved → 위 Phase 0-가 스윕이 이미 처리했어야 함(로컬 state.json 이 없는',
+  '   - 재작업 완료 후 마감은 Phase 5 그대로(`done --auto-links`) — state 는 다시 `reported`.',
+  '       거짓이면 선행이 main 미반영 상태. **Phase 0-가 4번과 같은 절차로 지금 직접 머지한다**',
+  '## Phase 1~4 — Design → Build → Verify → Refactor',
+  '## Phase 5 — 마감 (오케스트레이터 본인)',
 ] as const
 
 /**
@@ -77,10 +85,10 @@ describe('/dflow-dev 원문 보존(스펙 §6-1)', () => {
 
 describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => {
   it('상태 모델: state.json 에 api_base 를 두고 처음 쓰는 곳(3번 스택 기록·4번 기준선 본문)과 반려 재작업에서 채운다', () => {
-    const model = between(manual, '## 상태 모델', '## Phase 0-가')
+    const model = between(manual, '## 상태 모델', '## Phase 01-가')
     expect(model).toContain('"api_base"')
     expect(model).toContain('끝 `/` 를 뺀 값')
-    expect(model).toContain('Phase 0 에서 state.json 을 처음 쓰는 곳')
+    expect(model).toContain('Phase 01 에서 state.json 을 처음 쓰는 곳')
     expect(model).toContain('반려 재작업이 기존 state.json 에 `phase=rejected` 를 쓸 때')
     const p03 = between(manual, '3. **브랜치를 오케스트레이터가 직접 만든다**', '4. **게이트 기준선 기록**')
     expect(p03).toContain('`branch_base`(기점 커밋 sha)·`risk`(선행 반려 시 재작업)와 `api_base`(상태 모델)를 기록한다')
@@ -88,7 +96,7 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
   })
 
   it('Phase 0-가: 후보를 로컬 + 원격으로 넓히고 판정~뒷정리는 /dflow-merge 2~5번에 맡긴다', () => {
-    const sweep = between(manual, '## Phase 0-가', '## Phase 0 — Claim·브랜치·기준선')
+    const sweep = between(manual, '## Phase 01-가', '## Phase 01 — Claim·브랜치·기준선')
     expect(sweep).toContain('`origin/agent/*`')
     expect(sweep).toContain('"건너뜀(다른 D\'Flow)"')
     expect(sweep).toContain('로컬이든 원격이든')
@@ -124,7 +132,7 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
   })
 
   it('Phase 5 4번: reported 를 커밋·push 하고 안내 문구가 실제 반영 경로와 맞는다', () => {
-    const p5 = between(manual, '## Phase 5', '## --only 옵션')
+    const p5 = between(manual, '## Phase 06', '## --only 옵션')
     expect(p5).toContain('그 파일을 파일명을 명시해 커밋한 뒤 `git push origin <agent 브랜치>` 한다')
     expect(p5).toContain('"승인 대기로 보고했습니다"')
     expect(p5).toContain('둘 다 원격 agent 브랜치까지 본다')
@@ -135,12 +143,12 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
 describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
   const EXPECTED: { prev?: string; next?: string; tag: string }[] = [
     { prev: '인자: `$ARGUMENTS` (`<순번|TSK-ID>` + 옵션)', tag: '팀장 전용' },
-    { prev: '## Phase 0-가 — 승인 스윕(머지, 오케스트레이터 본인)', tag: '「--worker」 A' },
+    { prev: '## Phase 01-가 — 승인 스윕(머지, 오케스트레이터 본인)', tag: '「--worker」 A' },
     { prev: '   작업이라 스윕이 못 봤을 수 있다 — 그 경우 지금 즉시 같은 머지 절차를 이 ref 하나로 실행 후 종료).', tag: '「--worker」 C' },
     { prev: '       있다). 머지 후 이어서 진행.', tag: '「--worker」 B' },
     { prev: '          남긴다** — 서버가 못 막는 우회를 스킬이 최소한 드러낸다.', tag: '「--worker」 G' },
     { prev: '   `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.', tag: '「--worker」 H' },
-    { prev: 'dev-discipline.md 를 따른다.', tag: '「--worker」 E' },
+    { prev: '기본 브랜치 반영 확인이 이 트레일러를 증거로 쓴다.', tag: '「--worker」 E' },
     { next: '## --only 옵션', tag: '## --worker 팀원 모드 (팀장 전용)' },
   ]
   const section = () => workerBlocks(skill).at(-1)?.body ?? ''
@@ -173,11 +181,16 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
 
   it('행 H: 생성 또는 재개로 agent 브랜치에 들어온 직후 lockfile 로 고른 관리자로 설치하고 실패하면 failed deps 다', () => {
     const sec = section()
-    expect(sec).toContain('생성 또는 재개로 agent 브랜치에 들어온 직후, 4번 기준선과 Phase 1~4 게이트 전')
-    expect(sec).toContain('if [ -f package.json ] && [ ! -d node_modules ]; then')
+    expect(sec).toContain('생성 또는 재개로 agent 브랜치에 들어온 직후, 4번 기준선과 Phase 02~05 게이트 전')
     expect(sec).toContain('npm ci')
-    expect(sec).toContain('pnpm install --frozen-lockfile')
-    expect(sec).toContain('yarn install --frozen-lockfile')
+    // 인라인 설치 블록은 21f5764f 에서 scripts/deps.sh 로 옮겼다. 같은 규칙을 그 스크립트에서 본다
+    // (npm 경로의 실행 검사는 tests/skills/dflow-lead-worktree.test.ts).
+    expect(sec).toContain('.claude/skills/dflow-dev/scripts/deps.sh')
+    const deps = readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/deps.sh'), 'utf8')
+    expect(deps).toContain('[ -f package.json ] || {')
+    expect(deps).toContain('[ -e node_modules ] && {')
+    expect(deps).toContain('pnpm install --frozen-lockfile')
+    expect(deps).toContain('yarn install --frozen-lockfile')
     expect(sec).toContain('failed deps')
     const h = workerBlocks(skill).find((b) => b.body.includes('「--worker」 H'))
     expect(h?.next).toBe('4. **게이트 기준선 기록**: dev-discipline 의 기준선 절차 실행, state.json 에 저장(`api_base` 가 아직 없으면 함께 기록한다. 상태 모델).')

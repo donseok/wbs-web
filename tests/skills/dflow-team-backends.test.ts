@@ -11,20 +11,18 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
   const b = () => read('references/backends.md')
   const e = () => read('references/events.md')
 
-  it('프로세스 spawn 은 git worktree add --detach 뒤 nohup claude -p 이고, PID·시작 시각으로 생존을 보며, 회수는 kill 이다', () => {
-    expect(b()).toContain('## 프로세스')
+  // 2026-09-16 tmux 전환(스펙 2026-09-16-dflow-team-tmux-pane-design.md §9)으로 프로세스 백엔드
+  // (nohup claude -p·pstart·.dflow-pid·.dflow-worker.log·LEAD_SKIP_PERMISSIONS)가 없어졌다. 그 단정은 지우고,
+  // 같은 규칙이 tmux 로 옮겨 간 것(절 제목·회수·결과 줄 폴백·handle)은 현행 리터럴로 본다.
+  it('tmux spawn 은 git worktree add --detach 로 워크트리를 만들고, 회수는 kill-pane, 결과 줄 폴백은 capture-pane 이다', () => {
+    expect(b()).toContain('## pane(tmux)')
     expect(b()).toContain('git fetch -q origin && git worktree prune && git worktree add --detach "$WT" origin/<기본브랜치> || echo SPAWN_FAILED_WORKTREE')
-    expect(b()).toContain('nohup claude -p "$(cat .dflow-prompt)" <모델 플래그> <권한 플래그> > .dflow-worker.log 2>&1 < /dev/null &')
-    expect(b()).toContain('echo $! > .dflow-pid && pstart "$(cat .dflow-pid)" >> .dflow-pid')
-    expect(b()).toContain('kill -0 "$pid" 2>/dev/null && [ "$(pstart "$pid")" = "$st" ] && echo ALIVE || echo DEAD')
     expect(b()).toContain('`--dangerously-skip-permissions`')
-    expect(b()).toContain('LEAD_SKIP_PERMISSIONS=1')
-    expect(b()).toContain('`kill "$pid"` 로 멈춘다')
-    expect(b()).toContain("grep -E '^<TSK> <id8> ' \"$WT/.dflow-worker.log\" | tail -n 1")
-    expect(b()).toContain('`handle` 은 `pid:<PID>` 다') // team.spawn 의 handle
+    expect(b()).toContain('| 회수 | `"$TM" -L dflow kill-pane -t <pane>`')
+    expect(b()).toContain("\"$TM\" -L dflow capture-pane -p -J -S - -t <pane> 2>/dev/null | grep -E '^<TSK> <id8> ' | tail -n 1")
+    expect(b()).toContain('`handle` 은 `tmux:<pane_id>` 다') // team.spawn 의 handle
     expect(b()).not.toContain('isolation')
     expect(b()).not.toContain('TaskStop')
-    expect(b()).not.toContain('에이전트 팀')
   })
 
   it('Orca spawn 은 origin/<기본브랜치> 기점이고 터미널 핸들이 없으면 화면 없이 git·서버 증거만 쓴다', () => {
@@ -54,13 +52,13 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     expect(b()).toContain("printf '%s\\n' '<신원>/<host>/parked' > <워크트리>/.dflow-agent")
     // parked 표시는 3번(남기는 모든 경우)에 있고, 살아 있는 팀원(4번)은 제외한다
     expect(b()).toMatch(/3\. 하나라도 거짓이면[\s\S]{0,700}printf '%s\\n' '<신원>\/<host>\/parked'/)
-    expect(b()).toContain('살아 있는 팀원의 워크트리(4번)가 아니면 `.dflow-agent` 값을 `parked` 로 바꿔')
+    expect(b()).toContain('살아 있는 팀원의 워크트리(4번)가\n   아니면 `.dflow-agent` 값을 `parked` 로 바꿔') // 11c08854 에서 줄바꿈만 바뀌었다
     expect(b()).toContain('살아 있는 팀원(SKILL.md 「팀장 상태」 정의)의 워크트리는 조건과 무관하게 지우지 않는다')
     // 생성 브랜치 정리: agent/ 가 아니고 origin/<기본브랜치> 의 조상인 생성 브랜치만 지운다
     expect(b()).toContain('**생성 브랜치 정리**')
     expect(b()).toContain("git branch --format='%(refname:short)' --list '*dflow-<id8>*'")
     expect(b()).toContain("git branch --format='%(refname:short)' --list '*dflow-[0-9a-f]*'") // id8 을 모를 때, Orca 접두 대비
-    expect(b()).toContain('프로세스 워크트리는 `--detach` 로 만들어 생성 브랜치가 없다')
+    expect(b()).toContain('tmux 워크트리는 `--detach` 로 만들어 생성 브랜치가 없다')
     expect(b()).toContain('case "$br" in agent/*) continue ;; esac')
     expect(b()).toContain('git merge-base --is-ancestor "$br" origin/<기본브랜치> && git branch -D "$br"')
   })
@@ -69,28 +67,26 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     for (const row of ['| 기상 신호 |', '| `blocked` 이후 |', '| 슬롯 점유 |', '| 회수 |', '| 팀장 세션이 죽으면 |', '| 정리 |', '| 팀원 화면 |', '| git 호출 |']) {
       expect(b(), row).toContain(row)
     }
-    expect(b()).toContain('| 항목 | pane(Orca) | 프로세스 |')
+    expect(b()).toContain('| 항목 | pane(tmux) | pane(Orca) |')
   })
 
-  it('플랫폼 차이 절: Windows(Git Bash) 는 uname 분기·CLAUDE_PID·pstart·복사본 링크로 같은 절차를 돈다', () => {
+  it('플랫폼 차이 절: Windows(Git Bash) 는 uname 분기·CLAUDE_PID·복사본 링크로 같은 절차를 돈다', () => {
     expect(b()).toContain('## 플랫폼 차이')
     expect(b()).toContain('| 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`) |')
     expect(b()).toContain('NO_CLAUDE_PID') // CLAUDE_PID 없으면 전제 검사가 fail-closed 로 막는다(SKILL.md 와 같은 사실)
     expect(b()).toContain('`ln -s` 가 복사본을 만든다')
     expect(b()).not.toContain('ps -o lstart= -p "$(cat .dflow-pid)"')
-    expect(b()).toContain('pstart "$(cat .dflow-pid)" >> .dflow-pid')
     expect(b()).toContain('\\.claude/skills(/dflow-(dev|work)(/.*)?)?')
   })
 
-  it('tmux 는 미지원 한 줄만 두고 킷 밖 경로를 적지 않는다', () => {
-    expect(b()).toContain('tmux pane 백엔드는 지원하지 않는다')
+  it('킷 밖 경로를 적지 않는다', () => {
     expect(b()).not.toContain('~/project/')
     expect(b()).not.toContain('dev-plugin')
   })
 
   it('events.md 는 일곱 이벤트와 스펙 §9-3 추가 필드를 표로 담는다', () => {
     for (const row of [
-      '| `team.start` | 「1. 시작」 4번 | `backend`, `slots`, `until` |',
+      '| `team.start` | 「1. 시작」 4번 | `backend`, `slots`, `until`, `wp` |', // wp 는 87805910
       '| `team.spawn` | 「5. 팀원 spawn」 6번, 「5-1. 재개 spawn」 7번, 「1. 시작」 4번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |',
       '| `team.result` | 「3. 결과 처리」, 「1. 시작」 4번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |',
       '| `team.blocked` | 「3. 결과 처리」·「6. blocked」, 「1. 시작」 4번(이어받은 해시·답 대기 재기록) | `slot`, `id8`, `worktree`, `hash`, `reason` |',
@@ -120,8 +116,8 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     expect(e()).toContain('--arg reason "$reason"')
     expect(e()).toContain('`failed rate-limit`')
     expect(e()).toContain('`failed permission`')
-    expect(e()).toContain('`backend` 는 `pane` 또는 `process`')
-    expect(e()).toContain('`pid:<PID>`')
+    expect(e()).toContain('`backend` 는 `tmux` 또는 `orca`')
+    expect(e()).toContain('`tmux:<pane_id>`')
     expect(e()).not.toContain('agent-team')
   })
 })
