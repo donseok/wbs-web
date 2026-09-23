@@ -219,3 +219,36 @@ export function parseDecisions(raw: unknown): DecisionsParse {
   const v = validateDecisions(raw)
   return v.ok && v.decisions !== null ? { state: 'ok', items: v.decisions } : { state: 'invalid' }
 }
+
+/**
+ * 명세 패널 "에이전트 진행 상황" 요약 표(2026-09-23 사용자 요청: 시작·종료·진행 분·모델).
+ * 시작 = 착수(claimed_at)와 첫 보고 중 이른 쪽 — 재작업으로 다시 claim 하면 claimed_at 이 뒤로 밀려
+ * 첫 보고보다 늦어질 수 있다. 종료 = 완료 보고가 올라간 상태(reported·approved)의 마지막 completion.
+ * 진행 분 = 종료(없고 작업 중이면 지금, 그 밖엔 마지막 보고)까지. 모델은 heartbeat 가 살아 있을 때만
+ * 믿는다(0100 — last_heartbeat_at 이 null 이면 무효). 보고마다의 간격 분은 직전 보고(첫 행은 시작)부터다.
+ */
+export type OrderTimeline = {
+  startedAt: string | null; endedAt: string | null; minutes: number | null; model: string | null
+  /** reports 와 같은 순서 — 직전 보고(첫 행은 시작)부터 이 보고까지의 분. 시작을 모르면 null. */
+  gaps: (number | null)[]
+}
+export function orderTimeline(order: {
+  status: string; claimed_at: string | null
+  heartbeat_model?: string | null; last_heartbeat_at?: string | null
+  reports: ReadonlyArray<{ kind: string; created_at: string }>
+}, now: Date = new Date()): OrderTimeline {
+  const ms = (s: string) => new Date(s).getTime()
+  const min = (a: number, b: number) => Math.max(0, Math.floor((b - a) / 60_000))
+  const first = order.reports[0]?.created_at ?? null
+  const startedAt = order.claimed_at && first ? (ms(order.claimed_at) <= ms(first) ? order.claimed_at : first) : (order.claimed_at ?? first)
+  const lastCompletion = [...order.reports].reverse().find(r => r.kind === 'completion')?.created_at ?? null
+  const endedAt = order.status === 'reported' || order.status === 'approved' ? lastCompletion : null
+  const until = endedAt ?? (order.status === 'claimed' ? now.toISOString() : (order.reports.at(-1)?.created_at ?? null))
+  const minutes = startedAt && until ? min(ms(startedAt), ms(until)) : null
+  const model = order.last_heartbeat_at ? (order.heartbeat_model ?? null) : null
+  const gaps = order.reports.map((r, i) => {
+    const prev = i === 0 ? startedAt : order.reports[i - 1].created_at
+    return prev ? min(ms(prev), ms(r.created_at)) : null
+  })
+  return { startedAt, endedAt, minutes, model, gaps }
+}

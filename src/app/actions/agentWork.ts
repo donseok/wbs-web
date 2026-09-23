@@ -317,6 +317,8 @@ export type AgentOrderReport = {
 export type AgentOrderStatus = {
   id: string; status: string
   claimed_by: string | null; claimed_at: string | null; updated_at: string
+  /** 마지막 heartbeat 의 실행 모델(0100). last_heartbeat_at 이 null 이면 무효 — orderTimeline 이 거른다. */
+  heartbeat_model?: string | null; last_heartbeat_at?: string | null
   reports: AgentOrderReport[]
 }
 /** 이전 주문 한 줄 — 본문 없이 "있었다"는 사실만. 상세는 주문 id 로 단건 조회한다. */
@@ -339,12 +341,13 @@ export async function getAgentOrderForItem(itemId: string): Promise<
   // 비워주고, 재발행이 새 주문을 만든다. 최신 하나만 읽으면 그 앞의 승인 이력이 통째로 사라진다.
   const { data: orders, error: ordErr } = await sb
     .from('agent_work_orders')
-    .select('id, status, claimed_by, claimed_at, updated_at')
+    .select('id, status, claimed_by, claimed_at, updated_at, heartbeat_model, last_heartbeat_at')
     .eq('wbs_item_id', itemId)
     .order('updated_at', { ascending: false })
   if (ordErr) return { ok: false, error: `주문 조회 실패: ${ordErr.message}` }
   const rows = (orders ?? []) as Array<{
     id: string; status: string; claimed_by: string | null; claimed_at: string | null; updated_at: string
+    heartbeat_model: string | null; last_heartbeat_at: string | null
   }>
   const projectId = (item as { project_id: string }).project_id
   if (rows.length === 0) return { ok: true, order: null, priorOrders: [], projectId }

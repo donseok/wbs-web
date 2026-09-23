@@ -18,7 +18,8 @@ import {
   type AgentOrderBrief,
   type AgentOrderStatus,
 } from '@/app/actions/agentWork'
-import { isClaimStale, parseDecisions } from '@/lib/domain/agentWork'
+import { isClaimStale, orderTimeline, parseDecisions } from '@/lib/domain/agentWork'
+import { seoulStamp } from '@/lib/domain/dates'
 import { DecisionList } from '@/components/agent-hub/DecisionList'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
@@ -441,6 +442,8 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
   if (!order || (order.status === 'cancelled' && priorOrders.length === 0)) return null
 
   const lastReport = order.reports.at(-1)
+  const tl = orderTimeline(order)
+  const mins = (n: number | null) => n === null ? '—' : t('wbs.agentOrderMinutes').replace('{n}', String(n))
   // 승인 대기 회차 = 주문이 reported 일 때의 마지막 completion. 그 밖의 completion 은 옛 회차다.
   const latestCompletionId = [...order.reports].reverse().find(r => r.kind === 'completion')?.id ?? null
   const pendingCompletionId = order.status === 'reported'
@@ -490,23 +493,62 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
           {lastReport && ` · ${lastReport.percent}%`}
         </p>
       )}
+      {/* 시각은 한국 시간 분 단위, 보고 이력은 표로(2026-09-23 사용자 요청). 모델은 보고마다 남지 않고 마지막
+          heartbeat 값만 있다(0100, 이력 없음) — 그래서 요약 칸에 "최근 모델" 하나로만 보인다. */}
+      <table data-agent-order-summary className="mt-1.5 w-full table-fixed text-[11px]">
+        <thead className="text-left text-[10px] text-ink-subtle">
+          <tr>
+            <th className="font-medium">{t('wbs.agentOrderStart')}</th>
+            <th className="font-medium">{t('wbs.agentOrderEnd')}</th>
+            <th className="w-16 font-medium">{t('wbs.agentOrderDuration')}</th>
+            <th className="font-medium">{t('wbs.agentOrderModel')}</th>
+          </tr>
+        </thead>
+        <tbody className="tabular-nums text-ink">
+          <tr>
+            <td>{tl.startedAt ? seoulStamp(tl.startedAt) : '—'}</td>
+            <td>{tl.endedAt ? seoulStamp(tl.endedAt) : (order.status === 'claimed' ? t('wbs.agentOrderInProgress') : '—')}</td>
+            <td>{mins(tl.minutes)}</td>
+            <td className="truncate font-mono" title={tl.model ?? undefined}>{tl.model ?? '—'}</td>
+          </tr>
+        </tbody>
+      </table>
       {order.reports.length > 0 && (
-        <ul className="mt-1.5 space-y-1.5">
-          {order.reports.map(r => (
-            <li key={r.id} className="rounded-md border border-line/60 p-1.5 text-xs">
-              <div className="text-[10px] text-ink-subtle">{r.created_at} · {r.agent} · {r.kind} · {r.percent}%</div>
-              <p className="whitespace-pre-wrap text-ink">{r.summary}</p>
-              {r.links.length > 0 && (
-                <div className="mt-0.5 text-[10px]">
-                  {t('wbs.agentOrderLinks')}: {r.links.map((l, i) => (
-                    <a key={i} className="mr-1.5 underline" href={l.url} target="_blank" rel="noreferrer">{l.label ?? l.url}</a>
-                  ))}
-                </div>
-              )}
-              {r.kind === 'completion' && <ReportDecisions raw={r.decisions} open={r.id === pendingCompletionId} latest={r.id === latestCompletionId} />}
-            </li>
+        <table data-agent-order-reports className="mt-2 w-full border-collapse text-xs">
+          <thead className="text-left text-[10px] text-ink-subtle">
+            <tr className="border-b border-line/60">
+              <th className="py-0.5 pr-2 font-medium">{t('wbs.agentOrderAt')}</th>
+              <th className="py-0.5 pr-2 text-right font-medium">{t('wbs.agentOrderGap')}</th>
+              <th className="py-0.5 pr-2 font-medium">{t('wbs.agentOrderKind')}</th>
+              <th className="py-0.5 pr-2 text-right font-medium">{t('wbs.agentOrderPct')}</th>
+              <th className="py-0.5 font-medium">{t('wbs.agentOrderAgent')}</th>
+            </tr>
+          </thead>
+          {order.reports.map((r, i) => (
+            <tbody key={r.id} className="border-b border-line/60 last:border-b-0">
+              <tr className="tabular-nums text-[11px] text-ink-muted">
+                <td className="whitespace-nowrap pr-2 pt-1" title={r.created_at}>{seoulStamp(r.created_at)}</td>
+                <td className="whitespace-nowrap pr-2 pt-1 text-right">{mins(tl.gaps[i])}</td>
+                <td className="whitespace-nowrap pr-2 pt-1">{r.kind === 'completion' ? t('wbs.agentOrderKindCompletion') : t('wbs.agentOrderKindProgress')}</td>
+                <td className="whitespace-nowrap pr-2 pt-1 text-right">{r.percent}%</td>
+                <td className="break-all pt-1 font-mono text-[10px]">{r.agent}</td>
+              </tr>
+              <tr>
+                <td colSpan={5} className="pb-1.5">
+                  <p className="whitespace-pre-wrap text-ink">{r.summary}</p>
+                  {r.links.length > 0 && (
+                    <div className="mt-0.5 text-[10px]">
+                      {t('wbs.agentOrderLinks')}: {r.links.map((l, k) => (
+                        <a key={k} className="mr-1.5 underline" href={l.url} target="_blank" rel="noreferrer">{l.label ?? l.url}</a>
+                      ))}
+                    </div>
+                  )}
+                  {r.kind === 'completion' && <ReportDecisions raw={r.decisions} open={r.id === pendingCompletionId} latest={r.id === latestCompletionId} />}
+                </td>
+              </tr>
+            </tbody>
           ))}
-        </ul>
+        </table>
       )}
       {priorOrders.length > 0 && (
         <ul className="mt-1.5 space-y-0.5 border-t border-line/60 pt-1.5 text-[10px] text-ink-subtle">
