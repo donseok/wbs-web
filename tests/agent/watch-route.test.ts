@@ -26,7 +26,7 @@ function useAdmin(queues: Record<string, Resp[]>, calls: Record<string, unknown[
       b.upsert = (payload: unknown, opts: unknown) => { (calls[`${table}:upsert`] ??= []).push([payload, opts]); return b }
       b.delete = () => { (calls[`${table}:delete`] ??= []).push(true); return b }
       b.update = () => b
-      for (const k of ['eq', 'lt', 'in', 'limit', 'order', 'not']) b[k] = () => b
+      for (const k of ['eq', 'lt', 'gt', 'in', 'limit', 'order', 'not']) b[k] = () => b
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
@@ -136,5 +136,34 @@ describe('POST /agent/watch — 재개 요청 전달(0099)', () => {
     const body = await res.json()
     expect(body.resume_requests).toBeNull()
     expect(body.resume_requests_error).toBe('재개 요청 조회에 실패했습니다.')
+  })
+})
+
+describe('holder — lease 쥔 프로젝트의 재개 요청만', () => {
+  const H = '0123abcd-0000-4000-8000-00000000abcd:12345'
+  const order = (pid: string) => ({
+    id: `${pid.slice(0, 8)}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, project_id: pid, wbs_item_id: null,
+    claimed_by: 'claude-mbp', resume_requested_at: '2026-09-23T00:00:00Z', resume_requested_host: 'mbp',
+  })
+  it('lease 가 있는 프로젝트의 요청만 남긴다', async () => {
+    useAdmin({ ...runnerQueues(), agent_lead_leases: [{ data: [{ project_id: P1 }] }], agent_work_orders: [{ data: [order(P1), order(P2)] }] })
+    const res = await post({ agent: 'hong/mbp/lead', holder: H })
+    const body = await res.json()
+    expect(body.resume_requests.map((r: { project_id: string }) => r.project_id)).toEqual([P1])
+  })
+  it('lease 조회가 실패하면 resume_requests 는 null — 요청 없음으로 위장하지 않는다', async () => {
+    useAdmin({ ...runnerQueues(), agent_lead_leases: [{ error: { message: 'boom' } }], agent_work_orders: [{ data: [order(P1)] }] })
+    const body = await (await post({ agent: 'hong/mbp/lead', holder: H })).json()
+    expect(body.resume_requests).toBeNull()
+    expect(body.resume_requests_error).toBeTruthy()
+  })
+  it('holder 형식이 틀리면 400', async () => {
+    useAdmin(runnerQueues())
+    expect((await post({ agent: 'a', holder: 'mbp' })).status).toBe(400)
+  })
+  it('holder 가 없으면 기존 동작(프로젝트를 가리지 않음)', async () => {
+    useAdmin({ ...runnerQueues(), agent_work_orders: [{ data: [order(P1), order(P2)] }] })
+    const body = await (await post({ agent: 'hong/mbp/lead' })).json()
+    expect(body.resume_requests).toHaveLength(2)
   })
 })
