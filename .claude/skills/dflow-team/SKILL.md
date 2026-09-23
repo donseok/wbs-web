@@ -899,8 +899,16 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 `WATCH_FAILED` 는 watch 호출 자체가 실패한 것이다. `beat` 는 이미 갱신됐으므로 잠금은 유효하고, 그 기상의
 요청 처리만 건너뛴다.
 
-`LEASE_KEEP_DEAD` 는 lease 갱신 프로세스가 3분 넘게 갱신하지 못한 것이다(죽었거나 서버에 닿지 못함). 그 기상에서
-`dflow.sh lease renew` 를 한 번 부른다. `LEASE_OK` 면 「1. 시작」 5번의 lease 갱신 블록을 다시 띄운다. `LEASE_LOST`
+`LEASE_KEEP_DEAD` 는 lease 갱신 프로세스가 3분 넘게 갱신하지 못한 것이다(죽었거나 서버에 닿지 못함). **이 기상이
+「2-2」 감시 루프의 `LEASE_LOST` 로 온 것이면 이 문단은 건너뛰고 그 `LEASE_LOST` 를 그대로 따른다(아래 기상 표).**
+서버에 닿지 못해 갱신 프로세스가 죽는 경우 마지막 갱신(3번 연속 실패, 60초 간격)으로부터 이미 180초 안팎이
+지나 있으므로, 표식 파일을 본 감시 루프의 `LEASE_LOST` 와 이 블록의 beat 나이 검사가 낸 `LEASE_KEEP_DEAD` 가 같은
+기상에 함께 뜰 수 있다. **우선순위는 `LEASE_LOST` 다**: 곧장 「7. 마감」 의 lease 상실 마감으로 가고, 같은
+기상에 함께 뜬 `LEASE_KEEP_DEAD` 는 무시한다.
+그 밖의 기상(감시 루프의 `LEASE_LOST` 없이 이 블록만 `LEASE_KEEP_DEAD` 를 낸 경우)에서는 `dflow.sh lease renew`
+를 한 번 부른다. `LEASE_OK` 면, lease 상실 표식 파일(`dflow-team.lease-lost`, 「2-2」 의 `LEASE_FILE`)이 남아
+있으면 먼저 지운 뒤 「1. 시작」 5번의 lease 갱신 블록과 감시 루프를 다시 띄운다. 표식을 지우지 않고 다시 띄우면
+그 감시 루프가 첫 검사에서 옛 표식을 보고 재기동 직후 곧바로 다시 `LEASE_LOST` 로 깨운다. `LEASE_LOST`
 (exit 4)나 `LEASE_NONE` 이면 「7. 마감」 의 lease 상실 마감으로 간다. 그 밖의 실패는 사유를 보고하고 다음 기상에 다시
 본다. 이유: 갱신 프로세스만 죽으면 이 팀장은 살아 있는데 lease 가 3분 뒤 만료돼 다른 곳이 가져갈 수 있다.
 
@@ -909,7 +917,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 같은 체크아웃에서 스윕·spawn 을 하고 같은 슬롯 번호를 낸다. `beat` 를 쓰지 못한 경우도 곧 다른 팀장이 가져갈 수
 있어 소유를 장담할 수 없다.
 
-`STALE` 을 뺀 모든 기상에서는 `LOCK_OK` 뒤에 이어서 이 순서로 한다.
+`STALE` 과 `LEASE_LOST` 를 뺀 모든 기상에서는 `LOCK_OK` 뒤에 이어서 이 순서로 한다.
 1. 재구성(「팀장 상태」). 컨텍스트 압축 뒤 첫 기상이면 그 전에 「팀장 상태」 의 압축 규칙대로 절차 정본을 다시
    읽는다.
 2. 아래 표의 처리.
@@ -937,7 +945,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 | `PANE_DEAD <경로…>` (tmux) | 경로마다 「3. 결과 처리」. `.result` 가 있으면 그 줄, 없으면 죽은 pane 화면 폴백, 그것도 없으면 `failed no-result` |
 | 사람의 답 | 「6. blocked」 의 답 매칭 |
 | `TICK` | 다음 TICK 예정 시각을 지금+1800초로 새로 정한다. 진행 중 슬롯의 생존을 확인하고 무응답 슬롯의 생존 증거를 잰다(「3. 결과 처리」). 차단기가 걸려 있으면 시험 spawn 1건을 허용한다 |
-| `LEASE_LOST <사유>` | 다른 곳이 이 신원+프로젝트의 팀장 lease 를 가져갔거나(`LEASE_LOST <project_id…>`), 서버에 3분 넘게 닿지 못했다(`LEASE_UNREACHABLE`). 「7. 마감」 의 lease 상실 마감으로 간다 |
+| `LEASE_LOST <사유>` | 다른 곳이 이 신원+프로젝트의 팀장 lease 를 가져갔거나(`LEASE_LOST <project_id…>`), 서버에 3분 넘게 닿지 못했다(`LEASE_UNREACHABLE`). 위 1~5(재구성·승인 스윕·spawn·poll·감시 루프 재기동)를 하지 않고, 같은 `LOCK_OK` 블록이 함께 낸 `LEASE_KEEP_DEAD` 도 무시한 채 곧장 「7. 마감」 의 lease 상실 마감으로 간다 |
 | `STALE` | 잠금 소유 확인과 `beat` 갱신만 하고 나머지는 넘긴다 |
 
 poll exit 0 의 show 필터:
@@ -1309,7 +1317,7 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
      .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" --stop || :
    fi
    if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
-     .claude/skills/dflow-work/scripts/dflow.sh lease release || echo "LEASE_RELEASE_FAILED 3분 뒤 스스로 풀린다"
+     .claude/skills/dflow-work/scripts/dflow.sh lease release || { rm -f "$(git rev-parse --git-path dflow-team.lease)" "$(git rev-parse --git-path dflow-team.lease).beat"; echo "LEASE_RELEASE_FAILED 3분 뒤 스스로 풀린다"; }
      rm -f "$(git rev-parse --git-path dflow-team.stop)"
      pkill -f "caffeinate -i -w $LEAD_PID" 2>/dev/null || :
      rm -rf "$LOCK" && echo LOCK_RELEASED
@@ -1317,8 +1325,12 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    ```
    종료 파일과 절전 방지도 여기서 거둔다. 종료 파일을 남기면 다음 팀장은 전제 검사에서 지우므로 해가 없지만,
    소유가 맞을 때만 지우는 이유는 잠금을 가져간 새 팀장에게 온 요청을 지우지 않기 위해서다.
-   lease 는 잠금보다 먼저 반납한다. 반납이 상태 파일을 지우면 lease 갱신 프로세스는 다음 확인(최대 5초)에서
-   스스로 끝난다. 반납이 실패해도 마감을 멈추지 않는다. lease 는 TTL(3분) 뒤 스스로 풀린다.
+   lease 는 잠금보다 먼저 반납한다. `dflow.sh lease release` 가 성공하면 그 명령이 스스로 상태 파일과 `.beat` 를
+   지우므로, lease 갱신 프로세스는 다음 확인(최대 5초)에서 상태 파일이 없는 것을 보고 스스로 끝난다. **실패하면
+   (예: 서버 호출 실패) `dflow.sh lease release` 는 상태 파일을 지우지 않은 채 끝나므로, 이 블록이 대신
+   지운다.** 지우는 것이 실제로 갱신 프로세스를 멈추는 신호다 — 지우지 않으면 세션이 살아 있는 한 갱신
+   프로세스가 계속 서버에 renew 를 시도해, "3분 뒤 스스로 풀린다" 는 다음 문장이 거짓이 된다(서버 쪽 lease 는
+   TTL 로 풀려도 로컬 프로세스는 살아남는다). 반납이 실패해도 마감을 멈추지 않는다.
 7. **남은 에이전트 확인**: ListAgents 를 다시 불러 이 세션에 `running` 인 이름 붙은 에이전트가 남아 있으면
    그 이름으로 TaskStop 하고 보고한다. 정상이면 하나도 없다. 팀원과 그 Phase 손자는 별도 프로세스라 이 세션의
    목록에 나타나지 않고, 손자는 팀원이 스스로 회수한다. poll 태스크와 감시 루프는 Bash 태스크라 이

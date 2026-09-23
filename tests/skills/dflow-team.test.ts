@@ -413,7 +413,9 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('**살아 있는 팀원의 워크트리는 조건과 무관하게 지우지 않는다.**')
     expect(s()).toContain('**agent 브랜치는 남긴다.**')
     expect(s()).toContain('`team.stop`')
-    expect(s()).toContain('[ "$o_pid" = "$LEAD_PID" ]; then\n     .claude/skills/dflow-work/scripts/dflow.sh lease release || echo "LEASE_RELEASE_FAILED 3분 뒤 스스로 풀린다"\n     rm -f "$(git rev-parse --git-path dflow-team.stop)"')
+    expect(s()).toContain(
+      '[ "$o_pid" = "$LEAD_PID" ]; then\n     .claude/skills/dflow-work/scripts/dflow.sh lease release || { rm -f "$(git rev-parse --git-path dflow-team.lease)" "$(git rev-parse --git-path dflow-team.lease).beat"; echo "LEASE_RELEASE_FAILED 3분 뒤 스스로 풀린다"; }\n     rm -f "$(git rev-parse --git-path dflow-team.stop)"',
+    )
     expect(s()).not.toContain('fromdateiso8601') // events.jsonl 의 team.start 는 새 팀장의 것일 수 있다
     expect(s()).not.toContain('rm -f "$(git rev-parse --git-path dflow-team.lock)"')
     expect(s()).toContain('**잠금 상실 마감**')
