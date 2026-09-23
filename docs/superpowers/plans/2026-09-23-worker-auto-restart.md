@@ -1572,3 +1572,10 @@ git push -u origin feat/worker-auto-restart
 - [ ] **Step 6: 보고**
 
 staging 커밋 해시, Task 6 리허설 결과, 남은 미결(§14-1 화면 문구·§14-2 statusLine 갱신·§14-3 한도 중 팀장 기상·§14-5 Orca 관문 실측)을 보고한다. main·킷 반영은 제안하지 않는다(별도 지시).
+
+---
+
+## 실행 기록
+
+- Task 0: 기준선 `npx vitest run tests/skills` 21 파일·276 건 통과(실패 0).
+- Task 2: 계획의 `판정 블록` 테스트 헬퍼 `gate()` 가 같은 임시 워크트리를 재사용해, 앞 호출이 쓴 `state.json`(cancelled)이 "없으면 `-`" 사례에 남았다. 테스트 결함이므로 `phase` 가 없을 때 `state.json` 을 지우도록 헬퍼만 고쳤다(restart.md 블록은 계획 그대로).
