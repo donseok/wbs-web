@@ -79,15 +79,27 @@ describe('WbsSpecPanel 진행 상황 — 결정 목록', () => {
     expect(container.querySelector('[data-decisions]')).toBeNull()
     expect(container.querySelector('details[data-report-decisions-fold]')).toBeNull()
   })
-  it('구 CLI 보고(null)는 승인 대기 회차에서 미제출 문구, 옛 회차에서는 접힌 머리가 미제출', async () => {
+  it('구 CLI 보고(null) 미제출 문구는 가장 최근 completion 회차에만 — 옛 회차는 생략(0102 이전 회차 잡음 방지)', async () => {
     getAgentOrderForItem.mockResolvedValue(reportedOrder([
       rep('r1', 'completion', '2026-09-23T01:00:00Z', null, 'reject'),
       rep('r3', 'completion', '2026-09-23T03:00:00Z', null),
     ]))
     await render()
-    expect(container.querySelector('details[data-report-decisions-fold] summary')!.textContent).toBe('결정 목록 미제출')
-    const none = [...container.querySelectorAll('[data-decisions="none"]')].filter(e => !e.closest('details'))
-    expect(none).toHaveLength(1)
+    expect(container.querySelector('details[data-report-decisions-fold]')).toBeNull()
+    expect(container.querySelectorAll('[data-decisions="none"]')).toHaveLength(1)
+  })
+  it('재작업 중(claimed)이면 최신 completion 의 미제출은 접힌 머리로, 그보다 옛 회차는 생략', async () => {
+    const o = reportedOrder([
+      rep('r1', 'completion', '2026-09-23T01:00:00Z', null, 'reject'),
+      rep('r3', 'completion', '2026-09-23T03:00:00Z', null, 'reject'),
+    ])
+    getAgentOrderForItem.mockResolvedValue({ ...o, order: { ...o.order, status: 'claimed' } })
+    await render()
+    // reported 가 아니면 진행 상황이 접혀 있다 — 토글로 연다.
+    await act(async () => { (container.querySelector('[data-agent-order-toggle]') as HTMLButtonElement).click() })
+    const folds = container.querySelectorAll('details[data-report-decisions-fold]')
+    expect(folds).toHaveLength(1)
+    expect(folds[0].querySelector('summary')!.textContent).toBe('결정 목록 미제출')
   })
   it('옛 회차가 0건([])이면 접힌 영역도 그리지 않는다', async () => {
     getAgentOrderForItem.mockResolvedValue(reportedOrder([

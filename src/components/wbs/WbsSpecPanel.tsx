@@ -376,10 +376,12 @@ const ORDER_STATUS_LABEL: Record<string, DictKey> = {
  * 완료 보고 한 회차의 결정 목록(과제 C, 스펙 §7.2). 승인 대기 회차는 펼치고, 반려·재작업된 옛 회차는
  * 결정 수만 보이게 접는다 — 회차마다 무엇이 반려됐는지(review_note)와 나란히 읽힌다.
  */
-function ReportDecisions({ raw, open }: { raw: unknown; open: boolean }) {
+function ReportDecisions({ raw, open, latest }: { raw: unknown; open: boolean; latest: boolean }) {
   const parsed = parseDecisions(raw)
   if (open) return <DecisionList decisions={parsed} compact />
   if (parsed.state === 'ok' && parsed.items.length === 0) return null
+  // 미제출(0102 이전·구 CLI)은 가장 최근 completion 회차에만 알린다 — 옛 회차마다 붙으면 잡음이다.
+  if (parsed.state === 'none' && !latest) return null
   const head = parsed.state === 'ok' ? `결정 ${parsed.items.length}건` : parsed.state === 'none' ? '결정 목록 미제출' : '결정 목록 오류'
   return (
     <details data-report-decisions-fold className="mt-1">
@@ -437,6 +439,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
 
   const lastReport = order.reports.at(-1)
   // 승인 대기 회차 = 주문이 reported 일 때의 마지막 completion. 그 밖의 completion 은 옛 회차다.
+  const latestCompletionId = [...order.reports].reverse().find(r => r.kind === 'completion')?.id ?? null
   const pendingCompletionId = order.status === 'reported'
     ? ([...order.reports].reverse().find(r => r.kind === 'completion')?.id ?? null)
     : null
@@ -497,7 +500,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
                   ))}
                 </div>
               )}
-              {r.kind === 'completion' && <ReportDecisions raw={r.decisions} open={r.id === pendingCompletionId} />}
+              {r.kind === 'completion' && <ReportDecisions raw={r.decisions} open={r.id === pendingCompletionId} latest={r.id === latestCompletionId} />}
             </li>
           ))}
         </ul>
