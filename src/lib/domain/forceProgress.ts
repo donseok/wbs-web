@@ -36,9 +36,15 @@ export function stubBadgeText(count: number): string {
   return count > 1 ? `스텁 잔존 ${count}` : '스텁 잔존'
 }
 
+/** 하위 Task 의 ref 키·code — 선행 ref **전체**를 [A-Za-z0-9._-] 로 치환한다(RPC set_dependency_waiver 와 같은 식).
+ *  마지막 칸만 쓰면 모듈이 다른 두 선행(a/TSK-01·b/TSK-01)이 같은 ref 를 만든다. */
+export function stubRefKey(predRef: string): string {
+  return predRef.replace(/[^A-Za-z0-9._-]/g, '_')
+}
+
 /** 하위 Task 의 external_ref. 마지막 칸이 dflow.sh 작업 폴더 이름이 된다. */
 export function stubTaskRef(successorRef: string, predRef: string): string {
-  return `${successorRef}.stub.${lastRefSegment(predRef)}`
+  return `${successorRef}.stub.${stubRefKey(predRef)}`
 }
 
 export function stubTaskName(pred: { code: string; name: string }): string {

@@ -7,7 +7,7 @@
 - `depends_evidence[].waived`(boolean) 추가 — 사람이 그 선행을 「강제 진행」 으로 면제한 간선(0103 `wbs_items.depends_waived`).
   면제된 간선은 `reached` 가 참이다(claim 게이트도 통과). 면제된 간선에는 `head_sha` 가 없는 것이 정상이다 — 서버의
   `head_sha` 는 승인된 주문의 완료 보고에서만 오고, 승인된 선행은 면제할 이유가 없다.
-- 스텁 제거 하위 Task 가 주문으로 나온다. `external_ref` 는 `<후행 ref>.stub.<선행 TSK>` 이고 `depends` 는 `[선행, 후행]` 이다.
+- 스텁 제거 하위 Task 가 주문으로 나온다. `external_ref` 는 `<후행 ref>.stub.<선행 ref 전체를 [A-Za-z0-9._-] 로 치환>`(예: `m/TSK-02.stub.m_TSK-01`)이고 `depends` 는 `[선행, 후행]` 이다.
   스텁이 남은 동안 후행의 승인은 서버가 거부한다(`stub_pending`) — 완료 보고(im)까지는 정상 진행된다.
 - CLI: `check_depends_local` 이 `waived` 간선을 건너뛴다. `dflow.sh stub-check [<ref>]` — 승격 관문(표식 있으면 exit 4).
 - 설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-23-force-progress-design.md(킷에는 미동봉).

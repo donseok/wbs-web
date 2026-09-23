@@ -21,7 +21,9 @@ describe('스텁 잔존 — 승인 잠금과 표시가 같은 함수', () => {
     expect(stubLabel('mdm/TSK-03-01')).toBe('스텁 잔존: TSK-03-01 대체')
     expect(stubBadgeText(1)).toBe('스텁 잔존')
     expect(stubBadgeText(2)).toBe('스텁 잔존 2')
-    expect(stubTaskRef('mdm/TSK-03-02', 'mdm/TSK-03-01')).toBe('mdm/TSK-03-02.stub.TSK-03-01')
+    expect(stubTaskRef('mdm/TSK-03-02', 'mdm/TSK-03-01')).toBe('mdm/TSK-03-02.stub.mdm_TSK-03-01')
+    // 모듈이 다른 같은 번호의 선행은 서로 다른 하위 ref 를 만든다(충돌 방지)
+    expect(stubTaskRef('m/S', 'a/TSK-01')).not.toBe(stubTaskRef('m/S', 'b/TSK-01'))
     expect(stubTaskName({ code: 'TSK-03-01', name: '주문 서비스' })).toBe('스텁 제거·실연결: TSK-03-01 주문 서비스')
   })
   it('stub_for 로 행을 판별한다(레벨·이름이 아니다)', () => {
