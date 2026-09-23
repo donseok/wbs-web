@@ -2823,3 +2823,29 @@ Expected: push 성공. force push 금지.
 - [ ] **Step 6: 정리**
 
 워크트리를 지우고(`git worktree remove .claude/worktrees/force-progress` 와 Task 별 워크트리), 브랜치 `feat/force-progress` 와 Task 브랜치를 지운다(`git branch --merged origin/staging` 으로 포함을 확인한 뒤). 운영 반영은 지시 뒤이고 순서는 **0103 prod 적용 먼저 → main 머지**(역순이면 `stub_for` 컬럼이 없어 WBS 로더가 깨진다) → dflow-kit 재빌드(계약 2.8).
+
+---
+
+## 실행 기록
+
+(2026-09-23, 워크트리 `/Users/jji/project/wbs-web-force`, 브랜치 `feat/force-progress`. 서브에이전트 없이 한 세션이 Task 1~10 을 순서대로 했다.)
+
+- Task 0: 워크트리는 컨트롤러가 준비. 기준선 tsc 오류 28건(테스트 파일)·계약 2.5·최신 마이그레이션 0101. 병렬 Task 워크트리는 쓰지 않았다(순차 진행).
+- 전 커밋: `Co-Authored-By` 에 더해 `Claude-Session` 트레일러를 붙였다(세션 규칙).
+- Task 1: `evaluateStartReadiness` 는 면제 링크를 선행 행 조회 **전에** satisfied 로 둔다 — 그 뒤 `predecessorReached` 호출에는 `waived` 를 넘기지 않는다(좁혀진 타입이라 tsc 가 비교를 거부). 면제 링크의 선행 행이 없을 때 unknown 이 아닌 것을 테스트로 더했다.
+- Task 3: 0097 이 `apply_workflow_event` 의 최신 정의임을 확인(0098~0101 재정의 없음, 0097 파일에 begin/commit 없음). `change_logs.user_id` nullable·`acceptance jsonb`·`(project_id, code)` 유니크 없음을 확인했다.
+- Task 3: 스테이징 DB 적용·검증을 Task 11 대신 **Task 3 커밋 직후** 했다 — 뒤 Task 가 SQL 위에 쌓이기 전에 문법·동작을 확인하려고. `staging:sync` 는 돌리지 않았다(Ruling: 0103 은 기본값 있는 컬럼·함수·트리거라 기존 데이터에 기대지 않고, sync 는 병렬 세션의 스테이징 검증 데이터를 덮는다). assert 가 실제로 오류를 내는지 탐침(`assert false`)으로 먼저 확인했다. 순서: 적용 → 검증 SQL 통과 → 잔존 0 → 롤백 리허설 → 컬럼·RPC 사라짐 확인 → 재적용 → 검증 SQL 통과 → 잔존 0. 마지막에 한 번 더 검증 SQL 통과.
+- Task 4: `src/app/(app)/projects/page.tsx` 는 select 만이 아니라 `heroTaskStats` 도 stub 행을 뺀다(홈 히어로 리프 수가 늘지 않게). `wbsImport.ts` 의 `treeMaxDepth` 캐스트 타입에 `stub_for` 를 더했다.
+- Task 5: `STUB_LOCK_ACTUAL_MSG` 는 export 하지 않는다 — `'use server'` 파일의 비동기 함수 외 export 는 `next build` 를 깬다.
+- Task 5: `updateActual` 의 스텁 하위 조회는 100 입력일 때만 돈다. 계획의 「99 는 저장된다」 테스트 큐(`{data: []}` 한 칸 더)는 99 에서 그 조회가 없어 update 응답을 잘못 소비하므로 큐를 고쳤다. 기존 lock 테스트 두 건(100 저장 경로)에 스텁 조회 응답 `{ data: [] }` 한 칸을 넣었다. 조회 실패 거부 테스트를 더했다.
+- Task 5: `addSubAct` 는 대상 자신이 stub 하위일 때도 거부한다(F11 잎 전용 — 계획은 형제 검사만 적었다). `isSubtreeManager`(서버 가드)의 F15 테스트를 `tests/agent/subtree-manager.test.ts` 에 더했다.
+- Task 5: 빌더 `is`·`not` 보강은 계획 목록 대신 실제로 실패한 파일만 고쳤다(`wbs-dev-workflow`·`wbs-update-actual-lock`·`ensure-agent-project`·`ensure-order`·`wbs-import`). 허브 컬럼 계약 테스트(`tests/data/agent-hub.test.ts`)의 select 문자열도 갱신.
+- Task 6: 계약 2.8 은 서버 상수(`externalApi.ts`)를 Task 6 에서, `dflow.sh`·`api-contract.md` 를 Task 10 에서 올렸다(두 값을 대조하는 테스트는 없다). `me-route`·`depends-gate`·`work-routes-pat` 테스트 기대값에 `contract_version '2.8'`·`waived: false` 를 반영.
+- Task 7: **선행 계약 판정 재료를 `spec`·`acceptance` 원본이 아니라 로더가 계산한 불리언 `WbsRow.hasContract` 로 싣는다** — spec 은 조립된 마크다운 본문이라 항목마다 클라이언트로 보내면 WBS 페이로드가 커진다. `waiveBlock` 의 pred 는 `hasContract` 가 있으면 그것을 쓰고 없으면 원본으로 판정한다(테스트 추가). 사이드바 테스트 픽스처도 `hasContract` 로 바꿨다.
+- Task 7: 「강제 진행」 절은 선행 목록 블록 **안이 아니라** 의존성 절 바로 위 별도 블록에 둔다 — 의존성 절은 접히고 그래프 보기도 있어, 그 안에 두면 버튼이 안 보인다. 승인 버튼 비활성은 `RowDetailPanel → WbsAssigneeStagePanel → WbsSpecPanel → WbsAgentOrderStatus` 로 `stubs` prop 을 내려 처리했다.
+- Task 7: `WbsGanttSheet` 의 다른 트리 순회도 `subTasks` 를 탄다 — 검색(buildMatch)·depthMap·자손 수·개요 번호(하위는 `<후행 번호>.S1`)·L1/L2 그룹·focus 예외. 레벨 버튼 수 계산은 stub 행을 뺀다. 완료 숨김이 켜지면 stub 행은 후행을 따라 숨는다(고아 행 방지). 편집 버튼 노출은 기존 `editable`(관리자) 그대로 — 서브트리 관리자는 서버 액션이 허용하지만 사이드바 버튼은 관리자에게만 보인다(후속 과제).
+- Task 8: 좌석 카드는 버튼 안이라 링크를 둘 수 없어 배지(`title` 에 문구)만 두고, 링크는 상세 패널(`DetailPanel`)에 둔다. 좌석 승인 잠금은 `seatOps.opsFor` 한 곳에서 한다(좌석 바·상세 패널 공통). 오피스 로더의 스텁 하위 조회는 기존 조회 순서를 흐트리지 않도록 맨 끝에 두었다(`tests/data/agent-seatmap.test.ts` 호출 기대값 갱신). 결재 배지 데이터 테스트의 목에 `in`·`not` 과 스텁 조회 카운터를 더했다.
+- Task 9: 설정 폼은 `StageCreditSlider` 안이 아니라 새 컴포넌트 `src/components/settings/BottleneckSettingsForm.tsx` 로 두고 설정 페이지에서 슬라이더 아래에 그린다. 층 제안 띠·배지 스타일은 오피스 CSS 모듈(`seatmap.module.css`)에 클래스로 더했다.
+- Task 10: 계획 테스트의 `CONTRACT_VERSION=2\.6` 은 오타로 보고 2.8 로 고쳤다. `DFLOW_SKIP_CONFIG` 는 dflow.sh 에 없는 이름이라 테스트에서 뺐다(설정이 없어도 `stub-check <ref>` 는 돈다 — 설정 로드가 없는 리포에서 실패하지 않음을 확인). 계약 문서 문구는 테스트 기대에 맞춰 `` `depends_evidence[].waived`(boolean) `` 로 적었다. `/dflow-dev` 원문 보존 테스트가 표지 블록 밖 `--worker` 와 블록 수를 고정하므로, 강제 진행 갈래의 워커 문장은 「팀원(워커) 모드는 하지 않는다(행 G)」 로 표지 블록 없이 적었다.
+- Task 11: push·origin/staging 머지·ego-browser 실동작 확인·워크트리 정리는 하지 않았다 — **반영 대기**(컨트롤러가 순서대로 머지). origin/staging 에는 그사이 과제 C(0102·계약 2.6)가 들어왔다. 0102 는 `agent_work_reports` 만 바꿔 0103 과 겹치지 않는다. 머지 때 `externalApi.ts`·`dflow.sh`·`api-contract.md` 의 계약 버전 줄이 충돌할 수 있다(이 과제 값은 2.8).
+- 최종 검증: `npx vitest run` 544 파일·6215 건 통과(부하가 높을 때 `tests/skills/dflow-lead-lease`·`heartbeat-hook`·`tests/domain/trend` 가 시간 초과로 간헐 실패했고 단독 재실행은 전부 통과 — 이번 변경과 무관), tsc 오류 28건(기준선과 같음), `npm run lint` 오류 0·경고 6(기존).
