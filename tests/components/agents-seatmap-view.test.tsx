@@ -415,3 +415,55 @@ describe('SeatmapView — 팀장 lease 해제(0101)', () => {
   })
 })
 
+// 리뷰 라운드 2 — 스펙 §7("오피스 화면의 팀장 좌석에 lease 표시")은 계획서의 평면도 한정 배치보다
+// 우선한다. 기본 보기(에이전트, RosterBoard)의 팀장 책상에서도 같은 lease 정보·해제가 되는지 검증한다.
+describe('SeatmapView — 팀장 lease 해제 · 에이전트 보기(라운드2)', () => {
+  const withLead = (canRelease: boolean): Seatmap => map({
+    floors: [{
+      id: 'p1', name: 'mes-base', seatCount: 0, doneCount: 0, zones: [],
+      watchers: [{ agent: 'u9/air/lead', host: 'air', slots: 2, busy: 0, untilLabel: null, lastSeenAt: new Date(NOW - 5000).toISOString(), projectId: null }],
+      leads: [{
+        userId: 'u9', host: 'air', agent: 'u9/air/lead', renewedAt: new Date(NOW - 5000).toISOString(),
+        expiresAt: new Date(NOW + 120_000).toISOString(), mine: false, ownerName: '홍길동', canRelease,
+      }],
+    }],
+    attention: [],
+  })
+  // 전역 beforeEach 가 'dflow.office.view'='floor' 를 심어 두므로, 여기서 지워 저장된 보기가
+  // 없는 첫 방문 상태(기본값 = 에이전트)를 그대로 검증한다.
+  beforeEach(() => { window.localStorage.clear() })
+
+  it('기본(에이전트) 보기의 팀장 책상에서도 「팀장 해제」→「정말 해제」로 releaseLeadLease 를 (projectId, userId) 로 부른다', async () => {
+    releaseLead.mockResolvedValue({ ok: true, released: 1 })
+    refresh.mockResolvedValue({ ok: true, seatmap: map() })
+    await act(async () => { root.render(<SeatmapView initial={withLead(true)} />) })
+    expect(host.querySelector('[data-roster-board]')).not.toBeNull() // 기본 보기가 실제로 에이전트임을 확인
+    const btn = [...host.querySelectorAll('button')].find(b => b.textContent === '팀장 해제') as HTMLButtonElement
+    expect(btn).toBeTruthy()
+    await act(async () => { btn.click() })
+    const confirm = host.querySelector('[data-lead-confirm]') as HTMLButtonElement
+    expect(confirm?.textContent).toBe('정말 해제')
+    await act(async () => { confirm.click() })
+    expect(releaseLead).toHaveBeenCalledWith('p1', 'u9')
+  })
+
+  it('canRelease=false 면 에이전트 보기에도 「팀장 해제」 버튼이 없다', () => {
+    act(() => root.render(<SeatmapView initial={withLead(false)} />))
+    expect(host.querySelector('[data-roster-board]')).not.toBeNull()
+    const btn = [...host.querySelectorAll('button')].find(b => b.textContent === '팀장 해제')
+    expect(btn).toBeUndefined()
+    expect(host.querySelector('[data-lead="u9"]')).not.toBeNull()
+  })
+
+  it('해제 실패는 갱신 실패 배너가 아니라 「팀장 해제 실패」 제 이름의 배너로 보인다(리뷰 지적 2)', async () => {
+    releaseLead.mockResolvedValue({ ok: false, error: '권한이 없습니다.' })
+    await act(async () => { root.render(<SeatmapView initial={withLead(true)} />) })
+    const btn = [...host.querySelectorAll('button')].find(b => b.textContent === '팀장 해제') as HTMLButtonElement
+    await act(async () => { btn.click() })
+    await act(async () => { (host.querySelector('[data-lead-confirm]') as HTMLButtonElement).click() })
+    expect(host.querySelector('[data-lead-error]')?.textContent).toContain('팀장 해제 실패')
+    expect(host.querySelector('[data-lead-error]')?.textContent).toContain('권한이 없습니다.')
+    expect(host.querySelector('[data-error]')).toBeNull() // 갱신 실패 배너와 문구가 섞이지 않는다
+  })
+})
+

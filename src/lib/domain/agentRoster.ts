@@ -4,11 +4,15 @@
 // 신원 문자열은 규칙이 셋이다 — heartbeat_agent 는 <신원>/<host>/w<N>, 감시자는 <신원>/<host>/lead|poll,
 // claimed_by 는 claude-<host> · pat-<runner8>(슬래시 거부). 앞의 둘만 작업 PC 로 묶을 수 있고, 나머지는
 // 자기 이름 그대로 한 행이 된다(묶을 근거가 없는데 묶으면 화면이 거짓말한다).
-import type { Seat, Seatmap, Watcher } from './seatmap'
+import type { LeadLease, Seat, Seatmap, Watcher } from './seatmap'
 import type { SeatState } from './seatState'
 
 /** 에이전트가 자리를 차지한 상태 — 보고를 올리고 떠난 WAIT·빈 주문 READY·승인 DONE 은 자리가 아니다. */
 const OCCUPIED: readonly SeatState[] = ['ACTIVE', 'REJECTED', 'BLOCKED', 'STALE', 'OFFLINE']
+
+/** 팀장 lease(0101) — Floor.leads 는 프로젝트(층)별인데 여기서는 identity(agent) 로 다시 묶으므로,
+ *  어느 프로젝트의 lease 인지(「팀장 해제」 호출에 필요)를 같이 들고 다닌다. */
+export interface RosterLease extends LeadLease { projectId: string }
 
 export type DeskKind = 'lead' | 'member' | 'empty' | 'external'
 export interface RosterDesk {
@@ -21,6 +25,9 @@ export interface RosterDesk {
   watcher: Watcher | null
   /** 신원 원문 — 화면이 작게 보여 준다. 빈자리는 null. */
   raw: string | null
+  /** 이 책상(팀장·단독 감시)이 쥔 팀장 lease — 한 PC 가 여러 프로젝트의 팀장일 수 있어 목록이다.
+   *  팀장·단독 감시가 아닌 책상은 항상 []. 스펙 §7: 오피스 화면의 팀장 좌석에 lease 를 보인다. */
+  leads: RosterLease[]
 }
 export interface RosterHost {
   key: string
@@ -64,6 +71,16 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     return h
   }
 
+  // 팀장 lease(0101) — 감시자와 같은 identity(agent 문자열)로 묶는다. Floor.leads 는 이미 그 층(프로젝트)의
+  // 것만 실려 있으므로, 여러 층에 걸쳐 같은 identity 가 여러 프로젝트의 팀장이면 목록으로 모인다.
+  const leadsByAgent = new Map<string, RosterLease[]>()
+  for (const f of map.floors) for (const l of f.leads) {
+    if (!l.agent) continue
+    const arr = leadsByAgent.get(l.agent) ?? []
+    arr.push({ ...l, projectId: f.id })
+    leadsByAgent.set(l.agent, arr)
+  }
+
   // 감시자 — 층마다 같은 감시자(project_id null)가 겹쳐 실리므로 agent 로 한 번만 센다.
   const watchers = new Map<string, Watcher>()
   for (const f of map.floors) for (const w of f.watchers) {
@@ -76,7 +93,7 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     // 한 PC 에 감시자가 둘이면(팀장 + 단독 감시) 최근 신호 쪽의 좌석 수를 행 정보로 쓴다.
     if (!h.watcher || Date.parse(w.lastSeenAt) > Date.parse(h.watcher.lastSeenAt)) { h.watcher = w; h.slots = w.slots }
     const slot = id?.slot ?? 'lead'
-    h.desks.push({ key: `watch:${w.agent}`, slot, label: id ? slotLabel(slot) : '감시', kind: 'lead', seat: null, watcher: w, raw: w.agent })
+    h.desks.push({ key: `watch:${w.agent}`, slot, label: id ? slotLabel(slot) : '감시', kind: 'lead', seat: null, watcher: w, raw: w.agent, leads: leadsByAgent.get(w.agent) ?? [] })
   }
 
   const seats: Seat[] = []
@@ -88,11 +105,11 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     const id = parseAgentId(agent)
     if (id) {
       const h = ensure(`${id.owner}/${id.host}`, `${id.owner} / ${id.host}`, true)
-      h.desks.push({ key: `seat:${s.orderId}`, slot: id.slot, label: slotLabel(id.slot), kind: 'member', seat: s, watcher: null, raw: agent })
+      h.desks.push({ key: `seat:${s.orderId}`, slot: id.slot, label: slotLabel(id.slot), kind: 'member', seat: s, watcher: null, raw: agent, leads: [] })
     } else {
       const h = ensure(agent, agent, false)
       const label = agent.startsWith('pat-') ? '외부 에이전트' : '에이전트'
-      h.desks.push({ key: `seat:${s.orderId}`, slot: agent, label, kind: 'external', seat: s, watcher: null, raw: agent })
+      h.desks.push({ key: `seat:${s.orderId}`, slot: agent, label, kind: 'external', seat: s, watcher: null, raw: agent, leads: [] })
     }
   }
 
@@ -104,7 +121,7 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     for (let i = 1; i <= h.slots; i++) {
       const slot = `w${i}`
       if (taken.has(slot)) continue
-      h.desks.push({ key: `empty:${h.key}:${slot}`, slot, label: slotLabel(slot), kind: 'empty', seat: null, watcher: null, raw: null })
+      h.desks.push({ key: `empty:${h.key}:${slot}`, slot, label: slotLabel(slot), kind: 'empty', seat: null, watcher: null, raw: null, leads: [] })
       empty++
     }
     h.desks.sort((a, b) => slotRank(a) - slotRank(b) || a.key.localeCompare(b.key))

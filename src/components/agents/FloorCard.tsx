@@ -1,10 +1,11 @@
 // src/components/agents/FloorCard.tsx
 'use client'
 import { useState } from 'react'
-import type { Floor, LeadLease, Zone } from '@/lib/domain/seatmap'
+import type { Floor, Zone } from '@/lib/domain/seatmap'
 import { ZoneBlock } from './ZoneBlock'
 import type { SeatOpHandler } from './SeatOpsBar'
 import { IconBlocked, IconFolded, IconWait } from './icons'
+import { LeadChip } from './LeadChip'
 import css from './seatmap.module.css'
 
 type ZoneKind = 'work' | 'wait' | 'empty'
@@ -92,30 +93,5 @@ export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = fa
         )}
       </div>
     </section>
-  )
-}
-
-/** 팀장 lease 칩 — 두 단계 확인(브라우저 confirm() 은 쓰지 않는다. E2E 자동화가 대화상자에 막힌다). */
-function LeadChip({ lead, onRelease }: { lead: LeadLease; onRelease?: () => Promise<void> }) {
-  const [confirming, setConfirming] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const who = lead.mine ? '내 팀장' : `${lead.ownerName ?? '다른 계정'} 팀장`
-  const at = lead.renewedAt ? new Date(lead.renewedAt).toLocaleTimeString('ko-KR', { hour12: false }) : '-'
-  return (
-    <span className={css.lead} data-lead={lead.userId} title={`${lead.agent ?? ''} · 갱신 ${at}`}>
-      {who} · {lead.host ?? '-'} · 갱신 {at}
-      {lead.canRelease && onRelease && !confirming && (
-        <button type="button" className={css.leadRelease} disabled={busy} onClick={() => setConfirming(true)}>팀장 해제</button>
-      )}
-      {confirming && (
-        <>
-          <button type="button" className={css.leadRelease} data-lead-confirm disabled={busy}
-            onClick={async () => { setBusy(true); try { await onRelease?.() } finally { setBusy(false); setConfirming(false) } }}>
-            정말 해제
-          </button>
-          <button type="button" className={css.leadRelease} disabled={busy} onClick={() => setConfirming(false)}>취소</button>
-        </>
-      )}
-    </span>
   )
 }

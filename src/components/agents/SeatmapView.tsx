@@ -52,6 +52,9 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
   const [note, setNote] = useState<NoteDraft | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
+  /** 「팀장 해제」 실패 — 갱신 실패 배너(`error`)와 문구가 겹치면 사람이 "새로고침이 실패했나?" 로
+   *  오해한다(리뷰 라운드 2 지적). 따로 들고 다니고 "팀장 해제 실패: …" 로만 보인다. */
+  const [leadError, setLeadError] = useState<string | null>(null)
   const scopeRef = useRef(scope)
   const inflight = useRef(false)
   // 사유를 쓰는 동안 폴링이 그 좌석을 목록에서 지우면 쓰던 글이 조용히 사라진다 — 초안이 열려 있으면 자동 갱신을 쉰다.
@@ -112,16 +115,17 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
     } finally { inflight.current = false }
   }, [projectId])
 
-  /** 「팀장 해제」 — 성공하면 좌석표를 다시 읽는다. 실패는 삼키지 않고 갱신 실패 배너 자리에 보여 준다
-   *  (이 액션은 특정 좌석에 매인 op 가 아니라 층 전체에 관한 것이라 상세 팝업이 없다). */
+  /** 「팀장 해제」 — 성공하면 좌석표를 다시 읽는다. 실패는 삼키지 않고 제 이름의 배너로 보여 준다
+   *  (이 액션은 특정 좌석에 매인 op 가 아니라 층 전체에 관한 것이라 상세 팝업이 없다 — 폴링 실패 배너와는
+   *  다른 상태라 "갱신 실패" 로 오인되지 않는다). */
   const releaseLead = useCallback(async (pid: string, userId: string) => {
+    setLeadError(null)
     try {
       const r = await releaseLeadLease(pid, userId)
-      if (!r.ok) { setError({ at: new Date().toISOString(), message: r.error }); return }
-      setError(null)
+      if (!r.ok) { setLeadError(r.error); return }
       await refresh(undefined, true)
     } catch (e) {
-      setError({ at: new Date().toISOString(), message: e instanceof Error ? e.message : String(e) })
+      setLeadError(e instanceof Error ? e.message : String(e))
     }
   }, [refresh])
 
@@ -232,8 +236,13 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   const body = (
     <>
       <AttentionBand items={map.attention} onSelect={setSelected} />
+      {leadError && (
+        <div className={css.alert} data-lead-error role="alert">
+          <strong>팀장 해제 실패</strong><span>{leadError}</span>
+        </div>
+      )}
       <main className={css.stage}>
-        {view === 'agent' ? <RosterBoard roster={roster} nowMs={nowMs} /> : (
+        {view === 'agent' ? <RosterBoard roster={roster} nowMs={nowMs} onReleaseLead={releaseLead} /> : (
         <section className={css.floors} data-view={view} aria-label={view === 'floor' ? '프로젝트별 좌석' : '상태별 좌석'}>
           {map.floors.length === 0 && (projectId !== undefined
             ? (map.scope === 'mine'
