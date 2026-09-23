@@ -21,10 +21,10 @@ IDMAP_CACHE="$CACHE_DIR/known-ids.txt"
 usage() {
   cat >&2 <<'EOF'
 사용법: dflow.sh [--as <prefix|email>] <cmd> [args]
-  키 선택: --as → .env 의 DFLOW_AS(prefix 만) → 첫 토큰. 한 계정에 키가 둘이면 email 로는 갈리지 않는다
+  키 선택: --as → .dflow.local 의 as(레거시 .env 의 DFLOW_AS, prefix 만) → 첫 토큰. 한 계정에 키가 둘이면 email 로는 갈리지 않는다
   me                     현재 프로필 신원·접근 프로젝트
   list [--all] [--scope available|claimed|assigned|all] [--any-project]
-                         기본은 이 리포에 바인딩된 프로젝트(DFLOW_PROJECT_ID·DFLOW_PROJECT_MAP)의 주문만.
+                         기본은 이 리포에 바인딩된 프로젝트(.dflow 의 project_id·.dflow.local 의 project_map)의 주문만.
                          --any-project 는 필터를 끈다(진단용)
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
   claim <ref>            주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH)
@@ -37,6 +37,8 @@ usage() {
   release <ref>
   profiles               토큰마다 한 줄 JSON(n·prefix·name·email·expires_at·projects·bound·selected). 토큰 값은 내지 않는다
   doctor                 설정·의존성·계약 버전 점검
+  config <key>|projects|--source   설정 값·바인딩·판정 출처(비밀 키는 거부)
+  branch dev|release               개발 브랜치(.dflow.local dev_branch)·운영 브랜치(.dflow release_branch)
 exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨
       10 = 사람이 D'Flow 에서 작업을 중단했다(409 code=cancelled). 더 진행하지 말고 멈춘다
 EOF
@@ -52,14 +54,12 @@ base() {
   [ -n "${DFLOW_API_BASE:-}" ] || die 2 "DFLOW_API_BASE 미설정 — .env 를 확인하세요."
   printf '%s' "${DFLOW_API_BASE%/}"
 }
-# .env 자동 로드: 환경에 PAT 가 없을 때만, 파일이 있을 때만. 이미 export 된 값은 건드리지 않는다.
-if [ -z "${DFLOW_PATS:-}${DFLOW_PAT:-}" ]; then
-  _envf="${DFLOW_ENV_FILE:-./.env}"
-  if [ -f "$_envf" ]; then set -a; . "$_envf"; set +a; fi
-fi
+# 설정 로드: .dflow(프로젝트 공통)·.dflow.local(개인) → 없으면 레거시 .env. 규칙은 dflow-config.sh 머리말.
+. "$(dirname "$0")/dflow-config.sh"
+dflow_config_load || exit 2
 # Windows 편집기가 남긴 CR 제거 — 값 끝의 \r 은 URL·Authorization 헤더를 깨뜨린다. 값은 변수로만 다룬다.
 _cr=$(printf '\r')
-for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP DFLOW_AS; do
+for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP DFLOW_AS DFLOW_DEV_BRANCH DFLOW_RELEASE_BRANCH DFLOW_AUTOMERGE; do
   eval "_x=\${$_v:-}"
   case "$_x" in *"$_cr"*) eval "$_v=\$(printf '%s' \"\$_x\" | tr -d '\\r')" ;; esac
 done
@@ -67,12 +67,7 @@ unset _x _cr
 # 리포 ↔ D'Flow 프로젝트 바인딩: DFLOW_PROJECT_ID 와 DFLOW_PROJECT_MAP(docs/x=<uuid>,…) 값의 합집합.
 # /work/mine 은 PAT 주인이 속한 모든 프로젝트의 주문을 돌려주므로, 거르지 않으면 한 리포의 세션이 다른
 # 프로젝트의 작업을 잡아 엉뚱한 리포에서 개발한다(2026-09-18 발견: 바인딩 없는 리포가 옛 프로젝트 작업을 봄).
-allowed_projects() {
-  { printf '%s\n' "${DFLOW_PROJECT_ID:-}"
-    printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | sed -n 's/^[^=]*=//p'
-  } | tr -d ' ' | grep -v '^$' | sort -u
-}
-ALLOWED_PROJECTS=$(allowed_projects)
+ALLOWED_PROJECTS=$(dflow_config_projects)
 # 목록 캐시는 바인딩과 고른 키(DFLOW_AS)마다 나눈다. 한 파일을 모든 리포가 쓰면 순번·접두 해석이 다른 리포가
 # 마지막으로 본 목록으로 풀리고, 같은 리포의 두 팀장(워크트리마다 다른 키)도 서로의 목록을 덮어쓴다.
 LIST_CACHE="$CACHE_DIR/last-list-$(printf '%s|%s' "${ALLOWED_PROJECTS:-any}" "${DFLOW_AS:-}" | cksum | cut -d' ' -f1).json"
@@ -496,11 +491,29 @@ cmd_doctor() {
     ( pick_token "$DFLOW_AS" 1 ) >/dev/null 2>&1 \
       || printf '⚠ DFLOW_AS=%s 에 맞는 토큰이 없습니다 — dflow.sh profiles 의 prefix 를 적으세요.\n' "$DFLOW_AS"
   elif [ "$_cnt" -ge 2 ]; then
-    printf '⚠ 토큰이 %d개인데 DFLOW_AS 가 없습니다 — 첫 토큰을 씁니다(.env 에 DFLOW_AS=<prefix>).\n' "$_cnt"
+    printf '⚠ 토큰이 %d개인데 DFLOW_AS 가 없습니다 — 첫 토큰을 씁니다(.dflow.local 에 as=<prefix>, 레거시는 .env 에 DFLOW_AS=<prefix>).\n' "$_cnt"
   fi
 }
 
+# 설정 조회 — 토큰·네트워크가 필요 없다. 비밀(pats·pat)은 내지 않는다.
+cmd_config() {
+  case "${1:-}" in
+    --source) printf 'mode=%s\ndflow=%s\nlocal=%s\n' "$DFLOW_CONFIG_MODE" "${DFLOW_CONFIG_DOT:--}" "${DFLOW_CONFIG_LOCAL:--}" ;;
+    projects) dflow_config_projects ;;
+    pats|pat) die 2 "SECRET 비밀 값은 출력하지 않는다" ;;
+    '') usage ;;
+    *) _n=$(_dfc_env "$1") || die 2 "UNKNOWN_KEY $1"; eval "printf '%s\n' \"\${$_n:-}\"" ;;
+  esac
+}
+cmd_branch() {
+  case "${1:-}" in dev|release) dflow_config_branch "$1" || exit 2 ;; *) usage ;; esac
+}
+
 # ---- main ----------------------------------------------------------------
+case "${1:-}" in
+  config) shift; cmd_config "$@"; exit $? ;;
+  branch) shift; cmd_branch "$@"; exit $? ;;
+esac
 need curl; need jq
 AS="${DFLOW_AS:-}"; AS_EXACT=1          # .env 의 DFLOW_AS 는 prefix 만
 [ "${1:-}" = "--as" ] && { AS="$2"; AS_EXACT=''; shift 2; }

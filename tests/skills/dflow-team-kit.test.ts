@@ -62,7 +62,7 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
 
     const dflow = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'utf8')
     expect(dflow).toContain("_cr=$(printf '\\r')")
-    expect(dflow).toContain('for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP DFLOW_AS; do')
+    expect(dflow).toContain('for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP DFLOW_AS DFLOW_DEV_BRANCH DFLOW_RELEASE_BRANCH DFLOW_AUTOMERGE; do')
     expect(dflow).toContain(`tr -d '\\\\r'`)
 
     expect(readFileSync(join(ROOT, 'kit/README.md'), 'utf8')).toMatch(/^## Windows\(Git Bash\)$/m)
@@ -74,7 +74,7 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
     try {
       writeFileSync(envFile, 'DFLOW_API_BASE=https://example.invalid\r\nDFLOW_PATS=\r\n')
       const r = spawnSync('sh', [join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'doctor'], {
-        env: { ...process.env, DFLOW_ENV_FILE: envFile, DFLOW_PATS: '', DFLOW_PAT: '' },
+        env: { ...process.env, DFLOW_ENV_FILE: envFile, DFLOW_PATS: '', DFLOW_PAT: '', DFLOW_CONFIG_DIR: '/nonexistent-dflow-config' },
         encoding: 'utf8',
       })
       expect(r.stdout).not.toContain('\r')

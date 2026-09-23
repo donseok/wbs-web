@@ -10,9 +10,15 @@ const read = (rel: string) => readFileSync(join(SKILL_DIR, rel), 'utf8')
 const PLACEHOLDERS = ['{TSK}', '{ID8}', '{AGENT_ID}', '{MAIN_CHECKOUT}', '{BACKEND}', '{MODEL_FLAG}', '{ANSWER}']
 
 describe('dflow-work dflow.sh .env 자동 로드', () => {
+  // Task 2(.dflow 설정 전환): dflow.sh 는 이제 dflow-config.sh 를 source 해 로드를 위임한다.
+  // 레거시 폴백(DFLOW_ENV_FILE, 기본 ./.env)은 dflow-config.sh 에 남아 있고, 동작은
+  // tests/skills/dflow-config.test.ts 의 legacy 모드 테스트가 검사한다.
   it('환경에 PAT 가 없으면 DFLOW_ENV_FILE(기본 ./.env) 를 스스로 읽는다', () => {
     const sh = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'utf8')
-    expect(sh).toContain('DFLOW_ENV_FILE:-./.env')
+    expect(sh).toContain('. "$(dirname "$0")/dflow-config.sh"')
+    expect(sh).toContain('dflow_config_load || exit 2')
+    const lib = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow-config.sh'), 'utf8')
+    expect(lib).toContain('_dfc_envf:-./.env')
   })
 })
 

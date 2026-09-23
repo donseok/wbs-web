@@ -71,7 +71,7 @@ function run(args: string[], env: Record<string, string> = {}) {
       PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
       HOME: join(tmp, 'home'),
       XDG_CACHE_HOME: join(tmp, 'cache'),
-      DFLOW_ENV_FILE: join(tmp, 'no-such-env'),
+      DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
       DFLOW_API_BASE: 'https://x.test',
       DFLOW_PATS: TOKEN,
       DFLOW_PROJECT_ID: PID,

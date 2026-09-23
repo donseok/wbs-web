@@ -46,7 +46,7 @@ function run(args: string[], env: Record<string, string> = {}) {
       NODE_ENV: process.env.NODE_ENV,
       PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
       XDG_CACHE_HOME: join(tmp, 'cache'), // 프로필 캐시가 실제 ~/.cache/dflow 를 건드리지 않게 한다
-      DFLOW_ENV_FILE: join(tmp, 'no-such-env'),
+      DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
       DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: `${A},${B},${C}`, ...env,
     },
   })
@@ -174,7 +174,7 @@ describe('dflow.sh doctor 의 키 표시(스펙 §4-3)', () => {
     const r = run(['doctor'])
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('(계약 2.4, 프로젝트 1) [선택됨]')
-    expect(r.stdout).toContain('⚠ 토큰이 3개인데 DFLOW_AS 가 없습니다 — 첫 토큰을 씁니다(.env 에 DFLOW_AS=<prefix>).')
+    expect(r.stdout).toContain('⚠ 토큰이 3개인데 DFLOW_AS 가 없습니다 — 첫 토큰을 씁니다(.dflow.local 에 as=<prefix>, 레거시는 .env 에 DFLOW_AS=<prefix>).')
   })
   it('토큰이 하나면 경고하지 않는다', () => {
     expect(run(['doctor'], { DFLOW_PATS: A }).stdout).not.toContain('⚠ 토큰이')

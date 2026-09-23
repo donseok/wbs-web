@@ -146,3 +146,30 @@ describe('.dflow 위치 폴백과 브랜치(스펙 §5-2·§6)', () => {
       '11111111-1111-4111-8111-111111111111\n22222222-2222-4222-8222-222222222222\n')
   })
 })
+
+const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
+describe('dflow.sh config·branch(스펙 §6)', () => {
+  beforeEach(() => { writeFileSync(join(repo, '.dflow'), DOT); writeFileSync(join(repo, '.dflow.local'), LOCAL) })
+  const run = (args: string, env: Record<string, string> = {}) => sh(repo, `sh '${DFLOW}' ${args}`, env)
+  it('config <key> 는 값을, branch 는 브랜치를 낸다 — 토큰·네트워크 없이', () => {
+    expect(run('config api_base').out).toBe('https://p.test\n')
+    expect(run('config automerge').out).toBe('1\n')
+    expect(run('branch dev').out).toBe('dev/me\n')
+    expect(run('branch release').out).toBe('main\n')
+  })
+  it('config projects 는 바인딩 합집합', () => {
+    expect(run('config projects').out.trim().split('\n')).toHaveLength(2)
+  })
+  it('config --source 는 판정을 낸다', () => {
+    expect(run('config --source').out).toContain('mode=new')
+  })
+  it('config pats 는 거부하고 값을 내지 않는다', () => {
+    const r = run('config pats')
+    expect(r.code).toBe(2); expect(r.out + r.err).not.toContain('secretsecret')
+  })
+  it('설정 오류는 exit 2 로 전파된다', () => {
+    rmSync(join(repo, '.dflow.local'))
+    const r = run('config api_base')
+    expect(r.code).toBe(2); expect(r.err).toContain('NO_LOCAL')
+  })
+})
