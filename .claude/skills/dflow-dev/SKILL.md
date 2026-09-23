@@ -54,8 +54,9 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   state.json 을 `phase=cancelled` 로 바꾸고, 산출물은 로컬 커밋만 남긴다(**push 하지 않는다**, done 하지 않는다).
   사용자에게는 `"{TSK} 중단됨 — D'Flow 에서 사람이 멈췄습니다. 로컬 커밋만 남겼습니다."` 한 줄로 알린다.
   PostToolUse heartbeat 훅도 같은 신호(409 `cancelled`)를 받으면 `~/.dflow/hb/<order>.cancelled` 표식을 남기고
-  세션을 세운다(`continue:false`). 표식이 남은 동안 훅은 도구를 부를 때마다 다시 세우므로, 같은 주문을 다시
-  위임받아 이어 갈 때만 그 파일을 지운다. `cancelled` 는 진행 중 phase 가 아니다 — 스윕·재개 판정은 건너뛴다.
+  세션을 세운다(`continue:false`). 표식이 남은 동안 훅은 도구를 부를 때마다 다시 세운다. 그 파일은
+  `/dflow-team` 팀장이 spawn 직전에 서버 status(`ready`·`claimed`)로 확인하고 지운다. 수동 `/dflow-dev` 세션은 사람이
+  지운다. `cancelled` 는 진행 중 phase 가 아니다 — 스윕·재개 판정은 건너뛴다.
   **`api_base` 는 claim 한 시점의 `DFLOW_API_BASE` 에서 끝 `/` 를 뺀 값이다**(dflow.sh `base()` 와 같은
   정규화). Phase 01 에서 state.json 을 처음 쓰는 곳에서 기록한다. 스택이면 3번의 `branch_base`·`risk` 기록,
   아니면 4번의 기준선 기록이다. 반려 재작업이 기존 state.json 에 `phase=rejected` 를 쓸 때 `api_base` 가
