@@ -9,11 +9,11 @@
 
 | 이벤트 | 시점(SKILL.md) | 추가 필드 |
 |---|---|---|
-| `team.start` | 「1. 시작」 4번 | `backend`, `slots`, `until`, `wp` |
-| `team.spawn` | 「5. 팀원 spawn」 6번, 「5-1. 재개 spawn」 7번, 「1. 시작」 4번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |
-| `team.result` | 「3. 결과 처리」, 「1. 시작」 4번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |
-| `team.blocked` | 「3. 결과 처리」·「6. blocked」, 「1. 시작」 4번(이어받은 해시·답 대기 재기록) | `slot`, `id8`, `worktree`, `hash`, `reason` |
-| `team.answer` | 「6. blocked」 답 매칭, 「1. 시작」 4번(대기 중인 답 재기록) | `id8`, `answer` |
+| `team.start` | 「1. 시작」 5번 | `backend`, `slots`, `until`, `wp` |
+| `team.spawn` | 「5. 팀원 spawn」 6번, 「5-1. 재개 spawn」 7번, 「1. 시작」 5번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |
+| `team.result` | 「3. 결과 처리」, 「1. 시작」 5번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |
+| `team.blocked` | 「3. 결과 처리」·「6. blocked」, 「1. 시작」 5번(이어받은 해시·답 대기 재기록) | `slot`, `id8`, `worktree`, `hash`, `reason` |
+| `team.answer` | 「6. blocked」 답 매칭, 「1. 시작」 5번(대기 중인 답 재기록) | `id8`, `answer` |
 | `team.sweep` | 「4. 승인 스윕」 | `merged`, `waiting`, `rejected` |
 | `team.extend` | 「인자」 실행 중 연장 | `until`, `until_label` |
 | `team.stop` | 「7. 마감」 | 없음 |
@@ -26,9 +26,9 @@
   `tmux:<pane_id>`(예: `tmux:%3`) 또는 Orca 터미널 핸들이며, 핸들이 없으면 `-`. 기본 필드 `tsk`·`order` 도
   채운다. `blocked` 는 재spawn 하지 않으므로 그 자리에 `team.spawn` 이 다시 오지 않는다.
   `spawn_kind` 는 세 값 중 하나인 문자열이다. `new` 는 「5. 팀원 spawn」 의 새 작업, `resume` 은
-  「5-1. 재개 spawn」, `readopt` 는 「1. 시작」 4번이 이어받은 슬롯을 다시 기록한 줄이다. 재구성은 마지막
+  「5-1. 재개 spawn」, `readopt` 는 「1. 시작」 5번이 이어받은 슬롯을 다시 기록한 줄이다. 재구성은 마지막
   `team.result` 이후의 **`resume` 줄 개수**로 재개 재시도 상한을 잰다(SKILL.md 「팀장 상태」 고아 스캔 2번).
-  세 값을 가르는 이유: 팀장을 다시 띄울 때마다 4번이 살아 있는 슬롯을 `team.spawn` 으로 재기록하므로, 종류를
+  세 값을 가르는 이유: 팀장을 다시 띄울 때마다 5번이 살아 있는 슬롯을 `team.spawn` 으로 재기록하므로, 종류를
   가르지 않으면 멀쩡히 돌고 있는 팀원의 재기록이 재시도 횟수로 세어져 상한에 금방 닿는다. 이 필드가 없는 옛
   줄은 `new` 로 읽는다(`.spawn_kind // "new"`).
 - `team.result`·`team.blocked`: `blocked` 는 `team.blocked`, 나머지 status 는 `team.result` 로 쓴다. `hash` 는
