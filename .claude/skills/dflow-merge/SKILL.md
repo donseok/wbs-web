@@ -379,7 +379,8 @@ force push 금지와 `merge-base --is-ancestor <head_sha>` 검사에 모두 걸�
    - 그 밖의 실패는 `RESOLVE_PUSH_FAILED <exit>` 다.
 9. **뒷정리**: 5번 뒷정리 그대로다(원격 agent 브랜치 삭제, 로컬 브랜치의 not found·checked out 건너뛰기).
 10. **결과 줄**: 성공하면
-   `RESOLVE_PUSHED <머지 커밋 전체 sha> base=<기준 HEAD 짧은 sha> files=<충돌 파일 수> rules=<R번호,…|-> tests=<통과/총수>`.
+   `RESOLVE_PUSHED <머지 커밋 전체 sha> base=<기준 HEAD 짧은 sha> files=<충돌 파일 수> rules=<R번호,…|-> tests=<통과/총수> need=<하한>`.
+   `총수` 는 머지 결과 총수, `하한` 은 게이트 판정의 `need`(개발 브랜치 총수 + (머지 대상 단독 총수 − merge-base 총수) − 계획 삭제 수)다.
    머지 커밋 sha 는 6번에서 기록한 `git rev-parse HEAD` 값이다. `HEAD~1` 처럼 뒤 커밋 수에 기대어 세지 않는다. 전체 sha 로
    넘기는 이유: 팀장이 이 값으로 조상 확인을 하는데, 짧은 sha 는 저장소가 커지면 모호해져 확인이 실패할 수 있다.
 
