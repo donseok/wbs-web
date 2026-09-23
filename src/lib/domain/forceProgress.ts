@@ -83,6 +83,22 @@ export function waiveBlock(a: {
   return null
 }
 
+export interface StubPendingEntry { subTaskId: string; label: string }
+
+/** raw 행(DB snake_case)에서 부모 id → 스텁 잔존 목록. 오피스·허브·결재 배지가 쓴다(판정은 pendingStubs 와 같다). */
+export function stubPendingByItem(
+  items: ReadonlyArray<{ id: string; parent_id: string | null; stub_for?: string | null; stage?: string | null; external_ref?: string | null }>,
+): Map<string, StubPendingEntry[]> {
+  const out = new Map<string, StubPendingEntry[]>()
+  for (const it of items) {
+    if (!it.stub_for || !it.parent_id) continue
+    if (pendingStubs([{ id: it.id, stubFor: it.stub_for, externalRef: it.external_ref ?? null, stage: it.stage ?? null }]).length === 0) continue
+    const e = { subTaskId: it.id, label: stubLabel(it.stub_for) }
+    const l = out.get(it.parent_id); if (l) l.push(e); else out.set(it.parent_id, [e])
+  }
+  return out
+}
+
 export interface BottleneckSettings { minSuccessors: number; minHours: number }
 export const DEFAULT_BOTTLENECK: BottleneckSettings = { minSuccessors: 3, minHours: 4 }
 

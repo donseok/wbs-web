@@ -40,6 +40,13 @@ describe('ApprovalQueue — 처리는 runHubProcessOp 1건, 응답의 허브로 
     render({ queue: [] })
     expect(host.textContent).toContain('승인 대기 없음')
   })
+  it('스텁 잔존 카드는 승인 버튼이 비활성이고 문구와 WBS 링크를 보인다(강제 진행 F6·F13)', () => {
+    render({ queue: [{ ...Q[0], stubPending: [{ subTaskId: 's1', label: '스텁 잔존: TSK-01 대체' }] }] })
+    expect((host.querySelector('[data-queue-approve]') as HTMLButtonElement).disabled).toBe(true)
+    const link = host.querySelector('[data-queue-stub-link]') as HTMLAnchorElement
+    expect(link.textContent).toBe('스텁 잔존: TSK-01 대체')
+    expect(link.getAttribute('href')).toBe('/p/p1/wbs?focus=s1')
+  })
   it('카드에 코드·이름·에이전트·요약·링크가 보이고 승인 → {kind:approve} + onHub(hub), onChanged 없음', async () => {
     runOp.mockResolvedValueOnce({ ok: true, hub: HUB })
     const { onHub, onChanged } = render()

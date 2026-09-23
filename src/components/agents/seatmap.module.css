@@ -225,6 +225,8 @@
 /* 상태 표지 — 아이콘 I1(라인). 옛 글자 배지(!·?·"끊김")를 대신한다. */
 .mark { margin-left: auto; display: inline-flex; align-items: center; }
 .mark svg { width: 15px; height: 15px; display: block; }
+/* 스텁 잔존 배지(강제 진행 스펙 F13) — 승인이 잠긴 좌석. 상태 마크 옆에 둔다. */
+.stubBadge { flex: none; margin-left: 4px; border: 1px solid var(--sm-warn); background: var(--sm-warn-soft); color: var(--sm-warn); border-radius: 999px; padding: 0 6px; font-size: 10px; font-weight: 700; line-height: 16px; white-space: nowrap; }
 
 /* 좌석을 고르는 버튼 — 책상 상자 안을 가득 채운다. */
 .deskPick { display: grid; gap: 3px; text-align: left; font: inherit; color: inherit; background: none; border: 0; padding: 0; width: 100%; cursor: pointer; }

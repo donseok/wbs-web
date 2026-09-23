@@ -5,6 +5,7 @@ import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type S
 import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 import { deriveWaitReason, type WaitReason } from './waitReason'
 import { stageLockedForHuman } from './agentWork'
+import { stubPendingByItem, type StubPendingEntry } from './forceProgress'
 
 export interface HubItemRow {
   id: string; project_id: string; parent_id: string | null; code: string; name: string; sort_order: number
@@ -49,6 +50,8 @@ export interface HubRow {
    *  좌석표(Seat.waitReason)와 같은 deriveWaitReason 을 쓴다. 두 화면이 다른 말을 하면 안 된다.
    *  kind==='dependency' 가 종전 unmetDepends 를 대신한다(같은 게이트·같은 선행 판정). */
   waitReason: WaitReason | null
+  /** 스텁 잔존(강제 진행 스펙 F13) — 승인 비활성·배지 재료. 선택 필드(옛 픽스처 호환), 조립은 항상 채운다. */
+  stubPending?: StubPendingEntry[]
 }
 export interface HubQueueEntry {
   orderId: string; itemId: string | null; code: string; name: string; agent: string; percent: number; summary: string
@@ -58,6 +61,8 @@ export interface HubQueueEntry {
   /** 서브트리 관리자(트랙 B) — 큐 항목은 항상 리프의 reported 주문이므로 그 리프의 strict 조상
    *  중 담당자가 나면 true. HubRow.canManage 와 같은 규칙. */
   canManage: boolean
+  /** 스텁 잔존 — HubRow.stubPending 과 같다. 있으면 승인 버튼을 끈다(RPC 도 stub_pending 으로 거부). */
+  stubPending?: StubPendingEntry[]
 }
 export interface AgentHub {
   projectId: string; projectName: string
@@ -149,6 +154,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
   }
 
   // stub 하위는 구조에 투명하다(스펙 2026-09-23 F9) — 후행을 부모로 만들지 않는다. 하위 행 자신은 표에 리프로 보인다.
+  const stubsByItem = stubPendingByItem(rows.items)
   const hasChildren = new Set(rows.items.filter(i => !i.stub_for).map(i => i.parent_id).filter((x): x is string => x !== null))
   // canManage(조상 워크)·큐(항목 표시)가 같이 쓴다 — 루프보다 먼저 만들어 둔다.
   const itemById = new Map(rows.items.map(i => [i.id, i]))
@@ -207,6 +213,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
       order, prompt: item.agent_prompt,
       canToggle: isLeaf && !item.milestone && (viewer.isAdmin || assigneeMine),
       waitReason,
+      stubPending: stubsByItem.get(item.id) ?? [],
     })
   }
 
@@ -221,6 +228,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         links: rep?.links ?? [], reportedAt: rep?.created_at ?? o.updated_at,
         assigneeMine: it?.assignee_member_id != null && mine.has(it.assignee_member_id),
         canManage: it ? isSubtreeManagerOf(it.id, itemById, mine) : false,
+        stubPending: o.wbs_item_id ? (stubsByItem.get(o.wbs_item_id) ?? []) : [],
       }
     })
     .sort((a, b) => Date.parse(a.reportedAt) - Date.parse(b.reportedAt))

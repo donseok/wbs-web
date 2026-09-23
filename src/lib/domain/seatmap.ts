@@ -4,6 +4,7 @@ import {
   type AnimName, type CharacterName, type OrderStatus, type Phase, type SeatState,
 } from './seatState'
 import { deriveWaitReason, type PredecessorLike, type WaitReason } from './waitReason'
+import { stubPendingByItem, type StubPendingEntry } from './forceProgress'
 
 export interface OrderRow {
   id: string; project_id: string; wbs_item_id: string | null; status: OrderStatus
@@ -56,6 +57,8 @@ export interface SeatmapRows {
   reports?: ReportRow[]
   /** 팀장 lease(0101). 옛 호출부·시험이 비워 둘 수 있게 선택 필드다. */
   leases?: LeaseRow[]
+  /** 주문 항목들의 스텁 제거 하위(0103 stub_for) — 좌석 대상(items)에 섞지 않는다. 옛 호출부는 비운다. */
+  stubs?: ItemRow[]
 }
 
 export interface Seat {
@@ -86,6 +89,8 @@ export interface Seat {
   agentMine: boolean
   /** 다른 계정의 에이전트면 그 계정의 로스터 이름. 내 것·레거시·로스터에 없는 계정은 null(화면은 "다른 계정"). */
   agentOwnerName: string | null
+  /** 스텁 잔존(강제 진행 스펙 F13) — 승인 버튼 비활성·배지 재료. 선택 필드: 옛 픽스처 호환, 조립은 항상 채운다. */
+  stubPending?: StubPendingEntry[]
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher {
@@ -223,6 +228,7 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
       ? { kind: report.kind, summary: report.summary.trim(), at: report.created_at }
       : null,
     agentMine: owner.mine, agentOwnerName: owner.name,
+    stubPending: [],
   }
 }
 
@@ -261,6 +267,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const parentById = new Map(rows.parents.map(p => [p.id, p]))
   const reviewByOrder = latestReviewByOrder(rows.reviews)
   const reportByOrder = latestReportByOrder(rows.reports ?? [])
+  const stubsByItem = stubPendingByItem(rows.stubs ?? [])
   const projectName = new Map(rows.projects.map(p => [p.id, p.name]))
 
   // 결재 어포던스 재료 — 조상 사슬은 items + parents 합집합이다(데이터층이 parents 를 조상 전체로 싣는다).
@@ -300,6 +307,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     }
     const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights, reportByOrder.get(o.id),
       ownerOf(o.claimed_by_user_id, viewerId, ownerName(o.project_id)))
+    seat.stubPending = o.wbs_item_id ? (stubsByItem.get(o.wbs_item_id) ?? []) : []
     if (seat.state === 'READY' && item) {
       const m = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
       seat.waitReason = deriveWaitReason({

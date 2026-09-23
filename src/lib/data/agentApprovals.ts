@@ -13,20 +13,27 @@ import { isUuidLike } from '@/lib/domain/agentWork'
 import { isSubtreeManagerOf } from '@/lib/domain/seatmap'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { viewerEmail } from '@/lib/data/agentSeatmap'
+import { stubPendingByItem } from '@/lib/domain/forceProgress'
 
 type ItemRow = { id: string; parent_id: string | null; assignee_member_id: string | null; stub_for?: string | null }
 
-/** 순수 판정 — 관리자면 전부, 아니면 내가 조상 담당자인(서브트리 관리자) 항목의 주문만. */
+type StubRow = { id: string; parent_id: string | null; stub_for: string | null; stage: string | null }
+
+/** 순수 판정 — 관리자면 전부, 아니면 내가 조상 담당자인(서브트리 관리자) 항목의 주문만.
+ *  스텁 잔존(강제 진행 스펙 §3.6) 주문은 지금 승인할 수 없으므로 세지 않는다 — stubRows 는 주문 항목들의 stub 하위. */
 export function countApprovable(
   orders: ReadonlyArray<{ wbs_item_id: string | null }>,
   items: ReadonlyArray<ItemRow>,
   viewer: { isAdmin: boolean; memberIds: readonly string[] },
+  stubRows: ReadonlyArray<StubRow> = [],
 ): number {
-  if (viewer.isAdmin) return orders.length
+  const locked = stubPendingByItem(stubRows)
+  const approvable = orders.filter(o => o.wbs_item_id === null || !locked.has(o.wbs_item_id))
+  if (viewer.isAdmin) return approvable.length
   if (viewer.memberIds.length === 0) return 0
   const itemById = new Map(items.map(i => [i.id, i]))
   const mine = new Set(viewer.memberIds)
-  return orders.filter(o => o.wbs_item_id !== null && isSubtreeManagerOf(o.wbs_item_id, itemById, mine)).length
+  return approvable.filter(o => o.wbs_item_id !== null && isSubtreeManagerOf(o.wbs_item_id, itemById, mine)).length
 }
 
 /** 이 프로젝트에서 내가 승인할 수 있는 결재 대기 수. 비로그인·잘못된 id 는 0. 조회 실패는 throw(호출부가 로깅). */
@@ -40,12 +47,19 @@ export async function getPendingApprovalCount(projectId: string): Promise<number
   if (error) throw new Error(`[approvals] 결재 대기 조회 실패: ${error.message}`)
   const rows = (orders ?? []) as Array<{ wbs_item_id: string | null }>
   if (rows.length === 0) return 0
-  if (isProjectAdmin(actor, projectId)) return rows.length
+  // 스텁 잔존 주문은 세지 않는다 — 주문 항목들의 stub 하위만 좁게 읽는다(셸 조회 원칙).
+  const orderItemIds = rows.map(r => r.wbs_item_id).filter((x): x is string => x !== null)
+  const { data: stubData, error: stubErr } = orderItemIds.length === 0
+    ? { data: [], error: null }
+    : await admin.from('wbs_items').select('id, parent_id, stub_for, stage').in('parent_id', orderItemIds).not('stub_for', 'is', null)
+  if (stubErr) throw new Error(`[approvals] 스텁 하위 조회 실패: ${stubErr.message}`)
+  const stubRows = (stubData ?? []) as StubRow[]
+  if (isProjectAdmin(actor, projectId)) return countApprovable(rows, [], { isAdmin: true, memberIds: [] }, stubRows)
   const email = await viewerEmail(admin, actor.userId)
   const memberIds = await myMemberIds(admin, { userId: actor.userId, userEmail: email ?? '', projectId })
   if (memberIds.length === 0) return 0
   const { data: items, error: itemErr } = await admin.from('wbs_items')
     .select('id, parent_id, assignee_member_id, stub_for').eq('project_id', projectId)
   if (itemErr) throw new Error(`[approvals] 항목 트리 조회 실패: ${itemErr.message}`)
-  return countApprovable(rows, (items ?? []) as ItemRow[], { isAdmin: false, memberIds })
+  return countApprovable(rows, (items ?? []) as ItemRow[], { isAdmin: false, memberIds }, stubRows)
 }

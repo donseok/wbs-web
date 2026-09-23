@@ -91,7 +91,11 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
     const ok = new Set(approved.map(a => a.wbs_item_id))
     predecessors = found.map(p => ({ ...p, order_approved: ok.has(p.id) }))
   }
-  return { orders, items, parents, reviews, watchers, projects, members, predecessors, reports, leases }
+  // 스텁 제거 하위(0103) — 좌석 대상 items 에 섞지 않는다(섞으면 주문 없는 좌석으로 오해된다). 스텁 잔존 배지 재료.
+  const stubs = itemIds.length
+    ? must<ItemRow[]>('스텁 하위', await admin.from('wbs_items').select(ITEM_COLS).in('parent_id', itemIds).not('stub_for', 'is', null))
+    : []
+  return { orders, items, parents, reviews, watchers, projects, members, predecessors, reports, leases, stubs }
 }
 
 /**

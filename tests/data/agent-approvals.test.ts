@@ -8,6 +8,8 @@ const m = vi.hoisted(() => ({
   items: [] as Array<{ id: string; parent_id: string | null; assignee_member_id: string | null }>,
   memberIds: [] as string[],
   itemReads: 0,
+  stubs: [] as Array<{ id: string; parent_id: string | null; stub_for: string | null; stage: string | null }>,
+  stubReads: 0,
 }))
 
 vi.mock('@/lib/authz', () => ({ getActorForView: async () => m.actor }))
@@ -16,10 +18,16 @@ vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: async () => m.memberIds })
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
     from: (table: string) => {
+      // .in('parent_id', …).not('stub_for', …) = 주문 항목들의 stub 하위(0103) 조회 — 트리 조회와 따로 센다.
+      let stubQuery = false
       const chain = {
         select: () => chain, eq: () => chain,
+        in: () => { stubQuery = true; return chain }, not: () => chain,
         limit: async () => ({ data: m.orders, error: m.ordersError }),
-        then: (res: (v: unknown) => void) => { m.itemReads++; res({ data: m.items, error: null }) },
+        then: (res: (v: unknown) => void) => {
+          if (stubQuery) { m.stubReads++; res({ data: m.stubs, error: null }); return }
+          m.itemReads++; res({ data: m.items, error: null })
+        },
       }
       if (table !== 'agent_work_orders' && table !== 'wbs_items') throw new Error(`unexpected ${table}`)
       return chain
@@ -61,6 +69,7 @@ describe('countApprovable', () => {
 describe('getPendingApprovalCount', () => {
   beforeEach(() => {
     m.actor = actor('admin'); m.orders = ORDERS; m.ordersError = null; m.items = ITEMS; m.memberIds = []; m.itemReads = 0
+    m.stubs = []; m.stubReads = 0
   })
   it('비로그인·잘못된 id 는 0', async () => {
     expect(await getPendingApprovalCount('not-a-uuid')).toBe(0)
@@ -83,6 +92,12 @@ describe('getPendingApprovalCount', () => {
   it('멤버는 서브트리 관리자로서 승인할 수 있는 것만', async () => {
     m.actor = actor('member'); m.memberIds = ['m-boss']
     expect(await getPendingApprovalCount(P)).toBe(2)
+  })
+  it('스텁 잔존 주문은 세지 않는다 — 주문 항목들의 stub 하위만 좁게 한 번 읽는다(강제 진행 §3.6)', async () => {
+    m.stubs = [{ id: 's1', parent_id: 'leaf1', stub_for: 'm/TSK-01', stage: 'ip' }]
+    expect(await getPendingApprovalCount(P)).toBe(3)
+    expect(m.stubReads).toBe(1)
+    expect(m.itemReads).toBe(0)
   })
   it('결재 대기가 없으면 0', async () => {
     m.orders = []

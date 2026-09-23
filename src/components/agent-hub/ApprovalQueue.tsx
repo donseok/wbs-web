@@ -20,6 +20,7 @@ type Props = {
 const when = (iso: string) => new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })
 
 function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEntry } & Omit<Props, 'queue'>) {
+  const stubs = q.stubPending ?? []
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [warn, setWarn] = useState<string | null>(null)
@@ -49,6 +50,14 @@ function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEnt
         </div>
         <span className="text-[11px] text-ink-subtle">{q.agent} · {when(q.reportedAt)} · {q.percent}%</span>
       </div>
+      {/* 스텁 잔존(강제 진행 스펙 F13) — 승인이 왜 잠겼는지, 무엇을 치우면 풀리는지를 같은 자리에. */}
+      {stubs.length > 0 && (
+        <p className="mt-1 flex flex-wrap gap-2 text-[11px] font-semibold text-delayed">
+          {stubs.map(s => (
+            <a key={s.subTaskId} data-queue-stub-link href={`/p/${projectId}/wbs?focus=${s.subTaskId}`} className="underline-offset-2 hover:underline">{s.label}</a>
+          ))}
+        </p>
+      )}
       {q.summary && <p className="mt-1 whitespace-pre-wrap text-xs text-ink">{q.summary}</p>}
       {q.links.length > 0 && (
         <ul className="mt-1 flex flex-wrap gap-2 text-[11px]">
@@ -62,7 +71,8 @@ function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEnt
         <div className="mt-2 flex flex-col gap-2">
           <div className="flex gap-2">
             {(isAdmin || q.canManage) && (
-              <button type="button" data-queue-approve disabled={busy} title={OP_TITLE.approve}
+              <button type="button" data-queue-approve disabled={busy || stubs.length > 0}
+                title={stubs.length > 0 ? stubs.map(s => s.label).join('\n') : OP_TITLE.approve}
                 onClick={() => { void run({ kind: 'approve', orderId: q.orderId }) }} className="btn btn-primary h-8 px-3 text-xs">{OP_LABEL.approve}</button>
             )}
             <button type="button" data-queue-reject-open disabled={busy} aria-expanded={rejecting} title={OP_TITLE.reject}

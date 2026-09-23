@@ -66,6 +66,15 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
       <h3>{seat.code}</h3>
       <p className={css.task}>{seat.name}</p>
       <span className={css.pill} data-state={seat.state}>{STATE_LABEL[seat.state]}</span>
+      {/* 스텁 잔존(강제 진행 스펙 F13) — 승인이 잠긴 이유와 치울 하위 Task 로 가는 링크. */}
+      {(seat.stubPending ?? []).length > 0 && (
+        <p className={css.waitReason} data-stub-pending="">
+          <b>스텁 잔존</b> ·{' '}
+          {(seat.stubPending ?? []).map((s, i) => (
+            <span key={s.subTaskId}>{i > 0 && ' · '}<Link href={`/p/${seat.projectId}/wbs?focus=${s.subTaskId}`} data-stub-link={s.subTaskId}>{s.label}</Link></span>
+          ))}
+        </p>
+      )}
       {seat.state === 'READY' && seat.waitReason && (
         <p className={css.waitReason} data-wait-reason={seat.waitReason.kind}><b>{seat.waitReason.label}</b> · {seat.waitReason.text}</p>
       )}

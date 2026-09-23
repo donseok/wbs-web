@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_BOTTLENECK, STUB_DONE_STAGE, WAIVE_BLOCK_TEXT, blockedSinceMs, bottleneckText, findBottlenecks, hasContract,
-  isStubRow, lastRefSegment, pendingStubs, stubBadgeText, stubLabel, stubPendingLock, stubTaskName, stubTaskRef,
+  isStubRow, lastRefSegment, pendingStubs, stubBadgeText, stubLabel, stubPendingByItem, stubPendingLock, stubTaskName, stubTaskRef,
   validateBottleneckSettings, waiveBlock,
 } from '@/lib/domain/forceProgress'
 
@@ -91,5 +91,18 @@ describe('병목(F14)', () => {
     expect(validateBottleneckSettings({ minSuccessors: 0, minHours: 8 }).ok).toBe(false)
     expect(validateBottleneckSettings({ minSuccessors: 2.5, minHours: 8 }).ok).toBe(false)
     expect(validateBottleneckSettings(null).ok).toBe(false)
+  })
+})
+
+describe('stubPendingByItem — raw 행에서 부모별 잔존 목록', () => {
+  it('xx 가 아닌 stub 하위만 부모 id 로 묶는다', () => {
+    const m = stubPendingByItem([
+      { id: 'succ', parent_id: 'wp' },
+      { id: 's1', parent_id: 'succ', stub_for: 'm/TSK-01', stage: 'ip' },
+      { id: 's2', parent_id: 'succ', stub_for: 'm/TSK-02', stage: 'xx' },
+      { id: 'c', parent_id: 'succ', stage: 'ip' },
+    ])
+    expect(m.get('succ')).toEqual([{ subTaskId: 's1', label: '스텁 잔존: TSK-01 대체' }])
+    expect(m.has('wp')).toBe(false)
   })
 })

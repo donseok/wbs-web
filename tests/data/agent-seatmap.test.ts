@@ -110,7 +110,8 @@ describe('fetchSeatmapRows — 선행 항목(predecessors)', () => {
   it('depends 가 있어도 그 항목의 주문이 ready 가 아니면 선행을 조회하지 않는다', async () => {
     const calls: Record<string, unknown[][]> = {}
     const rows = await fetchSeatmapRows(admin({ agent_work_orders: [{ data: [O] }], wbs_items: [{ data: [ITEM] }] }, calls), ['p1'], NOW)
-    expect(calls['wbs_items.in']).toHaveLength(1)
+    // 선행 조회(project_id·external_ref)는 없다 — 항목(id)과 스텁 하위(parent_id, 0103) 두 번뿐이다.
+    expect(calls['wbs_items.in']).toEqual([['id', ['i1']], ['parent_id', ['i1']]])
     expect(calls['agent_work_orders.in']).toHaveLength(1)
     expect(rows.predecessors).toEqual([])
   })
