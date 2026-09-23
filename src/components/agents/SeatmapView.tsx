@@ -37,16 +37,16 @@ const DONE_KEY = 'dflow.office.done'
 const CHATTER_KEY = 'dflow.office.chatter'
 
 /** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시.
- *  projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 오피스 링크를 보인다.
- *  보기는 둘이다 — 평면도(지켜보는 화면, 기본)와 상태 레인(처리하는 화면). 결재는 두 보기에서 모두 좌석에 붙는다. */
+ *  projectId 가 있으면 프로젝트 스튜디오(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 스튜디오 링크를 보인다.
+ *  보기는 셋이다 — 에이전트(기본)·평면도(지켜보는 화면)·상태 레인(처리하는 화면). 결재는 평면도·상태 레인의 좌석에 붙는다. */
 export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }: { initial: Seatmap; pollMs?: number; projectId?: string; projectName?: string }) {
   const [map, setMap] = useState(initial)
   const [error, setError] = useState<{ at: string; message: string } | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.parse(initial.fetchedAt))
   const [scope, setScope] = useState<SeatmapScope>(initial.scope)
-  // 기본은 평면도다. 서버 렌더와 어긋나지 않도록 localStorage 는 마운트 뒤에 읽는다.
-  const [view, setView] = useState<OfficeView>('floor')
+  // 기본은 에이전트 보기다(2026-09-19). 서버 렌더와 어긋나지 않도록 localStorage 는 마운트 뒤에 읽는다.
+  const [view, setView] = useState<OfficeView>('agent')
   const [withDone, setWithDone] = useState(false)
   const [chatter, setChatter] = useState(true)
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
@@ -64,7 +64,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
       if (saved === 'lane' || saved === 'floor' || saved === 'agent') setView(saved)
       if (window.localStorage.getItem(DONE_KEY) === '1') setWithDone(true)
       if (window.localStorage.getItem(CHATTER_KEY) === '0') setChatter(false)
-    } catch { /* 값이 없거나 접근이 막혀도 평면도로 그린다 */ }
+    } catch { /* 값이 없거나 접근이 막혀도 기본 보기로 그린다 */ }
   }, [])
   const pickView = useCallback((next: OfficeView) => {
     setView(next)
@@ -124,7 +124,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
       // 실패는 상세 패널에만 자리가 있다 — 좌석에서 바로 누른 op 였다면 그 좌석을 열어 보여 준다.
       if (!r.ok) { setOpError(r.error); setSelected(seat.orderId); return }
       setNote(null)
-      // 처리는 허브를 돌려주지만 오피스가 쥔 것은 좌석표다 — 한 번 더 읽어야 화면이 맞는다.
+      // 처리는 허브를 돌려주지만 스튜디오가 쥔 것은 좌석표다 — 한 번 더 읽어야 화면이 맞는다.
       if (r.hubError) { setOpError(r.hubError); setSelected(seat.orderId) }
       await refresh(undefined, true)
     } catch (e) {
@@ -135,12 +135,13 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
 
   /**
    * 좌석·패널에서 op 버튼을 누른 순간 — 사유가 필요한 op 는 곧바로 보내지 않고 입력을 연다.
-   * 사유가 없는 op(승인·승인 취소·회수)는 상세를 열지 않는다 — 결재하려고 누른 것이지
+   * 되돌리기 어려운 op(중단)도 같은 자리에 확인 상자를 열어 한 번 더 묻는다(브라우저 confirm() 금지).
+   * 그 밖의 op(승인·승인 취소·이어서 시작)는 상세를 열지 않는다 — 결재하려고 누른 것이지
    * 상세를 보려고 누른 것이 아니다. 실패했을 때만 runOp 가 그 좌석을 열어 사유를 보여 준다.
    */
   const onOp = useCallback((seat: Seat, kind: SeatOpKind) => {
     setOpError(null)
-    if (opSpec(kind).needsNote) {
+    if (opSpec(kind).needsNote || opSpec(kind).needsConfirm) {
       setSelected(seat.orderId) // 사유 입력이 상세 패널 안에 있다
       setNote(prev => (prev && prev.orderId === seat.orderId && prev.kind === kind)
         ? prev // 같은 op 를 다시 눌러도 쓰던 글을 지우지 않는다
@@ -183,11 +184,11 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   const roster = useRoster(map)
   const tools = (
     <>
-      {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
+      {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 스튜디오</Link>}
       <div className={css.viewSeg} role="group" aria-label="보기">
+        <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
         <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
         <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
-        <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
       </div>
       {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 안고 있고, 에이전트 보기는 좌석이 아니다.
           보기 전환은 조작 줄 왼쪽에 고정돼(.toolsLight) 이 버튼이 빠져도 밀리지 않는다. */}
@@ -277,14 +278,14 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
           <li><i className={css.sw} style={{ background: 'var(--sm-reject)' }} />반려 · 재작업</li>
           <li><i className={css.sw} style={{ borderStyle: 'dashed' }} />빈자리</li>
         </ul>
-        <p>프로젝트가 층, 주문 항목의 부모 항목이 구역, 작업 주문 하나가 책상입니다. 의자의 인물은 그 주문을 잡은 에이전트(슬롯)이며 같은 에이전트는 늘 같은 인물입니다. 신호는 PostToolUse 훅의 heartbeat(60초 절제)와 progress 보고입니다. 승인·반려·승인 취소·재작업 요청·회수는 좌석에서 바로 하며, 반려와 재작업 요청은 사유를 적어야 확정됩니다.</p>
+        <p>프로젝트가 층, 주문 항목의 부모 항목이 구역, 작업 주문 하나가 책상입니다. 의자의 인물은 그 주문을 잡은 에이전트(슬롯)이며 같은 에이전트는 늘 같은 인물입니다. 신호는 PostToolUse 훅의 heartbeat(60초 절제)와 progress 보고입니다. 승인·반려·승인 취소·재작업 요청·중단은 좌석에서 바로 하며, 반려와 재작업 요청은 사유를 적어야, 중단은 한 번 더 확인해야 확정됩니다. 중단은 에이전트 위임을 끄고 진행 중인 개발을 멈춥니다 — 단계는 착수 전(as)으로 돌아가고, 워커는 다음 신호(약 1분 안)에서 멈춥니다. 다시 맡기려면 위임 체크를 켭니다.</p>
       </footer>}
     </>
   )
   const realtime = <SeatmapRealtime projectIds={channelIds} run={() => { void refresh() }} />
 
-  // 두 오피스 모두 에이전트 화면의 공통 헤더(AgentFrame)를 쓰고, 이 화면에만 있는 조작부는 헤더 아래 줄로 뺀다.
-  // 프로젝트 오피스는 헤더에 위임·승인|가상 오피스 탭을, 전체 오피스(/agents)는 층(프로젝트) 칩을 단다(2026-09-18).
+  // 두 스튜디오 모두 에이전트 화면의 공통 헤더(AgentFrame)를 쓰고, 이 화면에만 있는 조작부는 헤더 아래 줄로 뺀다.
+  // 프로젝트 스튜디오는 헤더에 위임·승인|에이전트 스튜디오 탭을, 전체 스튜디오(/agents)는 층(프로젝트) 칩을 단다(2026-09-18).
   const c = map.counters
   const officeTiles: HeroTile[] = [
     { key: 'active', label: '업무 중', value: c.active, color: '#5DB1E5' },
@@ -303,7 +304,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   return (
     <AgentFrame
       {...(projectId !== undefined ? { projectId } : { nav: tone => <OfficeNav floors={floorsNav} tone={tone} /> })}
-      projectName={projectName ?? '전체 프로젝트'} title={projectId !== undefined ? '가상 오피스' : '가상 오피스 · 전체'}
+      projectName={projectName ?? '전체 프로젝트'} title={projectId !== undefined ? '에이전트 스튜디오' : '에이전트 스튜디오 · 전체'}
       lede={hero.lede} tiles={hero.tiles}
       tools={<div className={css.toolsLight}>{tools}</div>}>
       <div className={css.root}>

@@ -28,7 +28,8 @@ const map = (over: Partial<Seatmap> = {}): Seatmap => ({
 })
 
 let host: HTMLDivElement, root: Root
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); runOp.mockReset(); window.localStorage.clear(); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
+// 기본 보기는 에이전트다(2026-09-19). 좌석을 다루는 테스트가 대부분이라 평면도를 기억해 둔 브라우저로 시작한다.
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); runOp.mockReset(); window.localStorage.clear(); window.localStorage.setItem('dflow.office.view', 'floor'); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
 describe('SeatmapView', () => {
@@ -37,15 +38,21 @@ describe('SeatmapView', () => {
     expect(host.textContent).toContain('mes-base')
     expect(host.querySelector('[data-hero-tile="active"]')?.textContent).toBe('1')
     expect(host.querySelector('[data-hero-tile="offline"]')?.textContent).toBe('1')
-    // 전체 오피스도 공통 헤더를 쓰고, 탭 자리에 층 칩(돌아갈 길)을 단다.
+    // 전체 스튜디오도 공통 헤더를 쓰고, 탭 자리에 층 칩(돌아갈 길)을 단다.
     expect(host.querySelector('[data-office-nav="all"]')?.getAttribute('aria-current')).toBe('page')
     expect(host.querySelector('a[data-office-nav="p1"]')?.getAttribute('href')).toBe('/p/p1/agents/office')
     // 상세는 팝업이다 — 페이지를 열자마자 뜨면 안 된다.
     expect(document.querySelector('[data-panel]')).toBeNull()
   })
-  it('보기는 평면도·상태 레인·에이전트 셋이고, 에이전트는 작업 PC 로 묶은 자리와 프로필을 그린다(2026-09-18)', () => {
+  it('기억한 보기가 없으면 에이전트 보기로 열리고, 보기 버튼은 에이전트·평면도·상태 레인 순이다(2026-09-19)', () => {
+    window.localStorage.clear()
     act(() => root.render(<SeatmapView initial={map()} />))
-    expect([...host.querySelectorAll('button[data-view]')].map(b => b.getAttribute('data-view'))).toEqual(['floor', 'lane', 'agent'])
+    expect([...host.querySelectorAll('button[data-view]')].map(b => b.getAttribute('data-view'))).toEqual(['agent', 'floor', 'lane'])
+    expect(host.querySelector('button[data-view="agent"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(host.querySelector('[data-roster-board]')).not.toBeNull()
+  })
+  it('보기는 에이전트·평면도·상태 레인 셋이고, 에이전트는 작업 PC 로 묶은 자리와 프로필을 그린다(2026-09-18)', () => {
+    act(() => root.render(<SeatmapView initial={map()} />))
     act(() => (host.querySelector('button[data-view="agent"]') as HTMLButtonElement).click())
     expect(host.querySelector('[data-roster-board]')).not.toBeNull()
     expect(host.querySelector('[data-roster-host="hong/mbp"]')?.textContent).toContain('팀원 1')
@@ -130,8 +137,8 @@ describe('SeatmapView — 내 작업 / 전체 전환', () => {
   })
 })
 
-describe('SeatmapView — 프로젝트 오피스(projectId)', () => {
-  it('재조회에 projectId 를 넘기고 전체 오피스 링크가 보인다', async () => {
+describe('SeatmapView — 프로젝트 스튜디오(projectId)', () => {
+  it('재조회에 projectId 를 넘기고 전체 스튜디오 링크가 보인다', async () => {
     refresh.mockResolvedValue({ ok: true, seatmap: map() })
     act(() => root.render(<SeatmapView initial={map()} pollMs={1000} projectId="p1" />))
     expect((host.querySelector('[data-office-all-link]') as HTMLAnchorElement).getAttribute('href')).toBe('/agents')
@@ -188,6 +195,37 @@ describe('SeatmapView — 좌석에서 바로 결재', () => {
     await act(async () => { opButton('reject').click() })
     expect(runOp).not.toHaveBeenCalled()
     expect(document.querySelector('[data-op-note]')).not.toBeNull()
+  })
+
+  // 작업 중(ACTIVE) 좌석 — 중단 버튼만 뜬다.
+  const activeSeat = (): Seatmap => map({
+    floors: [{
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [],
+      zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 0, done: 0 }, seats: [
+        { orderId: 'o7', id8: 'o7', projectId: 'p1', itemId: 'i7', code: 'TSK-04-07', name: '도는 중', state: 'ACTIVE', phase: 'build', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'build', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false, resumeRequestedAt: null, resumeRequestedHost: null, agentMine: false, agentOwnerName: null },
+      ] }],
+    }],
+    attention: [],
+  })
+  it('중단은 곧바로 보내지 않고 상세 팝업에 확인을 띄운다 — 확정하면 보내고, 취소하면 아무 것도 안 한다', async () => {
+    runOp.mockResolvedValue({ ok: true })
+    refresh.mockResolvedValue({ ok: true, seatmap: activeSeat() })
+    await act(async () => { root.render(<SeatmapView initial={activeSeat()} />) })
+    await act(async () => { opButton('stop').click() })
+    expect(runOp).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-op-note]')).toBeNull() // 사유 입력이 아니라 확인이다
+    const box = document.querySelector('[data-op-confirm-box="stop"]')
+    expect(box).not.toBeNull()
+    expect(box!.textContent).toContain('워커는 다음 신호')
+    await act(async () => { (document.querySelector('[data-op-cancel]') as HTMLButtonElement).click() })
+    expect(document.querySelector('[data-op-confirm-box]')).toBeNull()
+    expect(runOp).not.toHaveBeenCalled()
+    await act(async () => { opButton('stop').click() })
+    const go = document.querySelector('[data-op-confirm]') as HTMLButtonElement
+    expect(go.disabled).toBe(false)
+    expect(go.textContent).toBe('중단 확정')
+    await act(async () => { go.click() })
+    expect(runOp).toHaveBeenCalledWith('p1', { kind: 'stop', orderId: 'o7' })
   })
 
   it('승인이 실패하면 그 좌석의 상세 팝업을 열어 사유를 보여 준다', async () => {
@@ -248,7 +286,7 @@ describe('SeatmapView — 완료 포함 보기', () => {
     act(() => lane.click())
     expect(document.querySelector('[data-done-toggle]')).toBeNull()
   })
-  it('프로젝트 오피스에서는 상태 레인일 때 토글을 아예 뺀다 — 보기 전환은 왼쪽에 고정돼 밀리지 않는다', () => {
+  it('프로젝트 스튜디오에서는 상태 레인일 때 토글을 아예 뺀다 — 보기 전환은 왼쪽에 고정돼 밀리지 않는다', () => {
     act(() => root.render(<SeatmapView initial={withDoneSeat()} projectId="11111111-1111-4111-8111-111111111111" projectName="P" />))
     const lane = [...host.querySelectorAll('button')].find(b => b.getAttribute('data-view') === 'lane') as HTMLButtonElement
     act(() => lane.click())

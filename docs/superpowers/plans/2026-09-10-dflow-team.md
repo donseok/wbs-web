@@ -1204,7 +1204,7 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     expect(p()).not.toMatch(/switch (main|<기본브랜치>|origin\/main)(\s|$)/m)
   })
 
-  it('blocked 직전에 좌석표 heartbeat 를 1회 보내고 실패를 무시한다(가상오피스 v1 계약)', () => {
+  it('blocked 직전에 좌석표 heartbeat 를 1회 보내고 실패를 무시한다(에이전트 스튜디오 v1 계약)', () => {
     const line = p()
       .split('\n')
       .find((l) => l.includes('dflow.sh heartbeat {ID8} --phase blocked --note'))

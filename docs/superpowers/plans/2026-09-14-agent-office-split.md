@@ -1,10 +1,10 @@
-# 에이전트 오피스 분리 Implementation Plan
+# 에이전트 스튜디오 분리 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 프로젝트 허브(`/p/[id]/agents`)에서 좌석 층을 빼고, 프로젝트 가상 오피스(`/p/[id]/agents/office`)를 좌석표 컴포넌트 재사용으로 신설하며, 두 페이지를 탭으로 잇는다.
+**Goal:** 프로젝트 허브(`/p/[id]/agents`)에서 좌석 층을 빼고, 프로젝트 스튜디오(`/p/[id]/agents/office`)를 좌석표 컴포넌트 재사용으로 신설하며, 두 페이지를 탭으로 잇는다.
 
-**Architecture:** 도메인(`agentHub.ts`)에서 층 조립 제거 → 좌석표 로더·액션에 `projectId` 필터 → `SeatmapView` 에 `projectId` prop → 탭 컴포넌트 → 허브 화면 정리 → 오피스 페이지·라벨. 마이그레이션 없음. 사이드바 변경 없음.
+**Architecture:** 도메인(`agentHub.ts`)에서 층 조립 제거 → 좌석표 로더·액션에 `projectId` 필터 → `SeatmapView` 에 `projectId` prop → 탭 컴포넌트 → 허브 화면 정리 → 스튜디오 페이지·라벨. 마이그레이션 없음. 사이드바 변경 없음.
 
 **Tech Stack:** Next.js 15 App Router, React 19, Tailwind v4 토큰(`chip`, `text-ink*`, `bg-brand-weak`), CSS module(`seatmap.module.css`), Supabase service_role, vitest + jsdom.
 
@@ -20,7 +20,7 @@
 - 상태 변형 display 유틸(`group-hover:flex` 등) 금지(CLAUDE.md CSS 규칙).
 - `Sidebar.tsx`·`globals.css`·`layout.tsx` 는 건드리지 않는다.
 - 커밋: 파일명 명시 stage, `git add -A` 금지, 한국어 메시지(왜 중심), 트레일러 `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` / `Claude-Session: https://claude.ai/code/session_018V49dnv2npGi72Lj7RkeK4`. rtk 훅이 막으면 `/usr/bin/git`.
-- 문구(정확히): 빈 오피스 "이 프로젝트에 위임된 주문이 없습니다. 위임·승인 탭에서 리프 항목에 위임을 켜면 좌석이 생깁니다.", 탭 '위임·승인' / '가상 오피스', 링크 '전체 오피스', 라벨 `nav.agents` ko '전체 오피스' en 'All offices', 액션 오류 '프로젝트 값이 잘못됐습니다.', 전역 제목 '가상 오피스 · 전체'.
+- 문구(정확히): 빈 스튜디오 "이 프로젝트에 위임된 주문이 없습니다. 위임·승인 탭에서 리프 항목에 위임을 켜면 좌석이 생깁니다.", 탭 '위임·승인' / '에이전트 스튜디오', 링크 '전체 스튜디오', 라벨 `nav.agents` ko '전체 스튜디오' en 'All studios', 액션 오류 '프로젝트 값이 잘못됐습니다.', 전역 제목 '에이전트 스튜디오 · 전체'.
 
 ---
 
@@ -67,7 +67,7 @@ Expected: FAIL — `'floor' in noOrders` 가 true.
   return {
     projectId, projectName: rows.project?.name ?? '',
     registered: rows.agentProject !== null, enabled: rows.agentProject?.enabled === true,
-    // 좌석 층은 /agents/office 가 그린다(2026-09-14 오피스 분리 스펙 §4-2). 감시자만 이 프로젝트 것으로.
+    // 좌석 층은 /agents/office 가 그린다(2026-09-14 스튜디오 분리 스펙 §4-2). 감시자만 이 프로젝트 것으로.
     counters, watchers: watchersFor(rows.watchers, projectId, nowMs),
     rows: hubRows, queue, fetchedAt: new Date(nowMs).toISOString(),
     viewer: { isAdmin: viewer.isAdmin, memberIds },
@@ -83,12 +83,12 @@ Expected: PASS, lint 오류 0(안 쓰는 import 가 남으면 lint 가 잡는다
 
 ```bash
 /usr/bin/git add src/lib/domain/agentHub.ts tests/domain/agent-hub.test.ts
-/usr/bin/git commit -m "refactor(agent-hub): 허브 조립에서 좌석 층을 뺀다 — 층은 가상 오피스 라우트가 그린다"
+/usr/bin/git commit -m "refactor(agent-hub): 허브 조립에서 좌석 층을 뺀다 — 층은 에이전트 스튜디오 라우트가 그린다"
 ```
 
 ---
 
-### Task 2: 데이터 — 좌석표 로더에 프로젝트 필터와 오피스 로더
+### Task 2: 데이터 — 좌석표 로더에 프로젝트 필터와 스튜디오 로더
 
 **Files:**
 - Modify: `src/lib/data/agentSeatmap.ts` (`getSeatmap` 시그니처, 신규 `seatmapFloorIds`·`getProjectOffice`)
@@ -227,7 +227,7 @@ export async function getSeatmap(actor: Actor, nowMs = Date.now(), scope: Seatma
 
 export interface ProjectOffice { projectName: string | null; seatmap: Seatmap }
 
-/** 프로젝트 가상 오피스 — 이름 + 이 프로젝트 층 하나. 프로젝트가 없으면 projectName null(페이지가 notFound 로 보낸다). */
+/** 프로젝트 스튜디오 — 이름 + 이 프로젝트 층 하나. 프로젝트가 없으면 projectName null(페이지가 notFound 로 보낸다). */
 export async function getProjectOffice(actor: Actor, projectId: string, nowMs = Date.now(), scope: SeatmapScope = 'mine'): Promise<ProjectOffice> {
   const admin = createAdminClient()
   const [project, seatmap] = await Promise.all([
@@ -250,7 +250,7 @@ Expected: PASS(기존 파일 포함).
 
 ```bash
 /usr/bin/git add src/lib/data/agentSeatmap.ts tests/data/agent-seatmap-project.test.ts
-/usr/bin/git commit -m "feat(agent-office): 좌석표 로더에 프로젝트 필터와 오피스 로더 — 접근 범위와 교집합으로 층 하나만"
+/usr/bin/git commit -m "feat(agent-office): 좌석표 로더에 프로젝트 필터와 스튜디오 로더 — 접근 범위와 교집합으로 층 하나만"
 ```
 
 ---
@@ -337,7 +337,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
  * 좌석표 재조회(30초 폴링). 페이지와 같은 게이트를 다시 검사한다 — 액션은 URL 로도 불릴 수 있다.
- * projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 형식 검증 → 멤버 검증 → 그 층 하나만.
+ * projectId 가 있으면 프로젝트 스튜디오(/p/[id]/agents/office): 형식 검증 → 멤버 검증 → 그 층 하나만.
  */
 export async function refreshSeatmap(scope: SeatmapScope = 'mine', projectId?: string): Promise<{ ok: true; seatmap: Seatmap } | { ok: false; error: string }> {
   const actor = await getActorForView()
@@ -391,8 +391,8 @@ Expected: PASS.
 `tests/components/agents-seatmap-view.test.tsx` 끝에 추가:
 
 ```tsx
-describe('SeatmapView — 프로젝트 오피스(projectId)', () => {
-  it('재조회에 projectId 를 넘기고 전체 오피스 링크가 보인다', async () => {
+describe('SeatmapView — 프로젝트 스튜디오(projectId)', () => {
+  it('재조회에 projectId 를 넘기고 전체 스튜디오 링크가 보인다', async () => {
     refresh.mockResolvedValue({ ok: true, seatmap: map() })
     act(() => root.render(<SeatmapView initial={map()} pollMs={1000} projectId="p1" />))
     expect((host.querySelector('[data-office-all-link]') as HTMLAnchorElement).getAttribute('href')).toBe('/agents')
@@ -436,7 +436,7 @@ afterEach(() => { act(() => root.unmount()); host.remove() })
 const tab = (k: string) => host.querySelector(`[data-agent-tab="${k}"]`) as HTMLAnchorElement
 
 describe('AgentTabs', () => {
-  it('허브 경로에서는 위임·승인이 활성, 오피스 링크는 /agents/office', () => {
+  it('허브 경로에서는 위임·승인이 활성, 스튜디오 링크는 /agents/office', () => {
     nav.pathname = '/p/p1/agents'
     act(() => root.render(<AgentTabs projectId="p1" />))
     expect(tab('hub').getAttribute('href')).toBe('/p/p1/agents')
@@ -444,9 +444,9 @@ describe('AgentTabs', () => {
     expect(tab('hub').textContent).toBe('위임·승인')
     expect(tab('office').getAttribute('href')).toBe('/p/p1/agents/office')
     expect(tab('office').getAttribute('aria-current')).toBeNull()
-    expect(tab('office').textContent).toBe('가상 오피스')
+    expect(tab('office').textContent).toBe('에이전트 스튜디오')
   })
-  it('오피스 경로에서는 가상 오피스가 활성', () => {
+  it('스튜디오 경로에서는 에이전트 스튜디오가 활성', () => {
     nav.pathname = '/p/p1/agents/office'
     act(() => root.render(<AgentTabs projectId="p1" />))
     expect(tab('office').getAttribute('aria-current')).toBe('page')
@@ -471,7 +471,7 @@ import Link from 'next/link'   // 상단 import 에 추가
 시그니처와 refresh:
 ```tsx
 /** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시.
- *  projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 오피스 링크를 보인다. */
+ *  projectId 가 있으면 프로젝트 스튜디오(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 스튜디오 링크를 보인다. */
 export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: Seatmap; pollMs?: number; projectId?: string }) {
 ```
 ```tsx
@@ -481,7 +481,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
 
 헤더 오른쪽(`<div className={css.topRight}>` 첫 자식으로):
 ```tsx
-          {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
+          {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 스튜디오</Link>}
 ```
 
 빈 상태:
@@ -502,8 +502,8 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
 `src/components/agent-hub/AgentTabs.tsx`:
 ```tsx
 'use client'
-// 허브(위임·승인)와 가상 오피스를 오가는 탭 — 두 페이지의 ProjectPageShell pinned 슬롯에 얹는다(컴팩트 뷰포트에서도 남는다).
-// 사이드바 항목은 '에이전트' 하나(2026-09-14 오피스 분리 스펙 §6-1). 활성 판정은 경로 완전 일치.
+// 허브(위임·승인)와 에이전트 스튜디오를 오가는 탭 — 두 페이지의 ProjectPageShell pinned 슬롯에 얹는다(컴팩트 뷰포트에서도 남는다).
+// 사이드바 항목은 '에이전트' 하나(2026-09-14 스튜디오 분리 스펙 §6-1). 활성 판정은 경로 완전 일치.
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -512,7 +512,7 @@ export function AgentTabs({ projectId }: { projectId: string }) {
   const base = `/p/${projectId}/agents`
   const tabs = [
     { key: 'hub', href: base, label: '위임·승인' },
-    { key: 'office', href: `${base}/office`, label: '가상 오피스' },
+    { key: 'office', href: `${base}/office`, label: '에이전트 스튜디오' },
   ] as const
   return (
     <nav aria-label="에이전트 화면" className="flex items-center gap-2">
@@ -537,7 +537,7 @@ Expected: PASS, lint 0.
 
 ```bash
 /usr/bin/git add src/components/agents/SeatmapView.tsx src/components/agents/seatmap.module.css src/components/agent-hub/AgentTabs.tsx tests/components/agents-seatmap-view.test.tsx tests/components/agent-tabs.test.tsx
-/usr/bin/git commit -m "feat(agent-office): 좌석표 화면에 projectId 와 전체 오피스 링크, 허브·오피스 탭 컴포넌트"
+/usr/bin/git commit -m "feat(agent-office): 좌석표 화면에 projectId 와 전체 스튜디오 링크, 허브·스튜디오 탭 컴포넌트"
 ```
 
 ---
@@ -557,7 +557,7 @@ Expected: PASS, lint 0.
 - 픽스처 `hub()` 에서 `floor: null,` 을 지운다.
 - `it('층이 있으면 FloorCard 와 상세 패널이 그려진다', …)` 블록을 아래로 교체:
 ```tsx
-  it('좌석 층 섹션이 없다 — 층은 /agents/office 가 그린다(오피스 분리 스펙 §6-2)', () => {
+  it('좌석 층 섹션이 없다 — 층은 /agents/office 가 그린다(스튜디오 분리 스펙 §6-2)', () => {
     act(() => root.render(<AgentHubView initial={hub()} />))
     expect(host.querySelector('section[aria-label="좌석"]')).toBeNull()
     expect(host.querySelector('[data-panel]')).toBeNull()
@@ -567,7 +567,7 @@ Expected: PASS, lint 0.
 
 `tests/components/agent-hub-queue.test.tsx` 의 HubStatusBar describe 에서
 `expect((host.querySelector('[data-hub-seatmap-link]') as HTMLAnchorElement).getAttribute('href')).toBe('/agents')` 를
-`expect(host.querySelector('[data-hub-seatmap-link]')).toBeNull() // 전체 오피스 링크는 오피스 탭으로 옮겼다` 로 바꾼다.
+`expect(host.querySelector('[data-hub-seatmap-link]')).toBeNull() // 전체 스튜디오 링크는 스튜디오 탭으로 옮겼다` 로 바꾼다.
 
 - [ ] **Step 2: 실패 확인**
 
@@ -581,7 +581,7 @@ Expected: FAIL — 좌석 섹션·링크가 아직 있다(타입 오류로 컴�
 ```tsx
 'use client'
 // 에이전트 허브 클라이언트 루트 — 상태 줄 → 위임 표 → 승인 큐. 폴링 없음(조작 화면).
-// 좌석 층은 /agents/office 가 그린다(2026-09-14 오피스 분리). 변경 뒤 refreshAgentHub 1회, 탭이 다시 보이면 1회.
+// 좌석 층은 /agents/office 가 그린다(2026-09-14 스튜디오 분리). 변경 뒤 refreshAgentHub 1회, 탭이 다시 보이면 1회.
 // 실패는 마지막 데이터 유지 + 상단 표시. 페이지 전체 refresh 금지(허브 스펙 §7).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentHub } from '@/lib/domain/agentHub'
@@ -639,8 +639,8 @@ export function AgentHubView({ initial }: { initial: AgentHub }) {
 ```
 
 `src/components/agent-hub/HubStatusBar.tsx`: 머리 주석 두 줄을
-`// 허브 상단 상태 줄 — 켜짐/중지(관리자 토글), 카운터 4개, 감시 중 에이전트, 내 토큰 링크. 전체 오피스 링크는 오피스 탭에 있다(2026-09-14).`
-로 바꾸고, `<Link href="/agents" data-hub-seatmap-link …>전체 오피스</Link>`(또는 '전체 좌석표') 줄을 지운다.
+`// 허브 상단 상태 줄 — 켜짐/중지(관리자 토글), 카운터 4개, 감시 중 에이전트, 내 토큰 링크. 전체 스튜디오 링크는 스튜디오 탭에 있다(2026-09-14).`
+로 바꾸고, `<Link href="/agents" data-hub-seatmap-link …>전체 스튜디오</Link>`(또는 '전체 좌석표') 줄을 지운다.
 
 `src/app/(app)/p/[projectId]/agents/page.tsx`: import 에 `import { AgentTabs } from '@/components/agent-hub/AgentTabs'` 추가, 머리 주석의 "좌석 층을 한 화면에" 를 "승인을 한 화면에(좌석 층은 /agents/office)" 로, 렌더를 아래로:
 ```tsx
@@ -664,7 +664,7 @@ Expected: PASS, lint 0(`FloorCard`·`DetailPanel`·`seatCss`·`useMemo` import �
 
 ---
 
-### Task 6: 오피스 페이지·전역 제목·라벨·회귀 테스트
+### Task 6: 스튜디오 페이지·전역 제목·라벨·회귀 테스트
 
 **Files:**
 - Create: `src/app/(app)/p/[projectId]/agents/office/page.tsx`
@@ -678,7 +678,7 @@ Expected: PASS, lint 0(`FloorCard`·`DetailPanel`·`seatCss`·`useMemo` import �
 
 `tests/domain/agents-access.test.ts` 의 nav 사전 키 테스트:
 ```ts
-    expect(KO['nav.agents']).toBe('전체 오피스'); expect(EN['nav.agents']).toBe('All offices')
+    expect(KO['nav.agents']).toBe('전체 스튜디오'); expect(EN['nav.agents']).toBe('All studios')
 ```
 
 `tests/domain/usage-menu.test.ts` 의 `resolveMenuKey` it.each 표에 두 줄 추가:
@@ -691,7 +691,7 @@ Expected: PASS, lint 0(`FloorCard`·`DetailPanel`·`seatCss`·`useMemo` import �
 
 `tests/ui/sidebar-project-context.test.tsx` 의 `'전역 좌석표(/agents)는 사이드바에 없다 …'` 테스트 뒤에:
 ```tsx
-  it('가상 오피스(/p/p1/agents/office)에서도 사이드바 활성 항목은 에이전트 하나다', async () => {
+  it('에이전트 스튜디오(/p/p1/agents/office)에서도 사이드바 활성 항목은 에이전트 하나다', async () => {
     await renderAt('/p/p1/agents/office')
     const link = container.querySelector<HTMLAnchorElement>('a[href="/p/p1/agents"]')
     expect(link?.className).toContain('side-link-active')
@@ -721,19 +721,19 @@ import { SeatmapView } from '@/components/agents/SeatmapView'
 export const dynamic = 'force-dynamic' // 좌석은 항상 최신이어야 한다
 
 /**
- * 프로젝트 가상 오피스 — 이 프로젝트 층 하나를 전역 좌석표와 같은 규칙·폴링으로 그린다(2026-09-14 오피스 분리 스펙 §6-3).
+ * 프로젝트 스튜디오 — 이 프로젝트 층 하나를 전역 좌석표와 같은 규칙·폴링으로 그린다(2026-09-14 스튜디오 분리 스펙 §6-3).
  * 멤버 이상만 — 허브와 같은 게이트. 로더가 접근 범위와 다시 교집합을 낸다.
  */
 export default async function ProjectOfficePage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const actor = await getActorForView()
   if (!actor || !isProjectMember(actor, projectId)) redirect(`/p/${projectId}/dashboard`)
-  // 조회 실패는 throw → Next 의 error 경계가 받는다. 빈 오피스로 위장하지 않는다.
+  // 조회 실패는 throw → Next 의 error 경계가 받는다. 빈 스튜디오로 위장하지 않는다.
   const office = await getProjectOffice(actor, projectId)
   if (office.projectName === null) notFound()
   return (
     <ProjectPageShell
-      hero={<PageHero eyebrow="AGENTS" title={`${office.projectName} 가상 오피스`} description="이 프로젝트 층의 좌석을 30초마다 갱신합니다." />}
+      hero={<PageHero eyebrow="AGENTS" title={`${office.projectName} 에이전트 스튜디오`} description="이 프로젝트 층의 좌석을 30초마다 갱신합니다." />}
       pinned={<AgentTabs projectId={projectId} />}>
       <SeatmapView initial={office.seatmap} projectId={projectId} />
     </ProjectPageShell>
@@ -741,10 +741,10 @@ export default async function ProjectOfficePage({ params }: { params: Promise<{ 
 }
 ```
 
-`src/app/(app)/agents/page.tsx`: 주석을 `// 슈퍼유저 또는 역할이 있는 프로젝트 1개 이상 — 판정은 canViewAgents 한 곳. 입구는 프로젝트 가상 오피스 탭의 "전체 오피스" 링크(사이드바 항목 없음).` 로, `<PageHero eyebrow="OPERATIONS" title="가상 오피스 · 전체" />` 로.
+`src/app/(app)/agents/page.tsx`: 주석을 `// 슈퍼유저 또는 역할이 있는 프로젝트 1개 이상 — 판정은 canViewAgents 한 곳. 입구는 프로젝트 스튜디오 탭의 "전체 스튜디오" 링크(사이드바 항목 없음).` 로, `<PageHero eyebrow="OPERATIONS" title="에이전트 스튜디오 · 전체" />` 로.
 
-`src/lib/i18n/dict/common.ts`: `'nav.agents': '전체 오피스',` / `common.en.ts`: `'nav.agents': 'All offices',`.
-`src/lib/domain/usageMenu.ts`: `{ key: 'seatmap', labelKey: 'nav.agents', fallback: '전체 오피스' },`.
+`src/lib/i18n/dict/common.ts`: `'nav.agents': '전체 스튜디오',` / `common.en.ts`: `'nav.agents': 'All studios',`.
+`src/lib/domain/usageMenu.ts`: `{ key: 'seatmap', labelKey: 'nav.agents', fallback: '전체 스튜디오' },`.
 
 `docs/superpowers/specs/2026-09-14-agent-hub-design.md` `### 6-5. 좌석 층` 바로 아래에 한 줄:
 `> 2026-09-14 대체: 좌석 층은 허브에서 빠지고 `/p/[projectId]/agents/office` 가 그린다 — `2026-09-14-agent-office-split-design.md`.`
@@ -758,7 +758,7 @@ Expected: PASS, lint 0.
 
 ```bash
 /usr/bin/git add "src/app/(app)/p/[projectId]/agents/office/page.tsx" "src/app/(app)/agents/page.tsx" src/lib/i18n/dict/common.ts src/lib/i18n/dict/common.en.ts src/lib/domain/usageMenu.ts docs/superpowers/specs/2026-09-14-agent-hub-design.md tests/domain/agents-access.test.ts tests/domain/usage-menu.test.ts tests/ui/sidebar-project-context.test.tsx
-/usr/bin/git commit -m "feat(agent-office): 프로젝트 가상 오피스 페이지 — 허브 탭에서 열고, 전역은 전체 오피스로 이름을 맞춘다"
+/usr/bin/git commit -m "feat(agent-office): 프로젝트 스튜디오 페이지 — 허브 탭에서 열고, 전역은 전체 스튜디오로 이름을 맞춘다"
 ```
 
 ---

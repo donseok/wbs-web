@@ -92,3 +92,21 @@ describe('modelBadge 등급 — 제조사 라인업 안에서 4단계', () => {
     expect(tier('local-llm')).toBeNull()
   })
 })
+
+describe('assembleRoster — 내 팀을 맨 앞에(2026-09-19)', () => {
+  it('내 계정의 팀장·에이전트가 있는 작업 PC 가 먼저 오고 mine 이 표시된다', () => {
+    const mineSeat = { ...seat('o2', 'me/zeta/w1', 'ACTIVE'), agentMine: true } as Seat
+    const r = assembleRoster({ floors: [floor(
+      [seat('o1', 'hong/alpha/w1', 'ACTIVE'), mineSeat],
+      [watcher('hong/alpha/lead', 1), { ...watcher('me/zeta/lead', 1), mine: true }],
+    )] })
+    expect(r.hosts.map(h => [h.label, h.mine])).toEqual([['me / zeta', true], ['hong / alpha', false]])
+  })
+  it('팀장 없이 내 에이전트만 있어도 내 팀이다 — 감시 중인 남의 PC 보다 앞선다', () => {
+    const r = assembleRoster({ floors: [floor(
+      [{ ...seat('o1', 'pat-8f3a21bc', 'ACTIVE'), agentMine: true } as Seat],
+      [watcher('hong/alpha/lead', 1)],
+    )] })
+    expect(r.hosts.map(h => h.label)).toEqual(['pat-8f3a21bc', 'hong / alpha'])
+  })
+})

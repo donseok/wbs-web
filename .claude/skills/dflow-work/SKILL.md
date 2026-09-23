@@ -8,7 +8,8 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
 모든 호출은 대상 리포의 `.claude/skills/dflow-work/scripts/dflow.sh` 로 한다(리포 루트가 cwd. `DFLOW_SH` env 가 있으면 그것). 산문 파싱 금지 —
 **exit code 로 분기한다**: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증 실패 /
 4 선행·상태로 인한 진행 불가 — 409 충돌·로컬 선행 차단·선행 미충족(403 바디 `code=dependency_not_met` 재매핑) /
-5 권한 부족(그 밖의 403) / 6 네트워크·서버·로컬 환경 실패(응답 파싱·파일 쓰기 포함) / 7 기능 꺼짐.
+5 권한 부족(그 밖의 403) / 6 네트워크·서버·로컬 환경 실패(응답 파싱·파일 쓰기 포함) / 7 기능 꺼짐 /
+10 중단됨 — 사람이 D'Flow 에서 작업을 중단했다(409 바디 `code=cancelled`). 재시도하지 말고 즉시 멈춘다.
 
 ## 시작 절차 (매 세션 1회)
 
@@ -122,7 +123,7 @@ dflow.sh progress <순번> <0-99> "<요약>"
 - Phase 경계를 명시하고 싶을 때: `--phase design|build|verify|refactor|rejected|reported`.
 `--model` 은 지금 도는 Phase 서브에이전트의 모델(좌석표 명찰·등급). 훅은 state.json 의 `model` 을 싣는다 — 생략하면 서버 값을 그대로 둔다.
 `--agent` 기본값은 워크트리 루트 `.dflow-agent` 첫 줄, 없으면 `claude-<host>`. 값이 `*/parked` 면 보내지 않는다.
-claimed 가 아니면 exit 4, 소유자가 아니면 exit 5.
+claimed 가 아니면 exit 4, 사람이 중단한 주문(`cancelled`)이면 exit 10, 소유자가 아니면 exit 5. progress·done 도 같다.
 
 ### watch
 

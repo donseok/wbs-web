@@ -100,14 +100,14 @@ describe('SeatCard', () => {
     expect(host.querySelector('[data-mark]')).toBeNull()
   })
 
-  it('상태에 맞는 결재 버튼이 좌석에 붙는다 — 승인 대기는 승인·반려, 업무 중은 회수, 빈자리는 없다', () => {
+  it('상태에 맞는 결재 버튼이 좌석에 붙는다 — 승인 대기는 승인·반려, 업무 중은 중단, 빈자리는 없다', () => {
     const seen: string[] = []
     act(() => root.render(<SeatCard seat={seat({ state: 'WAIT' })} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={(_s, k) => { seen.push(k) }} />))
     expect([...host.querySelectorAll('[data-seat-op]')].map(b => (b as HTMLElement).dataset.seatOp)).toEqual(['approve', 'reject'])
     act(() => (host.querySelector('[data-seat-op="approve"]') as HTMLButtonElement).click())
     expect(seen).toEqual(['approve'])
     act(() => root.render(<SeatCard seat={seat({ state: 'ACTIVE' })} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={() => {}} />))
-    expect([...host.querySelectorAll('[data-seat-op]')].map(b => (b as HTMLElement).dataset.seatOp)).toEqual(['release'])
+    expect([...host.querySelectorAll('[data-seat-op]')].map(b => (b as HTMLElement).dataset.seatOp)).toEqual(['stop'])
     act(() => root.render(<SeatCard seat={seat({ state: 'READY' })} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={() => {}} />))
     expect(host.querySelectorAll('[data-seat-op]')).toHaveLength(0)
   })
@@ -167,48 +167,41 @@ describe('ZoneBlock', () => {
   })
 })
 
-describe('FloorCard — 완전히 빈 구역은 아이콘으로 접는다', () => {
+describe('FloorCard — 모든 구역은 기본 펼침이고, 접으면 아이콘이 된다(2026-09-19)', () => {
   const busy = zone({ key: 'a', code: 'WP-04', name: '주문 관리', seats: [seat({ state: 'WAIT', phase: 'reported', anim: 'idle_coffee' })], summary: { work: 0, wait: 1, ready: 0, done: 0 } })
   const empty = zone({ key: 'b', code: 'WP-05', name: '재고 관리', seats: [emptySeat(1), emptySeat(2)], summary: { work: 0, wait: 0, ready: 2, done: 0 } })
+  const foldOf = (code: string) => [...host.querySelectorAll('button[aria-label="구역 접기"]')].find(b => b.parentElement?.textContent?.includes(code)) as HTMLButtonElement
 
-  it('진행·대기 좌석이 없는 구역은 책상 없이 아이콘 버튼 하나로, 나머지는 그대로 그린다', () => {
+  it('빈 구역도 처음부터 책상을 그린다 — 접힌 구역 아이콘 줄이 없다', () => {
     act(() => root.render(<FloorCard floor={floor([busy, empty])} selectedId={null} nowMs={NOW} busyOrderId={null} onSelect={() => {}} onOp={() => {}} />))
     expect(host.querySelector('button[aria-label^="TSK-04-02"]')).not.toBeNull()
+    expect(host.querySelector('button[aria-label^="TSK-05-01"]')).not.toBeNull()
+    expect(host.querySelector('button[aria-expanded="false"]')).toBeNull()
+    expect(host.querySelector('[aria-label="접힌 구역"]')).toBeNull()
+  })
+  it('빈 구역을 접으면 빈자리 수를 단 아이콘이 되고, 아이콘을 누르면 다시 펼쳐진다', () => {
+    act(() => root.render(<FloorCard floor={floor([busy, empty])} selectedId={null} nowMs={NOW} busyOrderId={null} onSelect={() => {}} onOp={() => {}} />))
+    act(() => foldOf('WP-05').click())
     expect(host.querySelector('button[aria-label^="TSK-05-01"]')).toBeNull()
     const icon = host.querySelector('button[aria-expanded="false"]') as HTMLButtonElement
-    expect(icon).not.toBeNull()
     expect(icon.getAttribute('aria-label')).toContain('WP-05')
     expect(icon.getAttribute('aria-label')).toContain('2 빈자리')
     expect(icon.textContent).toContain('2')
-  })
-  it('아이콘을 누르면 펼쳐져 책상이 보이고, 접기를 누르면 다시 아이콘이 된다', () => {
-    act(() => root.render(<FloorCard floor={floor([busy, empty])} selectedId={null} nowMs={NOW} busyOrderId={null} onSelect={() => {}} onOp={() => {}} />))
-    act(() => (host.querySelector('button[aria-expanded="false"]') as HTMLButtonElement).click())
+    act(() => icon.click())
     expect(host.querySelector('button[aria-label^="TSK-05-01"]')).not.toBeNull()
     expect(host.querySelector('button[aria-expanded="false"]')).toBeNull()
-    const foldOf = (code: string) => [...host.querySelectorAll('button[aria-label="구역 접기"]')].find(b => b.parentElement?.textContent?.includes(code)) as HTMLButtonElement
-    act(() => foldOf('WP-05').click())
-    expect(host.querySelector('button[aria-label^="TSK-05-01"]')).toBeNull()
-    expect(host.querySelector('button[aria-expanded="false"]')).not.toBeNull()
   })
-  it('빈 구역의 좌석이 선택되어 있으면 누르지 않아도 펼쳐진다', () => {
+  it('빈 구역의 좌석이 선택되어 있으면 펼쳐져 있다', () => {
     act(() => root.render(<FloorCard floor={floor([busy, empty])} selectedId="e2" nowMs={NOW} busyOrderId={null} onSelect={() => {}} onOp={() => {}} />))
     expect(host.querySelector('button[aria-label^="TSK-05-02"]')).not.toBeNull()
     expect(host.querySelector('button[aria-expanded="false"]')).toBeNull()
   })
-  it('접힌 구역이 없으면 아이콘 줄을 그리지 않는다', () => {
-    act(() => root.render(<FloorCard floor={floor([busy])} selectedId={null} nowMs={NOW} busyOrderId={null} onSelect={() => {}} onOp={() => {}} />))
-    expect(host.querySelector('[aria-label="접힌 구역"]')).toBeNull()
-  })
-  it('빈 구역 아이콘은 empty, 승인 대기 구역을 접으면 wait, 진행 중 구역을 접으면 work 표시가 붙는다', () => {
+  it('접힌 구역 아이콘은 빈 구역 empty, 승인 대기 구역 wait, 진행 중 구역 work 표시가 붙는다', () => {
     const working = zone({ key: 'c', code: 'WP-06', name: '출하', seats: [seat({ orderId: 'w1', id8: 'w1', code: 'TSK-06-01' })], summary: { work: 1, wait: 0, ready: 0, done: 0 } })
     act(() => root.render(<FloorCard floor={floor([busy, working, empty])} selectedId={null} nowMs={NOW} busyOrderId={null} onSelect={() => {}} onOp={() => {}} />))
-    expect((host.querySelector('button[aria-expanded="false"]') as HTMLElement).dataset.kind).toBe('empty')
-    // 펼쳐진 구역마다 접기 버튼이 있다(빈 구역이 아니어도)
-    const folds = host.querySelectorAll('button[aria-label="구역 접기"]')
-    expect(folds.length).toBe(2)
-    act(() => (folds[0] as HTMLButtonElement).click()) // busy(WP-04) 접기
-    act(() => (host.querySelector('button[aria-label="구역 접기"]') as HTMLButtonElement).click()) // working(WP-06) 접기
+    // 펼쳐진 구역마다 접기 버튼이 있다(빈 구역 포함)
+    expect(host.querySelectorAll('button[aria-label="구역 접기"]')).toHaveLength(3)
+    act(() => (host.querySelector('button[data-floor-fold-all]') as HTMLButtonElement).click())
     const icons = [...host.querySelectorAll('button[aria-expanded="false"]')] as HTMLButtonElement[]
     const byCode = (code: string) => icons.find(b => (b.getAttribute('aria-label') || '').startsWith(code))!
     expect(byCode('WP-04').dataset.kind).toBe('wait')
@@ -216,7 +209,6 @@ describe('FloorCard — 완전히 빈 구역은 아이콘으로 접는다', () =
     expect(byCode('WP-06').dataset.kind).toBe('work')
     expect(byCode('WP-06').getAttribute('aria-label')).toContain('1 진행')
     expect(byCode('WP-05').dataset.kind).toBe('empty')
-    expect(host.querySelector('button[aria-label^="TSK-04-02"]')).toBeNull()
     act(() => byCode('WP-04').click())
     expect(host.querySelector('button[aria-label^="TSK-04-02"]')).not.toBeNull()
   })

@@ -280,11 +280,11 @@ describe('재개 요청 표식(0099) — 멈춘 좌석에서 사람이 누른 �
   })
 })
 
-describe('seatmapChannelProjectIds — 오피스가 들어야 할 실시간 채널', () => {
-  it('프로젝트 오피스는 그 프로젝트 하나다', () => {
+describe('seatmapChannelProjectIds — 스튜디오가 들어야 할 실시간 채널', () => {
+  it('프로젝트 스튜디오는 그 프로젝트 하나다', () => {
     expect(seatmapChannelProjectIds({ floors: [] }, 'px')).toEqual(['px'])
   })
-  it('전체 오피스는 지금 그린 층들이며, 순서가 바뀌어도 같은 목록이다(재구독 방지)', () => {
+  it('전체 스튜디오는 지금 그린 층들이며, 순서가 바뀌어도 같은 목록이다(재구독 방지)', () => {
     const a = seatmapChannelProjectIds({ floors: [{ id: P2 }, { id: P1 }] as never })
     const b = seatmapChannelProjectIds({ floors: [{ id: P1 }, { id: P2 }] as never })
     expect(a).toEqual([P1, P2])
@@ -322,5 +322,66 @@ describe('assembleSeatmap — 보고 말풍선 재료(2026-09-18)', () => {
   })
   it('점유·보고 중이 아닌 주문(승인 등)의 옛 보고는 싣지 않는다', () => {
     expect(seat0({ status: 'approved' }, [{ kind: 'completion', summary: 'x', created_at: new Date(NOW).toISOString() }]).lastReport).toBeNull()
+  })
+})
+
+describe('assembleSeatmap — 내 에이전트·다른 계정 구분(2026-09-19)', () => {
+  const U1 = 'u1', U2 = 'u2'
+  const viewer = (userId: string) => ({ userId, memberIds: new Set<string>(), adminProjectIds: new Set<string>() })
+  const seatOf = (m: ReturnType<typeof assembleSeatmap>) => m.floors[0].zones[0].seats[0]
+  const w = (over: Partial<WatcherRow>): WatcherRow => ({
+    id: 'w', user_id: U1, project_id: null, agent: 'hong/mbp/lead', host: 'mbp', slots: 2, busy: 0, until_label: null, last_seen_at: ago(1000), ...over,
+  })
+
+  it('전체 범위에서도 주문의 claimed_by_user_id 가 보는 사람이면 agentMine 이고 소유자 이름은 싣지 않는다', () => {
+    const s = seatOf(assembleSeatmap(rows({ members: [{ id: 'm9', project_id: P1, user_id: U1, name: '나' }] }), NOW, { viewer: viewer(U1) }))
+    expect(s.agentMine).toBe(true)
+    expect(s.agentOwnerName).toBeNull()
+  })
+  it('다른 계정이 잡은 주문은 agentMine=false, 소유자 이름은 같은 층 로스터에서 먼저 찾는다', () => {
+    const s = seatOf(assembleSeatmap(rows({
+      orders: [order({ claimed_by_user_id: U2 })],
+      members: [
+        { id: 'mx', project_id: P2, user_id: U2, name: '홍길동(다른 층)' },
+        { id: 'm2', project_id: P1, user_id: U2, name: '홍길동' },
+      ],
+    }), NOW, { viewer: viewer(U1) }))
+    expect(s.agentMine).toBe(false)
+    expect(s.agentOwnerName).toBe('홍길동')
+  })
+  it('같은 층에 없으면 다른 층 로스터 이름, 어디에도 없으면 null', () => {
+    const other = seatOf(assembleSeatmap(rows({
+      orders: [order({ claimed_by_user_id: U2 })],
+      members: [{ id: 'mx', project_id: P2, user_id: U2, name: '홍길동' }],
+    }), NOW, { viewer: viewer(U1) }))
+    expect(other.agentOwnerName).toBe('홍길동')
+    const none = seatOf(assembleSeatmap(rows({ orders: [order({ claimed_by_user_id: U2 })] }), NOW, { viewer: viewer(U1) }))
+    expect(none.agentMine).toBe(false)
+    expect(none.agentOwnerName).toBeNull()
+  })
+  it('레거시 주문(claimed_by_user_id null)은 mine=false·이름 null — 보는 사람 재료가 없어도 false(fail-closed)', () => {
+    const legacy = seatOf(assembleSeatmap(rows({ orders: [order({ claimed_by_user_id: null })] }), NOW, { viewer: viewer(U1) }))
+    expect(legacy.agentMine).toBe(false)
+    expect(legacy.agentOwnerName).toBeNull()
+    const noViewer = seatOf(assembleSeatmap(rows(), NOW))
+    expect(noViewer.agentMine).toBe(false)
+  })
+  it('내 작업 범위에서도 담당자가 나지만 남의 에이전트가 잡은 주문은 agentMine=false', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ claimed_by_user_id: U2 })],
+      members: [{ id: 'm1', project_id: P1, user_id: U1, name: '나' }, { id: 'm2', project_id: P1, user_id: U2, name: '홍길동' }],
+    }), NOW, { mine: { userId: U1, memberIds: new Set(['m1']) }, viewer: { ...viewer(U1), memberIds: new Set(['m1']) } })
+    expect(seatOf(m).agentMine).toBe(false)
+    expect(seatOf(m).agentOwnerName).toBe('홍길동')
+  })
+  it('팀장(감시자)도 user_id 로 mine 을 가리고 다른 계정이면 소유자 이름을 붙인다', () => {
+    const m = assembleSeatmap(rows({
+      watchers: [w({ id: 'a', user_id: U1, agent: 'me/mbp/lead' }), w({ id: 'b', user_id: U2, agent: 'hong/win/lead' }), w({ id: 'c', user_id: 'u3', agent: 'kim/lx/lead' })],
+      members: [{ id: 'm2', project_id: P1, user_id: U2, name: '홍길동' }],
+    }), NOW, { viewer: viewer(U1) })
+    const byAgent = Object.fromEntries(m.floors[0].watchers.map(x => [x.agent, x]))
+    expect(byAgent['me/mbp/lead']).toMatchObject({ mine: true, ownerName: null })
+    expect(byAgent['hong/win/lead']).toMatchObject({ mine: false, ownerName: '홍길동' })
+    expect(byAgent['kim/lx/lead']).toMatchObject({ mine: false, ownerName: null })
   })
 })

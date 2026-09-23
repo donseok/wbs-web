@@ -154,7 +154,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 
 수동 발행 화면은 없다(2026-08-24 제거). **발행 = WBS 명세 패널의 "에이전트 위임"(tags: agent) 체크** — 체크하면 서버가 프로젝트 활성 → dev_workflow ON → 주문 보장을 한 번에 한다. 체크 해제 = 그 항목의 ready 주문 취소(claimed/reported 는 사람이 승인·반려로 정리).
 
-승인·반려도 전용 화면(`/agent-ops`)이 없다(2026-08-24 제거) — WBS 화면(`/p/<id>/wbs`) 항목 클릭 → 상세 패널의 "담당·단계" 섹션 → "진행 상황"에서 한다. `status=reported` 인 주문에만 승인/반려 버튼이 뜨고, 관리자(project admin·슈퍼유저)만 보인다(`editable={isAdmin}`). 반려는 `reported`→`claimed`로 되돌리고 stage `ip`·실적은 크레딧 표의 RW 값으로 한 트랜잭션에 쓴다(v2.3). 담당 에이전트가 같은 주문으로 재작업·재보고한다. 점유를 강제로 푸는 회수는 에이전트 허브에서 관리자·서브트리 관리자가 한다.
+승인·반려도 전용 화면(`/agent-ops`)이 없다(2026-08-24 제거) — WBS 화면(`/p/<id>/wbs`) 항목 클릭 → 상세 패널의 "담당·단계" 섹션 → "진행 상황"에서 한다. `status=reported` 인 주문에만 승인/반려 버튼이 뜨고, 관리자(project admin·슈퍼유저)만 보인다(`editable={isAdmin}`). 반려는 `reported`→`claimed`로 되돌리고 stage `ip`·실적은 크레딧 표의 RW 값으로 한 트랜잭션에 쓴다(v2.3). 담당 에이전트가 같은 주문으로 재작업·재보고한다. 진행 중 작업을 멈추는 **중단**(옛 회수, 2026-09-19)은 에이전트 허브·좌석표에서 관리자·서브트리 관리자가 한다 — 위임 해제와 같은 경로로 태그를 떼고 주문을 `cancelled` 로 끝내며, 워커는 다음 heartbeat 에서 409 `cancelled` 를 받고 선다.
 
 ## claim·show 응답 확장과 선행 게이트 (결정 A·C)
 
@@ -174,7 +174,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 
 파일 `[ ]`/`[as]`/`[ip]`/`[im]`/`[xx]` ↔ DB `stage` `null/as/ip/im/xx`(`[ ]`는 `null`). 옛 파일의 `[fp]` 는 `ip` 로 받는다(0096).
 로컬 state-machine.json 의 `[dd]`·`[ts]` 는 부트스트랩 전용이라 서버 어휘에 없다.
-전이 권한: 사람 전용 = assign/unassign/set_stage/approve/unapprove/reject/rework/release(허브) · 에이전트 = claim/completion/release(본인 점유).
+전이 권한: 사람 전용 = assign/unassign/set_stage/approve/unapprove/reject/rework · 에이전트 = claim/completion/release(본인 점유). 사람의 중단은 전이 사건이 아니라 위임 해제(주문 `cancelled`) + set_stage `as` 다.
 에이전트 API에 사람 전용 사건 없음(도입 시 403 `human_gate`).
 
 UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업 중 · `im`=검수 대기 · `xx`=완료 · 미지정=미착수.
@@ -196,7 +196,8 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업
 | 승인 취소 | `approved`→`reported` | `im` | 표.im | 사람 |
 | 반려 | `reported`→`claimed` | `ip` | 표.rw | 사람 |
 | 재작업 요청 | `approved`→`claimed` | `ip` | 표.rw | 사람 |
-| 회수·반납(release) | `claimed`→`ready` | `as` | 표.as | 사람(허브)·에이전트(본인 점유) |
+| 반납(release) | `claimed`→`ready` | `as` | 표.as | 에이전트(본인 점유) |
+| 중단·위임 해제 | `ready`·`claimed`→`cancelled` | `claimed` 를 취소했을 때만 `as` | 표.as | 사람(허브·좌석표 중단, 위임 체크 해제) |
 | 사람의 단계 지정 | 잠금이 아닐 때만 | 지정값 | 표.<지정값>(해제는 불변) | 사람 |
 
 **잠금** = 위임됨(`tags` ∋ `agent`) ∨ 주문 `claimed`·`reported`. 잠기면 사람의 단계 지정은 거부되고 수기 실적 입력은 99 까지다
@@ -221,16 +222,19 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업
 | 403 | `dependency_not_met` | 선행(depends) 미충족 claim — `reached:false`(v2.3, 결정 C — `unmet[]` 동반) |
 | 404 | — | 꺼짐/미등록/비멤버/없음(의도적 비구분) |
 | 409 | `conflict` | CAS 충돌·상태 불일치 |
+| 409 | `cancelled` | 사람이 중단한 주문(heartbeat·progress·completion). 워커는 재시도하지 말고 멈춘다 — 2026-09-19 |
 | 409 | `apply_failed` | WBS 반영 실패 |
 | 409 | `wbs_item_missing` | 항목 삭제된 주문 |
 
 ## 로컬 클라이언트 계약
 
 - env: `DFLOW_API_BASE`(기본값 없음 — 미설정 시 즉시 실패) · `DFLOW_PATS`(쉼표 구분 1~N개) · `DFLOW_PAT`(단일, PATS 미설정 시 폴백).
-- `dflow.sh` exit code: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증(401) / 4 상태 충돌(409)·선행 미반영 로컬 차단·선행 미충족(403 `code=dependency_not_met`) / 5 권한(403, 그 외) / 6 네트워크·서버(5xx)·로컬 환경 실패(파싱·파일 쓰기) / 7 기능 꺼짐(404).
+- `dflow.sh` exit code: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증(401) / 4 상태 충돌(409)·선행 미반영 로컬 차단·선행 미충족(403 `code=dependency_not_met`) / 5 권한(403, 그 외) / 6 네트워크·서버(5xx)·로컬 환경 실패(파싱·파일 쓰기) / 7 기능 꺼짐(404) / 10 중단됨(409 `code=cancelled`).
   - 403 을 body 의 `code` 로 갈라 읽는다: 선행 미충족은 권한 문제가 아니라 상태 문제라
     호출부가 할 일이 "권한을 얻어라"가 아니라 "선행을 끝내고 다시 와라"이다.
   - 로컬 파싱·파일 쓰기 실패를 4 로 내지 않는다 — 호출부가 "선행을 기다린다"로 읽고 영원히 재시도한다.
+  - 409 도 body 의 `code` 로 갈라 읽는다: `cancelled`(사람이 중단)는 경합이 아니라 끝난 작업이라 호출부가 할 일이
+    "다시 시도"가 아니라 "즉시 멈춤"이다. 그래서 4 와 섞지 않고 10 으로 낸다.
 - 신원 해석: 토큰별 `GET /agent/me` 1회 → `~/.cache/dflow/profiles.json` 캐시. 키 선택은 `--as <prefix|email>` →
   `.env` 의 `DFLOW_AS`(prefix 만) → 첫 토큰. prefix 일치는 `/me` 를 부르지 않는다. 목록은 `dflow.sh profiles`.
 - evidence 자동 조립: `git rev-parse HEAD`·`git remote get-url origin`·`git branch --show-current`·(`gh` 있으면) PR URL.

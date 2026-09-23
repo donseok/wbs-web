@@ -1,5 +1,5 @@
 // src/components/agents/icons.tsx
-// 좌석표 아이콘 I1(라인) — 1.6px 획. 앱의 나머지 화면이 쓰는 lucide-react 와 같은 결이라 오피스만 겉돌지 않는다.
+// 좌석표 아이콘 I1(라인) — 1.6px 획. 앱의 나머지 화면이 쓰는 lucide-react 와 같은 결이라 스튜디오만 겉돌지 않는다.
 // 옛 판은 무응답 `!`·결정 대기 `?`·끊김이라는 한글 두 글자로 표지를 대신했고, 접힌 구역 세 종류를
 // Armchair 하나로 표현했다. 여섯 자리를 각자 다른 그림으로 가른다.
 import type React from 'react'
@@ -63,11 +63,11 @@ export const IconUnapprove = () => (
 export const IconRework = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.4 12a8.4 8.4 0 1 1-2.5-6" /><path d="M20.6 3.6v4.6H16" /></svg>
 )
-/** 회수 — 정지 사각형. */
-export const IconRelease = () => (
+/** 중단 — 정지 사각형(옛 「회수」 자리. 위임을 끄고 워커를 세운다). */
+export const IconStop = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
 )
-/** 이어서 시작 — 재생 삼각형에 이어 붙이는 획. 회수(정지)와 한눈에 갈라져야 한다. */
+/** 이어서 시작 — 재생 삼각형에 이어 붙이는 획. 중단(정지)과 한눈에 갈라져야 한다. */
 export const IconResume = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 5.5v13" /><path d="M9.5 6.6l9 5.4-9 5.4z" /></svg>
 )

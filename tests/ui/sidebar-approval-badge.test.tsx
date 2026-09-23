@@ -77,7 +77,7 @@ describe('Sidebar 에이전트 결재 대기 배지', () => {
     })
     await act(async () => {})
   }
-  const agentLink = () => container.querySelector('a[href="/p/p1/agents"]') as HTMLAnchorElement
+  const agentLink = () => container.querySelector('a[href="/p/p1/agents/office"]') as HTMLAnchorElement
 
   it('승인할 것이 있으면 에이전트 메뉴에 수를 단다 — 공지 배지와 따로', async () => {
     stubShell(3)

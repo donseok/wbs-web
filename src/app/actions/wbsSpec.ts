@@ -1,6 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
@@ -216,5 +218,7 @@ export async function setAgentDelegation(
     itemId, projectId: right.projectId, delegated, actorUserId: right.actor.userId, isAdmin: right.isAdmin,
   })
   if (r.ok) revalidatePath(`/p/${right.projectId}`, 'layout')
+  // 해제가 진행 중 작업을 멈추고 단계를 as 로 되돌려 실적이 바뀌었으면 진척 스냅샷을 남긴다(wbsAssign 과 같은 규칙).
+  if (r.ok && r.actualChanged) after(() => recordProgressSnapshot(right.projectId))
   return r
 }

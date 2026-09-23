@@ -1,7 +1,7 @@
 'use client'
-// 가상 오피스의 세 번째 보기 '에이전트' — 작업 PC 한 줄에 자리(팀장·팀원 N)를 책상으로 늘어놓고,
-// 고른 자리의 프로필을 오른쪽에 보인다(2026-09-18 시안 v2, 사용자 결정으로 오피스 탭 안의 보기가 됐다).
-// 데이터는 오피스가 30초마다 읽는 좌석표 그대로를 agentRoster 로 다시 묶는다 — 폴링·범위(내 작업/전체)는 오피스 몫.
+// 에이전트 스튜디오의 세 번째 보기 '에이전트' — 작업 PC 한 줄에 자리(팀장·팀원 N)를 책상으로 늘어놓고,
+// 고른 자리의 프로필을 오른쪽에 보인다(2026-09-18 시안 v2, 사용자 결정으로 스튜디오 탭 안의 보기가 됐다).
+// 데이터는 스튜디오가 30초마다 읽는 좌석표 그대로를 agentRoster 로 다시 묶는다 — 폴링·범위(내 작업/전체)는 스튜디오 몫.
 // 좌석 단위 보고 이력·처리량·토큰 연결은 아직 데이터가 없어 그리지 않는다(시안 notes 의 NEW 항목).
 import { useMemo, useState, type ReactNode } from 'react'
 import type React from 'react'
@@ -14,6 +14,7 @@ import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
 import { awayBubble, awayReason, leadChatter } from '@/lib/domain/officeChatter'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
+import { OwnerTag, ownerLabel, teamOwnerLabel, watcherOwnerLabel, type OwnerLabel } from './OwnerTag'
 
 type Tone = { label: string; color: string }
 const TONE: Record<string, Tone> = {
@@ -46,6 +47,11 @@ function deskLine(d: RosterDesk, host: RosterHost, nowMs: number, chatter: boole
   // 잡담이 켜져 있으면 부재 사유(농담)를 붙인다 — 끄면 사실만 남는다.
   if (d.kind === 'empty') return chatter ? `자리 비움 · ${awayReason(d.key, nowMs)}` : host.watcher ? '빈자리 — 다음 위임을 기다립니다' : '빈자리'
   return d.seat ? `${d.seat.code} ${d.seat.name}` : ''
+}
+/** 책상의 계정 명찰 — 팀장은 감시자 계정, 팀원은 주문을 잡은 계정. 빈자리는 null. */
+function deskOwner(d: RosterDesk): OwnerLabel | null {
+  if (d.kind === 'lead') return d.watcher ? watcherOwnerLabel(d.watcher) : null
+  return d.seat ? ownerLabel(d.seat) : null
 }
 function signalAt(d: RosterDesk): string | null {
   return d.kind === 'lead' ? d.watcher?.lastSeenAt ?? null : d.seat?.lastSignalAt ?? null
@@ -112,10 +118,18 @@ function HostCard({ host, nowMs, selectedKey, onSelect }: {
     : w
       ? `감시 중 · 신호 ${ageLabel(w.lastSeenAt, nowMs)}${w.untilLabel ? ` · ${w.untilLabel} 까지` : ''}`
       : '감시자 없음 — 이 PC 는 새 작업을 집지 않습니다'
+  // 팀(작업 PC 행) 명찰 — 팀장 계정이 먼저고, 팀장이 없는 행은 앉아 있는 에이전트의 계정을 쓴다.
+  const teamOwner = teamOwnerLabel(host.mine, w?.ownerName ?? host.desks.find(d => d.seat?.agentOwnerName)?.seat?.agentOwnerName ?? null)
+  // 내 팀은 행 전체를 브랜드 바탕과 링으로 들어 올린다(2026-09-20 사용자 요청: 책상만이 아니라 팀에도 표시).
+  // 남의 팀은 종전 표면색 그대로다 — 흐리게 하지 않는다.
+  const skin = host.mine
+    ? 'border-brand bg-brand-weak shadow-[0_0_0_2px_var(--color-brand)]'
+    : 'border-line bg-surface shadow-sm'
   return (
-    <section data-roster-host={host.key} className="rounded-3xl border border-line bg-surface p-4 shadow-sm">
+    <section data-roster-host={host.key} data-owner={teamOwner.kind} className={`rounded-3xl border p-4 ${skin}`}>
       <header className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="font-mono text-base font-bold text-ink">{host.label}</h2>
+        <h2 className={`font-mono text-base font-bold ${host.mine ? 'text-brand' : 'text-ink'}`}>{host.label}</h2>
+        <OwnerTag owner={teamOwner} />
         <span className="text-xs text-ink-subtle">{sub}</span>
         {host.slots !== null && <span className="ml-auto text-xs font-semibold tabular-nums text-ink-muted">자리 {busy}/{host.slots}</span>}
       </header>
@@ -133,10 +147,15 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
   const look = deskLook(desk)
   const sig = signalAt(desk)
   const chatter = useOfficeChatter()
+  const owner = deskOwner(desk)
+  // 테두리 색은 선택이 쓰고(평면도·레인과 같은 분담), 내 책상은 바깥 2px 브랜드 링으로 그린다 — 테두리 폭을 바꾸면
+  // 책상 줄이 어긋난다. 내 책상을 고르면 선택 링을 브랜드 링 바깥(ring-offset)에 둔다. 남의 것은 흐리게 하지 않는다.
+  const mine = owner?.kind === 'mine'
+  const edge = `${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${mine ? (selected ? 'ring-offset-2 ring-offset-brand' : 'shadow-[0_0_0_2px_var(--color-brand)]') : ''}`
   return (
     <li>
-      <button type="button" data-roster-desk={desk.slot} aria-pressed={selected} onClick={() => onSelect(desk.key)}
-        className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
+      <button type="button" data-roster-desk={desk.slot} data-owner={owner?.kind} aria-pressed={selected} onClick={() => onSelect(desk.key)}
+        className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${edge} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
         {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
         <span className="relative flex flex-col items-center pb-2.5 pt-2"
           style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${tone.color} 16%, var(--color-surface)), var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
@@ -144,13 +163,15 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
           <span className={desk.kind === 'empty' ? 'opacity-60' : ''}><Sprite character={look.character} anim={look.anim} /></span>
           <span className="flex h-[26px] items-end justify-center"><Nameplate desk={desk} /></span>
         </span>
-        <span className="flex flex-col gap-1 px-3 pb-3 pt-2">
+        <span className={`flex flex-col gap-1 px-3 pb-3 pt-2 ${mine ? 'bg-brand-weak' : ''}`}>
           <span className="flex items-center gap-2">
             <b className="text-sm text-ink">{desk.kind === 'lead' ? (desk.slot === 'poll' ? '단독 감시' : '팀장') : desk.label}</b>
             <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: tone.color === '#b7bfba' ? 'var(--color-ink-subtle)' : tone.color }}>
               <i className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: tone.color }} />{tone.label}
             </span>
           </span>
+          {/* 계정 명찰 줄 — 빈자리도 높이를 지켜 책상 줄이 맞는다. 모델 명찰(캐릭터 발밑)과는 다른 칸이다. */}
+          <span className="flex h-4 min-w-0 items-center">{owner && <OwnerTag owner={owner} />}</span>
           <span className="line-clamp-2 min-h-[2.5em] text-xs text-ink-muted">{deskLine(desk, host, nowMs, chatter)}</span>
           {desk.seat && <Progress pct={desk.seat.progress} color={tone.color} />}
           <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `신호 ${ageLabel(sig, nowMs)}` : ' '}</span>
@@ -287,6 +308,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
   const look = deskLook(desk)
   const title = desk.kind === 'lead' ? (desk.slot === 'poll' ? '단독 감시' : '팀장') : desk.label
   const seat = desk.seat
+  const owner = deskOwner(desk)
   return (
     <aside data-roster-profile className="sticky top-0 flex min-w-0 flex-[0_1_340px] flex-col gap-4 rounded-3xl border border-line bg-surface p-5 shadow-sm">
       <div className="flex items-center gap-4">
@@ -298,6 +320,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           <p className="font-mono text-[11px] text-ink-subtle">{host.label}</p>
           <h2 className="text-xl font-extrabold text-ink">{title}</h2>
           {desk.raw && <p className="truncate font-mono text-xs text-ink-subtle" title={desk.raw}>{desk.raw}</p>}
+          {owner && <span className="mt-1 flex min-w-0"><OwnerTag owner={owner} /></span>}
           {desk.kind !== 'lead' && desk.kind !== 'empty' && (
             <span className="mt-1.5 flex flex-wrap items-center gap-2">
               <Nameplate desk={desk} size="lg" />
@@ -327,7 +350,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
         <section className="rounded-2xl border border-[#F0B068] bg-[color-mix(in_srgb,#F0B068_12%,var(--color-surface))] p-3">
           <h3 className="text-xs font-bold text-ink">결정이 필요합니다</h3>
           <p className="mt-1 whitespace-pre-wrap text-sm text-ink-muted">{seat.note ?? '에이전트가 사유를 남기지 않았습니다.'}</p>
-          <p className="mt-2 text-[11px] text-ink-subtle">답은 위임·승인 탭이나 가상 오피스의 이 좌석에서 합니다.</p>
+          <p className="mt-2 text-[11px] text-ink-subtle">답은 위임·승인 탭이나 에이전트 스튜디오의 이 좌석에서 합니다.</p>
         </section>
       )}
       {desk.kind === 'lead' && desk.watcher && (

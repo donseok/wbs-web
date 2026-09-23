@@ -2,7 +2,7 @@
 # dflow.sh — D'Flow Agent API 얇은 curl 래퍼. 계약 v2.x (references/api-contract.md).
 # 정확한 기대 버전은 아래 CONTRACT_VERSION 하나뿐이다 — 주석과 비교문에 숫자를 따로 두면
 # 둘이 따로 낡는다(2026-08-27 감사: 서버가 2.1 인데 비교문만 2.0 으로 남아 있었다).
-# exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐
+# exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨(409 code=cancelled)
 # 토큰은 env 확장으로만 전달한다 — echo·파일 기록·명령 문자열 보간 금지.
 set -u
 
@@ -37,6 +37,8 @@ usage() {
   release <ref>
   profiles               토큰마다 한 줄 JSON(n·prefix·name·email·expires_at·projects·bound·selected). 토큰 값은 내지 않는다
   doctor                 설정·의존성·계약 버전 점검
+exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨
+      10 = 사람이 D'Flow 에서 작업을 중단했다(409 code=cancelled). 더 진행하지 말고 멈춘다
 EOF
   exit 2
 }
@@ -137,7 +139,13 @@ api_raw() { # $1=METHOD $2=PATH [$3=JSON body] — TOKEN env 필요. 성공 시 
       fi
       exit 5 ;;
     404) printf '%s\n' "$_body" >&2; exit 7 ;;
-    409) printf '%s\n' "$_body" >&2; exit 4 ;;
+    409)
+      printf '%s\n' "$_body" >&2
+      # 사람이 중단한 주문(2026-09-19)은 경합·상태 불일치와 처방이 다르다 — 재시도가 아니라 즉시 멈춤이다.
+      if [ "$(printf '%s' "$_body" | jq -r '.code // empty' 2>/dev/null)" = "cancelled" ]; then
+        exit 10
+      fi
+      exit 4 ;;
     4??) printf '%s\n' "$_body" >&2; exit 2 ;;
     *)   printf '%s\n' "$_body" >&2; exit 6 ;;
   esac
@@ -288,7 +296,11 @@ cmd_claim() {
   # ① show 로 선행 evidence 를 먼저 받아 로컬 검사 — 통과 전에는 claim 자체를 하지 않는다(결정 C-②).
   _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
   check_depends_local "$(printf '%s' "$_detail" | jq -c '.depends_evidence // []')"
-  _label="claude-$(host_short)"  # 라벨 결정론(§3) — 무작위·타임스탬프 금지
+  # 라벨 결정론(§3) — 무작위·타임스탬프 금지. .dflow-agent 가 있으면 그 신원, 없으면 종전과 같은
+  # claude-<host> — 어느 경로든 같은 자리는 늘 같은 문자열을 낸다. heartbeat(agent_id_default)와
+  # 신원을 맞춰야 좌석표가 claimed_by 와 heartbeat_agent 를 같은 에이전트로 합친다
+  # (src/lib/domain/seatmap.ts:180 — 서로 다르면 신원 없는 별도 좌석으로 갈라진다).
+  _label=$(agent_id_default)
   _resp=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/claim" \
     "$(jq -nc --arg a "$_label" '{agent:$a}')") || exit $?
   write_spec_cache "$_resp"
@@ -298,8 +310,10 @@ cmd_claim() {
 cmd_progress() {
   _id=$(resolve_ref "$1"); _pct="$2"; _sum="$3"
   [ "$_pct" -ge 0 ] 2>/dev/null && [ "$_pct" -le 99 ] || die 2 "pct 는 0~99 — 완료는 done 을 쓰세요."
+  # claim 과 같은 신원 산출(agent_id_default) — heartbeat_agent 와 어긋나면 보고 행의 귀속이
+  # 갈라진다. 라벨 결정론(§3) 은 이 경로에서도 유지된다(같은 자리는 늘 같은 문자열).
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" \
-    "$(jq -nc --arg a "claude-$(host_short)" --argjson p "$_pct" --arg s "$_sum" \
+    "$(jq -nc --arg a "$(agent_id_default)" --argjson p "$_pct" --arg s "$_sum" \
        '{agent:$a, kind:"progress", percent:$p, summary:$s}')") || exit $?
   printf '%s' "$_body" | jq -r '.status'
 }
@@ -398,8 +412,9 @@ cmd_done() {
        + (if $r|startswith("http") then {repo_url:$r} else {} end)
        + (if $p != "" then {pr_url:$p} else {} end)') || die 2 "증적 JSON 생성 실패"
   fi
+  # claim·progress 와 같은 신원 산출 — 완료 보고도 heartbeat_agent 와 귀속을 맞춘다.
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" \
-    "$(jq -nc --arg a "claude-$(host_short)" --arg s "$_sum" \
+    "$(jq -nc --arg a "$(agent_id_default)" --arg s "$_sum" \
        --argjson l "$_links" --argjson e "$_evidence" \
        '{agent:$a, kind:"completion", percent:100, summary:$s, links:$l, evidence:$e}')") || exit $?
   printf '%s' "$_body" | jq -r '"reported(승인 대기) — PM 승인은 웹에서"'
@@ -407,8 +422,9 @@ cmd_done() {
 
 cmd_release() {
   _id=$(resolve_ref "$1")
+  # claim·progress·done 과 같은 신원 산출 — release 도 heartbeat_agent 와 귀속을 맞춘다.
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/release" \
-    "$(jq -nc --arg a "claude-$(host_short)" '{agent:$a}')") || exit $?
+    "$(jq -nc --arg a "$(agent_id_default)" '{agent:$a}')") || exit $?
   printf '%s' "$_body" | jq -r '.status'
 }
 

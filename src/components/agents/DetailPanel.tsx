@@ -4,7 +4,7 @@ import type { Seat } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { STATE_LABEL } from './Seat'
 import { opsFor, opSpec, type SeatOpKind } from './seatOps'
-import { IconApprove, IconReject, IconRelease, IconResume, IconRework, IconUnapprove } from './icons'
+import { IconApprove, IconReject, IconResume, IconRework, IconStop, IconUnapprove } from './icons'
 import css from './seatmap.module.css'
 
 const LADDER: Array<{ phase: string; pct: number }> = [
@@ -12,7 +12,7 @@ const LADDER: Array<{ phase: string; pct: number }> = [
 ]
 
 const OP_ICON: Record<SeatOpKind, () => React.JSX.Element> = {
-  approve: IconApprove, reject: IconReject, unapprove: IconUnapprove, rework: IconRework, release: IconRelease,
+  approve: IconApprove, reject: IconReject, unapprove: IconUnapprove, rework: IconRework, stop: IconStop,
   resume: IconResume,
 }
 
@@ -24,7 +24,7 @@ function ladderPhase(seat: Seat): string {
   return seat.phase
 }
 
-/** 사유를 받아야 확정되는 op 의 입력 상태 — 정본은 SeatmapView 가 쥔다(30초 폴링이 작성 중인 글을 지우지 않게). */
+/** 사유를 받거나(반려·재작업) 한 번 확인받아야(중단) 확정되는 op 의 입력 상태 — 정본은 SeatmapView 가 쥔다(30초 폴링이 작성 중인 글을 지우지 않게). */
 export interface NoteDraft { orderId: string; kind: SeatOpKind; text: string }
 
 /** 모달 머리에 쓰는 한 줄 — 층 · 구역 · 주문 8자리. */
@@ -51,6 +51,7 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
   const showSignal = !['READY', 'DONE', 'WAIT'].includes(seat.state)
   const ops = opsFor(seat)
   const draft = note && note.orderId === seat.orderId ? note : null
+  const draftSpec = draft ? opSpec(draft.kind) : null
   const noteReady = (draft?.text ?? '').trim().length > 0
   return (
     <div className={css.panel} data-panel="" aria-live="polite">
@@ -110,7 +111,20 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
             )
           })}
       </div>
-      {draft && (
+      {/* 확인이 필요한 op(중단) — 사유 입력과 같은 자리에서 한 번 더 묻는다. 브라우저 confirm() 은 쓰지 않는다. */}
+      {draft && draftSpec?.needsConfirm && (
+        <div className={css.noteBox} data-confirm="" data-op-confirm-box={draft.kind}>
+          <p className={css.confirmText}>{draftSpec.label}할까요? {draftSpec.title}</p>
+          <div className={css.noteRow}>
+            <button type="button" className={css.act} data-op={draft.kind} data-op-confirm=""
+              disabled={busy} onClick={onNoteConfirm}>
+              {draftSpec.label} 확정
+            </button>
+            <button type="button" className={css.act} data-op-cancel="" onClick={onNoteCancel}>취소</button>
+          </div>
+        </div>
+      )}
+      {draft && !draftSpec?.needsConfirm && (
         <div className={css.noteBox}>
           <label htmlFor="seat-op-note">{opSpec(draft.kind).label} 사유 (필수)</label>
           <textarea id="seat-op-note" data-op-note="" rows={2} value={draft.text}

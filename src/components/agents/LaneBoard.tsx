@@ -7,6 +7,7 @@ import { PhaseBadge } from './PhaseBadge'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { STATE_LABEL, SeatMark, seatMetaLine } from './Seat'
+import { OwnerTag, ownerLabel } from './OwnerTag'
 import { IconFolded, IconStale, IconWait } from './icons'
 import css from './seatmap.module.css'
 
@@ -53,7 +54,7 @@ function LaneSpeech({ seat, nowMs }: { seat: Seat; nowMs: number }) {
  */
 export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, onSelect, onOp }: {
   map: Seatmap; selectedId: string | null; nowMs: number; busyOrderId: string | null
-  /** 전체 오피스는 층이 여러 개라 카드에 층 이름을 같이 쓴다. */
+  /** 전체 스튜디오는 층이 여러 개라 카드에 층 이름을 같이 쓴다. */
   showFloorName: boolean
   onSelect: (orderId: string) => void
   onOp: SeatOpHandler
@@ -70,9 +71,11 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
               {Icon && <Icon />}<b>{lane.title}</b><span className={css.laneN} data-lane-n={lane.key}>{list.length}</span>
             </div>
             {list.length === 0 && <p className={css.laneEmpty}>없음</p>}
-            {list.map(({ seat, floorName, zoneLabel }) => (
+            {list.map(({ seat, floorName, zoneLabel }) => {
+              const owner = ownerLabel(seat)
+              return (
               <div key={seat.orderId} className={css.card} data-state={seat.state}
-                data-selected={seat.orderId === selectedId ? '1' : undefined}>
+                data-selected={seat.orderId === selectedId ? '1' : undefined} data-owner={owner?.kind}>
                 <button type="button" className={css.deskPick}
                   aria-pressed={seat.orderId === selectedId}
                   aria-label={`${seat.code} ${seat.name} ${STATE_LABEL[seat.state]}`}
@@ -82,6 +85,7 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
                     <span className={css.cardText}>
                       <span className={css.cardZone}>{showFloorName ? `${floorName} · ${zoneLabel}` : zoneLabel}</span>
                       <span className={css.deskName}>{seat.code} {seat.name}</span>
+                      {owner && <span className="flex min-w-0"><OwnerTag owner={owner} /></span>}
                       <span className={css.cardMeta}><PhaseBadge seat={seat} size="chip" /><span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span></span>
                     </span>
                     <SeatMark state={seat.state} anim={seat.anim} />
@@ -91,7 +95,8 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
                 </button>
                 <SeatOpsBar seat={seat} busy={busyOrderId === seat.orderId} onOp={onOp} />
               </div>
-            ))}
+              )
+            })}
           </section>
         )
       })}

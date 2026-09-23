@@ -1,5 +1,5 @@
 // 에이전트 허브 조립 — 순수 함수. 트리 순서·행 상태·카운터·승인 큐·감시자를 한 번에 만든다. DB·세션을 모른다.
-// 좌석 층은 여기서 만들지 않는다 — /agents/office 가 좌석표 로더로 그린다(2026-09-14 오피스 분리 스펙 §4-2).
+// 좌석 층은 여기서 만들지 않는다 — /agents/office 가 좌석표 로더로 그린다(2026-09-14 스튜디오 분리 스펙 §4-2).
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
@@ -224,7 +224,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
   return {
     projectId, projectName: rows.project?.name ?? '',
     registered: rows.agentProject !== null, enabled: rows.agentProject?.enabled === true,
-    // 좌석 층은 /agents/office 가 그린다(2026-09-14 오피스 분리 스펙 §4-2). 감시자만 이 프로젝트 것으로.
+    // 좌석 층은 /agents/office 가 그린다(2026-09-14 스튜디오 분리 스펙 §4-2). 감시자만 이 프로젝트 것으로.
     counters, watchers: watchersFor(rows.watchers, projectId, nowMs),
     rows: hubRows, queue, fetchedAt: new Date(nowMs).toISOString(),
     viewer: { isAdmin: viewer.isAdmin, memberIds },

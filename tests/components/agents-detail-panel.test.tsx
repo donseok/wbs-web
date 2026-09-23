@@ -86,7 +86,7 @@ describe('DetailPanel — 좌석 결재', () => {
   })
   it('빈자리에는 할 것이 없다고 적고, 처리 실패는 그대로 보여 준다', () => {
     act(() => root.render(<DetailPanel seat={seat({ state: 'READY' })}  nowMs={NOW}
-      {...OPS} opError="상태가 바뀌어 회수하지 못했습니다. 다시 시도하세요." />))
+      {...OPS} opError="상태가 바뀌어 중단하지 못했습니다. 다시 시도하세요." />))
     expect(host.querySelectorAll('[data-panel-op]')).toHaveLength(0)
     expect(host.textContent).toContain('이 좌석에는 처리할 것이 없습니다')
     expect(host.querySelector('[data-op-error]')?.textContent).toContain('상태가 바뀌어')

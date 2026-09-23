@@ -13,7 +13,7 @@ vi.mock('@/lib/authz', () => ({ requireProjectMember: mocks.requireProjectMember
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/data/agentHub', () => ({ getAgentHub: mocks.getAgentHub }))
 vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail }))
-// isSubtreeManager 는 runHubProcessOp 의 회수 게이트가 requireSubtreeManagerOrAdmin(subtreeManager.ts,
+// isSubtreeManager 는 runHubProcessOp 의 중단 게이트가 requireSubtreeManagerOrAdmin(subtreeManager.ts,
 // 실제 모듈)을 통해 부른다 — myMemberIds 와 같은 자리에서 같이 목킹한다(트랙 B, 2026-09-15).
 vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds, isSubtreeManager: mocks.isSubtreeManager }))
 vi.mock('@/lib/agent/delegation', () => ({
@@ -57,7 +57,7 @@ function fakeAdmin(cfg: {
   orders?: Record<string, { project_id: string; status?: string; wbs_item_id?: string | null; claimed_by?: string | null }>
   items?: Record<string, { project_id: string; name?: string; assignee_member_id?: string | null }>
   updateRows?: number
-  /** 전이 RPC 응답 — 기본은 회수 성공(실적 무변경이라 스냅샷 없음). */
+  /** 전이 RPC 응답 — 기본은 전이 성공(실적 무변경이라 스냅샷 없음). */
   rpc?: { data?: unknown; error?: { message: string } | null }
 }) {
   const updates: { table: string; payload: Record<string, unknown> }[] = []
@@ -215,7 +215,7 @@ describe('applyHubDelegations — 묶음 1건: 가드 1회 → 항목별 applyDe
 describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인지 → 기존 액션 → 허브 재조회를 한 응답에(§11)', () => {
   const ORDERS = { [O(1)]: { project_id: P1, status: 'reported', wbs_item_id: I(1) }, [O(2)]: { project_id: P2, status: 'reported', wbs_item_id: null } }
   const ITEMS = { [I(1)]: { project_id: P1, name: '입측 화면', assignee_member_id: 'm1' }, [I(2)]: { project_id: P2 } }
-  // 이 블록의 기본 화자는 관리자 — 승인·회수·단계·재조회 isAdmin 을 확인한다. 멤버 경로는 아래 별도 블록.
+  // 이 블록의 기본 화자는 관리자 — 승인·중단·단계·재조회 isAdmin 을 확인한다. 멤버 경로는 아래 별도 블록.
   beforeEach(() => { mocks.requireProjectMember.mockResolvedValue(ADMIN) })
 
   it('approve → approveAgentCompletion(orderId) → hub(isAdmin=true); reject·unapprove·rework 도 각 액션으로', async () => {
@@ -241,24 +241,58 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
     await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: null })
     expect(mocks.setWbsStage).toHaveBeenCalledWith(I(1), null)
   })
-  it('release → claimed 만, 전이 RPC(release 사건 — 점유·heartbeat 흔적 제거는 DB 가 한다), work.released 알림을 배정자에게', async () => {
+  // 2026-09-19 중단 설계 §1 — 회수(release)를 중단(stop)으로: 위임 해제 경로(applyDelegation)를 재사용해
+  // 주문을 cancelled 로(종착 상태 — 폴러가 다시 집어 갈 틈이 없다), 단계 되돌리기는 그 경로가 한다.
+  it('stop → claimed 만, applyDelegation(delegated:false) 로 위임 해제·주문 취소, work.released 알림(중단 문구)', async () => {
     const { updates, rpcCalls } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
-    expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
+    mocks.applyDelegation.mockResolvedValue({ ok: true, cancelledClaimedIds: [O(1)] })
+    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.applyDelegation).toHaveBeenCalledWith(expect.anything(), {
+      itemId: I(1), projectId: P1, delegated: false, actorUserId: 'admin-1', isAdmin: true,
+    })
+    // release 사건(→ ready)은 쓰지 않는다 — ready 를 거치면 그 사이 폴러가 다시 집어 간다.
+    expect(rpcCalls).toHaveLength(0)
     expect(updates).toHaveLength(0)
-    expect(rpcCalls).toEqual([expect.objectContaining({ p_event: 'release', p_order_id: O(1), p_actor: 'admin-1', p_agent: null, p_agent_user_id: null })])
     expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
       type: 'work.released', projectId: P1, actorUserId: 'admin-1', entityType: 'agent_order', entityId: O(1),
-      payload: expect.objectContaining({ title: '입측 화면', detail: '관리자가 작업을 회수했습니다' }),
+      payload: expect.objectContaining({ title: '입측 화면', detail: '관리자가 작업을 중단했습니다' }),
       recipientMemberIds: ['m1'],
     }))
   })
-  it('release — claimed 가 아니면 거부, 전이 RPC 가 경합(conflict)이면 재시도 문구', async () => {
+  it('stop — 위임 해제의 warning(단계 되돌리기 실패 등)은 응답에 싣는다', async () => {
+    fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
+    mocks.applyDelegation.mockResolvedValue({ ok: true, cancelledClaimedIds: [O(1)], warning: '단계를 되돌리지 못했습니다' })
+    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB, warning: '단계를 되돌리지 못했습니다' })
+  })
+  it('stop — claimed 가 아니면 거부(위임 해제 없음), 위임 해제 실패는 오류 그대로', async () => {
     fakeAdmin({ orders: ORDERS })
-    expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: false, error: '회수할 수 있는 상태가 아닙니다(reported).' })
-    const { rpcCalls } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, rpc: { data: { ok: false, conflict: true, order_status: 'ready' } } })
-    expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: false, error: '상태가 바뀌어 회수하지 못했습니다. 다시 시도하세요.' })
-    expect(rpcCalls).toHaveLength(1)
+    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: false, error: '중단할 수 있는 상태가 아닙니다(reported).' })
+    expect(mocks.applyDelegation).not.toHaveBeenCalled()
+    fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } } })
+    mocks.applyDelegation.mockResolvedValue({ ok: false, error: '주문 취소 실패: boom' })
+    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: false, error: '주문 취소 실패: boom' })
     expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+  it('stop — 그 사이 주문이 바뀌어 이 주문이 취소되지 않았으면 재시도 문구(알림 없음)', async () => {
+    fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
+    mocks.applyDelegation.mockResolvedValue({ ok: true })
+    const r = await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })
+    expect(r).toEqual({ ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다 — 위임은 해제됐습니다. 새로고침 후 확인하세요.' })
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+  it('stop — WBS 항목이 지워진 주문은 주문만 CAS 로 cancelled(위임 해제 경로 없음), 경합이면 재시도 문구', async () => {
+    const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } } })
+    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.applyDelegation).not.toHaveBeenCalled()
+    expect(updates).toHaveLength(1)
+    expect(updates[0]).toMatchObject({ table: 'agent_work_orders', payload: { status: 'cancelled', claimed_by: null, claimed_by_user_id: null, claimed_at: null } })
+    fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } }, updateRows: 0 })
+    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) }))
+      .toEqual({ ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다. 다시 시도하세요.' })
+  })
+  it('옛 release op 는 더 받지 않는다 — 형식 검사에서 거부', async () => {
+    fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } } })
+    expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) } as never)).toEqual({ ok: false, error: '잘못된 요청입니다.' })
   })
   it('resume → claimed 인 주문에 표식만 얹는다(상태·updated_at 불변), 호스트는 점유 라벨에서 서버가 판다', async () => {
     const { updates, rpcCalls } = fakeAdmin({
@@ -282,7 +316,7 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       .toEqual({ ok: false, error: '재개를 요청할 수 있는 상태가 아닙니다(reported).' })
     const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: null } } })
     expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) }))
-      .toEqual({ ok: false, error: '점유 라벨에서 이어받을 PC 를 읽지 못했습니다 — 회수한 뒤 다시 배정하세요.' })
+      .toEqual({ ok: false, error: '점유 라벨에서 이어받을 PC 를 읽지 못했습니다 — 중단한 뒤 다시 위임하세요.' })
     expect(updates).toHaveLength(0)
   })
   it('resume — 경합으로 한 행도 못 고치면 재시도 문구', async () => {
@@ -328,12 +362,12 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
     expect(mocks.requireProjectMember).toHaveBeenCalledTimes(1)
   })
 
-  describe('멤버(비관리자) — 반려·승인 취소·재작업은 내부 액션(자격은 그쪽)으로, 회수는 여기서 관리자 또는 서브트리 관리자로 좁힌다(트랙 B)', () => {
+  describe('멤버(비관리자) — 반려·승인 취소·재작업은 내부 액션(자격은 그쪽)으로, 중단은 여기서 관리자 또는 서브트리 관리자로 좁힌다(트랙 B)', () => {
     beforeEach(() => {
       mocks.requireProjectMember.mockResolvedValue(MEMBER)
       // requireSubtreeManagerOrAdmin(subtreeManager.ts, 실제 모듈)의 내부 admin fast path 를
       // 이 블록에서는 확실히 막는다 — 안 막으면 최상단 beforeEach 의 requireProjectAdmin 기본값
-      // (ADMIN, ok:true)이 그대로 살아 있어 "멤버" 시나리오에서도 회수가 새어 나간다.
+      // (ADMIN, ok:true)이 그대로 살아 있어 "멤버" 시나리오에서도 중단이 새어 나간다.
       mocks.requireProjectAdmin.mockResolvedValue(DENIED)
       mocks.isSubtreeManager.mockResolvedValue(false)
     })
@@ -343,33 +377,37 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       expect(mocks.reject).toHaveBeenCalledWith(O(1), '다시')
       expect(mocks.getAgentHub).toHaveBeenCalledWith(P1, { userId: 'member-1', isAdmin: false })
     })
-    it('서브트리 관리자가 아닌 멤버의 회수는 여기서 막는다 — 내부 액션·재조회 없음', async () => {
+    it('서브트리 관리자가 아닌 멤버의 중단은 여기서 막는다 — 내부 액션·재조회 없음', async () => {
       fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } } })
-      expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) }))
-        .toEqual({ ok: false, error: '회수는 관리자 또는 서브트리 관리자만 할 수 있습니다.' })
+      expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) }))
+        .toEqual({ ok: false, error: '중단은 관리자 또는 서브트리 관리자만 할 수 있습니다.' })
+      expect(mocks.applyDelegation).not.toHaveBeenCalled()
       expect(mocks.emitNotification).not.toHaveBeenCalled()
       expect(mocks.getAgentHub).not.toHaveBeenCalled()
     })
-    it('서브트리 관리자가 아닌 멤버의 재개 요청도 회수와 같은 축에서 막힌다', async () => {
+    it('서브트리 관리자가 아닌 멤버의 재개 요청도 중단과 같은 축에서 막힌다', async () => {
       const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: 'claude-mbp' } } })
       expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) }))
         .toEqual({ ok: false, error: '재개 요청은 관리자 또는 서브트리 관리자만 할 수 있습니다.' })
       expect(updates).toHaveLength(0)
       expect(mocks.getAgentHub).not.toHaveBeenCalled()
     })
-    it('WBS 항목이 삭제된 주문(wbs_item_id 없음)의 회수는 조상을 특정 못 해 관리자만', async () => {
+    it('WBS 항목이 삭제된 주문(wbs_item_id 없음)의 중단은 조상을 특정 못 해 관리자만', async () => {
       fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } } })
-      expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) }))
-        .toEqual({ ok: false, error: '회수는 관리자만 할 수 있습니다.' })
+      expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) }))
+        .toEqual({ ok: false, error: '중단은 관리자만 할 수 있습니다.' })
       expect(mocks.isSubtreeManager).not.toHaveBeenCalled()
     })
-    it('서브트리 관리자인 멤버의 회수는 허용 — requireSubtreeManagerOrAdmin 을 통해 통과(트랙 B)', async () => {
+    it('서브트리 관리자인 멤버의 중단은 허용 — requireSubtreeManagerOrAdmin 을 통해 통과(트랙 B)', async () => {
       mocks.viewerEmail.mockResolvedValue('anc@x.com')
       mocks.myMemberIds.mockResolvedValue(['anc-member'])
       mocks.isSubtreeManager.mockResolvedValue(true)
-      const { rpcCalls } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
-      expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
-      expect(rpcCalls).toEqual([expect.objectContaining({ p_event: 'release', p_actor: 'member-1' })])
+      mocks.applyDelegation.mockResolvedValue({ ok: true, cancelledClaimedIds: [O(1)] })
+      fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
+      expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
+      expect(mocks.applyDelegation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        itemId: I(1), delegated: false, actorUserId: 'member-1', isAdmin: false,
+      }))
       expect(mocks.isSubtreeManager).toHaveBeenCalledWith(
         expect.anything(), { itemId: I(1), projectId: P1, myMemberIds: ['anc-member'] },
       )

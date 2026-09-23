@@ -1,5 +1,5 @@
 'use client'
-// 에이전트 두 화면(위임·승인 · 가상 오피스)의 공통 틀 — 같은 다크 헤더 띠에 탭·제목·한 문장 요약·
+// 에이전트 두 화면(위임·승인 · 에이전트 스튜디오)의 공통 틀 — 같은 다크 헤더 띠에 탭·제목·한 문장 요약·
 // 상태 누적 막대·타일을 얹고, 화면마다 다른 조작부(tools)는 띠 아래 고정 줄로 뺀다(2026-09-18 사용자 결정).
 //
 // 헤더는 ProjectPageShell 의 hero(장식) 슬롯이라 컴팩트 뷰포트에선 걷힌다. 탭과 조작부는 화면의 유일한
@@ -10,7 +10,7 @@ import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { useCompactViewport } from '@/lib/hooks/useCompactViewport'
 import { AgentTabs, type TabTone } from './AgentTabs'
 
-/** 헤더 띠 위(dark)·컴팩트 고정 줄(light)에 얹는 내비게이션. 기본은 프로젝트의 위임·승인|가상 오피스 탭이다. */
+/** 헤더 띠 위(dark)·컴팩트 고정 줄(light)에 얹는 내비게이션. 기본은 프로젝트의 위임·승인|에이전트 스튜디오 탭이다. */
 export type HeroNav = (tone: TabTone) => ReactNode
 
 /** 헤더 타일 하나. bar=false 면 누적 막대에서 뺀다(합계가 다른 축의 숫자). */
@@ -50,7 +50,7 @@ export function AgentHero({ nav, projectName, title, lede, tiles, aside }: {
 }
 
 export function AgentFrame({ projectId, nav, projectName, title, lede, tiles, tools, children }: {
-  /** 프로젝트 화면이면 그 프로젝트의 탭을 단다. 전체 오피스처럼 프로젝트가 없는 화면은 nav 를 직접 준다. */
+  /** 프로젝트 화면이면 그 프로젝트의 탭을 단다. 전체 스튜디오처럼 프로젝트가 없는 화면은 nav 를 직접 준다. */
   projectId?: string; nav?: HeroNav
   /** 제목 위 eyebrow — 프로젝트 화면은 프로젝트명. */
   projectName: string; title: string; lede: ReactNode; tiles: HeroTile[]

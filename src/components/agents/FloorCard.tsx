@@ -2,7 +2,7 @@
 'use client'
 import { useState } from 'react'
 import type { Floor, Zone } from '@/lib/domain/seatmap'
-import { ZoneBlock, isEmptyZone } from './ZoneBlock'
+import { ZoneBlock } from './ZoneBlock'
 import type { SeatOpHandler } from './SeatOpsBar'
 import { IconBlocked, IconFolded, IconWait } from './icons'
 import css from './seatmap.module.css'
@@ -29,9 +29,8 @@ export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = fa
   onSelect: (orderId: string | null) => void
   onOp: SeatOpHandler
 }) {
-  // 빈 구역은 기본 접힘(opened 에 든 것만 펼침), 나머지는 기본 펼침(folded 에 든 것만 접힘).
-  // 선택된 좌석이 든 구역은 어느 쪽이든 펼친다.
-  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set())
+  // 모든 구역은 기본 펼침이다(folded 에 든 것만 접힘) — 빈 구역도 책상을 그린다(2026-09-19, 모두 펼치기가 기본).
+  // 선택된 좌석이 든 구역은 접혀 있어도 펼친다.
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
   const w = floor.watchers
   const watchLabel = w.length === 0 ? '감시 없음'
@@ -39,21 +38,21 @@ export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = fa
   const shown: Zone[] = [], icons: Zone[] = []
   for (const z of floor.zones) {
     const holdsSelected = selectedId != null && z.seats.some(s => s.orderId === selectedId)
-    const collapsed = isEmptyZone(z, withDone) ? !opened.has(z.key) : folded.has(z.key)
+    const collapsed = folded.has(z.key)
     if (collapsed && !holdsSelected) icons.push(z)
     else shown.push(z)
   }
   const without = (set: ReadonlySet<string>, key: string) => { const next = new Set(set); next.delete(key); return next }
   const holds = (z: Zone) => selectedId != null && z.seats.some(s => s.orderId === selectedId)
-  const expand = (z: Zone) => (isEmptyZone(z, withDone) ? setOpened(prev => new Set(prev).add(z.key)) : setFolded(prev => without(prev, z.key)))
+  const expand = (z: Zone) => setFolded(prev => without(prev, z.key))
   const fold = (z: Zone) => {
     if (holds(z)) onSelect(null)
-    if (isEmptyZone(z, withDone)) setOpened(prev => without(prev, z.key)); else setFolded(prev => new Set(prev).add(z.key))
+    setFolded(prev => new Set(prev).add(z.key))
   }
-  const expandAll = () => { setFolded(new Set()); setOpened(new Set(floor.zones.filter(z => isEmptyZone(z, withDone)).map(z => z.key))) }
+  const expandAll = () => setFolded(new Set())
   const foldAll = () => {
     if (floor.zones.some(holds)) onSelect(null)
-    setOpened(new Set()); setFolded(new Set(floor.zones.filter(z => !isEmptyZone(z, withDone)).map(z => z.key)))
+    setFolded(new Set(floor.zones.map(z => z.key)))
   }
   return (
     <section className={css.floor} aria-label={floor.name}>

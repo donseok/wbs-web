@@ -1,8 +1,8 @@
-# 가상오피스·팀장 스킬 구현 착수 전 걸림돌 정리
+# 에이전트 스튜디오·팀장 스킬 구현 착수 전 걸림돌 정리
 
 - **작성일**: 2026-09-11
 - **대상 설계 정본 두 건**:
-  - 가상오피스(에이전트 좌석표·모니터링): `docs/superpowers/specs/2026-09-10-agent-seatmap-monitoring-design.md`
+  - 에이전트 스튜디오(에이전트 좌석표·모니터링): `docs/superpowers/specs/2026-09-10-agent-seatmap-monitoring-design.md`
   - 팀장 스킬 `/dflow-team`: `docs/superpowers/specs/2026-09-10-dflow-team-design.md`
   - 팀장 스킬 구현계획: `docs/superpowers/plans/2026-09-10-dflow-team.md`
 - **목적**: 착수 전에 남은 확인·결정 사항을 정리한다. 코드는 아직 작성하지 않는다.
@@ -12,9 +12,9 @@
 
 ## 요약
 
-남은 치명은 하나다: 가상오피스 좌석표가 Micro 컴퓨트 위에서 실시간 갱신 부하를 견디는지 검증되지 않았다.
+남은 치명은 하나다: 에이전트 스튜디오 좌석표가 Micro 컴퓨트 위에서 실시간 갱신 부하를 견디는지 검증되지 않았다.
 공통 항목으로 `blocked` 상태 모델 불일치[높음]가 남아 있다. 착수 전 사용자 결정이 필요한 항목은 셋이고,
-모두 가상오피스 쪽이다. 팀장 스킬은 설계가 스펙(`docs/superpowers/specs/2026-09-10-dflow-team-design.md`)과
+모두 에이전트 스튜디오 쪽이다. 팀장 스킬은 설계가 스펙(`docs/superpowers/specs/2026-09-10-dflow-team-design.md`)과
 구현계획에 확정되어 있고(잠금 소유 판정, push 훅 거부 갈래, 킷 복사형 push 검사, 로컬·원격 중복 후보 규칙
 포함), 남은 것은 리허설로만 확인할 수 있는 실측 항목뿐이다(A0 의 완료 알림·회수·`done`·한도 동작, auto 권한
 모드의 차단 명령, Orca 정리 경로와 생성 브랜치 이름, 캐시 경합).
@@ -24,7 +24,7 @@
 | 구분 | 치명 | 높음 | 중간 | 낮음 |
 |---|---|---|---|---|
 | 공통·연동 | 0 | 1 (상태 모델) | 0 | 0 |
-| 가상오피스 | 1 (Micro 부하) | 1 (STANDBY 신호) | 4 | 2 |
+| 에이전트 스튜디오 | 1 (Micro 부하) | 1 (STANDBY 신호) | 4 | 2 |
 | 팀장 스킬 | 0 | 2 (리허설 실측) | 2 | 0 |
 
 ---
@@ -40,7 +40,7 @@ heartbeat 훅 인증은 `dflow-work` 스킬의 `dflow.sh`(`.claude/skills/dflow-
 Bearer` 부착). 소유자 위장 방지는 서버의 `claimed_by` 판정(`not_claim_owner` 403)을 그대로 물려받아, 자기가
 claim 한 작업에만 heartbeat 를 보낼 수 있다.
 
-남은 잔여는 아래 가상오피스 세부의 [낮음] heartbeat 스코프 리터럴 항목을 참조한다.
+남은 잔여는 아래 에이전트 스튜디오 세부의 [낮음] heartbeat 스코프 리터럴 항목을 참조한다.
 
 ---
 
@@ -48,14 +48,14 @@ claim 한 작업에만 heartbeat 를 보낼 수 있다.
 
 ### [높음] 두 스펙의 상태 모델이 어긋난다: `blocked` 누락
 
-- **위치**: 가상오피스 스펙 §3 상태표 vs 팀장 스펙 §7·§9-2
-- **문제**: 가상오피스 상태표는 8종(ACTIVE/STALE/OFFLINE/IDLE/REJECTED/READY/DONE/STANDBY)뿐이고 `blocked` 가 없다. 팀장 스킬은 `blocked`(담당자 결정 대기·슬롯 점유)를 핵심 상태로 쓴다. 좌석 식별 파일은 워크트리 루트 `.dflow-agent` 다.
-- **터지는 지점**: 가상오피스가 먼저 구현되면 heartbeat 상태 열(마이그레이션 신규 번호)에 `blocked` 를 나중에 끼워 넣는 재작업이 발생한다.
+- **위치**: 에이전트 스튜디오 스펙 §3 상태표 vs 팀장 스펙 §7·§9-2
+- **문제**: 에이전트 스튜디오 상태표는 8종(ACTIVE/STALE/OFFLINE/IDLE/REJECTED/READY/DONE/STANDBY)뿐이고 `blocked` 가 없다. 팀장 스킬은 `blocked`(담당자 결정 대기·슬롯 점유)를 핵심 상태로 쓴다. 좌석 식별 파일은 워크트리 루트 `.dflow-agent` 다.
+- **터지는 지점**: 에이전트 스튜디오가 먼저 구현되면 heartbeat 상태 열(마이그레이션 신규 번호)에 `blocked` 를 나중에 끼워 넣는 재작업이 발생한다.
 - **해소**: 두 스펙의 착수 순서를 정하고, 상태값 스키마를 지금 합쳐 확정한다.
 
 ---
 
-## 가상오피스(좌석표·모니터링) 세부
+## 에이전트 스튜디오(좌석표·모니터링) 세부
 
 ### [치명] Micro 컴퓨트 위에서의 실시간 갱신 부하가 검증되지 않았다
 
@@ -140,9 +140,9 @@ claim 한 작업에만 heartbeat 를 보낼 수 있다.
 
 ## 문제없음으로 확인된 사항 (참고)
 
-- `/api/v1/agent/work/[id]/{claim,report}` 의 RLS·서버 가드 구조(0057 마이그레이션: 쓰기는 RLS 정책 없이 service_role 전용, 서버 가드가 유일 관문)를 가상오피스 스펙이 정확히 파악하고 있고, heartbeat 도 같은 패턴을 따르면 된다.
+- `/api/v1/agent/work/[id]/{claim,report}` 의 RLS·서버 가드 구조(0057 마이그레이션: 쓰기는 RLS 정책 없이 service_role 전용, 서버 가드가 유일 관문)를 에이전트 스튜디오 스펙이 정확히 파악하고 있고, heartbeat 도 같은 패턴을 따르면 된다.
 - `src/lib/authz/agentsAccess.ts` 신설 계획은 `canViewUsage` 관례를 그대로 재사용하는 설계라 authz 3단 가드(`requireSuperuser`·`requireProjectAdmin`·`requireProjectMember`) 우회가 아니다.
-- heartbeat 마이그레이션이 G4(0072+ 스테이징 리허설 필수) 대상임을 가상오피스 스펙이 정확히 인지하고 있다(§9-3).
+- heartbeat 마이그레이션이 G4(0072+ 스테이징 리허설 필수) 대상임을 에이전트 스튜디오 스펙이 정확히 인지하고 있다(§9-3).
 - `middleware.ts` 가 이미 png 를 인증 리다이렉트에서 제외해 스프라이트 서빙 자체는 문제없다.
 - `orca worktree rm --force` 는 지원된다("Force worktree removal when supported; does not force branch
   deletion"). 팀장 스킬은 부트스트랩 실패 정리(브랜치를 만들기 전에 끝나 알려진 부산물만 남은 워크트리)에만
@@ -161,4 +161,4 @@ claim 한 작업에만 heartbeat 를 보낼 수 있다.
    경로는 `.dflow-agent`(워크트리 루트)다.
 2. **heartbeat 스코프** — `work:claim` 재사용 vs 전용 스코프. PAT 조달·소유자 판정은 `dflow.sh heartbeat`
    서브커맨드 신설로 이미 해소되어 있다.
-3. **가상오피스 Micro 부하 실측** — S2 착수 전 선행한다.
+3. **에이전트 스튜디오 Micro 부하 실측** — S2 착수 전 선행한다.

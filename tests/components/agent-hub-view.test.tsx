@@ -101,7 +101,7 @@ describe('AgentHubView', () => {
     expect(host.querySelector('[data-hub-row="a1"]')).toBeNull()
     expect(refresh).toHaveBeenCalledWith('p1')
   })
-  it('좌석 층 섹션이 없다 — 층은 /agents/office 가 그린다(오피스 분리 스펙 §6-2)', () => {
+  it('좌석 층 섹션이 없다 — 층은 /agents/office 가 그린다(스튜디오 분리 스펙 §6-2)', () => {
     act(() => root.render(<AgentHubView initial={hub()} wbs={wbs()} />))
     expect(host.querySelector('section[aria-label="좌석"]')).toBeNull()
     expect(host.querySelector('[data-panel]')).toBeNull()

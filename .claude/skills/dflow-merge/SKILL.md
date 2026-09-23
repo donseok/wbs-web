@@ -147,7 +147,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    git rev-parse HEAD                      # 머지 직전 HEAD. 값을 기록해 둔다
    git merge-base --is-ancestor <증적 head_sha> <머지 대상>   # 증적에 head_sha 가 있을 때만. 0 이 아니면(커밋이 없거나 조상이 아님) 머지하지 않는다
    git diff --name-only <증적 head_sha>..<머지 대상>   # 증적에 head_sha 가 있을 때만. 실패하면 머지하지 않고, 그 작업의 state.json 뿐이거나 비어 있어야 머지한다
-   git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)"   # 로컬 후보 agent/<id8>-<slug>, 원격 전용 후보 origin/agent/<id8>-<slug>. 승인 전 머지는 (reported, 승인 전)
+   git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)" -m "DFlow-Order: <order>"   # 로컬 후보 agent/<id8>-<slug>, 원격 전용 후보 origin/agent/<id8>-<slug>. 승인 전 머지는 (reported, 승인 전). <order> 는 그 후보 state.json 의 order. git merge 는 --trailer 를 모른다(git commit 전용) — 둘째 -m 이 빈 줄 뒤 문단이 되어 트레일러로 인식된다
    git add docs/tasks/<TSK>/state.json && git commit -m "chore(<TSK>): phase=merged"   # state.json 을 phase=merged 로 고친 뒤, push 전에
    git push origin <기본브랜치>
    ```
@@ -167,7 +167,10 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
       거부하면 퇴행이기 때문이다.
    3. `git merge --no-ff <머지 대상>`. 충돌하면 `git merge --abort` 로 되돌리고 "머지 실패(충돌)" 로
       보고한 뒤 다음 후보로 간다. 이유: 충돌 상태로 남으면 체크아웃이 더러워져, 팀장이면 이후 모든
-      기상이 전제 검사에서 멈추고 수동이면 사람이 그 상태를 치워야 한다.
+      기상이 전제 검사에서 멈추고 수동이면 사람이 그 상태를 치워야 한다. 사람이 그 자리에서 충돌을
+      손으로 풀어 `git merge --abort` 대신 직접 `git commit` 으로 머지를 완성하는 경로도 있다 — 이
+      경로에도 아래 트레일러 규칙이 그대로 적용된다. "자동 스윕이 아니다" 는 트레일러를 빠뜨릴
+      이유가 되지 않는다.
    4. state.json 을 `phase=merged` 로 갱신해 기본 브랜치에 커밋한다(파일명 명시). 이 커밋을 **push 전에**
       만든다. 승인 전 머지면 같은 커밋에서 `unapproved: true` 를 함께 넣는다. `phase` 를 `merged` 가 아닌 새 값으로
       만들지 않는 이유: `/dflow-dev` 「--worker」 행 G 의 기본 브랜치 반영 확인이 `phase` 가 `merged` 인지를 보고,
@@ -189,6 +192,17 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
       우회하지 않는 것은 그대로다.
    `--no-ff` 고정 — 작업 단위 경계가 머지 커밋으로 남아야 추적이 된다. push 가 훅에 거부되면
    우회 금지. 되돌리고 보고한 뒤 그 작업과 후손만 빼는 절차는 위 5단계다.
+
+   **트레일러 고정**: 이 스윕이 만드는 모든 머지 커밋에는 `DFlow-Order: <order>` 트레일러를 붙인다
+   (`<order>` 는 그 후보 `docs/tasks/<TSK>/state.json` 의 `order`, 주문 UUID). 붙이는 방법은 커밋 방식마다
+   다르다 — `git merge` 에는 `--trailer` 가 없으므로(`git commit` 전용 옵션이다) 3단계의
+   `git merge --no-ff` 는 위 블록처럼 둘째 `-m "DFlow-Order: <order>"` 로 붙인다(빈 줄 뒤 단독 문단이
+   트레일러로 인식된다). 충돌을 손으로 풀어 직접 `git commit` 으로 머지를 완성할 때는 `git commit --trailer
+   "DFlow-Order: <order>"` 를 그대로 쓴다. 어느 경로든 결과 메시지에 이 트레일러가 실려야 하는 것은 같다.
+   이 트레일러가 `/dflow-dev` 「--worker」 행 G 의 기본 브랜치 반영 확인이 보는 증거 중 하나이며, 부착이
+   우연에 맡겨지면 실제로 반영된 선행도 후속 워커가 승인 대기로 오판한다(2026-09-22 mdm-dict-v2 실측:
+   선행 4건 TSK-03-07·03-09·03-11·03-12 가 origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건
+   TSK-03-10·03-13·04-01 이 모두 막혔다).
 
    **임시 머지 워크트리**: 호출한 체크아웃이 기본 브랜치에 있지 않을 때 쓴다. 스윕을 시작할 때 한 번 만들고
    끝날 때 지운다. `<ROOT>` 는 호출한 체크아웃의 `git rev-parse --show-toplevel` 이다.

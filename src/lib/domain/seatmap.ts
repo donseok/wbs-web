@@ -57,7 +57,7 @@ export interface Seat {
   resumeRequestedHost: string | null
   /** READY(빈자리)만 값 — 왜 아직 안 집어갔는지(스펙 2026-09-14 착수 대기 사유 §1). 나머지 상태는 null. */
   waitReason: WaitReason | null
-  /** 관리자이거나 이 항목의 서브트리 관리자 — 승인·회수 어포던스. 서버 가드
+  /** 관리자이거나 이 항목의 서브트리 관리자 — 승인·중단 어포던스. 서버 가드
    *  requireSubtreeManagerOrAdmin(agent/subtreeManager.ts)과 같은 축이다. 재료가 없으면 false(fail-closed). */
   canManage: boolean
   /** 이 항목의 담당자가 나 — 반려·승인 취소·재작업은 담당자 본인도 할 수 있다(허브 §11 과 같은 규칙). */
@@ -68,9 +68,20 @@ export interface Seat {
   modelSource?: 'run' | 'plan' | null
   /** 이 주문의 마지막 보고(점유·보고 중일 때만). 에이전트 보기가 팀원 말풍선으로 띄운다. */
   lastReport?: { kind: 'progress' | 'completion'; summary: string; at: string } | null
+  /** 이 주문을 잡은 계정(claimed_by_user_id)이 보는 사람 — 내 에이전트 테두리·명찰(2026-09-19).
+   *  보는 사람 재료가 없거나 레거시 주문(claimed_by_user_id null)이면 false(fail-closed). */
+  agentMine: boolean
+  /** 다른 계정의 에이전트면 그 계정의 로스터 이름. 내 것·레거시·로스터에 없는 계정은 null(화면은 "다른 계정"). */
+  agentOwnerName: string | null
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
-export interface Watcher { agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null }
+export interface Watcher {
+  agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null
+  /** 감시자 계정(user_id)이 보는 사람 — 좌석의 agentMine 과 같은 판정. 허브처럼 재료를 싣지 않는 곳은 비워 둔다(없음 = false). */
+  mine?: boolean
+  /** 다른 계정의 감시자면 그 계정의 로스터 이름(없으면 null). */
+  ownerName?: string | null
+}
 export interface Floor { id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[] }
 export interface Attention { orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string }
 export interface Seatmap {
@@ -86,11 +97,13 @@ export type SeatmapScope = 'mine' | 'all'
 export const SEATMAP_SCOPES: readonly SeatmapScope[] = ['mine', 'all']
 /** 내 작업 판정 재료 — memberIds 는 접근 가능 프로젝트 로스터에서 나(user_id 링크 또는 이메일)와 맞는 행. */
 export interface MineFilter { userId: string; memberIds: ReadonlySet<string> }
-/** 결재 어포던스 재료(2026-09-17 오피스 v7). 넘기지 않으면 모든 좌석이 canManage=false 로 잠긴다(fail-closed). */
+/** 결재 어포던스 재료(2026-09-17 스튜디오 v7). 넘기지 않으면 모든 좌석이 canManage=false 로 잠긴다(fail-closed). */
 export interface SeatmapViewer {
+  /** 보는 사람 계정 — 내 에이전트(주문 claimed_by_user_id · 감시자 user_id) 판정. 없으면 전부 남의 것(fail-closed). */
+  userId?: string
   /** 내 로스터 행 id — 담당자 본인·서브트리 관리자 판정. */
   memberIds: ReadonlySet<string>
-  /** 내가 관리자인 프로젝트 id. 층마다 다를 수 있어 집합으로 받는다(전체 오피스는 여러 층이다). */
+  /** 내가 관리자인 프로젝트 id. 층마다 다를 수 있어 집합으로 받는다(전체 스튜디오는 여러 층이다). */
   adminProjectIds: ReadonlySet<string>
 }
 
@@ -148,7 +161,14 @@ function latestReviewByOrder(reviews: ReviewRow[]): Map<string, ReviewRow> {
   return out
 }
 
-function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }, report?: ReportRow): Seat {
+/** 좌석·감시자의 계정 구분 — 레거시(계정 없음)와 보는 사람 모름은 남의 것, 이름은 남의 것에만 붙인다. */
+function ownerOf(accountId: string | null, viewerId: string | undefined, nameOf: (uid: string) => string | null): { mine: boolean; name: string | null } {
+  if (!accountId) return { mine: false, name: null }
+  const mine = viewerId !== undefined && accountId === viewerId
+  return { mine, name: mine ? null : nameOf(accountId) }
+}
+
+function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }, report: ReportRow | undefined, owner: { mine: boolean; name: string | null }): Seat {
   const input = {
     status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
     updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
@@ -168,17 +188,18 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     lastSignalAt: o.status === 'claimed' ? signal : null,
     heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
     note: o.heartbeat_phase === 'blocked' ? o.heartbeat_note : null,
-    // 표식은 점유 중인 주문에서만 뜻이 있다 — 회수·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
+    // 표식은 점유 중인 주문에서만 뜻이 있다 — 중단·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
     resumeRequestedAt: o.status === 'claimed' ? (o.resume_requested_at ?? null) : null,
     resumeRequestedHost: o.status === 'claimed' ? (o.resume_requested_host ?? null) : null,
     rejected: isRejected(input), reviewNote: review?.review_action === 'reject' ? review.review_note : null,
     waitReason: null,
     canManage: rights.canManage, assigneeMine: rights.assigneeMine,
     ...pickModel(o, item),
-    // 점유·보고 중인 주문만 — 승인·회수로 떠난 주문의 옛 보고를 말풍선으로 되살리지 않는다.
+    // 점유·보고 중인 주문만 — 승인·중단으로 떠난 주문의 옛 보고를 말풍선으로 되살리지 않는다.
     lastReport: report && (o.status === 'claimed' || o.status === 'reported') && report.summary.trim()
       ? { kind: report.kind, summary: report.summary.trim(), at: report.created_at }
       : null,
+    agentMine: owner.mine, agentOwnerName: owner.name,
   }
 }
 
@@ -225,6 +246,18 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   for (const it of [...rows.items, ...rows.parents]) ancestorById.set(it.id, it)
   const myMemberIds: ReadonlySet<string> = opts.viewer?.memberIds ?? mine?.memberIds ?? new Set<string>()
   const adminProjectIds: ReadonlySet<string> = opts.viewer?.adminProjectIds ?? new Set<string>()
+  // 내 에이전트 판정은 보는 사람 계정만 본다 — 전체 범위(기본)에도 mine 필터가 없으니 viewer 가 우선이다.
+  const viewerId = opts.viewer?.userId ?? mine?.userId
+  // 소유자 이름 — 이미 싣는 층 로스터(project_members)에서 찾는다. 같은 층 이름이 먼저, 없으면 다른 층 이름.
+  const nameByProjectUser = new Map<string, string>()
+  const nameByUser = new Map<string, string>()
+  for (const m of rows.members) {
+    if (!m.user_id) continue
+    nameByProjectUser.set(`${m.project_id}\u0000${m.user_id}`, m.name)
+    if (!nameByUser.has(m.user_id)) nameByUser.set(m.user_id, m.name)
+  }
+  const ownerName = (projectId: string | null) => (uid: string): string | null =>
+    (projectId !== null ? nameByProjectUser.get(`${projectId}\u0000${uid}`) : undefined) ?? nameByUser.get(uid) ?? null
 
   // 착수 대기 사유 재료 — 담당자 로스터 행, 프로젝트 안 선행 항목, 이 층을 보는 살아 있는 감시자.
   const memberById = new Map(rows.members.map(m => [m.id, m]))
@@ -242,7 +275,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
         || (item !== undefined && isSubtreeManagerOf(item.id, ancestorById, myMemberIds)),
       assigneeMine: item?.assignee_member_id != null && myMemberIds.has(item.assignee_member_id),
     }
-    const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights, reportByOrder.get(o.id))
+    const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights, reportByOrder.get(o.id),
+      ownerOf(o.claimed_by_user_id, viewerId, ownerName(o.project_id)))
     if (seat.state === 'READY' && item) {
       const m = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
       seat.waitReason = deriveWaitReason({
@@ -255,7 +289,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       // 선행 대기는 빈자리가 아니다 — 올 사람이 정해져 있고 앞 작업만 기다린다. 실루엣으로 그린다(안 A).
       if (seat.waitReason?.kind === 'dependency') seat.anim = 'waiting'
     }
-    // DONE(최근 7일 승인분)도 구역에 남긴다 — 승인 취소·재작업 요청을 좌석에서 하려면 좌석이 있어야 한다(오피스 v7).
+    // DONE(최근 7일 승인분)도 구역에 남긴다 — 승인 취소·재작업 요청을 좌석에서 하려면 좌석이 있어야 한다(스튜디오 v7).
     // 평면도는 이 좌석을 그리지 않고 상태 레인의 "빈자리·완료" 레인만 그린다.
     if (seat.state === 'DONE') done.set(o.project_id, (done.get(o.project_id) ?? 0) + 1)
     const zones = floorMap.get(o.project_id) ?? new Map<string, Zone>()
@@ -278,7 +312,10 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   // 「내 팀장이 떠 있다」로 오독한다. 착수 대기 사유(watchersOf)는 「누가 이 층을 감시하나」라 거르지 않는다.
   const aliveWatchers: Watcher[] = rows.watchers
     .filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (!mine || w.user_id === mine.userId))
-    .map(w => ({ agent: w.agent, host: w.host, slots: w.slots, busy: w.busy, untilLabel: w.until_label, lastSeenAt: w.last_seen_at, projectId: w.project_id }))
+    .map(w => {
+      const owner = ownerOf(w.user_id, viewerId, ownerName(w.project_id))
+      return { agent: w.agent, host: w.host, slots: w.slots, busy: w.busy, untilLabel: w.until_label, lastSeenAt: w.last_seen_at, projectId: w.project_id, mine: owner.mine, ownerName: owner.name }
+    })
     .sort((a, b) => a.agent.localeCompare(b.agent))
 
   const floorIds = new Set<string>([...floorMap.keys(), ...done.keys()])
@@ -311,7 +348,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
 }
 
 /**
- * 좌석표가 들어야 할 실시간 채널의 프로젝트 — 프로젝트 오피스면 그 하나, 전체 오피스면 지금 층으로 그린
+ * 좌석표가 들어야 할 실시간 채널의 프로젝트 — 프로젝트 스튜디오면 그 하나, 전체 스튜디오면 지금 층으로 그린
  * 프로젝트들. 층이 없는 프로젝트는 듣지 않는다: 첫 주문이 생기는 변화는 30초 폴링이 잡는다.
  * 정렬해 돌려주는 이유: 폴링마다 층 순서가 바뀌어도 구독을 다시 맺지 않게 한다.
  */

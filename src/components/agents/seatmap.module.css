@@ -197,7 +197,7 @@
 .sw { width: 22px; height: 14px; border-radius: 3px; border: 1px solid var(--sm-line); display: inline-block; }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   오피스 v7(2026-09-17) — 보기 전환 · 좌석 결재 · 상태 레인.
+   스튜디오 v7(2026-09-17) — 보기 전환 · 좌석 결재 · 상태 레인.
    display 를 토글해 무엇을 보이고 감추지 않는다(globals.css 의 unlayered 안전망에 진다).
    버튼이 없어야 할 좌석에는 아예 그리지 않는다(조건부 렌더).
    ───────────────────────────────────────────────────────────────────────────── */
@@ -234,8 +234,8 @@
 .opMini:active { transform: scale(.96); }
 .opMini[data-op="approve"] { color: var(--sm-standby); }
 .opMini[data-op="reject"], .opMini[data-op="rework"] { color: var(--sm-reject-bar); }
-.opMini[data-op="release"] { color: var(--sm-warn); }
-/* 이어서 시작 — 되살리는 동작이라 회수(경고색)와 다른 축으로 읽혀야 한다. */
+.opMini[data-op="stop"] { color: var(--sm-warn); }
+/* 이어서 시작 — 되살리는 동작이라 중단(경고색)과 다른 축으로 읽혀야 한다. */
 .opMini[data-op="resume"] { color: var(--sm-active); }
 .opMini[data-op="unapprove"] { color: var(--sm-ink-3); }
 .opMini:disabled { opacity: .42; cursor: not-allowed; }
@@ -248,7 +248,7 @@
 .act:hover { border-color: var(--sm-ink); color: var(--sm-ink); }
 .act[data-op="approve"] { color: var(--sm-standby); font-weight: 600; }
 .act[data-op="reject"], .act[data-op="rework"] { color: var(--sm-reject-bar); }
-.act[data-op="release"] { color: var(--sm-warn); }
+.act[data-op="stop"] { color: var(--sm-warn); }
 .act[data-op="resume"] { color: var(--sm-active); font-weight: 600; }
 .act[data-op="unapprove"] { color: var(--sm-ink-3); }
 .act:disabled { opacity: .42; cursor: not-allowed; }
@@ -260,6 +260,9 @@
 .noteBox label { font-size: 11px; color: var(--sm-reject-bar); font-weight: 600; }
 .noteBox textarea { font: inherit; font-size: 12.5px; resize: vertical; min-height: 52px; border-radius: 6px; border: 1px solid var(--sm-line); background: var(--sm-surface); color: var(--sm-ink); padding: 6px 8px; width: 100%; }
 .noteRow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+/* 중단 확인 — 사유 상자와 같은 자리, 경고색 테두리 */
+.noteBox[data-confirm] { border-color: var(--sm-warn); }
+.confirmText { margin: 0; font-size: 12px; line-height: 1.5; color: var(--sm-ink-2); }
 .noteHint { font-size: 11px; color: var(--sm-ink-3); }
 .opError { margin: 10px 0 0; font-size: 12px; color: var(--sm-warn); font-weight: 600; border-left: 3px solid var(--sm-warn); padding-left: 9px; }
 
@@ -328,3 +331,17 @@
 .chatPop { transform-origin: 50% 100%; animation: chatPop .32s cubic-bezier(.34, 1.56, .64, 1) both; }
 @keyframes chatPop { from { opacity: 0; transform: translateY(4px) scale(.85); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .chatPop { animation: none; } }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   내 에이전트 테두리(2026-09-19) — 명찰(OwnerTag)과 한 쌍. 다른 계정은 테두리 강조도, 흐림도 없다.
+   책상의 다른 표식이 border-color(상태) · outline(선택) · inset box-shadow(반려)를 이미 쓰므로
+   바깥 box-shadow 링으로 그리고, 반려 좌석에서는 두 그림자를 합친다. --color-brand 는 라이트·다크 모두 globals 토큰.
+   ───────────────────────────────────────────────────────────────────────────── */
+.desk[data-owner="mine"], .card[data-owner="mine"] { box-shadow: 0 0 0 2px var(--color-brand); }
+.desk[data-owner="mine"][data-rejected="1"] { box-shadow: inset 5px 0 0 var(--sm-reject-bar), 0 0 0 2px var(--color-brand); }
+.seatRight .desk[data-owner="mine"][data-rejected="1"] { box-shadow: inset -5px 0 0 var(--sm-reject-bar), 0 0 0 2px var(--color-brand); }
+.desk[data-owner="mine"][data-selected="1"], .card[data-owner="mine"][data-selected="1"] { outline-offset: 3px; }
+/* 좁은 구역에서는 반려 표시가 왼쪽으로 통일된다(위 @container) — 내 에이전트 링과 합친 규칙도 같이 따른다. */
+@container (max-width: 620px) {
+  .seatRight .desk[data-owner="mine"][data-rejected="1"] { box-shadow: inset 5px 0 0 var(--sm-reject-bar), 0 0 0 2px var(--color-brand); }
+}

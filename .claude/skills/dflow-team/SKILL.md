@@ -136,6 +136,18 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   ```
   종료 시각이 지나면 새 배정을 멈추고, 진행 중인 팀원은 대기 상한까지 기다린 뒤 남은 것을 목록으로 보고한다
   (「7. 마감」).
+  - **실행 중 연장**: 사람이 팀장 세션에 "내일 9시까지 연장" 처럼 말하면 새 종료 시각을 위 표와 같은 규칙(날짜
+    절대화, 7일 이내, 지난 시각이면 묻기)으로 정규화해 `<UNTIL>`·`<UNTIL_LABEL>` 을 바꾸고 아래를 차례로 한다.
+    1. `team.extend`(until, until_label)를 기록한다(events.md). **`team.start` 를 새로 쓰지 않는다.** 재구성은
+       마지막 `team.start` 이후만 읽으므로, 새로 쓰면 그 앞의 슬롯·제외 목록·답 대기가 사라진다.
+    2. 떠 있는 poll 은 옛 `--until` 로 돌고 있으므로 새 `--until` 로 poll 을 다시 띄운다(재기동 조건은 「2-1」). 옛
+       poll 이 나중에 exit 8 로 끝나도 「2-3」 표의 poll exit 8 행이 지금 `<UNTIL>` 과 대조해 무시한다.
+    3. 좌석표에 새 `--until '<UNTIL_LABEL>'` 로 watch 를 보낸다(「2-3」 블록).
+    4. 새 `<UNTIL>` 이 오늘이 아니거나 `none` 이고 macOS 인데 절전 방지가 떠 있지 않으면 「1. 시작」 5번대로 띄운다.
+    5. **마감 중에 연장하면 마감을 취소한다.** 「7. 마감」 2번의 기다림 중이면 기다림을 끝내고 평소 기상 절차로
+       돌아가 poll 을 다시 띄운다. 3번 이후(집계 보고를 낸 뒤)면 이미 끝난 실행이므로 `/dflow-team` 을 새로
+       시작하라고 안내한다(재구성이 살아 있는 팀원을 흡수한다).
+    "연장했습니다: <절대 시각>" 을 한 줄 알린다.
 - **여러 날·무기한 실행**(`<UNTIL>` 이 오늘이 아니거나 `none`): 시작 보고에 "팀원은 권한 확인 생략 모드로 무인으로
   돕니다. 답을 기다리는 팀원은 사람이 답할 때까지 슬롯을 잡습니다." 를 한 줄 더 적는다. macOS 면 절전 방지를
   건다(「1. 시작」 5번). 서버(Linux)와 Windows 는 절전 방지를 걸지 않는다. 서버는 절전하지 않고, 절전하는 PC 라면
@@ -233,11 +245,14 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 ```
 - 첫 줄 `team.start` 의 `wp` 가 이번 실행의 WP 범위다(`-` 면 전체). poll 을 다시 띄울 때 `--wp` 에 그대로 넘긴다.
   이 필드가 없는 옛 줄은 전체로 읽는다.
+- 종료 시각(`<UNTIL>`·`<UNTIL_LABEL>`)은 **마지막 `team.extend`** 의 `until`·`until_label` 이고, 없으면 `team.start` 의
+  `until` 이다. 이유: 실행 중 연장(「인자」)을 모르고 `team.start` 의 옛 시각으로 복원하면 곧바로 마감으로 간다
+  (2026-09-19 mdm-dict-v2: 23:00 → 다음 날 09:00 연장).
 - `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다. 아직 브랜치를 만들지 않은 Phase 01
   의 팀원도 이것으로 id8 을 안다.
 - `team.result`·`team.blocked` 로 이미 판정한 작업, 제외 목록(`skipped` 는 일시, `failed`·`failed no-result`·
-  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`blocked` 는 영구, `failed rate-limit` 은 제외
-  없음), 차단기 상태(끝에서부터 연속한 `failed…` 수), 결과 줄 경로별 마지막 처리 해시(경로는
+  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit` 은 제외
+  없음), 차단기 상태(끝에서부터 연속한 `failed…` 수. `failed not-assignee`·`cancelled` 는 세지도 끊지도 않고 건너뛴다), 결과 줄 경로별 마지막 처리 해시(경로는
   `<worktree>/docs/tasks/<tsk>/.result`)를 복원한다.
 - 제외 목록은 id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다. 마지막이 `team.spawn` 이나
   `team.blocked` 면 진행 중(영구 제외)이고, `team.result` 면 위 status 별 제외다. `team.answer` 는 제외를 바꾸지
@@ -251,7 +266,7 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
   처리 여부를 해시로 가린 뒤 처리한다(「3. 결과 처리」).
 - 새로 줄 슬롯 번호는 흡수한 번호를 뺀 1..N 중 가장 작은 것이다. 이유: 살아 있는 팀원과 같은 `AGENT_ID` 를
   다시 발급하면 좌석표가 한 인물을 두 책상에 그린다.
-- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`)을 받지 않은 팀원이다.
+- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`)을 받지 않은 팀원이다.
   화면이 떠 있는지로 판단하지 않는다. Orca 는 `.dflow-agent` 가 `w<slot>` 인 워크트리 중 최종 status 의
   `.result` 가 없는 것이며, tmux 는 거기에 더해 정본 표의 생존 칸이 `alive` 여야 한다. `blocked` 는 최종
   판정이 아니므로 그 팀원은 두 백엔드 모두 살아 있다. 실제로 죽은 Orca 팀원은 무응답 규칙(「3. 결과 처리」)이
@@ -277,7 +292,7 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
      **않는다**.
      - 브랜치가 `agent/<id8>-…` 이다(id8 을 여기서 얻는다). 브랜치가 없으면 claim 전에 죽은 것이라 재개할
        산출물이 없다.
-     - `.result` 가 없거나, 있어도 status 가 최종 판정(`done`·`needs-merge`·`skipped`·`failed`)이 아니다.
+     - `.result` 가 없거나, 있어도 status 가 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`)이 아니다.
        최종 판정이 있으면 재개가 아니라 「3. 결과 처리」 의 몫이다.
      - 서버 show 가 `status=claimed` 이고 `mine=true` 이며, `claimed_by` 를 소문자로 바꾼 값이
        `claude-<host>` 와 같다(이 PC 가 claim 했다).
@@ -408,7 +423,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    [ -z "$legacy" ] || bad "LEGACY_REPORTED $legacy"
    mkdir -p ~/.dflow
    ex=$(git rev-parse --git-path info/exclude); mkdir -p "$(dirname "$ex")"; touch "$ex"
-   for p in '**/.claude/worktrees/' '/dflow-*/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' 'docs/tasks/*/.result'; do
+   for p in '**/.claude/worktrees/' '/dflow-*/' '.vitest/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' 'docs/tasks/*/.result'; do
      grep -qxF "$p" "$ex" || printf '%s\n' "$p" >> "$ex"
    done
    tracked=$(git ls-files .claude/skills | head -n 1)   # 비어 있지 않으면 킷 복사형(스킬이 git 추적됨)
@@ -565,7 +580,9 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    - 공유 `info/exclude` 에 워커 부산물 패턴을 없을 때만 넣는다. 커밋하지 않는 로컬 설정이며 링크드
      워크트리가 모두 공유한다. `**/.claude/worktrees/` 는 tmux 팀원 워크트리(`dflow-<id8>`), `/dflow-*/` 는 Orca 팀원 워크트리다
      (`orca worktree create --name dflow-<id8>` 은 `.claude/worktrees/` 가 아니라 리포 루트 바로 아래에 만든다 —
-     2026-09-19 mdm-dict-v2 실측. 빼면 재기동 때 `DIRTY` 에 걸린다), `/.dflow-agent`·
+     2026-09-19 mdm-dict-v2 실측. 빼면 재기동 때 `DIRTY` 에 걸린다), `.vitest/` 는 워커가 vitest 를 돌리면 남기는 결과
+     파일(`.vitest/json/output.json`)이다(빼면 done 뒤 워크트리가 깨끗하지 않아 「고아 정리 규칙」 과 `orca worktree rm` 이
+     실패한다. 2026-09-19 mdm-dict-v2 실측), `/.dflow-agent`·
      `docs/tasks/*/.result` 는 워커가 쓰는 미추적 파일, `/.dflow-prompt`·`/.dflow-pane`·`/.dflow-run` 은
      팀장이 spawn 때 쓰는 미추적 파일, `/.claude/skills`(끝 슬래시 없음)는 스킬 심링크다. 끝 슬래시가 붙은 패턴은 디렉터리에만 걸려 심링크를 가리지 못한다. 이 패턴은 **`.claude/skills`
      가 추적되지 않는 리포에서만** 넣는다. 스킬이 커밋된 리포에 넣으면 새로 추가하는 스킬 파일이 무시돼
@@ -841,9 +858,9 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 
 | 기상 | 처리 |
 |---|---|
-| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다. 이유: 겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌고 있을 수 있다. 일시 제외는 대조하지 않는다. poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정해야 하기 때문이며(「2-1」), 대가로 겹쳐 뜬 옛 poll 이 막 일시 제외한 작업을 돌려주면 한 번 더 띄워 `skipped` 로 끝난다. 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다 |
+| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다. 이유: 겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌고 있을 수 있다. 일시 제외는 대조하지 않는다. poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정해야 하기 때문이며(「2-1」), 대가로 겹쳐 뜬 옛 poll 이 막 일시 제외한 작업을 돌려주면 한 번 더 띄워 `skipped` 로 끝난다. 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 같은 처리를 한다(아래 「선행 사전 검사」). 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다 |
 | `STOP_REQUESTED`, 사람의 종료 요청("팀장 종료"·"마감해" 등) | 종료 시각과 무관하게 「7. 마감」 으로 간다. "종료 요청으로 마감합니다" 를 한 줄 알린다. 종료 파일은 이 자리에서 지운다(요청을 받았다). 남기면 마감 중 다시 띄운 감시 루프가 곧바로 다시 끝나 공회전한다. 마감의 기다림(「7. 마감」 2번) 중에 종료 요청이 **한 번 더** 오면 기다림을 끝내고 곧바로 3번으로 간다 |
-| poll exit 8 (시한) | 새 배정을 멈춘다. 대기 큐를 비우고(보고만 한다) 「7. 마감」 으로 간다 |
+| poll exit 8 (시한) | 먼저 지금 시각이 현재 `<UNTIL>`(연장 반영) 전인지 본다. 전이면 연장 전에 띄운 옛 poll 이 끝난 것이므로 무시하고 재기동 조건(「2-1」)대로 새 `--until` 로 다시 띄운다. 지났으면 새 배정을 멈춘다. 대기 큐를 비우고(보고만 한다) 「7. 마감」 으로 간다 |
 | poll exit 2·3·5·6·7 | 중단 사유(stderr)를 보고하고 「7. 마감」 으로 간다 |
 | `RESULT_READY <경로…>` | 경로마다 「3. 결과 처리」 |
 | `PANE_DEAD <경로…>` (tmux) | 경로마다 「3. 결과 처리」. `.result` 가 있으면 그 줄, 없으면 죽은 pane 화면 폴백, 그것도 없으면 `failed no-result` |
@@ -854,11 +871,25 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 poll exit 0 의 show 필터:
 ```bash
 (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show <id8>) \
-  | jq -c '{order: .order.id, ref: .order.item.external_ref, spec_empty: ((.order.item.spec // "") | length == 0)}'
+  | jq -c '{order: .order.id, ref: .order.item.external_ref, spec_empty: ((.order.item.spec // "") | length == 0),
+            deps_unmet: [.depends_evidence[]? | select(has("reached") and .reached == false) | .external_ref]}'
 ```
 show 가 실패하면(dflow.sh 가 0 이 아닌 코드로 끝나거나, 404 로 exit 7 이거나, 출력이 비면) spec 부재로 보지 않는다.
 그 id8 은 "조회 실패" 사유로 일시 제외에 넣고 다음 기상에서 다시 판정한다. 이유: 조회 실패를 데이터 없음으로
 위장하면 살아 있는 작업이 spec 부재로 잘못 제외된다.
+
+**선행 사전 검사**(`deps_unmet`): 서버 판정 `reached` 가 거짓인 선행이 하나라도 있으면 spawn 하지 않는다.
+이 경우는 워커가 무엇을 하든 `skipped` 로 끝나는 확정 skip 이다. `head_sha` 는 승인된 주문의 완료 보고에서만
+나오므로 `reached` 가 거짓이면 `head_sha` 도 없고(워커 행 G 갈래 1 → `skipped 선행 미승인`), 설령 워커가 진행해도
+서버 claim 게이트가 같은 `reached` 로 `dependency_not_met` 을 돌려준다. 그래서 이 검사는 워커 G 의 판정을 대신하지
+않는다. `reached` 가 참인 선행(승인 대기·기본 브랜치 반영 여부·스택 기점)은 전부 워커가 판정하고, `reached` 키가
+없는 옛 서버 응답이나 `depends_evidence` 가 없는 응답은 걸러내지 않고 워커에 맡긴다(판정 불가를 미충족으로 단정하지
+않는다). `state.json` 의 `phase=merged` 로 거르지 않는다. 이유: 진행 중인 선행이라도 승인되면 `head_sha` 를 기점으로
+스택해 진행하는 것이 워커 규칙(행 B)이라, merged 기준은 확정 skip 이 아닌 작업까지 30분씩 묶는다. 이유(이 검사를 두는
+까닭): poll 은 10주기마다 일시 제외를 풀어 선행이 진행 중인 후속을 다시 돌려준다. 그대로 띄우면 후속마다 팀원 세션이
+열려 행 G 판정만 하고 `skipped` 로 끝나며, 선행이 끝날 때까지 30분마다 되풀이되어 토큰과 슬롯을 쓴다(2026-09-19
+mdm-dict-v2 실측: 한 선행에 걸린 후속 5건). 사유 문자열이 「선행 미충족」 으로 시작하므로 자동 머지 뒤 일시 제외
+해제(「3. 결과 처리」)의 선행 계열에 그대로 들어간다.
 
 ## 3. 결과 처리
 
@@ -906,7 +937,9 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
 | `failed no-result`(pane 이 죽었는데 결과 줄 없음) | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 서버에 claimed 면 **"멈춤" 표**에 넣는다(사유는 그 status). 차단기 계산 |
 | `failed not-isolated` | 해제 | 영구 제외 | 없음(워커가 파일을 쓰지 않았다) | 백엔드 결함이므로 새 spawn 을 멈추고 「7. 마감」 으로 간다 |
 | `failed project` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다(claim 전이라 대개 부트스트랩 실패 정리) | 주문이 이 리포의 D'Flow 프로젝트 밖이다. claim 하지 않았으므로 "멈춤" 표에 넣지 않는다. 바인딩(`.env`)이나 poll 필터가 새는 결함이므로 사유를 그대로 보고한다. 차단기 계산 |
+| `failed not-assignee` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다(claim 전이라 대개 부트스트랩 실패 정리) | 다른 멤버에게 배정된 작업을 claim 하려다 서버가 `not_assignee` 로 거부했다. claim 하지 않았으므로 "멈춤" 표에 넣지 않는다. **차단기 계산에 넣지 않는다**: 환경 결함이 아니라 배정 불일치라, 세면 정상인 팀이 멈춘다. poll 과 claim 은 같은 기준(내 멤버 id)으로 배정을 보므로, 대개 poll 이 돌려준 뒤 담당자가 바뀌었거나 팀장이 poll 을 거치지 않고 띄운 것이다(2026-09-19 mdm-dict-v2: 일시 제외를 비운 뒤 poll 을 기다리지 않고 직접 띄웠는데 그사이 담당자가 다른 멤버로 바뀌었다). 사유와 함께 "담당자 변경 여부를 D'Flow 에서 확인하라" 를 보고한다 |
 | `failed deps` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산. 설치는 claim 과 브랜치 생성 뒤라서(`/dflow-dev` 「--worker」 H) 서버에 claimed 로 남으므로 **"멈춤" 표**에 넣는다(사유는 그 status). 대상 리포의 lockfile·패키지 관리자 문제라 사람이 고친다 |
+| `cancelled`(사람이 D'Flow 에서 중단 — 주문 `cancelled`·위임 해제) | 해제 | 영구 제외 | **지우지 않는다**(산출물 보존). 미커밋 변경이 있어도 그대로 두고 경로만 보고하며, `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼다 | 사람 알림은 한 줄(`<TSK> <id8> 중단됨 — 워크트리 <경로> 보존`). 사람이 멈춘 것이라 "멈춤" 표에 넣지 않고, **차단기 계산에 넣지 않는다**(세지도 끊지도 않는다). 다시 맡기려면 사람이 위임 체크를 켜며, 그때 새 주문으로 다시 poll 에 잡힌다 |
 
 - **그 자리에서 정리하는 이유**: git 은 다른 워크트리가 체크아웃한 브랜치를 지우지 못한다. 워크트리를 마감까지
   남기면 같은 세션에서 승인된 작업의 로컬 agent 브랜치 삭제가 실패한다. 정리 명령은 backends.md 의 백엔드별
@@ -915,10 +948,14 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
   `select-layout -t dflow tiled` 를 다시 돈다(backends.md 「생존·화면·답·회수」). **`blocked` 는 예외로 두어
   거두지 않는다.** 그 팀원은 답을 기다리며 계속 살아야 하기 때문이다. 워커는 `.result` 를 쓰고 곧 끝나므로
   보통 `remain-on-exit` 가 남긴 죽은 pane 이며, 그것도 `kill-pane` 으로 치운다. Orca 팀원은 회수하지 않는다.
-- **차단기**: 결과가 도착한 순서로 `failed`(`no-result`·`rate-limit` 포함)가 연속 2건이면 새 spawn 을 멈추고
+- **차단기**: 결과가 도착한 순서로 `failed`(`no-result`·`rate-limit` 포함, `not-assignee` 제외)가 연속 2건이면 새 spawn 을 멈추고
   보고한다. `failed` 가 아닌 결과가 오면 연속 수를 0 으로 되돌린다. 걸린 동안에는 다음 `TICK` 마다 1건만 시험
   spawn 하고(대기 큐 맨 앞에서, 큐가 비었으면 poll 을 한 번 띄워 얻는다), 그 결과가 `failed` 가 아니면 차단기를
   푼다. 이유: 사용량 한도나 환경 결함에 걸린 채 대기 큐 전체를 소진하지 않게 한다.
+- **중단**: 워커는 `dflow.sh` exit 10 을 받으면 `.result` 에 `cancelled` 를 쓰지만, heartbeat 훅이 먼저 세션을 세우면
+  결과 줄 없이 멈춘다. 그래서 결과 줄이 없는 진행 슬롯이라도 생존 증거 2번의 `show` 가 `status=cancelled` 면 결과 줄
+  `cancelled`(hash `-`)를 받은 것과 똑같이 처리한다 — 무응답 판정을 기다리지 않는다. tmux 는 `kill-pane` 으로 거두되
+  워크트리는 지우지 않는다. 이유: 주문이 종착 상태라 더 올 결과가 없고, 멈춘 세션이 슬롯을 계속 잡으면 대기 큐가 선다.
 - **무응답**: 결과도 알림도 없는 진행 슬롯의 생존 증거가 한 `TICK` 동안 변하지 않으면 "무응답" 으로 보고만 하고 슬롯을 유지한다.
   생존 증거에 `show` 의 `last_heartbeat_at`·`heartbeat_phase` 를 넣는다. 워커가 Phase 마다 보내는 값이라 브랜치
   tip 시각보다 촘촘하다. `stale` 은 쓰지 않는다. 그 값은 `claimed_at` 으로부터 24시간이 지났는지일 뿐이라,
@@ -961,7 +998,9 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
   자동 머지의 "머지됨(승인 전)"·"승인 반영(이미 머지됨)"·"승인 대기(머지됨)" 도 한 줄씩 보고한다.
 - **자동 머지 뒤 일시 제외 해제**: 자동 머지 스윕이 "머지됨(승인 전)" 을 한 건이라도 냈으면, 일시 제외 가운데 사유가
   선행 계열(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음)인 id8 을 목록에서 빼고, 재기동 조건
-  (「2-1」)이 맞으면 줄어든 `--exclude-temp` 로 poll 을 새로 띄운다. 이유: 방금 머지로 풀린 후속이 10주기(30분)를
+  (「2-1」)이 맞으면 줄어든 `--exclude-temp` 로 poll 을 새로 띄운다. **푼 작업을 팀장이 직접 띄우지 않는다.** poll 이
+  다시 돌려준 것만 띄운다. 이유: 그사이 담당자가 바뀌었거나 다른 팀장이 가져갔을 수 있는데, 그것을 거르는 곳이
+  poll 의 `--scope assigned` 조회다(2026-09-19 mdm-dict-v2: 직접 띄운 작업이 `failed not-assignee` 로 끝났다). 이유: 방금 머지로 풀린 후속이 10주기(30분)를
   기다리면 자동 머지를 켠 의미가 줄어든다. 떠 있던 옛 poll 이 옛 목록으로 한 번 더 돌아도 poll exit 0 처리의 대조와
   spawn 전 확인이 같은 작업을 두 번 띄우지 않게 막는다(「2-3」 5번).
 - `team.sweep`(merged, waiting, rejected 개수)을 기록한다. `merged` 에는 승인 전 머지를 포함하고, `waiting` 에는

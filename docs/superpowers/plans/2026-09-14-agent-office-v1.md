@@ -1,4 +1,4 @@
-# 가상오피스(에이전트 좌석표) v1 구현 계획
+# 에이전트 스튜디오(에이전트 좌석표) v1 구현 계획
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -2822,7 +2822,7 @@ Expected: 전부 PASS
 
 ```bash
 git -C /Users/jji/project/wbs-web switch staging      # 메인 체크아웃은 이미 staging 이다 — 확인만
-git -C /Users/jji/project/wbs-web merge --no-ff feat/agent-office -m "merge: 가상오피스 v1 (feat/agent-office) → staging"
+git -C /Users/jji/project/wbs-web merge --no-ff feat/agent-office -m "merge: 에이전트 스튜디오 v1 (feat/agent-office) → staging"
 git -C /Users/jji/project/wbs-web push origin staging
 ```
 pre-push 훅(G1·G2·G3·G4)이 막으면 그 메시지를 그대로 보고한다. 우회(`SKIP_GUARD=1`)하지 않는다.
@@ -2839,7 +2839,7 @@ pre-push 훅(G1·G2·G3·G4)이 막으면 그 메시지를 그대로 보고한�
 ```bash
 npm run db:apply -- supabase/migrations/0094_agent_heartbeat.sql --target prod   # 운영 ref 를 대화형으로 입력
 git -C /Users/jji/project/wbs-web switch main && git -C /Users/jji/project/wbs-web pull origin main
-git -C /Users/jji/project/wbs-web merge --no-ff staging -m "merge: 가상오피스 v1 staging → main"
+git -C /Users/jji/project/wbs-web merge --no-ff staging -m "merge: 에이전트 스튜디오 v1 staging → main"
 git -C /Users/jji/project/wbs-web push origin main
 npm run smoke:prod && npm run mark:good
 git -C /Users/jji/project/wbs-web switch staging
