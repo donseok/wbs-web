@@ -103,10 +103,10 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 ```json
 { "ok": true, "scope": "all",
   "claimed": [ { "id": "…", "project_id": "…", "status": "claimed", "priority": 0,
-                 "instructions": "…", "claimed_at": "…", "item": { "id": "…", "code": "…", "name": "…" } } ],
+                 "instructions": "…", "claimed_at": "…", "item": { "id": "…", "code": "…", "name": "…", "external_ref": "MDM/TSK-01-01|null" } } ],
   "available": [ …같은 셰이프… ], "assigned": [ …같은 셰이프… ] }
 ```
-요청 scope에 해당하는 구획만 채운다(`available`이면 `available`만). 정렬은 구획 내 `priority desc, created_at asc`. `limit` 기본 20 최대 100(구획별 적용). 미지원 scope → 400 `unsupported_scope`.
+요청 scope에 해당하는 구획만 채운다(`available`이면 `available`만). 정렬은 구획 내 `priority desc, created_at asc`. `limit` 기본 20 최대 100(구획별 적용). 미지원 scope → 400 `unsupported_scope`. `item.external_ref`는 import 로 들어온 항목의 `"<module>/<id>"` 다(웹에서 직접 만든 항목은 null). dflow.sh scaffold 가 작업 폴더 이름(TSK)을 여기서 얻는다.
 
 `POST /wbs/import` 요청( `wbs-parse.py --export` 출력 v2 + 2필드) — **계약 v2 확장(결정 E, 두 리포 공통·고정)**:
 ```json

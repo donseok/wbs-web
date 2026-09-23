@@ -20,11 +20,13 @@ const RUNNER = {
 }
 
 function useAdmin(queues: Record<string, Resp[]>) {
+  const selects: Record<string, string[]> = {}
   const admin = {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'update', 'eq', 'in', 'limit', 'order']) b[k] = () => b
+      for (const k of ['update', 'eq', 'in', 'limit', 'order']) b[k] = () => b
+      b.select = (cols: string) => { (selects[table] ??= []).push(cols); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) =>
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
@@ -33,7 +35,7 @@ function useAdmin(queues: Record<string, Resp[]>) {
     auth: { admin: { getUserById: vi.fn(async () => ({ data: { user: { id: 'u-1', email: 'dev@example.com' } }, error: null })) } },
   }
   mocks.createAdminClient.mockReturnValue(admin)
-  return admin
+  return Object.assign(admin, { selects })
 }
 
 const get = (url: string, bearer: string) =>
@@ -63,6 +65,23 @@ describe('GET /agent/work/mine', () => {
     expect(body.scope).toBe('available')
     expect(body.available).toHaveLength(1)
     expect(body.claimed).toBeUndefined()
+  })
+
+  it('항목 컨텍스트에 external_ref 를 싣는다(task scaffold 스펙 §5)', async () => {
+    const admin = useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_orders: [{ data: [
+        { id: 'o-9', project_id: P1, status: 'ready', priority: 0, instructions: '', claimed_at: null, wbs_item_id: 'w-1', created_at: '2026-08-01T00:00:00Z' },
+      ] }],
+      wbs_items: [{ data: [{ id: 'w-1', code: '1.1', name: 't', planned_start: null, planned_end: null, external_ref: 'MDM/TSK-01-01' }] }],
+    })
+    const res = await mineGET(get('http://l/api/v1/agent/work/mine', PAT.token))
+    const body = await res.json()
+    expect(admin.selects.wbs_items.at(-1)).toContain('external_ref')
+    expect(body.available[0].item.external_ref).toBe('MDM/TSK-01-01')
   })
 
   it('scope=claimed — 본인 점유(claimed_by_user_id) 주문만', async () => {
