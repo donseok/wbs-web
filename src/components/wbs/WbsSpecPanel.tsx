@@ -443,6 +443,8 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
 
   const lastReport = order.reports.at(-1)
   const tl = orderTimeline(order)
+  // 표 칸은 좁아 연도를 뺀 MM-DD HH:mm 로 쓴다(전체 시각은 title).
+  const at = (iso: string) => seoulStamp(iso).slice(5)
   const mins = (n: number | null) => n === null ? '—' : t('wbs.agentOrderMinutes').replace('{n}', String(n))
   // 승인 대기 회차 = 주문이 reported 일 때의 마지막 completion. 그 밖의 completion 은 옛 회차다.
   const latestCompletionId = [...order.reports].reverse().find(r => r.kind === 'completion')?.id ?? null
@@ -496,7 +498,16 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
       {/* 보고 하나 = 한 줄인 데이터 표(2026-09-24 사용자 요청). 각 줄의 시작은 직전 보고(첫 줄은 착수), 종료는 그 보고
           시각이다. 시각은 한국 시간 분 단위로 쓰고 칸 이름에 시간대를 달지 않는다. 모델은 보고마다 남지 않고 마지막
           heartbeat 값만 있어(0100) 합계 줄에만 보인다. */}
-      <table data-agent-order-reports className="mt-1.5 w-full border-collapse text-[11px]">
+      <table data-agent-order-reports className="mt-1.5 w-full table-fixed border-collapse text-[11px]">
+        {/* 칸 너비를 고정한다 — 자동 배치는 nowrap 시각 칸이 폭을 먹어 단계 칸이 45px 로 눌렸다(staging 실측). */}
+        <colgroup>
+          <col />
+          <col className="w-[5.75rem]" />
+          <col className="w-[5.75rem]" />
+          <col className="w-12" />
+          <col className="w-10" />
+          <col className="w-[7.5rem]" />
+        </colgroup>
         <thead className="text-left text-[10px] text-ink-subtle">
           <tr className="border-b border-line">
             <th className="py-1 pr-2 font-medium">{t('wbs.agentOrderStep')}</th>
@@ -525,8 +536,8 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
                     </span>
                   )}
                 </td>
-                <td className="whitespace-nowrap py-1 pr-2">{from ? seoulStamp(from) : '—'}</td>
-                <td className="whitespace-nowrap py-1 pr-2" title={r.created_at}>{seoulStamp(r.created_at)}</td>
+                <td className="whitespace-nowrap py-1 pr-2">{from ? at(from) : '—'}</td>
+                <td className="whitespace-nowrap py-1 pr-2" title={seoulStamp(r.created_at)}>{at(r.created_at)}</td>
                 <td className="whitespace-nowrap py-1 pr-2 text-right">{mins(tl.gaps[i])}</td>
                 <td className="whitespace-nowrap py-1 pr-2 text-right">{r.percent}%</td>
                 <td className="max-w-0 py-1"><span className="block truncate font-mono text-[10px] text-ink-muted" title={r.agent}>{r.agent}</span></td>
@@ -536,7 +547,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
           {tl.openMinutes !== null && (
             <tr data-report-row="open" className="border-b border-line/60 text-ink-muted">
               <td className="py-1 pr-2 italic">{t('wbs.agentOrderInProgress')}</td>
-              <td className="whitespace-nowrap py-1 pr-2">{(order.reports.at(-1)?.created_at ?? tl.startedAt) ? seoulStamp((order.reports.at(-1)?.created_at ?? tl.startedAt) as string) : '—'}</td>
+              <td className="whitespace-nowrap py-1 pr-2">{(order.reports.at(-1)?.created_at ?? tl.startedAt) ? at((order.reports.at(-1)?.created_at ?? tl.startedAt) as string) : '—'}</td>
               <td className="py-1 pr-2">—</td>
               <td className="whitespace-nowrap py-1 pr-2 text-right">{mins(tl.openMinutes)}</td>
               <td className="py-1 pr-2" />
@@ -547,8 +558,8 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
         <tfoot data-agent-order-summary className="tabular-nums font-semibold text-ink">
           <tr>
             <td className="py-1 pr-2">{t('wbs.agentOrderTotal')}</td>
-            <td className="whitespace-nowrap py-1 pr-2">{tl.startedAt ? seoulStamp(tl.startedAt) : '—'}</td>
-            <td className="whitespace-nowrap py-1 pr-2">{tl.endedAt ? seoulStamp(tl.endedAt) : (order.status === 'claimed' ? t('wbs.agentOrderInProgress') : '—')}</td>
+            <td className="whitespace-nowrap py-1 pr-2">{tl.startedAt ? at(tl.startedAt) : '—'}</td>
+            <td className="whitespace-nowrap py-1 pr-2">{tl.endedAt ? at(tl.endedAt) : (order.status === 'claimed' ? t('wbs.agentOrderInProgress') : '—')}</td>
             <td className="whitespace-nowrap py-1 pr-2 text-right">{mins(tl.minutes)}</td>
             <td className="whitespace-nowrap py-1 pr-2 text-right">{lastReport ? `${lastReport.percent}%` : '—'}</td>
             <td className="max-w-0 py-1 font-normal text-ink-muted">
