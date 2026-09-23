@@ -33,7 +33,7 @@ export async function refreshSeatmap(scope: SeatmapScope = 'mine', projectId?: s
 
 /**
  * 오피스 「팀장 해제」 — 그 (신원, 프로젝트)의 팀장 lease 를 풀고 generation 을 올린다(0101 lead_lease_force_release).
- * 밀려난 팀장은 다음 갱신(최대 60초)에서 LEASE_LOST 로 멈춘다. service_role 로 쓰므로 여기 가드가 유일한 관문이다.
+ * 밀려난 팀장은 약 1분 안에(다음 갱신 최대 60초 + 감시 루프 20초) LEASE_LOST 로 멈춘다. service_role 로 쓰므로 여기 가드가 유일한 관문이다.
  */
 export async function releaseLeadLease(projectId: string, userId: string): Promise<{ ok: true; released: number } | { ok: false; error: string }> {
   if (typeof projectId !== 'string' || !UUID_RE.test(projectId) || typeof userId !== 'string' || !UUID_RE.test(userId)) {

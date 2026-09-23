@@ -38,7 +38,7 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   사람이 요청할 때만 필요하고, 매 실행마다 읽으면 컨텍스트만 차지한다.
 - **강제 인수**: 인자에 `--takeover`·`강제 인수`·`넘겨받기` 가 있으면 「1. 시작」 의 `<TAKEOVER>` 를 `--takeover` 로,
   없으면 빈 값으로 채운다. 같은 신원이 이 프로젝트의 팀장 lease 를 **다른 곳**(다른 clone·다른 PC)에서 쥐고 있을 때
-  그것을 빼앗는다. 밀려난 팀장은 20초 안에 `LEASE_LOST` 로 멈추고, 그 팀장의 워커는 하던 작업을 끝낸다. 사람이
+  그것을 빼앗는다. 밀려난 팀장은 약 1분 안에(다음 갱신 + 감시 루프 20초) `LEASE_LOST` 로 멈추고, 그 팀장의 워커는 하던 작업을 끝낸다. 사람이
   명시할 때만 쓴다. 이유: 살아 있는 팀장을 빼앗으면 그 팀장의 슬롯·대기 큐가 보고만 남기고 끊긴다.
 - **키 판정**: `.dflow.local` 의 `pats`(레거시 `.env` 의 `DFLOW_PATS`)에 토큰이 둘 이상이면 어느 키로 돌지를 시작
   전에 정한다. 「1. 시작」 전제 검사
@@ -804,7 +804,7 @@ printf '%s %s\n' "$gen" '<다음 TICK epoch 초>' > "$GEN_FILE"; echo "GEN_FILE=
 ```bash
 GEN_FILE='<세대 파일 절대경로>'; MY_GEN=<세대>; TICK_AT=<다음 TICK epoch 초>
 STOP_FILE='<팀장 체크아웃>/.git/dflow-team.stop'   # git rev-parse --git-path dflow-team.stop 의 절대경로
-LEASE_FILE='<팀장 체크아웃>/.git/dflow-team.lease-lost'   # git rev-parse --path-format=absolute --git-path dflow-team.lease-lost 의 값
+LEASE_FILE='<git rev-parse --path-format=absolute --git-path dflow-team.lease-lost 의 값>'   # 워크트리에선 .git 이 파일이라 이 값을 리터럴로 써야 한다
 TM='<진짜 tmux 절대경로 또는 빈 값>'
 set -- '<워크트리1>/docs/tasks/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/docs/tasks/<TSK2>/.result|-|-'
 while :; do
@@ -860,16 +860,21 @@ LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
 if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
   date +%s > "$LOCK/beat" && { echo LOCK_OK
-    wr=$(.claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
-      --slots <N> --busy <M> --until '<UNTIL_LABEL>' --json \
-      --holder "$(.claude/skills/dflow-work/scripts/dflow.sh lease holder)") \
-      && ps=$(.claude/skills/dflow-work/scripts/dflow.sh config projects) \
-      && printf '%s' "$wr" | jq -c --arg ps "$ps" '($ps | split("\n")) as $ok
-           | {n: (.resume_requests | if . == null then "NULL" else length end),
-           err: (.resume_requests_error // "-"),
-           reqs: [(.resume_requests // [])[] | select(.project_id as $p | $ok | index($p)) | {id8, code, host, requested_at}],
-           other_project: [(.resume_requests // [])[] | select(.project_id as $p | ($ok | index($p)) | not) | .id8]}' \
-      || echo "WATCH_FAILED"
+    h=$(.claude/skills/dflow-work/scripts/dflow.sh lease holder) || h=''
+    if [ -n "$h" ]; then
+      wr=$(.claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
+        --slots <N> --busy <M> --until '<UNTIL_LABEL>' --json \
+        --holder "$h") \
+        && ps=$(.claude/skills/dflow-work/scripts/dflow.sh config projects) \
+        && printf '%s' "$wr" | jq -c --arg ps "$ps" '($ps | split("\n")) as $ok
+             | {n: (.resume_requests | if . == null then "NULL" else length end),
+             err: (.resume_requests_error // "-"),
+             reqs: [(.resume_requests // [])[] | select(.project_id as $p | $ok | index($p)) | {id8, code, host, requested_at}],
+             other_project: [(.resume_requests // [])[] | select(.project_id as $p | ($ok | index($p)) | not) | .id8]}' \
+        || echo "WATCH_FAILED"
+    else
+      echo "HOLDER_FAILED"
+    fi
   } || echo "LOCK_LOST beat 쓰기 실패"
 else
   echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$LEAD_PID"
@@ -898,6 +903,9 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
   팀장이 옛 요청을 계속 보면 이미 정상 점유된 주문에 워커를 겹쳐 띄운다.
 `WATCH_FAILED` 는 watch 호출 자체가 실패한 것이다. `beat` 는 이미 갱신됐으므로 잠금은 유효하고, 그 기상의
 요청 처리만 건너뛴다.
+`HOLDER_FAILED` 는 `lease holder` 조회가 실패해 watch 를 아예 부르지 않은 것이다(빈 `--holder` 로 부르면 무필터로
+전체 재개 요청이 온다) — `beat` 는 이미 갱신됐으므로 잠금은 유효하고, `WATCH_FAILED` 와 같이 그 기상의 요청
+처리만 건너뛴다.
 
 `LEASE_KEEP_DEAD` 는 lease 갱신 프로세스가 3분 넘게 갱신하지 못한 것이다(죽었거나 서버에 닿지 못함). **이 기상이
 「2-2」 감시 루프의 `LEASE_LOST` 로 온 것이면 이 문단은 건너뛰고 그 `LEASE_LOST` 를 그대로 따른다(아래 기상 표).**
