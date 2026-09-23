@@ -72,7 +72,7 @@ pane 화면 폴백의 결과 줄도 없을 때만). 그 밖의 기상과 「마�
 w='<워크트리>'; id8='<id8>'; tsk='<TSK>'; tasks='<TASKS>'; TM='<진짜 tmux 절대경로 또는 빈 값>'; pane='<pane id 또는 ->'
 g=$( (.claude/skills/dflow-work/scripts/dflow.sh show "$id8") 2>/dev/null \
   | jq -c --arg h 'claude-<host>' 'select((.order.id // "") != "") | .order
-      | {id, status, mine, same_host: (((.claimed_by // "") | ascii_downcase) == $h)}' 2>/dev/null )
+      | {id, status, mine, same_host: (((.claimed_by // "") | ascii_downcase) as $c | $c == $h or (($c | split("/")) as $p | ($p | length) == 3 and $p[1] == ($h | ltrimstr("claude-"))))}' 2>/dev/null )
 [ -n "$g" ] || g=SHOW_FAILED
 printf 'gate=%s\n' "$g"
 p=$(jq -r '.phase // "-"' "$w/$tasks/$tsk/state.json" 2>/dev/null) || p=-
@@ -177,7 +177,7 @@ SKILL.md 「5-1. 재개 spawn」 을 그대로 따르고 아래만 다르다.
 w='<워크트리>'; id8='<id8>'; TM='<진짜 tmux 절대경로 또는 빈 값>'
 g=$( (.claude/skills/dflow-work/scripts/dflow.sh show "$id8") 2>/dev/null \
   | jq -r --arg h 'claude-<host>' 'select((.order.id // "") != "") | .order
-      | [.id, .status, (.mine == true | tostring), ((((.claimed_by // "") | ascii_downcase) == $h) | tostring)] | join(" ")' 2>/dev/null )
+      | [.id, .status, (.mine == true | tostring), ((((.claimed_by // "") | ascii_downcase) as $c | $c == $h or (($c | split("/")) as $p | ($p | length) == 3 and $p[1] == ($h | ltrimstr("claude-")))) | tostring)] | join(" ")' 2>/dev/null )
 t=$(jq -r --arg a '<신원>/<host>/lead' --arg r '<MAIN>' --arg i "$id8" \
   'select(.agent == $a and .repo == $r and (.id8 // "") == $i)
    | select(.event == "team.result" or (.event == "team.spawn" and (.spawn_kind // "new") == "resume"))

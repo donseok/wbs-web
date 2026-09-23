@@ -330,7 +330,7 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
      - `.result` 가 없거나, 있어도 status 가 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`)이 아니다.
        최종 판정이 있으면 재개가 아니라 「3. 결과 처리」 의 몫이다.
      - 서버 show 가 `status=claimed` 이고 `mine=true` 이며, `claimed_by` 를 소문자로 바꾼 값이
-       `claude-<host>` 와 같다(이 PC 가 claim 했다).
+       `claude-<host>` 와 같거나 팀원 라벨 `<신원>/<host>/w<슬롯>` 의 가운데 칸이 `<host>` 다(이 PC 가 claim 했다).
      - 그 id8 의 재개 재시도가 상한(3)에 닿지 않았다.
      - 그 id8 이 `references/restart.md` 「이벤트로 본 상태」 에서 `PARKED`·`RL_WAIT`·`RL_DUE` 가 아니다. 이유: 자동
        재시작이 멈춤으로 내린 작업(`park`)과 한도 대기 중인 작업을 팀장을 다시 띄울 때마다 되살리지 않는다.
@@ -341,7 +341,7 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
      br=$(git -C "$w" branch --show-current)
      (.claude/skills/dflow-work/scripts/dflow.sh show "$id8") \
        | jq -c --arg h 'claude-<host>' '.order | {status, mine,
-           same_host: (((.claimed_by // "") | ascii_downcase) == $h)}'
+           same_host: (((.claimed_by // "") | ascii_downcase) as $c | $c == $h or (($c | split("/")) as $p | ($p | length) == 3 and $p[1] == ($h | ltrimstr("claude-"))))}'
      jq -r --arg a '<신원>/<host>/lead' --arg r '<MAIN>' --arg i "$id8" \
        'select(.agent == $a and .repo == $r and (.id8 // "") == $i)
         | select(.event == "team.result" or (.event == "team.spawn" and (.spawn_kind // "new") == "resume"))

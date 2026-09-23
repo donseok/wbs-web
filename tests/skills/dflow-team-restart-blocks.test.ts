@@ -108,6 +108,12 @@ describe('판정 블록(재시작 전제 H2·G2)', () => {
     expect(out).toContain('gate={"id":"o1","status":"claimed","mine":true,"same_host":true}')
     expect(out).toContain('local_phase=build')
   })
+  it('팀원 라벨 <신원>/<host>/w<슬롯> 도 가운데 칸이 이 PC 면 같은 host 다', () => {
+    const g = (by: string) => gate(JSON.stringify({ order: { id: 'o1', status: 'claimed', mine: true, claimed_by: by } }), 'build')
+    expect(g('jji/h/w2')).toContain('"same_host":true')
+    expect(g('jji/other/w2')).toContain('"same_host":false')
+    expect(g('pat-5fb618b5')).toContain('"same_host":false')
+  })
   it('show 실패·빈 출력·오류 JSON 은 SHOW_FAILED — 살아 있는 주문으로 읽지 않는다', () => {
     expect(gate(null)).toContain('gate=SHOW_FAILED')
     expect(gate('')).toContain('gate=SHOW_FAILED')
@@ -304,6 +310,13 @@ describe('재투입 전 확인(리뷰 Important 2)', () => {
     expect(pre({ show: JSON.stringify({ order: { id: 'o1', status: 'reported', mine: true, claimed_by: HOST } }) })).toBe('REINJECT_BLOCKED server reported')
     expect(pre({ show: JSON.stringify({ order: { id: 'o1', status: 'claimed', mine: false, claimed_by: HOST } }) })).toBe('REINJECT_BLOCKED other-claim')
     expect(pre({ show: JSON.stringify({ order: { id: 'o1', status: 'claimed', mine: true, claimed_by: 'claude-other' } }) })).toBe('REINJECT_BLOCKED other-claim')
+  })
+  // 2026-09-23: 팀원은 <신원>/<host>/w<슬롯> 으로 claim 한다 — 가운데 칸이 이 PC 면 이 PC 의 claim 이다.
+  it('팀원 라벨 <신원>/<host>/w<슬롯> 은 가운데 칸으로 이 PC 를 가린다', () => {
+    const claimed = (by: string) => JSON.stringify({ order: { id: 'o1', status: 'claimed', mine: true, claimed_by: by } })
+    expect(pre({ pane: '%7', show: claimed('jji/H/w1') })).toBe('REINJECT_OK order=o1 st=claimed tries=1')
+    expect(pre({ show: claimed('jji/other/w1') })).toBe('REINJECT_BLOCKED other-claim')
+    expect(pre({ show: claimed('jji/h') })).toBe('REINJECT_BLOCKED other-claim')
   })
   it('show 실패·오류 JSON 이면 띄우지 않는다', () => {
     expect(pre({ show: null })).toBe('REINJECT_BLOCKED show-failed')
