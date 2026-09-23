@@ -43,6 +43,40 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
     expect(r).toContain('`dflow-team/references/resolve-prompt.md` 「게이트」')
     expect(r).not.toContain('git config rerere')
   })
+  it('게이트 순서(2026-09-24): 해소·stage → 게이트 → 기록 → 커밋. 두 문서가 같은 순서를 말한다', () => {
+    const r = section('## 해소 머지(`--resolve`)', '## 금지')
+    const PROMPT = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resolve-prompt.md'), 'utf8')
+    const ORDER = '**해소·stage → 게이트 → 기록 → 커밋**'
+    expect(r).toContain(ORDER)
+    expect(PROMPT).toContain(ORDER)
+    // 번호 순서: 4 머지·stage → 5 게이트 → 6 기록·커밋(머지 커밋 명령은 게이트 뒤) → 7 state.json → 8 push
+    const idx = (s: string) => { const i = r.indexOf(s); if (i < 0) throw new Error(`없음: ${s}`); return i }
+    expect(idx('4. **머지·해소·stage**')).toBeLessThan(idx('5. **게이트**'))
+    expect(idx('5. **게이트**')).toBeLessThan(idx('6. **기록·커밋**'))
+    expect(idx('6. **기록·커밋**')).toBeLessThan(idx('git -c rerere.enabled=true commit'))
+    expect(idx('6. **기록·커밋**')).toBeLessThan(idx('7. **state.json**'))
+    expect(idx('7. **state.json**')).toBeLessThan(idx('8. **push**'))
+    // 옛 모순 문구는 없다
+    expect(r).not.toContain('머지 커밋 **직후, state.json 커밋 전에**')
+    const gate = r.slice(idx('5. **게이트**'), idx('6. **기록·커밋**'))
+    expect(gate).toContain('커밋 **전에**, stage 한 트리에서')
+    expect(gate).toContain('`git diff --quiet`')
+    // 게이트 실패의 되돌리기는 merge --abort(커밋 전이라 reset --keep 은 해소 편집을 작업 트리에 남긴다)
+    expect(gate).toContain('**`git merge --abort`**')
+    expect(gate).not.toMatch(/실패[^\n]*`git reset --keep <기준 HEAD>` 로 버리고/)
+    // push 실패는 커밋이 있으므로 여전히 reset --keep
+    expect(r.slice(idx('8. **push**'))).toContain('`git reset --keep <기준 HEAD>`')
+    // 결과 줄의 머지 커밋 sha 는 6번에서 기록한 값(HEAD~1 로 세지 않는다)
+    expect(r).toContain('머지 커밋 sha 는 6번에서 기록한 `git rev-parse HEAD` 값이다')
+    expect(r).not.toContain('`git rev-parse HEAD~1`')
+    // resolve-prompt: 게이트 대상은 커밋 전 트리, 실패는 merge --abort, 기록은 커밋 전에
+    const pg = PROMPT.slice(PROMPT.indexOf('## 게이트'), PROMPT.indexOf('## 기록'))
+    expect(pg).toContain('**커밋하기 전에\nstage 한 해소 머지 트리**')
+    expect(pg).toContain('`git merge --abort` 로 머지를 버린 뒤')
+    expect(pg).not.toContain('판정 대상은 해소 머지\n커밋이다')
+    const rec = PROMPT.slice(PROMPT.indexOf('## 기록'), PROMPT.indexOf('## 결과 줄'))
+    expect(rec).toContain('「게이트」 를 통과한 **뒤, 커밋하기 전에** 적는다')
+  })
   it('금지: --resolve 에서도 agent 브랜치 수정·force push·훅 우회는 금지다', () => {
     const ban = MERGE.slice(MERGE.indexOf('## 금지'))
     expect(ban).toContain('`--resolve` 의 agent 브랜치 수정·rebase')
@@ -96,6 +130,51 @@ describe('해소 머지의 git 전제 — 임시 저장소', () => {
     expect(r.out).toContain('1\n')
     expect(r.out).toContain('ANCESTOR_OK')
     expect(r.out).toContain('diff=[]')
+  })
+  it('게이트 실패(커밋 전)의 되돌리기: merge --abort 는 stage 한 해소·새 파일까지 치우고 HEAD 는 기준 그대로다', () => {
+    const r = sh(repo, `
+      base=$(git rev-parse HEAD)
+      git -c rerere.enabled=true merge --no-ff --no-commit origin/agent/aaaaaaaa-x >/dev/null 2>&1
+      printf 'main\\nagent\\n' > f.txt && printf 'helper\\n' > helper.txt && git add f.txt helper.txt
+      git diff --quiet && echo WT_EQ_INDEX
+      git merge --abort && echo ABORTED
+      printf 'porcelain=[%s]\\n' "$(git status --porcelain)"
+      [ "$(git rev-parse HEAD)" = "$base" ] && echo HEAD_IS_BASE
+      [ -e helper.txt ] && echo HELPER_LEFT || echo HELPER_GONE
+    `)
+    expect(r.code, r.out).toBe(0)
+    for (const s of ['WT_EQ_INDEX', 'ABORTED', 'porcelain=[]', 'HEAD_IS_BASE', 'HELPER_GONE']) expect(r.out).toContain(s)
+  })
+  it('옛 되돌리기(reset --keep <기준 HEAD>)는 커밋 전 머지 도중이면 거부돼 아무것도 치우지 않는다 — 그래서 쓰지 않는다', () => {
+    const r = sh(repo, `
+      base=$(git rev-parse HEAD)
+      git -c rerere.enabled=true merge --no-ff --no-commit origin/agent/aaaaaaaa-x >/dev/null 2>&1
+      printf 'main\\nagent\\n' > f.txt && git add f.txt
+      git reset --keep "$base" 2>&1; echo "keep=$?"
+      [ -n "$(git status --porcelain)" ] && echo EDITS_LEFT
+      [ -f "$(git rev-parse --git-path MERGE_HEAD)" ] && echo MERGE_HEAD_LEFT
+    `)
+    expect(r.out).toContain('Cannot do a keep reset in the middle of a merge')
+    expect(r.out).not.toContain('keep=0')
+    expect(r.out).toContain('EDITS_LEFT')
+    expect(r.out).toContain('MERGE_HEAD_LEFT')
+  })
+  it('게이트 통과 뒤 resolution.md 를 적고 커밋하면 해소와 기록이 머지 커밋 하나에 함께 실린다', () => {
+    const r = sh(repo, `
+      git -c rerere.enabled=true merge --no-ff --no-commit origin/agent/aaaaaaaa-x >/dev/null 2>&1
+      printf 'main\\nagent\\n' > f.txt && git add f.txt
+      git diff --quiet && echo GATE_RUNS_ON_STAGED_TREE
+      mkdir -p docs/tasks/TSK-01-01 && printf '## 시도 1\\n- f.txt: R8\\n게이트: 개발 브랜치 10 · MERGE_HEAD 단독 12 · merge-base 9 · 결과 13\\n' > docs/tasks/TSK-01-01/resolution.md
+      git add docs/tasks/TSK-01-01/resolution.md
+      git -c rerere.enabled=true commit -q -m "merge: TSK-01-01 x (approved) — 충돌 해소" -m "충돌 1개 · 규약 R8" --trailer "DFlow-Order: o-1" --trailer "DFlow-Resolve: 1/3"
+      git rev-list --parents -n 1 HEAD | wc -w | tr -d ' '
+      git show --name-only --format= HEAD | sort
+    `)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('GATE_RUNS_ON_STAGED_TREE')
+    expect(r.out).toContain('3\n')   // 부모 둘 = 머지 커밋
+    expect(r.out).toContain('docs/tasks/TSK-01-01/resolution.md')
+    expect(r.out).toContain('f.txt')
   })
   it('rerere 가 push 경합 뒤 재머지에서 앞서 푼 덩어리를 되살린다(commit 에도 -c 가 붙어야 기록된다)', () => {
     const r = sh(repo, `

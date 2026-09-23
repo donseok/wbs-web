@@ -143,23 +143,25 @@ AskUserQuestion 을 쓰지 않는 것과 권한 거부 처리는 `worker-prompt.
 
 ## 게이트
 
-dev-discipline 「게이트 기준선」 과 같은 판정이다. 기준선은 3번에서 `<BASE>` 로 잰 것이고, 판정 대상은 해소 머지
-커밋이다. **기준선 대비 신규 실패 0 + 시험 총수가 max(개발 브랜치 총수, MERGE_HEAD 단독 총수) 이상**이면 통과다.
+dev-discipline 「게이트 기준선」 과 같은 판정이다. 기준선은 3번에서 `<BASE>` 로 잰 것이고, 판정 대상은 **커밋하기 전에
+stage 한 해소 머지 트리**다(`/dflow-merge` 「해소 머지」 5번). 순서는 **해소·stage → 게이트 → 기록 → 커밋** 이다(기록은
+아래 「기록」 절). **기준선 대비 신규 실패 0 + 시험 총수가 max(개발 브랜치 총수, MERGE_HEAD 단독 총수) 이상**이면 통과다.
 두 기준선 수와 머지 결과 총수는 `resolution.md` 의 그 시도 절에 함께 적는다. 판정은 아래 블록 그대로다(값만 채운다).
 ```bash
 dev_total='<개발 브랜치 총수>'; head_total='<MERGE_HEAD 단독 총수>'; total='<머지 결과 총수>'; new_fail='<기준선 대비 신규 실패 수>'
 need=$(( dev_total > head_total ? dev_total : head_total ))
 if [ "$new_fail" -eq 0 ] && [ "$total" -ge "$need" ]; then echo "GATE_PASS need=$need total=$total"; else echo "GATE_FAIL new=$new_fail total=$total need=$need"; fi
 ```
-`GATE_FAIL` 이면 `/dflow-merge` 「해소 머지」 5번대로 머지를 버리고 `failed gate <신규 실패 수>` 다(총수 부족이면 `<n>` 은
-모자란 수다). 빌드·린트·타입 검사가 대상 리포 기준선
+`GATE_FAIL` 이면 `/dflow-merge` 「해소 머지」 5번대로 커밋하지 않고 `git merge --abort` 로 머지를 버린 뒤(HEAD 는 `<BASE>`
+그대로다) `failed gate <신규 실패 수>` 다(총수 부족이면 `<n>` 은 모자란 수다). 빌드·린트·타입 검사가 대상 리포 기준선
 명령에 들어 있으면 같이 본다. 기준 이동이나 push 경합으로 다시 머지했으면 기준선부터 다시 잰다.
 
 ## 기록
 
-- 해소한 파일마다 적용한 규약 번호와 판단을 `{TASK_DIR}/resolution.md` 의 `## 시도 {ATTEMPT}` 절에 덧붙이고(같은 절에
-  `게이트: 개발 브랜치 <dev_total> · MERGE_HEAD 단독 <head_total> · 결과 <total>` 한 줄), 머지
-  커밋에 함께 담는다. 머지 커밋 본문 둘째 문단에는 요약(충돌 파일 수·규약 번호)을 둔다.
+- 「게이트」 를 통과한 **뒤, 커밋하기 전에** 적는다. 해소한 파일마다 적용한 규약 번호와 판단을 `{TASK_DIR}/resolution.md`
+  의 `## 시도 {ATTEMPT}` 절에 덧붙이고(같은 절에 `게이트: 개발 브랜치 <dev_total> · MERGE_HEAD 단독 <head_total> · 결과 <total>`
+  한 줄), `resolution.md` 를 파일명으로 stage 해 머지 커밋에 함께 담는다. 머지 커밋 본문 둘째 문단에는 요약(충돌 파일
+  수·규약 번호)을 둔다. 게이트가 실패하면 커밋이 없으므로 이 기록도 남지 않는다(결과 줄 `failed gate <n>` 이 기록이다).
 - `worker-prompt.md` 에 「7-1」 절(`.issues`)이 있으면 그 형식을 따르고, phase 칸은 `resolve` 로 쓴다. 없으면 쓰지 않는다.
 
 ## 결과 줄
