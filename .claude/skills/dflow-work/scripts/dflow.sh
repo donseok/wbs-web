@@ -291,10 +291,11 @@ check_depends_local() { # $1=depends_evidence JSON 배열
 
 # spec.md 로컬 캐시(결정 A) — DB 정본의 명세를 claim 시점에 스냅샷. 위치는 <DOCS_DIR>/tasks/<TSK>(리포 최상위 기준).
 # external_ref 의 마지막 칸 = TSK(작업 폴더 이름). $1=item 을 담은 JSON(show·claim 응답). 없으면 빈 값.
+# 두 응답은 item 위치가 다르다 — show 는 .order.item, claim 은 최상위 .item. 둘 다 읽는다.
 # '.'·'..'·경로 문자는 <DOCS_DIR>/tasks 밖을 가리키므로 거부한다(exit 6). $(...) 안에서 부르므로
 # die 는 서브셸만 끝낸다 — 호출부는 반드시 `|| exit $?` 로 받는다.
 _tsk_from_ref() {
-  _tsk=$(printf '%s' "$1" | jq -r '.item.external_ref // empty' 2>/dev/null | awk -F/ '{print $NF}')
+  _tsk=$(printf '%s' "$1" | jq -r '(.item // .order.item // {}).external_ref // empty' 2>/dev/null | awk -F/ '{print $NF}')
   case "$_tsk" in .|..|*[!A-Za-z0-9._-]*) die 6 "BAD_REF external_ref 의 마지막 칸($_tsk)은 작업 폴더 이름으로 쓸 수 없다 — [A-Za-z0-9._-] 만, '.'·'..' 금지" ;; esac
   printf '%s' "$_tsk"
 }

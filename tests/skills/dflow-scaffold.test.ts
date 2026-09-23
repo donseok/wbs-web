@@ -1,5 +1,5 @@
 // 작업 폴더 scaffold·taskdir·spec 캐시 경로(docs/superpowers/specs/2026-09-23-dflow-task-scaffold-design.md).
-// dflow.sh 를 가짜 curl 로 실제 실행한다. 응답 본문은 env(MINE_BODY·SHOW_BODY)로 주입한다.
+// dflow.sh 를 가짜 curl 로 실제 실행한다. 응답 본문은 env(MINE_BODY·SHOW_BODY·CLAIM_BODY)로 주입한다.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -23,7 +23,7 @@ done
 [ -n "\${CURL_LOG:-}" ] && printf '%s\n' "$url" >> "$CURL_LOG"
 case "$url" in
   *"/agent/work/mine"*) printf '%s' "$MINE_BODY" > "$out" ;;
-  *"/claim") printf '%s' "$SHOW_BODY" > "$out" ;;
+  *"/claim") printf '%s' "$CLAIM_BODY" > "$out" ;;
   *"/agent/work/"*) printf '%s' "$SHOW_BODY" > "$out" ;;
   *) printf '{}' > "$out" ;;
 esac
@@ -63,25 +63,31 @@ afterEach(() => rmSync(tmp, { recursive: true, force: true }))
 
 describe('taskdir·claim spec 캐시', () => {
   const MINE = JSON.stringify({ claimed: [], assigned: [order(O2, P2, 'MDM/TSK-01-02')], available: [] })
-  const SHOW = JSON.stringify({ id: O2, item: { external_ref: 'MDM/TSK-01-02', name: 't' }, depends_evidence: [] })
+  // 실제 응답 모양 — show 는 item 을 .order 안에, claim 은 최상위에 둔다(src/app/api/v1/agent/work/[id]/route.ts·claim/route.ts).
+  // 2026-09-23 전에는 두 fixture 가 모두 최상위 item 이라 show 를 읽는 taskdir 의 NO_REF 오탐을 못 잡았다.
+  const show = (id: string, item: object) => JSON.stringify({ ok: true, order: { id, status: 'ready', item }, reports: [], depends_evidence: [] })
+  const claimBody = (item: object) => JSON.stringify({ ok: true, status: 'claimed', item, depends_evidence: [] })
+  const ITEM = { external_ref: 'MDM/TSK-01-02', name: 't' }
+  const SHOW = show(O2, ITEM)
+  const CLAIM = claimBody(ITEM)
   it('taskdir 는 project_map 의 DOCS_DIR 아래 작업 폴더를 낸다', () => {
     const r = run(['taskdir', O2], { MINE_BODY: MINE, SHOW_BODY: SHOW })
     expect(r.status, r.stderr).toBe(0); expect(r.stdout).toBe('docs/mdm/tasks/TSK-01-02\n')
   })
   it('claim 은 spec.md 를 리포 최상위 기준 DOCS_DIR 아래에 쓴다(하위 디렉터리에서 실행해도)', () => {
     mkdirSync(join(repo, 'sub'))
-    const r = run(['claim', O2], { MINE_BODY: MINE, SHOW_BODY: SHOW }, join(repo, 'sub'))
+    const r = run(['claim', O2], { MINE_BODY: MINE, SHOW_BODY: SHOW, CLAIM_BODY: CLAIM }, join(repo, 'sub'))
     expect(r.status, r.stderr).toBe(0)
     expect(existsSync(join(repo, 'docs/mdm/tasks/TSK-01-02/spec.md'))).toBe(true)
     expect(existsSync(join(repo, 'docs/tasks'))).toBe(false)
     expect(r.stdout).toContain('spec 캐시: docs/mdm/tasks/TSK-01-02/spec.md')
   })
   it('external_ref 가 없으면 taskdir 는 exit 6 NO_REF', () => {
-    const r = run(['taskdir', O2], { MINE_BODY: MINE, SHOW_BODY: JSON.stringify({ id: O2, item: {} }) })
+    const r = run(['taskdir', O2], { MINE_BODY: MINE, SHOW_BODY: show(O2, {}) })
     expect(r.status).toBe(6); expect(r.stderr).toContain('NO_REF')
   })
   // external_ref 마지막 칸이 '.'·'..' 이면 작업 폴더가 <DOCS_DIR>/tasks 밖으로 나간다(최종 리뷰 #2).
-  const bad = (ref: string) => JSON.stringify({ id: O2, item: { external_ref: ref, name: 't' }, depends_evidence: [] })
+  const bad = (ref: string) => show(O2, { external_ref: ref, name: 't' })
   for (const ref of ['X/..', 'X/.']) {
     it(`taskdir '${ref}' 는 exit 6 BAD_REF`, () => {
       const r = run(['taskdir', O2], { MINE_BODY: MINE, SHOW_BODY: bad(ref) })
@@ -101,7 +107,7 @@ describe('taskdir·claim spec 캐시', () => {
   it("claim 'X/.' 도 claim POST 전에 exit 6 (project_id → docs)", () => {
     const log = join(tmp, 'curl.log')
     const mine1 = JSON.stringify({ claimed: [], assigned: [order(O1, P1, 'X/.')], available: [] })
-    const r = run(['claim', O1], { MINE_BODY: mine1, SHOW_BODY: JSON.stringify({ id: O1, item: { external_ref: 'X/.' }, depends_evidence: [] }), CURL_LOG: log })
+    const r = run(['claim', O1], { MINE_BODY: mine1, SHOW_BODY: show(O1, { external_ref: 'X/.' }), CURL_LOG: log })
     expect(r.status).toBe(6); expect(r.stderr).toContain('BAD_REF')
     expect(readFileSync(log, 'utf8')).not.toContain('/claim')
     expect(existsSync(join(repo, 'docs/tasks/spec.md'))).toBe(false)
