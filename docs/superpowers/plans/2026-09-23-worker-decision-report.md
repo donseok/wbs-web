@@ -3268,3 +3268,15 @@ flip 을 썼으면 적어 둔 주문을 되돌린다 — `update public.agent_wo
 - [ ] **Step 8: 보고**
 
 staging 반영 커밋(`git rev-parse --short HEAD`), 스테이징 DB 0102 적용 사실, E2E 결과(화면 네 곳)를 보고한다. main 머지·운영 DB 적용·dflow-kit 재빌드는 범위 밖이다. 나중에 운영에 올릴 때는 **`db:apply --target prod` 먼저, main 머지 나중**(역순이면 허브 조회가 없는 컬럼을 select 해 에이전트 화면 전체가 죽고, 모든 completion 이 500 이 난다), 그 뒤 킷 재빌드다. 워크트리·브랜치는 main 반영 때까지 둔다.
+
+---
+
+## 실행 기록
+
+- 2026-09-23 Task 0~9 는 계획의 코드·테스트를 그대로 적용했다. 코드 현실(줄 위치·기존 픽스처)이 계획과 일치해 스펙 기준으로 고친 내용은 없다.
+- Task 5: `ReportDecisions` 를 `WbsAgentOrderStatus` 바로 위에 넣으면 그 함수의 기존 JSDoc 과 떨어지므로, 기존 JSDoc 위에 두었다(동작 동일).
+- Task 10 Step 1: `tests/agent/report-decisions.test.ts` 알림 목의 쓰지 않는 매개변수 `_n` 이 no-unused-vars 경고를 내어 `vi.fn<…>` 제네릭으로 바꿨다(7b6d5137).
+- Task 10 Step 2(back-merge)는 하지 않았다 — 이번 실행 지시가 origin/staging 머지를 금했다. 대신 `git merge-tree` 로 미리 봤다: origin/staging 은 기점 a8eabc6d 그대로라 충돌·0102 번호 충돌·계약 버전 선점·`{TASK_DIR}` 표기 변화 모두 없음.
+- Task 10 Step 3: `.env` 링크는 필요 없었다 — `db:apply` 는 키체인의 Supabase CLI 토큰을 읽는다. `staging:sync` 는 계획의 판단대로 돌리지 않았다. 스크래치 SQL 은 `$TMPDIR` 대신 세션 스크래치 폴더에 썼다. assert 실패가 `db:apply` 비영(非0) 종료로 올라오는지 먼저 확인했다.
+- Task 10 Step 3 결과: 적용(2.55s) → 검증 SQL → 롤백 → 부재 확인 → 재적용 → 재검증 모두 exit 0. 검증 행 잔존 없음·기존 행 소급 없음·`decision_count` 생성 컬럼 확인. 스테이징 DB 는 0102 적용 상태로 두었다. 트레일러 커밋 806bd85f.
+- Task 10 Step 5~7(Preview push·staging push·doctor·ego-browser E2E)은 하지 않았다 — 지시상 컨트롤러가 머지 뒤에 한다.
