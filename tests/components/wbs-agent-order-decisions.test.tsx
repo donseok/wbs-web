@@ -59,19 +59,19 @@ describe('WbsSpecPanel 진행 상황 — 결정 목록', () => {
     await act(async () => {})
   }
 
-  it('승인 대기 회차(마지막 completion)는 펼치고, 반려된 옛 회차는 결정 수만 보이게 접는다', async () => {
+  it('승인 대기 회차(마지막 completion)도 접고 머리에 건수를 단다, 반려된 옛 회차는 결정 수만 보이게 접는다', async () => {
     getAgentOrderForItem.mockResolvedValue(reportedOrder([
       rep('r1', 'completion', '2026-09-23T01:00:00Z', [DEC('D1'), DEC('D2'), DEC('D3')], 'reject'),
       rep('r2', 'progress', '2026-09-23T02:00:00Z', null),
       rep('r3', 'completion', '2026-09-23T03:00:00Z', [DEC('D1')]),
     ]))
     await render()
-    const folds = container.querySelectorAll('details[data-report-decisions-fold]')
-    expect(folds).toHaveLength(1)
-    expect(folds[0].querySelector('summary')!.textContent).toBe('결정 3건')
-    const open = [...container.querySelectorAll('[data-decisions="ok"]')].filter(e => !e.closest('details'))
-    expect(open).toHaveLength(1)
-    expect(open[0].querySelectorAll('[data-decision]')).toHaveLength(1)
+    const folds = [...container.querySelectorAll('details[data-report-decisions-fold]')] as HTMLDetailsElement[]
+    expect(folds.map(f => f.querySelector('summary')!.textContent)).toEqual(['결정 3건', '에이전트가 적은 결정 1건 · 승인 전 확인'])
+    expect(folds.every(f => !f.open)).toBe(true)
+    // 펼쳐진 결정 목록은 없다 — 전부 접힌 영역 안에 있다
+    expect([...container.querySelectorAll('[data-decisions="ok"]')].filter(e => !e.closest('details'))).toHaveLength(0)
+    expect(folds[1].querySelectorAll('[data-decision]')).toHaveLength(1)
   })
   it('progress 보고에는 결정 영역이 없다', async () => {
     getAgentOrderForItem.mockResolvedValue(reportedOrder([rep('r2', 'progress', '2026-09-23T02:00:00Z', null)]))
@@ -107,6 +107,9 @@ describe('WbsSpecPanel 진행 상황 — 결정 목록', () => {
       rep('r3', 'completion', '2026-09-23T03:00:00Z', [DEC('D1')]),
     ]))
     await render()
-    expect(container.querySelector('details[data-report-decisions-fold]')).toBeNull()
+    // 옛 회차(0건)는 그리지 않고, 승인 대기 회차만 접힌 채 남는다
+    const folds = container.querySelectorAll('details[data-report-decisions-fold]')
+    expect(folds).toHaveLength(1)
+    expect(folds[0].hasAttribute('data-pending')).toBe(true)
   })
 })

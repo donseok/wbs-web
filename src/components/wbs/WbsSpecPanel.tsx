@@ -382,7 +382,18 @@ const ORDER_STATUS_LABEL: Record<string, DictKey> = {
  */
 function ReportDecisions({ raw, open, latest }: { raw: unknown; open: boolean; latest: boolean }) {
   const parsed = parseDecisions(raw)
-  if (open) return <DecisionList decisions={parsed} compact />
+  // 승인 대기 회차도 기본은 접는다(2026-09-24 사용자 요청: 진행 상황이 너무 길다). 머리에 건수와 「승인 전 확인」을
+  // 달아 열어 볼 이유를 남긴다. 미제출·형식 오류 문구는 한 줄이라 그대로 보인다.
+  if (open) {
+    if (parsed.state !== 'ok') return <DecisionList decisions={parsed} compact />
+    if (parsed.items.length === 0) return null
+    return (
+      <details data-report-decisions-fold data-pending className="mt-1">
+        <summary className="cursor-pointer text-[11px] font-semibold text-brand">에이전트가 적은 결정 {parsed.items.length}건 · 승인 전 확인</summary>
+        <DecisionList decisions={parsed} compact />
+      </details>
+    )
+  }
   if (parsed.state === 'ok' && parsed.items.length === 0) return null
   // 미제출(0102 이전·구 CLI)은 가장 최근 completion 회차에만 알린다 — 옛 회차마다 붙으면 잡음이다.
   if (parsed.state === 'none' && !latest) return null
