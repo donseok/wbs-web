@@ -122,4 +122,14 @@ esac
     expect(r.out).toContain('TSK-A')
     expect(r.out).toContain('TSK-B')
   })
+
+  it('project_map 키가 잘못되면(BAD_DOCS_DIR) 승인 감지를 조용히 0건으로 돌지 않고 시작하지 않는다(exit 2)', () => {
+    writeFileSync(join(repo, '.dflow'), 'api_base=https://p.test\nproject_id=11111111-1111-4111-8111-111111111111\nrelease_branch=main\n')
+    writeFileSync(join(repo, '.dflow.local'), 'pats=dflow_pat_TEST_token\ndev_branch=dev/test\nproject_map=/abs/docs/mdm=22222222-2222-4222-8222-222222222222\n')
+    const r = sh(repo, `sh '${POLL_SH}' --interval 1 --until none`, {
+      DFLOW_SH: join(stubBinDir, 'dflow.sh'), DFLOW_WATCH: '0', DFLOW_CONFIG_DIR: repo, PATH: `${stubBinDir}:${GIT_ENV.PATH}`,
+    })
+    expect(r.code).toBe(2)
+    expect(r.err).toContain('BAD_DOCS_DIR /abs/docs/mdm')
+  })
 })

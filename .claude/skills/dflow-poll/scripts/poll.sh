@@ -86,6 +86,9 @@ STATE_FILES() { dflow_config_tasks_dirs | while IFS= read -r _d; do
 # 돌려주므로, 바인딩 없이 돌면 다른 프로젝트의 ready 를 찾아 이 리포에서 착수하게 된다. 거르는 것은 dflow.sh list 다.
 [ -n "$(dflow_config_projects)" ] \
   || { echo "프로젝트 바인딩 없음: .dflow 의 project_id 또는 .dflow.local 의 project_map(레거시는 .env 의 DFLOW_PROJECT_ID·DFLOW_PROJECT_MAP)을 넣으세요" >&2; exit 2; }
+# project_map 키가 잘못되면(BAD_DOCS_DIR) 시작하지 않는다. STATE_FILES 는 파이프라 그 실패가 사라져 승인 감지가
+# 조용히 0건이 된다 — 사유는 dflow_config_tasks_dirs 가 stderr 에 이미 냈다.
+dflow_config_tasks_dirs >/dev/null || exit 2
 
 net_fail=0
 cycle=0

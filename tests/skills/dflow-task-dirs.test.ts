@@ -75,3 +75,39 @@ describe('dflow.sh config docs-dir|tasks-dirs', () => {
     const r = run(['config', 'tasks-dirs']); expect(r.stdout).toBe('docs/mdm/tasks\n')
   })
 })
+
+// project_map 키 검증(최종 리뷰 #5·#8). 키는 리포 최상위 기준 상대경로다 — 절대경로·'..'·빈 키는
+// 원격 스캔의 git diff 를 exit 128 로 죽이고(후보 0건) claim 이 리포 밖에 폴더를 만든다.
+describe('project_map 키 검증 — BAD_DOCS_DIR', () => {
+  const BAD = ['/Users/me/repo/docs/mdm', '../other', 'docs/../x', 'docs/..', '..', '', '/']
+  for (const k of BAD) {
+    it(`키 '${k}' 면 docs_dir·tasks_dirs 는 BAD_DOCS_DIR 로 return 2`, () => {
+      const env = { DFLOW_PROJECT_ID: A, DFLOW_PROJECT_MAP: `docs/ok=${C},${k}=${B}` }
+      const d = lib(`dflow_config_docs_dir ${B}`, env)
+      expect(d.code).toBe(2); expect(d.err).toContain('BAD_DOCS_DIR'); expect(d.out).toBe('')
+      // 다른 프로젝트를 물어도 설정이 깨졌으면 멈춘다 — 조용히 일부만 쓰지 않는다
+      expect(lib(`dflow_config_docs_dir ${A}`, env).code).toBe(2)
+      const t = lib('dflow_config_tasks_dirs', env)
+      expect(t.code).toBe(2); expect(t.err).toContain('BAD_DOCS_DIR'); expect(t.out).toBe('')
+    })
+  }
+  it('projects 는 잘못된 키의 UUID 를 바인딩하지 않고 BAD_DOCS_DIR 를 알린다(나머지는 그대로)', () => {
+    const r = lib('dflow_config_projects', { DFLOW_PROJECT_ID: A, DFLOW_PROJECT_MAP: `docs/ok=${C},/abs/docs=${B}` })
+    expect(r.code).toBe(0); expect(r.err).toContain('BAD_DOCS_DIR /abs/docs')
+    expect(r.out).toBe(`${A}\n${C}\n`)
+  })
+  it('정상 키(점이 든 이름·끝 /)는 그대로 통과한다', () => {
+    const r = lib('dflow_config_tasks_dirs', { DFLOW_PROJECT_MAP: `docs/a..b/=${B},docs/.x=${C}` })
+    expect(r.code, r.err).toBe(0); expect(r.err).toBe(''); expect(r.out).toBe('docs/.x/tasks\ndocs/a..b/tasks\n')
+  })
+  it('dflow.sh config tasks-dirs 는 잘못된 키면 exit 2', () => {
+    const r = spawnSync('sh', [DFLOW, 'config', 'tasks-dirs'], {
+      encoding: 'utf8', cwd: mkdtempSync(join(tmpdir(), 'dflow-td-')),
+      env: {
+        PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV, HOME: '/nonexistent',
+        DFLOW_ENV_FILE: '/nonexistent/.env', DFLOW_CONFIG_DIR: '/nonexistent', DFLOW_PROJECT_MAP: `/abs/docs=${B}`,
+      } as NodeJS.ProcessEnv,
+    })
+    expect(r.status).toBe(2); expect(r.stderr).toContain('BAD_DOCS_DIR'); expect(r.stdout).toBe('')
+  })
+})
