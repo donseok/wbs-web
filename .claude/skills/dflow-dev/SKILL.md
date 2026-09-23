@@ -236,6 +236,18 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    ```bash
    git switch -c agent/<주문id8>-<slug> <기점>
    ```
+   **agent 브랜치에 올라서면 곧바로 state.json 의 `phase` 를 `prepare` 로 쓴다(2026-09-24).** 이 뒤의 의존성 설치·기준선·
+   spec 판정 동안에도 heartbeat 훅이 신호를 보내게 하기 위해서다. 훅은 `prepare`·`design`·`build`·`verify`·`refactor`·
+   `rejected` 만 보내고 scaffold 값 `ready` 는 보내지 않는다(ready 는 claim 전의 모든 배정 작업에 있는 자리표라 받으면 남의
+   주문으로 신호가 샌다). 그대로 두면 Phase 01 내내 신호가 한 번도 나가지 않는다(dmes-standard 2026-09-24 실측: 착수 5분이
+   넘도록 `last_heartbeat_at=null`, state.json `phase=ready`). 훅은 PostToolUse 라 도구 호출이 끝날 때마다 돈다 — 5분 넘는
+   단일 호출(기준선 testAll 등)이 도는 동안은 이 규칙으로도 좌석이 무응답으로 보이며, 그 호출이 끝나면 되살아난다.
+   - 파일이 없거나 `phase` 가 `ready` 일 때만 쓴다. 재개로 이미 뒤 단계(`design` 이후)가 적혀 있으면 덮어쓰지 않고,
+     반려 재작업 경로(`phase=rejected`)에서는 쓰지 않는다.
+   - 이 쓰기가 state.json 의 첫 기록이면 `order`(전체 UUID)와 `api_base`(상태 모델)를 함께 적는다. 커밋은 하지 않는다
+     (다음 커밋에 실린다).
+   - claim 직후가 아니라 여기서 쓰는 이유: claim 부터 `git switch -c` 까지 실패하면 기록한 원래 위치로 돌아가야 하는데,
+     그 사이에 고친 state.json 이 복귀 switch 를 막을 수 있다.
    이미 해당 브랜치면 재개. **main·staging 위에서 사이클 진행 금지** — Phase 진입 전
    `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.
    <!-- worker:begin -->
@@ -243,6 +255,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    <!-- worker:end -->
 4. **게이트 기준선 기록**: dev-discipline 의 기준선 절차 실행, state.json 에 저장(`api_base` 가 아직 없으면 함께 기록한다. 상태 모델).
 5. spec.md 읽기(필수) + 복잡도 판정(dev-discipline 의 점수표) → 설계 모델 결정, 한 줄 출력.
+6. **준비 끝 표시**: state.json 의 `phase` 가 `prepare` 이면 `design` 으로 바꾼다(Design 서브에이전트를 띄우기 전, 커밋하지
+   않는다). 훅이 다음 신호에 실어 좌석이 「준비」에서 「설계」로 넘어간다. 빠뜨리면 Design 동안 좌석이 계속 「준비」로 보인다.
 
 ## Phase 02~05 — Design → Build → Verify → Refactor
 

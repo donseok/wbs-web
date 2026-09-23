@@ -12,6 +12,15 @@
 - CLI: `check_depends_local` 이 `waived` 간선을 건너뛴다. `dflow.sh stub-check [<ref>]` — 승격 관문(표식 있으면 exit 4).
 - 설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-23-force-progress-design.md(킷에는 미동봉).
 
+## heartbeat `phase:"prepare"` (2026-09-24 — 계약 버전 불변)
+
+- 워커 heartbeat 의 `phase` 가 `prepare`(준비)를 더 받는다 — `/dflow-dev` Phase 01(claim 뒤 브랜치·기준선·spec 판정)이다.
+  `/dflow-dev` 가 agent 브랜치에 올라서면 state.json `phase=prepare` 를 쓰고, 훅이 그 값을 보낸다. 좌석표는 「준비」로 보인다.
+- scaffold 자리표 값 `ready` 는 여전히 받지 않는다(400). 훅도 ready 는 보내지 않는다.
+- 좌석표는 점유(claimed) 중인데 `heartbeat_phase` 가 없으면(착수 직후·훅 미설치) 역시 「준비」로 보인다(반려 재작업 제외).
+- 옛 서버는 `prepare` 를 400 으로 거부한다. 훅은 409 `cancelled` 외의 응답을 보지 않으므로 해는 없고 신호만 빠진다 —
+  서버를 먼저 배포하고 훅을 설치한다.
+
 ## heartbeat `tokens` (2026-09-24, 0104 — 계약 버전 불변)
 
 - `POST /api/v1/agent/work/{id}/heartbeat` 가 선택 필드 `tokens` 를 받는다:

@@ -147,7 +147,7 @@ dflow.sh progress <순번> <0-99> "<요약>"
 (`~/.dflow/hooks/heartbeat.sh`)이 60초에 1회 자동으로 보내므로 직접 부를 일은 두 가지뿐이다.
 - 담당자 결정 대기 직전: `dflow.sh heartbeat <id8> --phase blocked --note "<질문>"`. 좌석표에 손 든 사람과 질문이 뜬다.
   답을 받은 뒤의 첫 heartbeat(훅이든 명시든, `--phase` 가 blocked 가 아닌 것)가 이 상태를 푼다.
-- Phase 경계를 명시하고 싶을 때: `--phase design|build|verify|refactor|rejected|reported`.
+- Phase 경계를 명시하고 싶을 때: `--phase prepare|design|build|verify|refactor|rejected|reported`(`prepare` = Phase 01 준비).
 `--model` 은 지금 도는 Phase 서브에이전트의 모델(좌석표 명찰·등급). 훅은 state.json 의 `model` 을 싣는다 — 생략하면 서버 값을 그대로 둔다.
 `--agent` 기본값은 워크트리 루트 `.dflow-agent` 첫 줄, 없으면 `claude-<host>`. 값이 `*/parked` 면 보내지 않는다.
 claimed 가 아니면 exit 4, 사람이 중단한 주문(`cancelled`)이면 exit 10, 소유자가 아니면 exit 5. progress·done 도 같다.
