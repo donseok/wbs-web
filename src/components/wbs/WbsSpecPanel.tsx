@@ -493,63 +493,74 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
           {lastReport && ` · ${lastReport.percent}%`}
         </p>
       )}
-      {/* 시각은 한국 시간 분 단위, 보고 이력은 표로(2026-09-23 사용자 요청). 모델은 보고마다 남지 않고 마지막
-          heartbeat 값만 있다(0100, 이력 없음) — 그래서 요약 칸에 "최근 모델" 하나로만 보인다. */}
-      <table data-agent-order-summary className="mt-1.5 w-full table-fixed text-[11px]">
+      {/* 보고 하나 = 한 줄인 데이터 표(2026-09-24 사용자 요청). 각 줄의 시작은 직전 보고(첫 줄은 착수), 종료는 그 보고
+          시각이다. 시각은 한국 시간 분 단위로 쓰고 칸 이름에 시간대를 달지 않는다. 모델은 보고마다 남지 않고 마지막
+          heartbeat 값만 있어(0100) 합계 줄에만 보인다. */}
+      <table data-agent-order-reports className="mt-1.5 w-full border-collapse text-[11px]">
         <thead className="text-left text-[10px] text-ink-subtle">
-          <tr>
-            <th className="font-medium">{t('wbs.agentOrderStart')}</th>
-            <th className="font-medium">{t('wbs.agentOrderEnd')}</th>
-            <th className="w-16 font-medium">{t('wbs.agentOrderDuration')}</th>
-            <th className="font-medium">{t('wbs.agentOrderModel')}</th>
+          <tr className="border-b border-line">
+            <th className="py-1 pr-2 font-medium">{t('wbs.agentOrderStep')}</th>
+            <th className="py-1 pr-2 font-medium">{t('wbs.agentOrderStart')}</th>
+            <th className="py-1 pr-2 font-medium">{t('wbs.agentOrderEnd')}</th>
+            <th className="py-1 pr-2 text-right font-medium">{t('wbs.agentOrderDuration')}</th>
+            <th className="py-1 pr-2 text-right font-medium">{t('wbs.agentOrderPct')}</th>
+            <th className="py-1 font-medium">{t('wbs.agentOrderAgent')}</th>
           </tr>
         </thead>
         <tbody className="tabular-nums text-ink">
-          <tr>
-            <td>{tl.startedAt ? seoulStamp(tl.startedAt) : '—'}</td>
-            <td>{tl.endedAt ? seoulStamp(tl.endedAt) : (order.status === 'claimed' ? t('wbs.agentOrderInProgress') : '—')}</td>
-            <td>{mins(tl.minutes)}</td>
-            <td className="truncate font-mono" title={tl.model ?? undefined}>{tl.model ?? '—'}</td>
-          </tr>
-        </tbody>
-      </table>
-      {order.reports.length > 0 && (
-        <table data-agent-order-reports className="mt-2 w-full border-collapse text-xs">
-          <thead className="text-left text-[10px] text-ink-subtle">
-            <tr className="border-b border-line/60">
-              <th className="py-0.5 pr-2 font-medium">{t('wbs.agentOrderAt')}</th>
-              <th className="py-0.5 pr-2 text-right font-medium">{t('wbs.agentOrderGap')}</th>
-              <th className="py-0.5 pr-2 font-medium">{t('wbs.agentOrderKind')}</th>
-              <th className="py-0.5 pr-2 text-right font-medium">{t('wbs.agentOrderPct')}</th>
-              <th className="py-0.5 font-medium">{t('wbs.agentOrderAgent')}</th>
-            </tr>
-          </thead>
-          {order.reports.map((r, i) => (
-            <tbody key={r.id} className="border-b border-line/60 last:border-b-0">
-              <tr className="tabular-nums text-[11px] text-ink-muted">
-                <td className="whitespace-nowrap pr-2 pt-1" title={r.created_at}>{seoulStamp(r.created_at)}</td>
-                <td className="whitespace-nowrap pr-2 pt-1 text-right">{mins(tl.gaps[i])}</td>
-                <td className="whitespace-nowrap pr-2 pt-1">{r.kind === 'completion' ? t('wbs.agentOrderKindCompletion') : t('wbs.agentOrderKindProgress')}</td>
-                <td className="whitespace-nowrap pr-2 pt-1 text-right">{r.percent}%</td>
-                <td className="break-all pt-1 font-mono text-[10px]">{r.agent}</td>
-              </tr>
-              <tr>
-                <td colSpan={5} className="pb-1.5">
-                  <p className="whitespace-pre-wrap text-ink">{r.summary}</p>
+          {order.reports.map((r, i) => {
+            const from = i === 0 ? tl.startedAt : order.reports[i - 1].created_at
+            return (
+              <tr key={r.id} data-report-row={r.kind} className="border-b border-line/60">
+                <td className="max-w-0 py-1 pr-2">
+                  <span className="block truncate" title={r.summary}>
+                    {r.kind === 'completion' && <span className="mr-1 font-semibold text-brand">{t('wbs.agentOrderKindCompletion')}</span>}
+                    {r.summary}
+                  </span>
                   {r.links.length > 0 && (
-                    <div className="mt-0.5 text-[10px]">
-                      {t('wbs.agentOrderLinks')}: {r.links.map((l, k) => (
-                        <a key={k} className="mr-1.5 underline" href={l.url} target="_blank" rel="noreferrer">{l.label ?? l.url}</a>
+                    <span className="block truncate text-[10px]">
+                      {r.links.map((l, k) => (
+                        <a key={k} className="mr-1.5 text-brand underline" href={l.url} target="_blank" rel="noreferrer">{l.label ?? l.url}</a>
                       ))}
-                    </div>
+                    </span>
                   )}
-                  {r.kind === 'completion' && <ReportDecisions raw={r.decisions} open={r.id === pendingCompletionId} latest={r.id === latestCompletionId} />}
                 </td>
+                <td className="whitespace-nowrap py-1 pr-2">{from ? seoulStamp(from) : '—'}</td>
+                <td className="whitespace-nowrap py-1 pr-2" title={r.created_at}>{seoulStamp(r.created_at)}</td>
+                <td className="whitespace-nowrap py-1 pr-2 text-right">{mins(tl.gaps[i])}</td>
+                <td className="whitespace-nowrap py-1 pr-2 text-right">{r.percent}%</td>
+                <td className="max-w-0 py-1"><span className="block truncate font-mono text-[10px] text-ink-muted" title={r.agent}>{r.agent}</span></td>
               </tr>
-            </tbody>
-          ))}
-        </table>
-      )}
+            )
+          })}
+          {tl.openMinutes !== null && (
+            <tr data-report-row="open" className="border-b border-line/60 text-ink-muted">
+              <td className="py-1 pr-2 italic">{t('wbs.agentOrderInProgress')}</td>
+              <td className="whitespace-nowrap py-1 pr-2">{(order.reports.at(-1)?.created_at ?? tl.startedAt) ? seoulStamp((order.reports.at(-1)?.created_at ?? tl.startedAt) as string) : '—'}</td>
+              <td className="py-1 pr-2">—</td>
+              <td className="whitespace-nowrap py-1 pr-2 text-right">{mins(tl.openMinutes)}</td>
+              <td className="py-1 pr-2" />
+              <td className="max-w-0 py-1"><span className="block truncate font-mono text-[10px]" title={order.claimed_by ?? undefined}>{order.claimed_by ?? '—'}</span></td>
+            </tr>
+          )}
+        </tbody>
+        <tfoot data-agent-order-summary className="tabular-nums font-semibold text-ink">
+          <tr>
+            <td className="py-1 pr-2">{t('wbs.agentOrderTotal')}</td>
+            <td className="whitespace-nowrap py-1 pr-2">{tl.startedAt ? seoulStamp(tl.startedAt) : '—'}</td>
+            <td className="whitespace-nowrap py-1 pr-2">{tl.endedAt ? seoulStamp(tl.endedAt) : (order.status === 'claimed' ? t('wbs.agentOrderInProgress') : '—')}</td>
+            <td className="whitespace-nowrap py-1 pr-2 text-right">{mins(tl.minutes)}</td>
+            <td className="whitespace-nowrap py-1 pr-2 text-right">{lastReport ? `${lastReport.percent}%` : '—'}</td>
+            <td className="max-w-0 py-1 font-normal text-ink-muted">
+              <span className="block truncate text-[10px]" title={tl.model ?? undefined}>{t('wbs.agentOrderModel')} <span className="font-mono">{tl.model ?? '—'}</span></span>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      {/* 결정 목록은 표 한 칸에 담기 어려워 완료 보고마다 표 아래에 붙인다. */}
+      {order.reports.filter(r => r.kind === 'completion').map(r => (
+        <ReportDecisions key={r.id} raw={r.decisions} open={r.id === pendingCompletionId} latest={r.id === latestCompletionId} />
+      ))}
       {priorOrders.length > 0 && (
         <ul className="mt-1.5 space-y-0.5 border-t border-line/60 pt-1.5 text-[10px] text-ink-subtle">
           <li className="font-semibold">{t('wbs.agentOrderPrior')} ({priorOrders.length})</li>

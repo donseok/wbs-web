@@ -231,6 +231,8 @@ export type OrderTimeline = {
   startedAt: string | null; endedAt: string | null; minutes: number | null; model: string | null
   /** reports 와 같은 순서 — 직전 보고(첫 행은 시작)부터 이 보고까지의 분. 시작을 모르면 null. */
   gaps: (number | null)[]
+  /** 작업 중(claimed)일 때 마지막 보고(없으면 시작)부터 지금까지의 분 — 표의 「진행 중」 줄. 그 밖엔 null. */
+  openMinutes: number | null
 }
 export function orderTimeline(order: {
   status: string; claimed_at: string | null
@@ -250,5 +252,7 @@ export function orderTimeline(order: {
     const prev = i === 0 ? startedAt : order.reports[i - 1].created_at
     return prev ? min(ms(prev), ms(r.created_at)) : null
   })
-  return { startedAt, endedAt, minutes, model, gaps }
+  const openFrom = order.reports.at(-1)?.created_at ?? startedAt
+  const openMinutes = order.status === 'claimed' && openFrom ? min(ms(openFrom), now.getTime()) : null
+  return { startedAt, endedAt, minutes, model, gaps, openMinutes }
 }
