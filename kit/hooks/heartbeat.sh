@@ -77,9 +77,16 @@ if [ -f "$_stamp" ]; then
 fi
 : > "$_stamp"
 
-# 5) 인증: 루트 .env (팀원 워크트리에는 심링크가 있다). 토큰은 env 로만 다룬다 — 출력·기록 금지.
-[ -f "$_top/.env" ] || exit 0
-set -a; . "$_top/.env" 2>/dev/null; set +a
+# 5) 인증: 새 방식은 리포의 dflow-config.sh 로 .dflow·.dflow.local 을 읽는다(팀원 워크트리에는 링크가 있다).
+#    라이브러리가 없는 리포는 종전대로 루트 .env. 설정이 깨졌으면 조용히 끝낸다. 토큰은 env 로만 다룬다.
+_lib="$_top/.claude/skills/dflow-work/scripts/dflow-config.sh"
+if [ -f "$_lib" ]; then
+  . "$_lib"; DFLOW_CONFIG_DIR="$_top"; export DFLOW_CONFIG_DIR
+  dflow_config_load 2>/dev/null || exit 0
+else
+  [ -f "$_top/.env" ] || exit 0
+  set -a; . "$_top/.env" 2>/dev/null; set +a
+fi
 _base="${DFLOW_API_BASE:-}"; [ -n "$_base" ] || exit 0
 _all="${DFLOW_PATS:-}"; [ -n "$_all" ] || _all="${DFLOW_PAT:-}"; [ -n "$_all" ] || exit 0
 _base=$(printf '%s' "$_base" | tr -d '\r'); _all=$(printf '%s' "$_all" | tr -d '\r')

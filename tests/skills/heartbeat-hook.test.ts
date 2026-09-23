@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, utimesSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, utimesSync, copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -146,6 +146,27 @@ describe('heartbeat.sh — 스펙 §4-2', () => {
     run(repo, {}, '/bin/dash')
     expect(sent()).toHaveLength(1)
     expect(sent()[0]).toContain('/api/v1/agent/work/22222222-2222-4222-8222-222222222222/heartbeat')
+  })
+  const installLib = () => {
+    const d = join(repo, '.claude/skills/dflow-work/scripts'); mkdirSync(d, { recursive: true })
+    copyFileSync(join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow-config.sh'), join(d, 'dflow-config.sh'))
+  }
+  it('새 방식: 리포에 dflow-config.sh 가 있으면 .dflow·.dflow.local 로 인증한다(.env 는 읽지 않는다)', () => {
+    installLib()
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, '.dflow'), 'api_base=https://new.test\n')
+    writeFileSync(join(repo, '.dflow.local'), 'pat=dflow_pat_NNNNNNNNNNNN_s9\ndev_branch=main\n')
+    run()
+    expect(sent()).toHaveLength(1)
+    expect(sent()[0]).toContain('https://new.test/api/v1/agent/work/22222222-2222-4222-8222-222222222222/heartbeat')
+    expect(sent()[0]).toContain('Bearer dflow_pat_NNNNNNNNNNNN_s9')
+  })
+  it('새 방식 설정이 깨졌으면(.dflow.local 없음) 보내지 않고 조용히 끝낸다', () => {
+    installLib()
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, '.dflow'), 'api_base=https://new.test\n')
+    run()                                   // execFileSync 는 exit 0 이 아니면 던진다
+    expect(sent()).toHaveLength(0)
   })
 })
 

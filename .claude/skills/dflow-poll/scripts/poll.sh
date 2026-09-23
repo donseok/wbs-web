@@ -73,16 +73,16 @@ fi
 
 # 기본 좌표는 자기 위치 기준 — 이 스킬 묶음(.claude/skills/)을 어느 리포에 심어도 닫힌다.
 SKILLS_DIR=$(cd "$(dirname "$0")/../.." && pwd)
-ENV_FILE="${DFLOW_ENV_FILE:-$PWD/.env}"
 DFLOW="${DFLOW_SH:-$SKILLS_DIR/dflow-work/scripts/dflow.sh}"
 STATE_GLOB="$PWD/docs/tasks"   # dflow-dev state.json 위치 — 승인 감지 재료
-[ -f "$ENV_FILE" ] || { echo "env 파일 없음: $ENV_FILE" >&2; exit 2; }
 [ -x "$DFLOW" ]   || { echo "dflow.sh 없음: $DFLOW" >&2; exit 2; }
-set -a; . "$ENV_FILE"; set +a
+# 설정: .dflow·.dflow.local(DFLOW_CONFIG_DIR 또는 git 최상위) → 없으면 레거시 .env(DFLOW_ENV_FILE 또는 ./.env).
+. "$SKILLS_DIR/dflow-work/scripts/dflow-config.sh"
+dflow_config_load || exit 2
 # 리포 ↔ D'Flow 프로젝트 바인딩이 없으면 감시하지 않는다. /work/mine 은 PAT 주인이 속한 모든 프로젝트의 주문을
 # 돌려주므로, 바인딩 없이 돌면 다른 프로젝트의 ready 를 찾아 이 리포에서 착수하게 된다. 거르는 것은 dflow.sh list 다.
-[ -n "${DFLOW_PROJECT_ID:-}${DFLOW_PROJECT_MAP:-}" ] \
-  || { echo "프로젝트 바인딩 없음: $ENV_FILE 에 DFLOW_PROJECT_ID 또는 DFLOW_PROJECT_MAP 을 넣으세요" >&2; exit 2; }
+[ -n "$(dflow_config_projects)" ] \
+  || { echo "프로젝트 바인딩 없음: .dflow 의 project_id 또는 .dflow.local 의 project_map(레거시는 .env 의 DFLOW_PROJECT_ID·DFLOW_PROJECT_MAP)을 넣으세요" >&2; exit 2; }
 
 net_fail=0
 cycle=0

@@ -173,3 +173,19 @@ describe('dflow.sh config·branch(스펙 §6)', () => {
     expect(r.code).toBe(2); expect(r.err).toContain('NO_LOCAL')
   })
 })
+
+const POLL = join(process.cwd(), '.claude/skills/dflow-poll/scripts/poll.sh')
+describe('poll.sh 설정 로드', () => {
+  it('바인딩이 없으면 새 안내로 exit 2', () => {
+    writeFileSync(join(repo, '.dflow'), 'api_base=https://p.test\n')
+    writeFileSync(join(repo, '.dflow.local'), 'pats=x\ndev_branch=dev/me\n')
+    const cwd = join(tmp, 'pollcwd'); mkdirSync(cwd)
+    const r = sh(cwd, `sh '${POLL}' --interval 60 --until none`, { DFLOW_CONFIG_DIR: repo, DFLOW_WATCH: '0' })
+    expect(r.code).toBe(2); expect(r.err).toContain('프로젝트 바인딩 없음')
+  })
+  it('설정 오류(NO_LOCAL)는 exit 2 로 멈춘다', () => {
+    writeFileSync(join(repo, '.dflow'), DOT)
+    const r = sh(repo, `sh '${POLL}' --interval 60 --until none`, { DFLOW_WATCH: '0' })
+    expect(r.code).toBe(2); expect(r.err).toContain('NO_LOCAL')
+  })
+})
