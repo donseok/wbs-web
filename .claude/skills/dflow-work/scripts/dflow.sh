@@ -57,6 +57,25 @@ base() {
   [ -n "${DFLOW_API_BASE:-}" ] || die 2 "DFLOW_API_BASE 미설정 — .dflow(레거시는 .env)를 확인하세요."
   printf '%s' "${DFLOW_API_BASE%/}"
 }
+# 승격 관문(스펙 2026-09-23 F7·§4) — 운영 브랜치로 올리기 전에 강제 진행 스텁 표식이 남았는지 본다.
+# ref 를 주면 설정을 읽지 않는다(설정 로드 전에 디스패치 — .dflow.local 이 없는 CI·훅에서도 돈다). 없으면 운영 브랜치.
+# 표식은 「FORCE-STUB: <ID>」 로 ID 가 바로 뒤따르는 줄만 센다. 스킬·문서(.claude/·docs/·*.md)는 규칙을 설명하느라
+# 표식 문구를 담고 있어 제외한다 — 세면 킷을 설치한 리포의 승격이 영구히 막힌다(2026-09-23 리뷰 실측 16건).
+cmd_stub_check() {
+  _ref=${1:-}
+  if [ -z "$_ref" ]; then
+    _ref=$(dflow_config_branch release) || die 6 "운영 브랜치를 알 수 없다 — dflow.sh stub-check <ref> 로 지정하라"
+  fi
+  git rev-parse -q --verify "$_ref^{commit}" >/dev/null 2>&1 || die 6 "ref 없음: $_ref"
+  _hits=$(git grep -n -E 'FORCE-STUB: [A-Za-z0-9]' "$_ref" -- . ':(exclude).claude/' ':(exclude)docs/' ':(exclude)*.md' 2>/dev/null | sed "s#^$_ref:##")
+  if [ -n "$_hits" ]; then
+    printf 'FORCE_STUB_FOUND %s\n' "$(printf '%s\n' "$_hits" | wc -l | tr -d ' ')"
+    printf '%s\n' "$_hits"
+    exit 4
+  fi
+  echo FORCE_STUB_NONE
+}
+[ "${1:-}" = stub-check ] && [ -n "${2:-}" ] && { cmd_stub_check "$2"; exit $?; }
 # 설정 로드: .dflow(프로젝트 공통)·.dflow.local(개인) → 없으면 레거시 .env. 규칙은 dflow-config.sh 머리말.
 . "$(dirname "$0")/dflow-config.sh"
 dflow_config_load || exit 2
@@ -514,22 +533,6 @@ cmd_config() {
 }
 cmd_branch() {
   case "${1:-}" in dev|release) dflow_config_branch "$1" || exit 2 ;; *) usage ;; esac
-}
-# 승격 관문(스펙 2026-09-23 F7·§4) — 운영 브랜치로 올리기 전에 강제 진행 스텁 표식이 남았는지 본다.
-# ref 를 주면 설정을 쓰지 않는다(훅·스크립트에서 쓰기 쉽게). 없으면 운영 브랜치(release_branch).
-cmd_stub_check() {
-  _ref=${1:-}
-  if [ -z "$_ref" ]; then
-    _ref=$(dflow_config_branch release) || die 6 "운영 브랜치를 알 수 없다 — dflow.sh stub-check <ref> 로 지정하라"
-  fi
-  git rev-parse -q --verify "$_ref^{commit}" >/dev/null 2>&1 || die 6 "ref 없음: $_ref"
-  _hits=$(git grep -n 'FORCE-STUB:' "$_ref" -- . 2>/dev/null | sed "s#^$_ref:##")
-  if [ -n "$_hits" ]; then
-    printf 'FORCE_STUB_FOUND %s\n' "$(printf '%s\n' "$_hits" | wc -l | tr -d ' ')"
-    printf '%s\n' "$_hits"
-    exit 4
-  fi
-  echo FORCE_STUB_NONE
 }
 
 # ---- main ----------------------------------------------------------------

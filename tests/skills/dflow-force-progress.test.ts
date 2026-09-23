@@ -27,13 +27,32 @@ describe('check_depends_local — waived 간선은 로컬 도달 검사에서 �
   })
 })
 
+// 표식 문자열을 조립한다 — 이 테스트 파일 자체가 리포의 stub-check 에 걸리지 않게.
+const MARK = 'FORCE-' + 'STUB: '
+
 describe('dflow.sh stub-check', () => {
   it('FORCE-STUB 표식이 있으면 exit 4 와 건수', () => {
-    const d = repo({ 'a.ts': '// FORCE-STUB: TSK-03-01\nexport const x = 1\n', 'b.ts': 'ok\n' })
+    const d = repo({ 'a.ts': `// ${MARK}TSK-03-01\nexport const x = 1\n`, 'b.ts': 'ok\n' })
     const r = spawnSync('sh', [DFLOW, 'stub-check', 'HEAD'], { cwd: d, encoding: 'utf8' })
     expect(r.status).toBe(4)
     expect(r.stdout).toContain('FORCE_STUB_FOUND 1')
     expect(r.stdout).toContain('a.ts:1:')
+  })
+  it('스킬·문서(.claude/·docs/·*.md)의 규칙 설명과 ID 없는 문구는 세지 않는다 — 코드의 진짜 표식만', () => {
+    const d = repo({ 'README.md': `${MARK}TSK-01 예시\n`, 'guide.ts': `// 표식 형식: ${MARK}<선행 TSK-ID>\n`, 'svc.ts': `// ${MARK}TSK-09\n` })
+    execFileSync('mkdir', ['-p', join(d, '.claude/skills'), join(d, 'docs')])
+    writeFileSync(join(d, '.claude/skills/SKILL.md'), `${MARK}TSK-02\n`)
+    writeFileSync(join(d, 'docs/spec.txt'), `${MARK}TSK-03\n`)
+    execFileSync('git', ['add', '.'], { cwd: d }); execFileSync('git', ['commit', '-qm', 'docs'], { cwd: d })
+    const r = spawnSync('sh', [DFLOW, 'stub-check', 'HEAD'], { cwd: d, encoding: 'utf8' })
+    expect(r.status).toBe(4)
+    expect(r.stdout).toContain('FORCE_STUB_FOUND 1')
+    expect(r.stdout).toContain('svc.ts:1:')
+  })
+  it('이 리포(스킬·문서·테스트가 표식 문구를 담고 있다)에서도 0건으로 통과한다 — .dflow.local 이 없어도', () => {
+    const r = spawnSync('sh', [DFLOW, 'stub-check', 'HEAD'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, HOME: tmpdir() } })
+    expect(r.stdout).toContain('FORCE_STUB_NONE')
+    expect(r.status).toBe(0)
   })
   it('없으면 exit 0', () => {
     const d = repo({ 'a.ts': 'clean\n' })
