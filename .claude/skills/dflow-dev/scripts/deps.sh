@@ -7,6 +7,10 @@
 #    있는 폴더(루트 포함)마다 본다. 링크가 아니라 복사인 이유: 워크트리를 지워도 메인 체크아웃 쪽이 안전하다.
 #    메인 체크아웃에도 jar 가 없으면 DEPS_GRADLE_JAR_MISSING <폴더> 로 알리기만 하고 계속한다(실패로 치지 않는다 —
 #    jar 없이 방치된 예제 폴더도 있다). 조용히 건너뛰면 팀원이 testAll 실패 뒤에야 원인을 찾는다(2026-09-24).
+# 1-1) gitignore 된 심링크 복제: 메인 체크아웃에서 ignore 된 심링크(.claude·node_modules 아래 제외, 깊이
+#    DEPS_MAXDEPTH 미만)가 이 워크트리의 같은 상대 경로에 없으면 `ln -s <메인>/<경로>` 로 건다. 이미 무엇이든
+#    있으면 건드리지 않는다. 외부 설계 문서 링크(dmes-standard docs/mdm/design)가 새 워크트리에 없어 팀원이 절대경로를
+#    추측해 읽은 일(2026-09-24 TSK-02-02)에서 나왔다. Windows(Git Bash) 의 ln -s 는 복사본을 만든다.
 # 2) JS 의존성 설치: npm(package-lock.json)이면 lockfile·node 버전·플랫폼·폴더가 같은 설치본을 리포 공용
 #    캐시(<git-common-dir>/dflow-deps/<key>)에서 복제한다. APFS·reflink 파일시스템에서는 쓸 때만 실제로
 #    복사된다. 캐시는 이 스크립트의 npm ci 가 성공한 결과로만 채운다. 사람 체크아웃의 node_modules 는 쓰지
@@ -15,7 +19,7 @@
 #    DEPS_MAXDEPTH(기본 4)로 제한한다. 폴더마다 한 줄씩 보고하며, 루트 줄의 형식은 기존 계약과 글자 그대로
 #    같다(접미사 없음) — 하위 폴더 줄만 끝에 그 폴더 경로를 붙인다.
 #
-# 출력 첫 단어: DEPS_GRADLE_JAR · DEPS_GRADLE_JAR_MISSING · DEPS_SKIP · DEPS_CLONED · DEPS_INSTALLED · DEPS_FAILED(exit 는 설치 명령의 exit)
+# 출력 첫 단어: DEPS_GRADLE_JAR · DEPS_GRADLE_JAR_MISSING · DEPS_LINK · DEPS_SKIP · DEPS_CLONED · DEPS_INSTALLED · DEPS_FAILED(exit 는 설치 명령의 exit)
 set -u
 
 MAXDEPTH="${DEPS_MAXDEPTH:-4}"
@@ -37,6 +41,20 @@ while IFS= read -r gw; do
     echo "DEPS_GRADLE_JAR_MISSING $d"   # 경고만 한다(exit 0): 이 폴더의 gradlew 는 jar 가 없어 실패한다
   fi
 done
+
+# ---- 1-1) gitignore 된 심링크 복제 ----
+# 메인 체크아웃에 ignore 된 심링크(예 docs/mdm/design -> 리포 밖 설계 문서)는 새 워크트리에 따라오지 않는다.
+# --directory 라 ignore 된 폴더(node_modules·build·워크트리)는 한 줄(끝 /)로만 나와 파고들지 않는다.
+if [ -n "$MAIN" ] && [ "$(cd "$MAIN" && pwd -P)" != "$(pwd -P)" ]; then
+  git -C "$MAIN" ls-files --others --ignored --exclude-standard --directory 2>/dev/null |
+  while IFS= read -r p; do
+    case "$p" in */|.claude/*|*node_modules/*|.git/*) continue ;; esac
+    [ "$(printf '%s' "$p" | tr -cd / | wc -c)" -lt "$MAXDEPTH" ] || continue
+    [ -L "$MAIN/$p" ] || continue
+    { [ -e "$p" ] || [ -L "$p" ]; } && continue
+    mkdir -p "$(dirname "$p")" && ln -s "$MAIN/$p" "$p" && echo "DEPS_LINK $p"
+  done
+fi
 
 # ---- 2) JS 의존성 ----
 clone_dir() { # $1 원본 $2 대상(없어야 한다)

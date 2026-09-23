@@ -504,3 +504,61 @@ describe('gradle-wrapper.jar 복구: 메인 체크아웃에서 복사한다(요�
     expect(existsSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'))).toBe(false)
   })
 })
+
+describe('gitignore 된 심링크 복제: 메인 체크아웃의 외부 링크를 워크트리에도 건다(2026-09-24 MDM팀장 요청)', () => {
+  const bareWorker = (name: string) => {
+    const w = join(primary, '.claude/worktrees', name)
+    const r = sh(primary, `
+      mkdir -p .claude/worktrees
+      grep -qxF '**/.claude/worktrees/' .git/info/exclude || echo '**/.claude/worktrees/' >> .git/info/exclude
+      git worktree add -q --detach "${w}" main`)
+    expect(r.code, r.out).toBe(0)
+    return w
+  }
+  const ignoreAndLink = (paths: string[]) => {
+    const ext = join(tmp, 'external-design')
+    mkdirSync(ext, { recursive: true })
+    writeFileSync(join(ext, 'basic.md'), 'DESIGN')
+    const lines = paths.map(p => `/${p}`).join('\\n')
+    const r = sh(primary, `
+      printf '${lines}\\n' >> .gitignore && git add .gitignore && git commit -qm ignore && git push -q origin main
+      ${paths.map(p => `mkdir -p "$(dirname '${p}')" && ln -s '${ext}' '${p}'`).join('\n')}`)
+    expect(r.code, r.out).toBe(0)
+  }
+
+  it('없으면 같은 상대 경로에 링크를 걸고 DEPS_LINK 로 알린다', () => {
+    ignoreAndLink(['docs/mdm/design'])
+    const w = bareWorker('dflow-66666666')
+    expect(existsSync(join(w, 'docs/mdm/design'))).toBe(false)
+    const r = sh(w, `bash '${DEPS}'`)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_LINK docs/mdm/design')
+    expect(lstatSync(join(w, 'docs/mdm/design')).isSymbolicLink()).toBe(true)
+    expect(readFileSync(join(w, 'docs/mdm/design/basic.md'), 'utf8')).toBe('DESIGN')
+  })
+
+  it('이미 있으면 건드리지 않고, .claude·node_modules 아래 링크는 복제하지 않는다', () => {
+    ignoreAndLink(['docs/design', 'node_modules/pkg', '.claude/skills/ext'])
+    const w = bareWorker('dflow-55555555')
+    mkdirSync(join(w, 'docs/design'), { recursive: true })
+    writeFileSync(join(w, 'docs/design/mine.md'), 'MINE')
+    const r = sh(w, `bash '${DEPS}'`)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).not.toContain('DEPS_LINK')
+    expect(lstatSync(join(w, 'docs/design')).isSymbolicLink()).toBe(false)
+    expect(existsSync(join(w, 'node_modules/pkg'))).toBe(false)
+    expect(existsSync(join(w, '.claude/skills/ext'))).toBe(false)
+  })
+
+  it('추적되는 링크·ignore 되지 않은 미추적 링크는 복제하지 않는다', () => {
+    const ext = join(tmp, 'external-design')
+    mkdirSync(ext, { recursive: true })
+    const r0 = sh(primary, `ln -s '${ext}' untracked-link`)
+    expect(r0.code, r0.out).toBe(0)
+    const w = bareWorker('dflow-44444444')
+    const r = sh(w, `bash '${DEPS}'`)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).not.toContain('DEPS_LINK')
+    expect(existsSync(join(w, 'untracked-link'))).toBe(false)
+  })
+})

@@ -271,6 +271,11 @@ design.md·소스·테스트·state.json 은 이 Phase 담당인 당신 혼자 �
 파일을 동시에 편집해 D 번호가 충돌했다. 병렬 자체를 막지 않는 이유: 원인은 지시 상속과 쓰기 경합이고, 조사
 병렬을 막으면 속도가 크게 떨어진다.
 
+공통 프롬프트에 넣는 **검증 명령(테스트·타입 검사·빌드)은 오케스트레이터가 기준선(Phase 01 4번)에서 실제로 돌린
+명령 줄을 글자 그대로 옮긴다.** 돌려 보지 않은 도구 경로를 추측해 적지 않는다. 2026-09-24 dmes-standard
+TSK-02-02 에서 오케스트레이터가 안내한 `src/frontend/node_modules/.bin/tsc` 가 없어 서브에이전트가
+`m-mdm/node_modules/.bin/tsc` 를 스스로 찾아야 했다.
+
 커밋 규칙에는 **모든 커밋에 `--trailer "DFlow-Order: <주문 UUID>"` 를 붙이는 것**이 포함된다(state.json 의
 `order`, dev-discipline.md 「Phase 경계 커밋」) — Design·Build·Verify·Refactor·Phase 06 마감 커밋 전부,
 워커·수동 경로 모두 예외 없다(이 Phase 들은 전부 `git commit` 이라 `--trailer` 가 그대로 통한다. `/dflow-merge`
@@ -278,6 +283,11 @@ design.md·소스·테스트·state.json 은 이 Phase 담당인 당신 혼자 �
 기본 브랜치 반영 확인이 이 트레일러를 증거로 쓴다.
 <!-- worker:begin -->
 `--worker` 면 공통 프롬프트에 git 절대경로 규칙 한 줄을 덧붙인다(「--worker」 E).
+`.issues` 는 오케스트레이터만 쓴다(worker-prompt.md 「7-1」). 공통 프롬프트에 "겪은 문제는 `.issues` 에 직접 쓰지
+말고 끝 보고에 분류(tool-error·gate-retry·permission·skill-unclear·env·other)와 함께 올린다. design.md 등
+산출물에도 '`.issues` 에 적는다'는 규칙을 만들지 말고 '보고에 올린다'로 쓴다" 를 넣는다. 2026-09-24
+TSK-02-02 에서 Design 이 불변 규칙에 "초안 결함은 `.issues` 에 적는다" 를 넣고 Build 프롬프트는 `.issues` 를
+건드리지 말라 해 둘이 충돌했다.
 <!-- worker:end -->
 
 Phase 종료마다 오케스트레이터가:

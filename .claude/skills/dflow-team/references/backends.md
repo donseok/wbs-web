@@ -148,6 +148,9 @@ cat "$WT/.dflow-pane"
   먼저 있어야 팀원의 Skill 도구가 `dflow-dev` 를 안다. 워커 부트스트랩(worker-prompt.md 「3」)의 같은 명령은
   이미 있으면 건너뛴다. 스킬 폴더가 실제 폴더로 있는데 `dflow-dev` 가 없으면 폴더째 링크하지 않고 워커가 쓰는
   스킬만 하나씩 링크한다(있는 폴더에 폴더째 링크를 걸면 `.claude/skills/skills` 가 생긴다).
+- 그 밖에 메인 체크아웃에서 gitignore 된 심링크(예 리포 밖 설계 문서를 가리키는 `docs/mdm/design`)는 팀장이 걸지
+  않는다. 워커의 `deps.sh`(dflow-dev 행 H)가 설계 Phase 전에 같은 상대 경로로 링크하고 `DEPS_LINK <경로>` 로
+  알린다. spawn·재spawn·resolve 가 모두 `deps.sh` 를 지나므로 한 곳에서 맡는다.
 - `.env` 도 메인 체크아웃에 있으면 함께 링크한다 — 이 PC 에 예전에 설치된 좌석표 heartbeat 훅
   (`~/.dflow/hooks/heartbeat.sh`)이 아직 구버전이면 `.dflow`·`.dflow.local` 을 모르고 `$_top/.env` 만 읽기
   때문이다. `dflow.sh`·`dflow-config.sh` 는 `.dflow`·`.dflow.local` 이 있으면 `.env` 를 읽지 않으므로 새
