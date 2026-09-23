@@ -394,4 +394,104 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
     expect(sh(w, `bash '${DEPS}'`, env).out).toContain('DEPS_SKIP')
     expect(npmCalls()).toBe(0)
   })
+
+  // 워크트리 루트뿐 아니라 하위 폴더(예 dmes-standard 의 src/frontend)의 lockfile 도 찾아 설치한다(요청 2).
+  const fakePnpm = () => {
+    const bin = join(tmp, 'bin-pnpm')
+    mkdirSync(bin, { recursive: true })
+    writeFileSync(join(bin, 'pnpm'), `#!/bin/sh
+{ echo "$*"; pwd; } >> "${tmp}/pnpm.log"
+mkdir -p node_modules && echo v1 > node_modules/marker
+`)
+    chmodSync(join(bin, 'pnpm'), 0o755)
+    return bin
+  }
+  const pnpmLog = () => (existsSync(join(tmp, 'pnpm.log')) ? readFileSync(join(tmp, 'pnpm.log'), 'utf8') : '')
+
+  it('루트에 package.json 이 없어도 하위 폴더의 lockfile 을 찾아 그 폴더에서 설치한다', () => {
+    const bin = fakePnpm()
+    const env = { PATH: `${bin}:${process.env.PATH}` }
+    const w = join(primary, '.claude/worktrees', 'dflow-66666666')
+    const r0 = sh(primary, `
+      mkdir -p .claude/worktrees
+      grep -qxF '**/.claude/worktrees/' .git/info/exclude || echo '**/.claude/worktrees/' >> .git/info/exclude
+      git worktree add -q --detach "${w}" main
+      mkdir -p "${w}/src/frontend"
+      printf '{}\\n' > "${w}/src/frontend/package.json"
+      printf 'lockfileVersion: 6\\n' > "${w}/src/frontend/pnpm-lock.yaml"`)
+    expect(r0.code, r0.out).toBe(0)
+    const r = sh(w, `bash '${DEPS}'`, env)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_SKIP package.json 없음') // 루트
+    expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
+    expect(pnpmLog().trim().split('\n').pop()).toBe(join(w, 'src/frontend'))
+    expect(existsSync(join(w, 'src/frontend/node_modules/marker'))).toBe(true)
+    expect(existsSync(join(w, 'node_modules'))).toBe(false)
+  })
+
+  it('node_modules·.claude 아래의 lockfile 은 하위 폴더 스캔에서 무시한다', () => {
+    const bin = fakePnpm()
+    const env = { PATH: `${bin}:${process.env.PATH}` }
+    const w = join(primary, '.claude/worktrees', 'dflow-77777777')
+    const r0 = sh(primary, `
+      mkdir -p .claude/worktrees
+      grep -qxF '**/.claude/worktrees/' .git/info/exclude || echo '**/.claude/worktrees/' >> .git/info/exclude
+      git worktree add -q --detach "${w}" main
+      mkdir -p "${w}/node_modules/vendor" "${w}/.claude/worktrees/nested"
+      printf '{}\\n' > "${w}/node_modules/vendor/package.json"
+      printf 'lockfileVersion: 6\\n' > "${w}/node_modules/vendor/pnpm-lock.yaml"
+      printf '{}\\n' > "${w}/.claude/worktrees/nested/package.json"
+      printf 'lockfileVersion: 6\\n' > "${w}/.claude/worktrees/nested/pnpm-lock.yaml"`)
+    expect(r0.code, r0.out).toBe(0)
+    const r = sh(w, `bash '${DEPS}'`, env)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).not.toContain('vendor')
+    expect(r.out).not.toContain('nested')
+    expect(pnpmLog()).toBe('')
+  })
+})
+
+describe('gradle-wrapper.jar 복구: 메인 체크아웃에서 복사한다(요청 3)', () => {
+  const bareWorker = (name: string) => {
+    const w = join(primary, '.claude/worktrees', name)
+    const r = sh(primary, `
+      mkdir -p .claude/worktrees
+      grep -qxF '**/.claude/worktrees/' .git/info/exclude || echo '**/.claude/worktrees/' >> .git/info/exclude
+      git worktree add -q --detach "${w}" main`)
+    expect(r.code, r.out).toBe(0)
+    return w
+  }
+  const commitGradlew = () => {
+    const r = sh(primary, `
+      mkdir -p sub
+      printf '#!/bin/sh\\necho gradlew\\n' > sub/gradlew && chmod +x sub/gradlew
+      git add sub/gradlew && git commit -qm 'add gradlew' && git push -q origin main`)
+    expect(r.code, r.out).toBe(0)
+  }
+
+  it('없으면 메인 체크아웃에서 복사한다', () => {
+    commitGradlew()
+    mkdirSync(join(primary, 'sub/gradle/wrapper'), { recursive: true })
+    writeFileSync(join(primary, 'sub/gradle/wrapper/gradle-wrapper.jar'), 'JARDATA')
+    const w = bareWorker('dflow-88888888')
+    expect(existsSync(join(w, 'sub/gradlew'))).toBe(true)
+    expect(existsSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'))).toBe(false)
+    const r = sh(w, `bash '${DEPS}'`)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_GRADLE_JAR sub')
+    expect(readFileSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'), 'utf8')).toBe('JARDATA')
+  })
+
+  it('이미 있으면 건드리지 않는다', () => {
+    commitGradlew()
+    mkdirSync(join(primary, 'sub/gradle/wrapper'), { recursive: true })
+    writeFileSync(join(primary, 'sub/gradle/wrapper/gradle-wrapper.jar'), 'NEW')
+    const w = bareWorker('dflow-99999999')
+    mkdirSync(join(w, 'sub/gradle/wrapper'), { recursive: true })
+    writeFileSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'), 'OLD')
+    const r = sh(w, `bash '${DEPS}'`)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).not.toContain('DEPS_GRADLE_JAR')
+    expect(readFileSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'), 'utf8')).toBe('OLD')
+  })
 })

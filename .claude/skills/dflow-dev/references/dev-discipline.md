@@ -62,6 +62,26 @@ API 시험만으로는 화면의 JavaScript(DOM 바인딩·이벤트·fetch 호�
 - 시험은 브라우저 종류나 개인 환경에 기대지 않는다. 사람이나 에이전트가 눈으로 확인할 때 쓰는
   브라우저는 각자의 환경이 정하며, 이 문서가 정하지 않는다.
 
+### 서버 프로세스 (정본, 2026-09-24 dmes-standard 사고)
+
+화면 작업·E2E 에 쓰는 서버는 **리포의 서버 실행 스크립트를 쓰지 않고 직접 띄운다.** `be-run.sh`·
+`fe-run.sh` 처럼 다른 인스턴스나 포트를 점유한 프로세스를 이름·포트 기준으로 정리하는 스크립트
+(`pgrep -f`·`pkill`·`killall`·전역 `gradlew --stop` 등)는 같은 머신의 다른 체크아웃 서버까지 죽인다.
+실측: dmes-standard 팀원이 자기 워크트리에서 `./be-run.sh --mdm` 을 돌리자 그 스크립트의
+`pgrep -f be-run.sh` 가 메인 체크아웃의 서버까지 찾아 TERM 했고, cleanup 의 `gradlew --stop` 이 전역
+Gradle 데몬까지 세웠다. `fe-run.sh` 류도 포트를 점유한 프로세스를 정리하므로 같은 위험이 있다.
+
+- 빈 포트를 직접 골라 띄운다. 예: `./gradlew :api:bootRun --no-daemon --args='--server.port=<빈 포트>'`
+  (`--no-daemon` 으로 사용자 전역 Gradle 데몬을 공유·터치하지 않는다), `next dev --port <빈 포트>`.
+- 끝나면 **자기가 띄운 프로세스만** 거둔다: 기동 시 기록한 PID 를 먼저 죽이고, 그 PID 가 자식 프로세스를
+  남겼으면(Gradle·Node 러너는 흔하다) 자기가 고른 포트를 리슨하는 프로세스도 죽인다 — 그 포트는 시작할
+  때 비어 있었다고 확인하고 골랐으므로, 지금 그 포트의 점유자는 자신의 프로세스뿐이다.
+- 금지: 전역 `gradlew --stop`, 이름 기반 `pkill`·`killall`·`pgrep -f` 종료, 남의 포트를 점유한 프로세스
+  종료.
+- 이 규칙은 수동·워커 두 소비자 모두에 적용된다. 워커 쪽 요약과 사고 배경은
+  `.claude/skills/dflow-team/references/worker-prompt.md` 「8」에도 있지만, 규칙 본문의 정본은 이 절이다
+  — 수정은 여기서만 한다.
+
 ## Phase 02 — Design (설계)
 
 - 입력: spec.md(수용 기준 포함) + 대상 리포 탐색.

@@ -408,6 +408,12 @@ origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10
   캐시(macOS `~/Library/Caches/ms-playwright`)에 있어 첫 `npm ci` 가 받아 두면 그대로 쓴다. 이 점을 "고치려고"
   복제 뒤에 `npm rebuild` 를 넣지 않는다.
 - 캐시는 완성 항목 최근 3개만 남긴다.
+- **행 H 서버 프로세스**: Build·Verify Phase 가 화면 작업의 브라우저 E2E 를 위해 서버를 띄울 때도 행 H 와
+  같은 자리의 규칙이다 — dev-discipline.md 「화면 작업의 브라우저 E2E」의 「서버 프로세스」 절(정본)을
+  따른다. 리포의 서버 실행 스크립트(`be-run.sh`·`fe-run.sh` 류)를 쓰지 않고 빈 포트로 직접 띄우며, 끝나면
+  자기가 띄운 프로세스만 거둔다(2026-09-24 dmes-standard 사고: 팀원이 `./be-run.sh --mdm` 을 돌리자
+  `pgrep -f be-run.sh` 가 메인 체크아웃의 서버를 찾아 TERM 했고 `gradlew --stop` 이 전역 Gradle 데몬까지
+  세웠다).
 
 - 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다.
 - `.result` 형식과 status 뜻은 `.claude/skills/dflow-team/references/worker-prompt.md` 가 정본이다. 끝날 때
