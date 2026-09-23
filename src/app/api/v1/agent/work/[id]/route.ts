@@ -72,7 +72,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     if (principal.kind === 'pat' && item) {
       const depends = (item as { depends?: string[] | null }).depends ?? []
       if (depends.length > 0) {
-        dependsInfo = await loadDependsInfo(admin, { projectId: row.project_id, depends })
+        const waived = (item as { depends_waived?: string[] | null }).depends_waived ?? []
+        dependsInfo = await loadDependsInfo(admin, { projectId: row.project_id, depends, waived })
       }
     }
     const full = order as {
