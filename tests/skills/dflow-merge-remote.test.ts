@@ -63,7 +63,9 @@ describe('/dflow-merge 원문 보존(스펙 §6-1)', () => {
 describe('/dflow-merge 수정(스펙 §6-4)', () => {
   it('원격 후보: origin/agent/* 의 state.json 을 git diff 로 찾아 git show 로 읽고 merged 가 아니면 후보다', () => {
     expect(skill).toContain("git branch -r --list 'origin/agent/*'") // 팀장 전제 검사가 grep 하는 바이트열 포함
-    expect(skill).toContain("`git diff --name-only origin/<기본브랜치>...<ref> -- '*/tasks/*/state.json'`")
+    expect(skill).toContain('dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs)')
+    expect(skill).toContain('while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done <<EOF')
+    expect(skill).toContain('git diff --name-only "origin/<기본브랜치>...$ref" -- "$@"')
     expect(skill).toContain('`git show <ref>:<경로>`')
     expect(skill).toContain('`git show` 에는 glob 을 쓰지 않는다')
     expect(skill).toContain('**`phase` 가 `merged` 가 아니면\n     전부 후보**')
@@ -104,7 +106,7 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
     expect(skill).toContain('후보 state.json 의 `branch_base` 로 조상')
     expect(skill).toContain('`git merge-base --is-ancestor <branch_base> <그 후보의 머지 대상>`')
     expect(skill).toContain('"건너뜀(기점 미반영)"')
-    expect(skill).toContain("`git diff --name-only origin/<기본브랜치>...<그 후보의 머지 대상> -- '*/tasks/*/state.json'`")
+    expect(skill).toContain('`git diff --name-only origin/<기본브랜치>...<그 후보의 머지 대상> --` 뒤에 1번과 같이 구성한 pathspec')
     expect(skill).toContain('그 작업 외의 state.json 이 있으면')
     expect(skill).toContain('git diff --name-only <증적 head_sha>..<머지 대상>')
     expect(skill).toContain('git merge-base --is-ancestor <증적 head_sha> <머지 대상>')
@@ -120,7 +122,8 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
     expect(skill).toContain('그 작업과 그 후손')
     expect(skill).not.toContain('훅에 거부되든 경합으로 거부되든')
     expect(skill).toContain('`origin` 으로 리셋하지 않는다')
-    expect(skill).toMatch(/git merge --no-ff <머지 대상>[\s\S]*git add "\$\(dflow\.sh taskdir <order>\)\/state\.json"[\s\S]*\n {3}git push origin <기본브랜치>\n/)
+    expect(skill).toMatch(/git merge --no-ff <머지 대상>[\s\S]*git add "<후보 state\.json 경로>"[\s\S]*\n {3}git push origin <기본브랜치>\n/)
+    expect(skill).not.toMatch(/git add "\$\(dflow\.sh taskdir/) // 다시 서버를 부르지 않는다(1번에서 이미 찾은 경로를 재사용)
   })
 
   it('뒷정리: 로컬 브랜치가 없거나 다른 워크트리가 잡고 있으면 건너뛰고 보고한다', () => {

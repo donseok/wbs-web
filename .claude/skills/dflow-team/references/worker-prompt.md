@@ -21,7 +21,11 @@
 `<기본브랜치>` 는 팀장이 넘긴 `{DEV_BRANCH}` 다. 워커는 이 값을 다시 해석하지 않는다. detach 된 옛 커밋에는
 `.dflow` 가 없어 다른 값이 나올 수 있기 때문이다. `DEV_BRANCH` 인자가 비어 있으면 `.result` 에
 `{TSK} {ID8} - - - failed no-dev-branch` 를 쓰고 끝낸다. `{TASK_DIR}` 도 같은 이유로 다시 해석하지 않는다 —
-워커의 프로젝트 매핑이 팀장과 다를 수 없는데도, 다시 구하면 그 계산이 dflow.sh 호출 하나를 더 늘릴 뿐이다.
+detach 된 옛 커밋에는 `.dflow.local` 의 `project_map` 이 없거나 지금과 달라, 워커가 스스로 구하면 팀장이
+구한 값과 다른 `TASK_DIR` 이 나올 수 있기 때문이다. **`TASK_DIR` 이 비어 있으면** — `DEV_BRANCH` 와 달리
+아직 워크트리 격리를 확인하기 전(포인터를 막 읽은 시점)일 수 있으므로 `.result` 를 **쓰지 않고** 1번의
+`not-isolated` 와 같은 방식으로 마지막 응답으로 `{TSK} {ID8} - - - failed no-task-dir` 한 줄만 출력하고
+끝낸다.
 
 ## 0. git 호출 규칙 (두 백엔드 공통, 모든 단계)
 

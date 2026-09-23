@@ -307,8 +307,11 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 
 행 G 의 **기본 브랜치 반영 확인**: 선행 산출물이 `origin/<기본브랜치>` 에 실재하는지를 git 으로만 확인한다.
 `<선행TSK>` 는 그 `depends_evidence` 원소의 `external_ref` 에서 마지막 `/` 뒤다(예 `dict/TSK-02-01` → `TSK-02-01`).
-선행 주문을 `show` 하지 않는 이유: 워커의 서버 조회는 자기 `{ID8}` 하나로 제한되고(worker-prompt.md 「5」),
-`depends_evidence[]` 에는 주문 UUID 가 없어 어차피 아래 state.json 을 읽어야 UUID 를 얻는다.
+선행의 state.json 경로는 선행 주문을 다시 조회해 구하지 않는다 — 워커의 서버 조회는 자기 `{ID8}` 하나로
+제한되고(worker-prompt.md 「5」), `depends_evidence[]` 에는 선행 주문의 UUID 가 없어 `dflow.sh taskdir` 도
+선행 기준으로는 부를 수 없다. 대신 **이 작업 자신의 작업 폴더에서 유도한다**: `<TASKS>` 는 팀장이 넘긴
+`{TASK_DIR}` 의 부모 디렉터리다. 선행은 같은 프로젝트·모듈 안에 있으므로(의존은 프로젝트 경계를 넘지
+않는다) 같은 `<TASKS>` 아래 `<TASKS>/<선행TSK>/` 에 있다고 본다.
 줄마다 단독으로 실행해 출력을 읽는다(git 을 감싼 명령 치환은 워커 git 호출 규칙이 금지한다).
 
 판정은 `phase=merged` **AND** (아래 세 증거 중 하나라도 참) 이다. **첫 증거가 가장 강하다** — 선행 산출물이
@@ -318,7 +321,8 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 
 ```bash
 git fetch origin
-git show origin/<기본브랜치>:<선행의 dflow.sh taskdir 값>/state.json   # phase 가 merged 여야 하고, 여기서 order 와 head_sha 를 읽는다
+TASKS=$(dirname {TASK_DIR})   # 이 작업의 작업 폴더 부모. 선행은 같은 프로젝트·모듈이라 같은 <TASKS> 아래에 있다
+git show origin/<기본브랜치>:$TASKS/<선행TSK>/state.json   # phase 가 merged 여야 하고, 여기서 order 와 head_sha 를 읽는다
 git merge-base --is-ancestor <head_sha> origin/<기본브랜치>   # 증거 1. head_sha 가 있을 때만 실행. exit 0 이면 참
 git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h   # 증거 2. 한 줄이라도 나오면 참
 git log origin/<기본브랜치> --merges --grep='^merge: <선행TSK> ' --format=%h   # 증거 3. 한 줄이라도 나오면 참. TSK 뒤 공백까지 넣는다 — 안 넣으면 TSK-03-1 이 TSK-03-10·03-11 도 함께 집어 오탐이 된다

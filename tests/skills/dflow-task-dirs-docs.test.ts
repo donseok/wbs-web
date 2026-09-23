@@ -20,4 +20,27 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(read('dflow-team/SKILL.md')).toContain("'**/tasks/*/.result' '**/tasks/*/.issues'")
     expect(read('dflow-team/references/backends.md')).not.toContain('docs/tasks/<TSK>/(spec')
   })
+  it('팀장이 taskdir 에 order(전체 UUID·id8) 를 넘기고 external_ref 를 넘기지 않는다', () => {
+    const t = read('dflow-team/SKILL.md')
+    expect(t).toContain('taskdir "$order"')
+    expect(t).toContain('taskdir "$id8"')
+    expect(t).not.toContain('taskdir <ref>)` 로 이 작업의 작업 폴더')
+  })
+  it('워커는 빈 TASK_DIR 을 failed no-task-dir 로 끝낸다', () => {
+    expect(read('dflow-team/references/worker-prompt.md')).toContain('failed no-task-dir')
+  })
+  it('팀장 재구성이 tasks-dirs 를 워크트리 반복문 밖에서 한 번만 구한다', () => {
+    const t = read('dflow-team/SKILL.md')
+    const diIdx = t.indexOf('dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs)')
+    const loopIdx = t.indexOf('git worktree list --porcelain')
+    expect(diIdx).toBeGreaterThan(-1)
+    expect(loopIdx).toBeGreaterThan(-1)
+    expect(diIdx).toBeLessThan(loopIdx)
+    expect(t).not.toContain('cd "$w" && .claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs')
+  })
+  it('merge 의 원격 스캔 pathspec 이 고정 glob 이 아니라 tasks-dirs 별로 구성된다', () => {
+    const t = read('dflow-merge/SKILL.md')
+    expect(t).not.toContain("'*/tasks/*/state.json'")
+    expect(t).toContain('while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done <<EOF')
+  })
 })

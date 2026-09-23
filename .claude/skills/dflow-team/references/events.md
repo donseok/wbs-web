@@ -32,9 +32,11 @@
   가르지 않으면 멀쩡히 돌고 있는 팀원의 재기록이 재시도 횟수로 세어져 상한에 금방 닿는다. 이 필드가 없는 옛
   줄은 `new` 로 읽는다(`.spawn_kind // "new"`).
 - `team.result`·`team.blocked`: `blocked` 는 `team.blocked`, 나머지 status 는 `team.result` 로 쓴다. `hash` 는
-  결과 줄의 cksum 첫 필드, `reason` 은 결과 줄 7번째 칸부터(사유 또는 질문)다. `worktree` 와 기본 필드 `tsk`
-  로 `.result` 경로(`<worktree>/<TASK_DIR>/.result`)가 정해지므로, 재구성이 경로별 마지막 처리 해시를
-  유도한다. `status` 는 `.result` 의 status 칸이며, `failed` 이고 사유 첫 낱말이 팀장이 구분하는 값이면
+  결과 줄의 cksum 첫 필드, `reason` 은 결과 줄 7번째 칸부터(사유 또는 질문)다. `.result` 의 정확한 경로
+  (`<worktree>/<TASK_DIR>/.result`)는 `worktree` 와 기본 필드 `tsk` 만으로 정해지지 않는다 — `TASK_DIR` 은 그
+  프로젝트의 `DOCS_DIR`(`project_map`)에 따라 달라진다. 재구성은 SKILL.md 「팀장 상태」 정본 블록과 같이
+  `dflow.sh config tasks-dirs` 로 후보 폴더를 훑어 그 워크트리 안의 `.result` 를 찾고, 그 경로별 마지막 처리
+  해시를 유도한다. `status` 는 `.result` 의 status 칸이며, `failed` 이고 사유 첫 낱말이 팀장이 구분하는 값이면
   `failed rate-limit`·`failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed permission`·`failed project` 처럼 붙인다.
   결과 줄 없이 판정한 것(pane 이 죽었는데 `.result` 도 pane 화면의 결과 줄도 없음)은 `failed no-result`(hash `-`)다.
   재구성이 이 값으로 제외 목록과 차단기를 복원한다. spec·TSK 부재로 걸러 spawn 하지 않은 작업은

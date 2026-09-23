@@ -32,20 +32,29 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
 1. **후보 식별**: 인자 없으면 대상 저장소의 `<TASKS>/*/state.json` 에서 `phase=reported`
    인 작업 전부(로컬 후보). 여기에 원격 후보를 더한다.
    - `git fetch origin` 뒤 `git branch -r --list 'origin/agent/*'` 의 각 `<ref>` 에서, state.json 경로를
-     `git diff --name-only origin/<기본브랜치>...<ref> -- '*/tasks/*/state.json'` 로 찾고
-     `git show <ref>:<경로>` 로 읽는다. `git show` 에는 glob 을 쓰지 않는다(경로를 해석하지 않는다).
+     `git diff --name-only origin/<기본브랜치>...<ref> --` 뒤에 **`dflow.sh config tasks-dirs` 가 낸 폴더마다 하나씩
+     만든 pathspec**(`<그 폴더>/*/state.json`)을 붙여 찾고 `git show <ref>:<경로>` 로 읽는다. `git show` 에는 glob 을 쓰지 않는다(경로를 해석하지 않는다).
+     고정 glob `*/tasks/*/state.json` 을 쓰지 않는 이유: 이 repo 밖 어느
+     디렉터리든 이름이 `tasks` 이기만 하면 걸린다(예 `src/tasks/…`) — 이 프로젝트의 작업 폴더가 아니다.
      ```bash
      api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}
      git fetch origin
+     dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs)
+     set --
+     while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done <<EOF
+     $dirs
+     EOF
      for ref in $(git branch -r --list 'origin/agent/*'); do
        id8=$(printf '%s' "${ref#origin/agent/}" | cut -c1-8)
-       git diff --name-only "origin/<기본브랜치>...$ref" -- '*/tasks/*/state.json' | while IFS= read -r p; do
-         git show "$ref:$p" | jq -r --arg ref "$ref" --arg id8 "$id8" --arg api "$api" \
+       git diff --name-only "origin/<기본브랜치>...$ref" -- "$@" | while IFS= read -r p; do
+         git show "$ref:$p" | jq -r --arg ref "$ref" --arg id8 "$id8" --arg api "$api" --arg p "$p" \
            'select((.order // "") | startswith($id8)) | select(.phase != "merged")
-            | [$ref, .tsk, .order, .phase, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end)] | @tsv'
+            | [$ref, .tsk, .order, .phase, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end), $p] | @tsv'
        done
      done
      ```
+     여섯째 칸(`$p`)은 그 state.json 의 정확한 경로다. 4번 머지 단계가 이 값을 `<후보 state.json 경로>` 로
+     그대로 쓴다 — 다시 `dflow.sh taskdir` 를 부르지 않는다.
    - 브랜치 이름의 id8 과 state.json `order` 의 앞 8자가 일치해야 하고, **`phase` 가 `merged` 가 아니면
      전부 후보**로 본다. 이유: tip 의 phase 는 `reported` 커밋이 실패하면 `verify` 에 머물 수 있으므로
      기대지 않는다. 판정은 서버 `show` 로만 하므로 넓게 잡아도 안전하다. 일치하는 state.json 이 없는
@@ -78,7 +87,9 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      머지한 뒤에는 원격 스캔(`phase != "merged"`)에도 `reported` 스캔에도 걸리지 않아, 그 작업의 승인·반려를 아무도
      읽지 못한다. 팀장의 poll 에는 반려 신호(exit 10)도 오지 않는다(`/dflow-team` 「2-3」).
      glob(`<TASKS>/*/state.json`)을 쓰지 않는 이유: zsh 에서는 매치가 없으면 `no matches found` 로 명령
-     전체가 죽는다. `<TASKS>` 가 없는 리포에서도 `find` 는 조용히 아무것도 내지 않는다.
+     전체가 죽는다. `<TASKS>` 가 없는 리포에서도 `find` 는 조용히 아무것도 내지 않는다. 첫째 칸(`$f`)이 그
+     state.json 의 정확한 경로다 — 원격 스캔의 여섯째 칸(`$p`)과 같은 역할이며, 4번 머지 단계가 이 값을
+     그대로 쓴다.
      이유: 스테이징 D'Flow DB 는 운영을 복제하므로, 스테이징 `api_base`(export 된 `DFLOW_API_BASE`) 로 실제 리포에서 스윕하면 운영에서
      승인된 작업을 로컬 후보든 원격 후보든 머지할 수 있다. 값이 없는 옛 로컬 후보는 출처를 가릴 수 없으므로
      사람이 보는 수동 경로에만 남긴다.
@@ -137,7 +148,8 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      후보만 지금처럼 브랜치 tip 끼리 `git merge-base --is-ancestor A B` 로 판정한다. 수동 경로가 판정하던 옛
      후보를 거부하면 퇴행이기 때문이다.
    - **차분 백스톱**: `branch_base` 판정과 별도로,
-     `git diff --name-only origin/<기본브랜치>...<그 후보의 머지 대상> -- '*/tasks/*/state.json'` 에 그 작업 외의 state.json 이 있으면
+     `git diff --name-only origin/<기본브랜치>...<그 후보의 머지 대상> --` 뒤에 1번과 같이 구성한 pathspec(`dflow.sh
+     config tasks-dirs` 의 각 폴더마다 `<그 폴더>/*/state.json`)을 붙인 것에 그 작업 외의 state.json 이 있으면
      그 파일(`git show <그 후보의 머지 대상>:<경로>`)의 `order` 가 가리키는 작업들도 선행으로 보고 위 순서와
      승인 판정에 넣는다. 그 선행이 이번에 머지되지 않았으면 후손을 건너뛰고, 후보에 없으면
      "건너뜀(기점 미반영)" 으로 보고한다. 이유: `branch_base` 는 오케스트레이터가 적는 값이라 빠질 수 있고,
@@ -158,7 +170,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    git merge-base --is-ancestor <증적 head_sha> <머지 대상>   # 증적에 head_sha 가 있을 때만. 0 이 아니면(커밋이 없거나 조상이 아님) 머지하지 않는다
    git diff --name-only <증적 head_sha>..<머지 대상>   # 증적에 head_sha 가 있을 때만. 실패하면 머지하지 않고, 그 작업의 state.json 뿐이거나 비어 있어야 머지한다
    git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)" -m "DFlow-Order: <order>"   # 로컬 후보 agent/<id8>-<slug>, 원격 전용 후보 origin/agent/<id8>-<slug>. 승인 전 머지는 (reported, 승인 전). <order> 는 그 후보 state.json 의 order. git merge 는 --trailer 를 모른다(git commit 전용) — 둘째 -m 이 빈 줄 뒤 문단이 되어 트레일러로 인식된다
-   git add "$(dflow.sh taskdir <order>)/state.json" && git commit -m "chore(<TSK>): phase=merged"   # state.json 을 phase=merged 로 고친 뒤, push 전에
+   git add "<후보 state.json 경로>" && git commit -m "chore(<TSK>): phase=merged"   # state.json 을 phase=merged 로 고친 뒤, push 전에
    git push origin <기본브랜치>
    ```
    후보마다 다음 순서로 한다.
@@ -181,8 +193,14 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
       손으로 풀어 `git merge --abort` 대신 직접 `git commit` 으로 머지를 완성하는 경로도 있다 — 이
       경로에도 아래 트레일러 규칙이 그대로 적용된다. "자동 스윕이 아니다" 는 트레일러를 빠뜨릴
       이유가 되지 않는다.
-   4. state.json 을 `phase=merged` 로 갱신해 기본 브랜치에 커밋한다(파일명 명시). 이 커밋을 **push 전에**
-      만든다. 승인 전 머지면 같은 커밋에서 `unapproved: true` 를 함께 넣는다. `phase` 를 `merged` 가 아닌 새 값으로
+   4. state.json 을 `phase=merged` 로 갱신해 기본 브랜치에 커밋한다(파일명 명시). `<후보 state.json 경로>` 는
+      **1번 후보 식별이 이미 찾은 그 경로다**(로컬 후보는 스캔이 낸 `$f`, 원격 후보는 스캔이 낸 `$p` — 위 1번의
+      여섯째 칸). 여기서 `dflow.sh taskdir` 를 다시 부르지 않는다. 이유: 서버 호출이 실패하거나 예상 밖의 빈
+      값을 돌려주면 `git add "/state.json"` 처럼 저장소 루트 바로 아래 엉뚱한 경로를 stage 하는 사고로
+      번질 수 있다 — 이미 아는 값을 그대로 쓰면 그럴 일이 없다. `git add` 가 실패하면(경로가 비었거나, 그
+      파일이 이 시점의 트리에 없거나, stage 되지 않으면) **커밋·push 하지 않고** "머지 실패(state.json 경로)"
+      로 보고한 뒤 다음 후보로 간다. 이 커밋을 **push 전에** 만든다.
+      승인 전 머지면 같은 커밋에서 `unapproved: true` 를 함께 넣는다. `phase` 를 `merged` 가 아닌 새 값으로
       만들지 않는 이유: `/dflow-dev` 「--worker」 행 G 의 기본 브랜치 반영 확인이 `phase` 가 `merged` 인지를 보고,
       `poll.sh` 의 반려 감지도 `reported|merged` 만 훑는다. 새 값을 쓰면 후속이 여전히 `skipped` 로 끝나고 반려도
       감지되지 않는다.
@@ -227,7 +245,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    - 후보마다 위 1~5를 `<W>` 에서 한다. 달라지는 것은 셋뿐이다.
      1. 1단계는 `git -C "$W" fetch origin && git -C "$W" switch --detach origin/<기본브랜치>` 다. `pull` 대신
         detach 하는 이유: `<W>` 는 브랜치를 잡지 않는다. 그 뒤 `git -C "$W" rev-parse HEAD` 를 머지 직전 HEAD 로 기록한다.
-     2. 4단계의 state.json 은 `<W>/<TASKS>/<TSK>/state.json` 을 고쳐 `<W>` 에서 커밋한다.
+     2. 4단계의 state.json 은 `<W>/<후보 state.json 경로>` 를 고쳐 `<W>` 에서 커밋한다(같은 경로 재사용 규칙).
      3. 5단계는 `git -C "$W" push origin HEAD:<기본브랜치>` 다. 실패하면 `git -C "$W" reset --hard <기록한 HEAD>` 로
         되돌리고 같은 규칙(경합·훅·그 밖)으로 가른다. `--keep` 대신 `--hard` 를 쓰는 이유: `<W>` 는 이 스윕만 쓰는
         임시 트리라 지킬 미커밋 변경이 없다.

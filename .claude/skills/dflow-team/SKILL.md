@@ -228,12 +228,13 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 **정본**: 이 신원·이 PC 의 팀원 워크트리와 그 결과. `TM` 은 「1. 시작」 전제 검사가 출력한 tmux 절대경로다.
 ```bash
 TM='<진짜 tmux 절대경로>'   # Orca 백엔드면 빈 값
+dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs)   # 팀장 체크아웃 기준. 팀원 워크트리도 같은 project_map 을 쓰므로(부트스트랩이 .dflow.local 을 그대로 심링크) 워크트리마다 다시 부르지 않는다
 git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w; do
   [ -f "$w/.dflow-agent" ] || continue
   a=$(head -n 1 "$w/.dflow-agent")
   case "$a" in "<신원>/<host>/"*) ;; *) continue ;; esac
-  rf=$( (cd "$w" && .claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs) | while IFS= read -r d; do
-    find "$w/$d" -mindepth 2 -maxdepth 2 -name .result 2>/dev/null; done | head -n 1)
+  rf=$(printf '%s\n' "$dirs" | while IFS= read -r dd; do
+    find "$w/$dd" -mindepth 2 -maxdepth 2 -name .result 2>/dev/null; done | head -n 1)
   r=$([ -n "$rf" ] && head -n 1 "$rf")
   b=$(git -C "$w" branch --show-current)
   p=$(head -n 1 "$w/.dflow-pane" 2>/dev/null); alive=-
@@ -1088,15 +1089,23 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
    띄우기 위해서다.
 2. 슬롯 번호를 정하고(「팀장 상태」 의 발급 규칙) `AGENT_ID = <신원>/<host>/w<slot>` 을 만든다.
 3. TSK 는 show 필터의 `ref`(`.order.item.external_ref`)에서 마지막 `/` 뒤, order 는 `.order.id` 다.
-   `TASK_DIR=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir <ref>)` 로 이 작업의 작업 폴더(`<TASKS>/<TSK>`)를 구한다.
+   ```bash
+   TASK_DIR=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$order"); rc=$?
+   ```
+   로 이 작업의 작업 폴더(`<TASKS>/<TSK>`)를 구한다. `taskdir` 는 순번·id8·전체 UUID 만 받고 `external_ref` 는
+   모른다 — `ref` 가 아니라 `order`(전체 UUID, id8 도 된다)를 넘긴다. `rc` 가 0 이 아니면(exit 2
+   `PROJECT_MISMATCH`·`AMBIGUOUS_DOCS_DIR`, exit 6 `NO_REF`) **spawn 하지 않는다**: 그 id8 을 일시 제외에 넣고
+   사유 `작업 폴더 해석 실패(exit $rc)` 를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴 뒤 다음
+   후보로 간다(위 poll exit 0 갈래의 spec 부재·TSK 없음과 같은 처리).
 4. 포인터 **한 줄**을 만든다. 백엔드에는 워커 프롬프트 전문이 아니라 이 포인터를 넘기고, 워커가
    `references/worker-prompt.md` 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다.
    ```
    <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<작업 폴더>
    ```
    - `DEV_BRANCH` 는 전제 검사의 `base` 다. 워커가 detach 된 옛 커밋에서 다른 값을 읽지 않도록 팀장이 넘긴다.
-   - `TASK_DIR` 은 3번에서 구한 값이다. 워커의 프로젝트 매핑이 팀장과 같으므로 다시 구하지 않고 그대로 받는다
-     (`DEV_BRANCH` 와 같은 이유).
+   - `TASK_DIR` 은 3번에서 구한 값이다. 워커는 이 값을 다시 해석하지 않는다 — detach 된 옛 커밋에는
+     `.dflow.local` 의 `project_map` 이 없거나 지금과 달라, 워커가 스스로 구하면 팀장이 구한 값과 다른
+     `TASK_DIR` 이 나올 수 있기 때문이다(`DEV_BRANCH` 와 같은 이유).
    - 전문을 셸 인자로 넘기면 백틱·따옴표·여러 줄이 섞여 깨진다(자동 제출은 한 줄에서 확인됐다).
    - `BACKEND` 는 언제나 `pane` 이다. 두 백엔드 모두 팀원이 화면에서 멈춰 답을 기다리므로 워커가 갈래를 타지
      않는다(worker-prompt.md).
@@ -1198,7 +1207,15 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
    `parked` 인 채로 띄우면 그 팀원은 좌석표에 진척을 하나도 알리지 못한다.
 5. **포인터를 다시 쓴다.** 5번 4항의 형식 그대로이며 `AGENT_ID` 는 4항에서 정한 슬롯이다. 옛 파일을 그대로
    두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의 `AGENT_ID` 와 어긋나 팀원이 남의 좌석으로 heartbeat 를
-   보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
+   보낸다. `MODEL` 은 이번 실행의 인자를 쓴다. `TASK_DIR` 은 옛 `.dflow-prompt` 의 `TASK_DIR=` 토큰을 그대로
+   쓴다(4항의 슬롯 추출과 같은 방식):
+   ```bash
+   task_dir=$(sed -n 's/.*TASK_DIR=\([^ ]*\).*/\1/p' <워크트리>/.dflow-prompt 2>/dev/null | head -n 1)
+   ```
+   비어 있으면(`TASK_DIR` 이전에 만들어진 옛 포인터) `dflow.sh taskdir "$id8"` 로 다시 구한다. 실패(exit≠0)하면
+   5번 3항(위 항목 1)과 같은 실패 갈래로 처리한다 — 이 재개는 접고, 그 id8 을 일시 제외에 넣고 사유
+   `작업 폴더 해석 실패(exit <코드>)` 를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴 뒤 다음
+   후보로 간다.
 6. **띄운다.** 백엔드별 명령은 5번 5항과 같다. tmux 는 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
    워크트리에는 없고, 남아 있던 것은 옛 모델 인자를 달고 있다) pane id 를 `.dflow-pane` 에 덮어쓴다. **폴더 신뢰 확인 루프를 반드시 돈다.** 넘기면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가
    통째로 논다. Orca 는 포인터를 `--prompt` 로 넘겨 기존 워크트리에 탭을 다시 연다.
