@@ -340,7 +340,10 @@ cmd_scaffold() {
   _top=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "NOT_REPO git 리포 안에서 실행하세요."
   _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=assigned&limit=100") || exit $?
   printf '%s' "$_body" | jq -e 'has("assigned")' >/dev/null 2>&1 || die 6 "목록 해석 실패"
-  _rows=$(printf '%s' "$_body" | jq -c '[.assigned[]?]' | filter_projects '') || die 6 "목록 해석 실패"
+  # ready 만 폴더를 만든다 — assigned 는 ready·claimed·reported 를 다 담아 오므로, 이미 claim 된
+  # 주문까지 여기서 phase=ready state.json 을 만들면 팀장 재시작 때 에이전트 브랜치의 같은 경로와
+  # add/add 충돌이 난다(2026-09-23). 폴더는 claim 전 단계의 몫이라는 스펙 의도대로 ready 만 남긴다.
+  _rows=$(printf '%s' "$_body" | jq -c '[.assigned[]?]' | filter_projects '' | jq -c '[.[] | select(.status == "ready")]') || die 6 "목록 해석 실패"
   _total=$(printf '%s' "$_body" | jq '[.assigned[]?] | length')
   [ "$_total" -lt 100 ] || printf '⚠ 목록이 100건에서 잘렸을 수 있습니다 — 남은 작업은 다음 scaffold 에서 만듭니다.\n' >&2
   _kept=$(printf '%s' "$_rows" | jq 'length')

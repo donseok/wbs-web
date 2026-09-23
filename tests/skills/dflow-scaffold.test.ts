@@ -125,6 +125,13 @@ describe('scaffold', () => {
       .toEqual(['chore(dflow): 담당 작업 폴더 2건 생성', '', 'docs/mdm/tasks/TSK-01-02/state.json', 'docs/tasks/TSK-01-01/state.json'])
     expect(execFileSync('git', ['--git-dir', bare, 'rev-parse', 'main'], { encoding: 'utf8' })).toBe(git('rev-parse', 'HEAD'))
   })
+  it('claimed 주문은 무시한다 — ready 만 폴더를 만든다', () => {
+    const r = run(['scaffold'], { MINE_BODY: mine(
+      order(O1, P1, 'MES/TSK-01-01'), { ...order(O2, P1, 'MES/TSK-01-02'), status: 'claimed' }) })
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.stdout.trim()).toBe('scaffold created=1 skipped=0 no_ref=0')
+    expect(existsSync(join(repo, 'docs/tasks/TSK-01-02'))).toBe(false)
+  })
   it('이미 있는 폴더는 건드리지 않고 skipped 로 센다', () => {
     mkdirSync(join(repo, 'docs/tasks/TSK-01-01'), { recursive: true })
     writeFileSync(join(repo, 'docs/tasks/TSK-01-01/design.md'), 'keep')
