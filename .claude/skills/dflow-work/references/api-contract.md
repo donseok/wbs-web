@@ -1,6 +1,16 @@
-# D'Flow Agent API 계약 v2.4
+# D'Flow Agent API 계약 v2.5
 
-`contract_version: "2.4"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다.
+`contract_version: "2.5"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다. v2.5는 팀장 lease 를 더했다.
+
+## v2.5 변경점 (2026-09-23)
+
+- `POST /api/v1/agent/lead/lease` 신설 — 신원+프로젝트당 `/dflow-team` 팀장 하나(0101). 본문 `op`:
+  - `acquire` `{projects, holder, host, agent, takeover?}` → 200 `{ok, leases:[{project_id, generation, expires_at}]}` · 409 `lead_lease_held` + `held:[{project_id, host, agent, expires_at}]`
+  - `renew` `{holder, leases:[{project_id, generation}]}` → 200 `{ok, expires_at, lost:[project_id]}`
+  - `release` `{holder, leases}` → 200 `{ok, released}`
+  - `holder` = `<PC ID uuid>:<리포 경로 cksum>`. TTL 180초. PAT 전용, `work:claim`, acquire 는 프로젝트 멤버만(403 `forbidden_role`).
+- `POST /api/v1/agent/watch` 에 선택 필드 `holder` — 주면 `resume_requests` 를 그 holder 로 쥔 유효 lease 의 프로젝트로 거른다. lease 조회 실패는 `resume_requests: null`.
+- CLI: `dflow.sh lease holder|acquire [--takeover]|renew|release|keep`, `dflow.sh watch --holder`.
 
 ## v2.4 변경점 (2026-09-18)
 
@@ -74,7 +84,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
   `work:report` 는 폐지됐다(2026-08-25) — claim 할 수 있으면 그 결과도 적을 수 있어야 하고, claim 이 무제한이라 보고만 막는 건 방어선이 아니었다(본인 claim 건만 쓸 수 있다는 강제는 report 라우트가 한다). 신규 발급에는 없고, **옛 토큰의 `work:report` 는 `work:claim` 과 동등하게 수용**한다.
 - PAT는 `project_id` 지정 시 그 프로젝트만. 멤버십: PAT principal은 모든 조회·쓰기에서 `is_superuser` 또는 `project_roles` 보유 필요, 아니면 404.
 
-## 엔드포인트 (v1 5개 불변 + 신규 3개)
+## 엔드포인트 (v1 5개 불변 + 신규 4개)
 
 | 메서드·경로 | 신원 | 요지 |
 |---|---|---|
@@ -86,6 +96,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 | GET `/api/v1/agent/me` | **pat 전용** | legacy 호출 400 `identity_required` |
 | GET `/api/v1/agent/work/mine?scope=&limit=` | **pat 전용** | scope: `available`(기본)·`claimed`·`all`·`assigned` |
 | POST `/api/v1/wbs/import` | **pat 전용** | export JSON upsert. 스코프 `work:claim` 필요 |
+| POST `/api/v1/agent/lead/lease` | **pat 전용** | 팀장 lease(v2.5) — `op:acquire\|renew\|release`. acquire 는 프로젝트 멤버만 |
 
 ## 응답 셰이프 (신규분)
 
@@ -93,10 +104,10 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 ```json
 { "ok": true, "user_email": "a@b.c", "token_name": "맥북 에어", "token_prefix": "OxMb1D1097Qz",
   "scopes": ["work:read"], "kind": "user_pat",
-  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.4",
+  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.5",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.4"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.5"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
 `projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
@@ -225,6 +236,7 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업
 | 409 | `cancelled` | 사람이 중단한 주문(heartbeat·progress·completion). 워커는 재시도하지 말고 멈춘다 — 2026-09-19 |
 | 409 | `apply_failed` | WBS 반영 실패 |
 | 409 | `wbs_item_missing` | 항목 삭제된 주문 |
+| 409 | `lead_lease_held` | 팀장 lease 가 다른 holder 에 있음(v2.5) — `held:[{project_id, host, agent, expires_at}]` 동반 |
 
 ## 로컬 클라이언트 계약
 

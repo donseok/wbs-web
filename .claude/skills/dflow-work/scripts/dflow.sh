@@ -8,7 +8,7 @@ set -u
 
 # 이 스킬이 기대하는 계약 버전. doctor 는 major 만 본다 — 서버가 minor 를 올리는 것은
 # additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
-CONTRACT_VERSION=2.4
+CONTRACT_VERSION=2.5
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"
@@ -31,10 +31,12 @@ usage() {
   progress <ref> <pct 0-99> <요약>
   heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id] [--model m]
                          진행 중 신호(보고 행 없음). --agent 기본값은 워크트리 루트 .dflow-agent 첫 줄
-  watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--json] [--stop]
+  watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--holder h] [--json] [--stop]
                          감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll
   done <ref> <요약> [--auto-links]
   release <ref>
+  lease holder|acquire [--takeover]|renew|release|keep --pid <PID> --lost-file <path>
+                         팀장 lease(신원+프로젝트당 팀장 하나). /dflow-team 이 쓴다
   profiles               토큰마다 한 줄 JSON(n·prefix·name·email·expires_at·projects·bound·selected). 토큰 값은 내지 않는다
   doctor                 설정·의존성·계약 버전 점검
   config <key>|projects|--source   설정 값·바인딩·판정 출처(비밀 키는 거부)
@@ -68,6 +70,7 @@ unset _x _cr
 # /work/mine 은 PAT 주인이 속한 모든 프로젝트의 주문을 돌려주므로, 거르지 않으면 한 리포의 세션이 다른
 # 프로젝트의 작업을 잡아 엉뚱한 리포에서 개발한다(2026-09-18 발견: 바인딩 없는 리포가 옛 프로젝트 작업을 봄).
 ALLOWED_PROJECTS=$(dflow_config_projects)
+. "$(dirname "$0")/dflow-lease.sh"
 # 목록 캐시는 바인딩과 고른 키(DFLOW_AS)마다 나눈다. 한 파일을 모든 리포가 쓰면 순번·접두 해석이 다른 리포가
 # 마지막으로 본 목록으로 풀리고, 같은 리포의 두 팀장(워크트리마다 다른 키)도 서로의 목록을 덮어쓴다.
 LIST_CACHE="$CACHE_DIR/last-list-$(printf '%s|%s' "${ALLOWED_PROJECTS:-any}" "${DFLOW_AS:-}" | cksum | cut -d' ' -f1).json"
@@ -350,7 +353,7 @@ cmd_heartbeat() {
 }
 
 cmd_watch() {
-  _agent=''; _slots=''; _busy=''; _until=''; _project="${DFLOW_PROJECT_ID:-}"; _stop=''; _raw=''
+  _agent=''; _slots=''; _busy=''; _until=''; _project="${DFLOW_PROJECT_ID:-}"; _stop=''; _raw=''; _holder=''
   while [ $# -gt 0 ]; do
     case "$1" in
       --agent)   _agent="${2:-}";   shift 2 || usage ;;
@@ -358,6 +361,7 @@ cmd_watch() {
       --busy)    _busy="${2:-}";    shift 2 || usage ;;
       --until)   _until="${2:-}";   shift 2 || usage ;;
       --project) _project="${2:-}"; shift 2 || usage ;;
+      --holder)  _holder="${2:-}";  shift 2 || usage ;;
       --json)    _raw=1; shift ;;
       --stop)    _stop=1; shift ;;
       *) usage ;;
@@ -369,12 +373,13 @@ cmd_watch() {
   if [ -n "$_stop" ]; then
     _json=$(jq -nc --arg a "$_agent" '{agent:$a, stop:true}')
   else
-    _json=$(jq -nc --arg a "$_agent" --arg h "$_host" --arg s "$_slots" --arg b "$_busy" --arg u "$_until" --arg p "$_project" \
+    _json=$(jq -nc --arg a "$_agent" --arg h "$_host" --arg s "$_slots" --arg b "$_busy" --arg u "$_until" --arg p "$_project" --arg hd "$_holder" \
       '{agent:$a, host:$h}
        + (if $s != "" then {slots:($s|tonumber)} else {} end)
        + (if $b != "" then {busy:($b|tonumber)} else {} end)
        + (if $u != "" then {until:$u} else {} end)
-       + (if $p != "" then {project_id:$p} else {} end)')
+       + (if $p != "" then {project_id:$p} else {} end)
+       + (if $hd != "" then {holder:$hd} else {} end)')
   fi
   _body=$(TOKEN="$TOK" api_raw POST /api/v1/agent/watch "$_json") || exit $?
   # --json 은 응답 본문 그대로. 기본 출력(expires_at 한 줄)만 두면 응답에 실려 오는 resume_requests
@@ -532,6 +537,7 @@ case "$CMD" in
        watch) cmd_watch "$@" ;;
        done) [ $# -ge 2 ] || usage; cmd_done "$@" ;;
        release) [ $# -ge 1 ] || usage; cmd_release "$@" ;;
+       lease) cmd_lease "$@" ;;
        *) usage ;;
      esac ;;
 esac

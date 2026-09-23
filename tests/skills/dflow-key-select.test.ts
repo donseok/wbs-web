@@ -257,9 +257,9 @@ describe('킷·dflow-work 문서(스펙 §7)', () => {
     expect(d).toMatch(/^api_base=/m)
     expect(d).not.toMatch(/^(pats|pat|as|dev_branch|automerge|project_map)=/m)
   })
-  it('api-contract.md 가 v2.4 와 두 필드를 적는다', () => {
+  it('api-contract.md 가 v2.4 변경점과 두 필드를 적는다', () => {
     const t = read('.claude/skills/dflow-work/references/api-contract.md')
-    expect(t).toContain('# D\'Flow Agent API 계약 v2.4')
+    expect(t).toContain('## v2.4 변경점')
     expect(t).toContain('"token_name"')
     expect(t).toContain('"token_prefix"')
   })
