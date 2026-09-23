@@ -47,19 +47,19 @@ describe('statusLine 덤프', () => {
     const wt = join(tmp, 'wt'); mkdirSync(wt); writeFileSync(join(wt, '.dflow-prompt'), 'POINTER\n')
     if (withSettings) makeSettings()
     const run = join(wt, '.dflow-run')
-    writeFileSync(run, '#!/bin/sh\n' + m[1].replaceAll('<id8>', 'abcd1234').replaceAll('<모델 플래그>', '--model opus') + '\n'); chmodSync(run, 0o755)
+    writeFileSync(run, '#!/bin/sh\n' + m[1].replaceAll('<id8>', 'abcd1234').replaceAll('<모델 플래그>', '--model opus').replaceAll('<EFFORT>', 'high') + '\n'); chmodSync(run, 0o755)
     return spawnSync('sh', [run], { cwd: wt, encoding: 'utf8', env: { PATH: `${bin}:${process.env.PATH ?? ''}`, HOME: home, NODE_ENV: process.env.NODE_ENV } })
   }
   it('.dflow-run 은 설정 파일이 있으면 --settings 로 싣는다', () => {
     const r = runTail(true)
     expect(r.status).toBe(0)
     const args = r.stdout.trim().split('\n')
-    expect(args).toEqual(['--dangerously-skip-permissions', '--settings', join(home, '.dflow/limits/abcd1234.settings.json'), '--model', 'opus', 'POINTER'])
+    expect(args).toEqual(['--dangerously-skip-permissions', '--settings', join(home, '.dflow/limits/abcd1234.settings.json'), '--effort', 'high', '--model', 'opus', 'POINTER'])
   })
   it('.dflow-run 은 설정 파일이 없으면 --settings 없이 띄운다', () => {
     const r = runTail(false)
     expect(r.status).toBe(0)
-    expect(r.stdout.trim().split('\n')).toEqual(['--dangerously-skip-permissions', '--model', 'opus', 'POINTER'])
+    expect(r.stdout.trim().split('\n')).toEqual(['--dangerously-skip-permissions', '--effort', 'high', '--model', 'opus', 'POINTER'])
   })
   it('명령은 입력의 rate_limits 를 한도 파일에 쓰고 한 줄을 출력한다', () => {
     const r = runStatusLine(JSON.stringify({ model: { id: 'x' }, rate_limits: { five_hour: { used_percentage: 100, resets_at: 4102444800 } } }))

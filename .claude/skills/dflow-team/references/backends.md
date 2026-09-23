@@ -52,7 +52,9 @@ find_tmux() {
 있어도 절대경로로 부르면 shim 을 그냥 지나친다(실측).
 
 **spawn**: 워크트리 준비는 팀장 체크아웃에서 한 번의 Bash 호출로 돌린다. `<모델 플래그>` 는 `MODEL` 이
-`opus`·`sonnet` 이면 `--model opus`·`--model sonnet`, `default` 면 빈 값이다.
+`opus`·`sonnet` 이면 `--model opus`·`--model sonnet`, `default` 면 빈 값이다. `<EFFORT>` 는 SKILL.md 「인자」
+가 정한 추론 강도다(기본 `high`). 팀장 세션의 `CLAUDE_EFFORT` 는 아래에서 벗기므로 팀원은 이 플래그가 없으면 그
+PC 의 `effortLevel` 설정을 따른다. PC 마다 값이 달라 기본값도 명시한다.
 
 ```bash
 TM=$(find_tmux)
@@ -85,8 +87,8 @@ LIM="$HOME/.dflow/limits"; mkdir -p "$LIM"
 jq -n --arg f "$LIM/<id8>.json" '{statusLine: {type: "command", command: ("jq -c \"{at: (now | floor), rate_limits: (.rate_limits // null)}\" > \"" + $f + ".tmp\" && mv -f \"" + $f + ".tmp\" \"" + $f + "\"; printf dflow")}}' > "$LIM/<id8>.settings.json"
 cat >> "$WT/.dflow-run" <<'RUNEOF'
 S="$HOME/.dflow/limits/<id8>.settings.json"
-[ -f "$S" ] && exec claude --dangerously-skip-permissions --settings "$S" <모델 플래그> "$(cat .dflow-prompt)"
-exec claude --dangerously-skip-permissions <모델 플래그> "$(cat .dflow-prompt)"
+[ -f "$S" ] && exec claude --dangerously-skip-permissions --settings "$S" --effort <EFFORT> <모델 플래그> "$(cat .dflow-prompt)"
+exec claude --dangerously-skip-permissions --effort <EFFORT> <모델 플래그> "$(cat .dflow-prompt)"
 RUNEOF
 chmod +x "$WT/.dflow-run"
 if "$TM" -L dflow has-session -t dflow 2>/dev/null; then

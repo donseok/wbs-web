@@ -1,6 +1,6 @@
 ---
 name: dflow-team
-description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)된 ready 작업을 상시 감시해 슬롯 N개의 팀원에게 나눠 동시에 개발시키는 팀장 스킬. 팀원은 자기 서브에이전트를 띄울 수 있는 독립 세션(tmux pane 또는 Orca 탭)이며 각자 워크트리에서 /dflow-dev 를 돌린다. 당일·여러 날·종료 요청 전까지 실행할 수 있다. 트리거 - "/dflow-team", "팀으로 개발", "팀장 시작", "N건 동시 착수", "팀장 종료". 사용법 - /dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [WP-XX…] · /dflow-team help
+description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)된 ready 작업을 상시 감시해 슬롯 N개의 팀원에게 나눠 동시에 개발시키는 팀장 스킬. 팀원은 자기 서브에이전트를 띄울 수 있는 독립 세션(tmux pane 또는 Orca 탭)이며 각자 워크트리에서 /dflow-dev 를 돌린다. 당일·여러 날·종료 요청 전까지 실행할 수 있다. 트리거 - "/dflow-team", "팀으로 개발", "팀장 시작", "N건 동시 착수", "팀장 종료". 사용법 - /dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [effort] [WP-XX…] · /dflow-team help
 ---
 
 # /dflow-team: 팀장 (슬롯 N개 동시 개발)
@@ -31,9 +31,9 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 
 ## 인자
 
-`/dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [WP-XX…]`. 예: `/dflow-team 18:00`,
+`/dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [effort] [WP-XX…]`. 예: `/dflow-team 18:00`,
 `/dflow-team 4명 18시까지 opus`, `/dflow-team 18:00 WP-02 WP-03`, `/dflow-team 3일 뒤 06:00까지`,
-`/dflow-team 종료 요청 전까지`.
+`/dflow-team 종료 요청 전까지`, `/dflow-team 18:00 opus effort xhigh`.
 
 - 인자는 자연어로 해석한다. 플래그 문법을 강제하지 않는다.
 - **`help`**: 인자가 `help`·`--help`·`-h`·`도움말`·`사용법` 중 하나면 `references/help.md` 를 Bash `cat` 으로 읽어
@@ -149,7 +149,7 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
     모델은 묻지 않는다. 기본 모델로 도는 것이 통상이고, 질문이 많으면 답이 늦어지기 때문이다.
   - 답으로 받은 종료 시각이 여전히 틀리면 한 번만 더 묻고, 그래도 맞지 않으면 아래 사용법을 출력하고 끝낸다.
   ```
-  사용법: /dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [WP-XX…]
+  사용법: /dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [effort] [WP-XX…]
          예) /dflow-team 18:00 · /dflow-team 4명 3일 뒤 06:00까지 opus · /dflow-team 종료 요청 전까지 WP-02
          자세한 안내: /dflow-team help
   ```
@@ -175,6 +175,13 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   슬롯마다 독립 메인 에이전트가 떠서 비용과 사용량 한도 소모가 빠르게 늘기 때문이다.
 - 모델은 선택이다(`opus`|`sonnet`). 없으면 포인터에 `MODEL=default` 를 넘겨 기본 모델을 쓴다. 값은 팀원이
   `/dflow-dev --model` 로 넘기고, tmux 백엔드는 팀원을 띄우는 `.dflow-run` 의 `claude --model` 에도 붙인다.
+- **추론 강도(effort)는 기본 `high` 다**(2026-09-23 사용자 지시). 사람이 `effort xhigh`·`추론 강도 max` 처럼 요청할 때만
+  바꾼다. 값은 `low`|`medium`|`high`|`xhigh`|`max` 중 하나이고, 그 밖의 값이면 한 줄 알리고 `high` 를 쓴다. 정한 값을
+  `<EFFORT>` 로 기억한다. tmux 백엔드는 `.dflow-run` 의 `claude` 호출에 `--effort <EFFORT>` 를 붙인다(backends.md).
+  기본값을 명시하는 이유: `.dflow-run` 이 팀장 세션의 `CLAUDE_EFFORT` 를 벗기므로, 플래그가 없으면 팀원은 PC 마다
+  다른 `effortLevel` 설정을 따른다. Orca 백엔드는 `orca worktree create --agent claude` 에 플래그를 넘길 길이 없어
+  그 PC 의 `~/.claude/settings.json` `effortLevel` 을 따른다. Orca 로 돌리면서 기본값이 아닌 값을 요청받았으면 그
+  사실을 한 줄 알린다. 묻지 않는다(모델과 같은 이유).
 - **재개 인자 `--resume <id8>[ <id8>…]`** 는 선택이다. 자연어로 "443b8ffe 재개" 라고 써도 같게 해석한다. 이 인자가
   없어도 이 PC 에 남아 있는 중단된 팀원 워크트리는 자동으로 이어받는다(「팀장 상태」 고아 스캔의 "재개 가능"
   분류). `--resume` 은 자동 판정이 닿지 않는 자리, 곧 **워크트리가 이 PC 에 없거나 다른 PC 가 claim 한 작업**을
