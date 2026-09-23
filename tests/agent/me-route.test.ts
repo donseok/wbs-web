@@ -57,7 +57,7 @@ describe('GET /agent/me', () => {
     // 계약 2.4 — 토큰이 여럿일 때 "이 키가 무엇인지" 를 알려 주는 두 필드
     expect(body.token_name).toBe('맥북 에어')
     expect(body.token_prefix).toBe(PAT.prefix)
-    expect(body.contract_version).toBe('2.5')
+    expect(body.contract_version).toBe('2.7') // 머지 충돌 표시. 과제 C(2.6)와 머지 순서에 따라 조정한다
     expect(body.projects).toHaveLength(1)
     expect(body.projects[0]).toMatchObject({ id: P1, role: 'admin' })
   })

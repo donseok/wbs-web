@@ -26,7 +26,10 @@ function useAdmin(queues: Record<string, Resp[]>, calls: Record<string, unknown[
       b.select = () => b
       b.update = (payload: unknown) => { (calls[table] ??= []).push(payload); return b }
       b.insert = (payload: unknown) => { (calls[`${table}:insert`] ??= []).push(payload); return b }
-      for (const k of ['eq', 'in', 'limit', 'order']) b[k] = () => b
+      for (const k of ['limit', 'order']) b[k] = () => b
+      // 가드 조건(.eq('heartbeat_phase', …)·.in('status', …))을 시험이 확인할 수 있게 인자를 남긴다.
+      b.eq = (...a: unknown[]) => { (calls[`${table}:eq`] ??= []).push(a); return b }
+      b.in = (...a: unknown[]) => { (calls[`${table}:in`] ??= []).push(a); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
@@ -150,5 +153,90 @@ describe('POST /agent/work/[id]/heartbeat', () => {
   it('403 insufficient_scope — work:read 만 있는 PAT', async () => {
     useAdmin({ ...okQueues(), agent_runners: [{ data: { ...RUNNER, scopes: ['work:read'] } }, { data: null }] })
     expect((await post({ agent: 'a', phase: 'build' })).status).toBe(403)
+  })
+})
+
+describe('POST heartbeat — 팀장 대리 merge_conflict(2026-09-23 머지 충돌 §7.2)', () => {
+  const LEAD = 'hong/mbp/lead'
+  const REPORTED = { ...ORDER, status: 'reported' }
+  it('reported + merge_conflict → 200, heartbeat_phase·heartbeat_note 두 열만 쓴다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(REPORTED), calls)
+    const res = await post({ agent: LEAD, phase: 'merge_conflict', note: '충돌 2개(src/a.ts…) · 해소 대기 1/3' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, phase: 'merge_conflict' })
+    // updated_at(승인분 7일 창)·heartbeat_agent(좌석 이름)·last_heartbeat_at·resume_requested_* 는 건드리지 않는다
+    expect(calls.agent_work_orders[0]).toEqual({ heartbeat_phase: 'merge_conflict', heartbeat_note: '충돌 2개(src/a.ts…) · 해소 대기 1/3' })
+    expect(calls['agent_work_orders:in']).toContainEqual(['status', ['reported', 'approved']])
+    expect(calls['agent_work_reports:insert']).toBeUndefined()
+  })
+  it('approved 도 같다(E9 — 승인분도 자동 해소한다)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues({ ...ORDER, status: 'approved' }), calls)
+    expect((await post({ agent: LEAD, phase: 'merge_conflict', note: '사람 머지 필요: 해소 상한(3/3)' })).status).toBe(200)
+    expect((calls.agent_work_orders[0] as Record<string, unknown>).heartbeat_phase).toBe('merge_conflict')
+  })
+  it('clear → 현재 값이 merge_conflict 일 때만 null 로 되돌린다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(REPORTED), calls)
+    const res = await post({ agent: LEAD, clear: 'merge_conflict' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, phase: null, cleared: true })
+    expect(calls.agent_work_orders[0]).toEqual({ heartbeat_phase: null, heartbeat_note: null })
+    expect(calls['agent_work_orders:eq']).toContainEqual(['heartbeat_phase', 'merge_conflict'])
+    expect(calls['agent_work_orders:in']).toContainEqual(['status', ['reported', 'approved']])
+  })
+  it('clear 인데 바뀐 행이 없으면(다른 phase 이거나 이미 해제) 200 cleared:false — 다른 값을 지우지 않는다', async () => {
+    useAdmin({ ...okQueues(REPORTED), agent_work_orders: [{ data: REPORTED }, { data: [] }] })
+    const res = await post({ agent: LEAD, clear: 'merge_conflict' })
+    expect(res.status).toBe(200)
+    expect((await res.json()).cleared).toBe(false)
+  })
+  it('400 — merge_conflict 에 note 없음 / clear 와 phase 동시 / clear 값이 merge_conflict 아님', async () => {
+    useAdmin(okQueues(REPORTED)); expect((await post({ agent: LEAD, phase: 'merge_conflict' })).status).toBe(400)
+    useAdmin(okQueues(REPORTED)); expect((await post({ agent: LEAD, phase: 'merge_conflict', note: '  ' })).status).toBe(400)
+    useAdmin(okQueues(REPORTED)); expect((await post({ agent: LEAD, phase: 'build', clear: 'merge_conflict' })).status).toBe(400)
+    useAdmin(okQueues(REPORTED)); expect((await post({ agent: LEAD, clear: 'blocked' })).status).toBe(400)
+  })
+  it('400 — claimed 주문에는 merge_conflict 를 받지 않는다(워커 phase 와 섞지 않는다)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls)
+    expect((await post({ agent: LEAD, phase: 'merge_conflict', note: 'x' })).status).toBe(400)
+    expect(calls.agent_work_orders).toBeUndefined()
+  })
+  it('409 conflict — reported 에 워커 phase(design) 는 종전대로 / ready 에 merge_conflict', async () => {
+    useAdmin(okQueues(REPORTED))
+    const r1 = await post({ agent: 'hong/mbp/w1', phase: 'design' })
+    expect(r1.status).toBe(409); expect((await r1.json()).code).toBe('conflict')
+    useAdmin(okQueues({ ...ORDER, status: 'ready', claimed_by: null, claimed_by_user_id: null } as unknown as typeof ORDER))
+    expect((await post({ agent: LEAD, phase: 'merge_conflict', note: 'x' })).status).toBe(409)
+  })
+  it('409 conflict — 설정 update 가 0행(그사이 상태가 바뀜)', async () => {
+    useAdmin({ ...okQueues(REPORTED), agent_work_orders: [{ data: REPORTED }, { data: [] }] })
+    expect((await post({ agent: LEAD, phase: 'merge_conflict', note: 'x' })).status).toBe(409)
+  })
+  it('409 cancelled — 중단된 주문은 표시하지 않는다', async () => {
+    useAdmin(okQueues({ ...ORDER, status: 'cancelled', claimed_by: null, claimed_by_user_id: null } as unknown as typeof ORDER))
+    expect((await (await post({ agent: LEAD, clear: 'merge_conflict' })).json()).code).toBe('cancelled')
+  })
+  it('400 identity_required — 레거시 시크릿 principal 은 팀장 표시를 보낼 수 없다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(REPORTED), calls)
+    const res = await post({ user_email: 'dev@example.com', agent: 'lead1', phase: 'merge_conflict', note: 'x' }, 'legacy-secret')
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('identity_required')
+    expect(calls.agent_work_orders).toBeUndefined()
+  })
+  it('403 not_claim_owner — 다른 계정이 점유했던 주문', async () => {
+    useAdmin(okQueues({ ...REPORTED, claimed_by_user_id: 'u-9' }))
+    const res = await post({ agent: LEAD, phase: 'merge_conflict', note: 'x' })
+    expect(res.status).toBe(403)
+    expect((await res.json()).code).toBe('not_claim_owner')
+  })
+  it('500 — 주문 조회 실패 / 표시 update 실패', async () => {
+    useAdmin({ ...okQueues(REPORTED), agent_work_orders: [{ error: { message: 'boom' } }] })
+    expect((await post({ agent: LEAD, phase: 'merge_conflict', note: 'x' })).status).toBe(500)
+    useAdmin({ ...okQueues(REPORTED), agent_work_orders: [{ data: REPORTED }, { error: { message: 'boom' } }] })
+    expect((await post({ agent: LEAD, clear: 'merge_conflict' })).status).toBe(500)
   })
 })

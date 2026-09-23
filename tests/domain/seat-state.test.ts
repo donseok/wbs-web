@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  OFFLINE_MS, STALE_MS, WATCHER_TTL_MS, animFor, deriveSeatState, fnv1a32, inferPhase, isRejected,
+  OFFLINE_MS, STALE_MS, WATCHER_TTL_MS, HEARTBEAT_PHASES, LEAD_PHASES, animFor, deriveSeatState, fnv1a32, inferPhase, isRejected,
   isWatcherAlive, lastSignalMs, pickCharacter, type SeatInput,
 } from '@/lib/domain/seatState'
 
@@ -104,5 +104,20 @@ describe('isWatcherAlive — TTL 70분', () => {
   it('70분 정확히는 살아 있고, 그 뒤는 죽는다', () => {
     expect(isWatcherAlive(ago(WATCHER_TTL_MS), NOW)).toBe(true)
     expect(isWatcherAlive(ago(WATCHER_TTL_MS + 1), NOW)).toBe(false)
+  })
+})
+
+describe('merge_conflict — 팀장 대리 표시 phase(2026-09-23 머지 충돌 §7.3)', () => {
+  it('LEAD_PHASES 에만 있고 워커 phase 목록(HEARTBEAT_PHASES)에는 없다', () => {
+    expect(LEAD_PHASES).toEqual(['merge_conflict'])
+    expect(HEARTBEAT_PHASES).not.toContain('merge_conflict')
+  })
+  it('inferPhase 는 reported·approved 주문의 merge_conflict 를 그대로 돌려준다', () => {
+    expect(inferPhase(base({ status: 'reported', heartbeatPhase: 'merge_conflict' }))).toBe('merge_conflict')
+    expect(inferPhase(base({ status: 'approved', heartbeatPhase: 'merge_conflict' }))).toBe('merge_conflict')
+  })
+  it('deriveSeatState 는 바뀌지 않는다 — 머지 충돌은 WAIT·DONE 좌석의 phase 로만 드러난다', () => {
+    expect(deriveSeatState(base({ status: 'reported', heartbeatPhase: 'merge_conflict' }), NOW)).toBe('WAIT')
+    expect(deriveSeatState(base({ status: 'approved', heartbeatPhase: 'merge_conflict' }), NOW)).toBe('DONE')
   })
 })
