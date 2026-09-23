@@ -325,6 +325,19 @@ orca worktree list        # 누수 확인. dflow-<id8> 가 남아 있으면 같�
    git fetch origin
    test "$(git -C <워크트리> rev-parse HEAD)" = "$(git -C <워크트리> rev-parse origin/<agent 브랜치>)"
    ```
+2-1. **해소 워크트리**(이름 `dflow-<id8>-resolve`, detached, SKILL.md 「5-2. 해소 spawn」): 1·2번 대신 아래 둘이 모두
+   참일 때 정리한다. 결과 줄 branch 칸이 늘 `-` 여도 1번(부트스트랩 실패)을 쓰지 않는다.
+   ```bash
+   git -C <워크트리> status --porcelain --untracked-files=all \
+     | grep -v -E '^\?\? (\.dflow-(agent|prompt|pane|run)|\.env|\.dflow|\.dflow\.local|\.claude/skills(/dflow-(dev|work|merge|team)(/.*)?)?|<TASK_DIR>/\.result)$'
+   git fetch origin
+   git -C <워크트리> merge-base --is-ancestor HEAD origin/<개발브랜치>
+   ```
+   첫 명령 출력이 비고 둘째가 0 이면 지운다(push 했거나 `reset --keep` 으로 버렸다. 잃을 것이 없다). tmux 는
+   `git worktree remove --force <경로>`, Orca 는 `orca worktree rm --worktree path:<경로> --force` 다. 아니면 3번으로
+   간다. 해소 워크트리는 "재개 가능" 이 아니므로 `parked` 로 바꾸고 "멈춤" 표에 넣는다. 사유는 결과 줄 status
+   (`blocked` 해소 중 멈춤 등)다. 살아 있는 해소 워커(`blocked` 포함)의 워크트리는 4번대로 지우지 않는다.
+
 3. 하나라도 거짓이면 지우지 않는다. 그 다음 SKILL.md 「팀장 상태」 고아 스캔의 **"재개 가능"** 조건을 보고
    가른다. 재개 가능이면 `.dflow-agent` 를 **건드리지 않고** 그대로 두어 「5-1. 재개 spawn」 이 이어받게 한다
    (그 절차가 슬롯 값을 다시 쓴다). 재개 가능이 아니면 경로와 미커밋 목록

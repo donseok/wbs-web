@@ -12,6 +12,8 @@ const DOCS = [
   '.claude/skills/dflow-team/references/backends.md',
   '.claude/skills/dflow-team/references/events.md',
   '.claude/skills/dflow-team/references/worker-prompt.md',
+  '.claude/skills/dflow-team/references/resolve-prompt.md',
+  '.claude/skills/dflow-team/references/merge-conflict.md',
   '.claude/skills/dflow-dev/SKILL.md',
   '.claude/skills/dflow-merge/SKILL.md',
 ]
