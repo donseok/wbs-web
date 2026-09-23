@@ -95,7 +95,11 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
   const stubs = itemIds.length
     ? must<ItemRow[]>('스텁 하위', await admin.from('wbs_items').select(ITEM_COLS).in('parent_id', itemIds).not('stub_for', 'is', null))
     : []
-  return { orders, items, parents, reviews, watchers, projects, members, predecessors, reports, leases, stubs }
+  // 병목 제안 기준(0103) — 층 프로젝트의 설정 행. 행 없는 프로젝트는 조립이 기본값을 쓴다.
+  const settingRows = must<Array<{ project_id: string; force_bottleneck_min_successors: number; force_bottleneck_min_hours: number }>>('병목 설정',
+    await admin.from('project_settings').select('project_id, force_bottleneck_min_successors, force_bottleneck_min_hours').in('project_id', projIds))
+  const bottleneckSettings = Object.fromEntries(settingRows.map(s => [s.project_id, { minSuccessors: s.force_bottleneck_min_successors, minHours: s.force_bottleneck_min_hours }]))
+  return { orders, items, parents, reviews, watchers, projects, members, predecessors, reports, leases, stubs, bottleneckSettings }
 }
 
 /**

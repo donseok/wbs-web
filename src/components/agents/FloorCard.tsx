@@ -71,6 +71,14 @@ export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = fa
           <LeadChip key={l.userId} lead={l} onRelease={onReleaseLead ? () => onReleaseLead(floor.id, l.userId) : undefined} />
         ))}
       </header>
+      {/* 병목 제안(강제 진행 스펙 F14) — 제안까지만 한다. 면제는 후속 Task 사이드바에서 사람이. */}
+      {(floor.bottlenecks ?? []).length > 0 && (
+        <ul className={css.bottleneck} data-bottleneck="">
+          {(floor.bottlenecks ?? []).map(b => (
+            <li key={b.predRef}>{b.text} — 후속의 사이드바 「강제 진행」 에서 이 선행을 면제할 수 있습니다.</li>
+          ))}
+        </ul>
+      )}
       <div className={css.zones}>
         {shown.map(z => <ZoneBlock key={z.key} zone={z} selectedId={selectedId} nowMs={nowMs} busyOrderId={busyOrderId} withDone={withDone} onSelect={onSelect} onOp={onOp} onFold={() => fold(z)} />)}
         {icons.length > 0 && (

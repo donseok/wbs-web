@@ -225,6 +225,9 @@
 /* 상태 표지 — 아이콘 I1(라인). 옛 글자 배지(!·?·"끊김")를 대신한다. */
 .mark { margin-left: auto; display: inline-flex; align-items: center; }
 .mark svg { width: 15px; height: 15px; display: block; }
+/* 병목 제안 띠(강제 진행 스펙 F14) — 층 머리 아래. */
+.bottleneck { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.bottleneck li { background: var(--sm-warn-soft); border: 1px solid var(--sm-warn); color: var(--sm-warn); border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
 /* 스텁 잔존 배지(강제 진행 스펙 F13) — 승인이 잠긴 좌석. 상태 마크 옆에 둔다. */
 .stubBadge { flex: none; margin-left: 4px; border: 1px solid var(--sm-warn); background: var(--sm-warn-soft); color: var(--sm-warn); border-radius: 999px; padding: 0 6px; font-size: 10px; font-weight: 700; line-height: 16px; white-space: nowrap; }
 

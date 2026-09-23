@@ -1,6 +1,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 import type { SupabaseServerClient } from '@/lib/repositories/supabase/common'
 import type { StageCredits } from '@/lib/domain/stageCredits'
+import { DEFAULT_BOTTLENECK, type BottleneckSettings } from '@/lib/domain/forceProgress'
 
 /**
  * 프로젝트 설정 로더 (스펙 §7.3) — 전역 캐시가 아니라 주입.
@@ -16,6 +17,8 @@ export interface ProjectConfig {
   excelProfile: Record<string, unknown>
   /** 단계 전이 실적 크레딧 표(0096) — null 이면 코드 기본값(DEFAULT_STAGE_CREDITS). 검증은 저장 경로(updateStageCredits)가 한다. */
   stageCredits: StageCredits | null
+  /** 병목 제안 기준(0103, 강제 진행 스펙 F14) — 행 없으면 DEFAULT_BOTTLENECK. */
+  bottleneck: BottleneckSettings
 }
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
@@ -29,13 +32,14 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   milestoneKeywords: [],
   excelProfile: {},
   stageCredits: null,
+  bottleneck: DEFAULT_BOTTLENECK,
 }
 
 export async function getProjectConfig(projectId: string, client?: SupabaseServerClient): Promise<ProjectConfig> {
   const sb = client ?? (await createServerClient())
   const { data, error } = await sb
     .from('project_settings')
-    .select('level_labels, max_depth, extra_axis_label, milestone_keywords, excel_profile, stage_credits')
+    .select('level_labels, max_depth, extra_axis_label, milestone_keywords, excel_profile, stage_credits, force_bottleneck_min_successors, force_bottleneck_min_hours')
     .eq('project_id', projectId)
     .maybeSingle()
   if (error) throw new Error(`프로젝트 설정 조회 실패: ${error.message}`)
@@ -43,6 +47,7 @@ export async function getProjectConfig(projectId: string, client?: SupabaseServe
   const row = data as {
     level_labels: string[]; max_depth: number | null; extra_axis_label: string | null
     milestone_keywords: string[]; excel_profile: Record<string, unknown>; stage_credits?: StageCredits | null
+    force_bottleneck_min_successors?: number | null; force_bottleneck_min_hours?: number | null
   }
   return {
     levelLabels: row.level_labels,
@@ -52,5 +57,9 @@ export async function getProjectConfig(projectId: string, client?: SupabaseServe
     milestoneKeywords: (row.milestone_keywords ?? []).map(k => k.toLowerCase()),
     excelProfile: row.excel_profile ?? {},
     stageCredits: row.stage_credits ?? null,
+    bottleneck: {
+      minSuccessors: row.force_bottleneck_min_successors ?? DEFAULT_BOTTLENECK.minSuccessors,
+      minHours: row.force_bottleneck_min_hours ?? DEFAULT_BOTTLENECK.minHours,
+    },
   }
 }

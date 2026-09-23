@@ -11,6 +11,7 @@ import { projectTeamRowsSync } from '@/lib/teams/master'
 import { ProjectTeamsManager } from '@/components/settings/ProjectTeamsManager'
 import { LevelSettingsManager } from '@/components/settings/LevelSettingsManager'
 import { StageCreditSlider } from '@/components/settings/StageCreditSlider'
+import { BottleneckSettingsForm } from '@/components/settings/BottleneckSettingsForm'
 import { getProjectConfig } from '@/lib/data/projectConfig'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -251,6 +252,14 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             <p className="text-sm font-semibold text-ink">{t(locale, 'settings.creditsTitle')}</p>
             <p className="text-xs leading-5 text-ink-muted">{t(locale, 'settings.creditsDesc')}</p>
             <StageCreditSlider projectId={projectId} initial={levelConfig.stageCredits} editable={canMutate} />
+          </div>
+        )}
+        {/* 병목 제안 기준(강제 진행 스펙 2026-09-23 F14) — 제안까지만 하고 자동 면제는 하지 않는다. */}
+        {levelConfig && (
+          <div className="mt-4 space-y-1 border-t border-line pt-4">
+            <p className="text-sm font-semibold text-ink">병목 제안</p>
+            <p className="text-xs leading-5 text-ink-muted">한 선행이 후속을 이만큼 이상 막으면 에이전트 오피스에 강제 진행을 제안합니다. 자동으로 면제하지는 않습니다.</p>
+            <BottleneckSettingsForm projectId={projectId} initial={levelConfig.bottleneck} editable={canMutate} />
           </div>
         )}
         </SectionCard>

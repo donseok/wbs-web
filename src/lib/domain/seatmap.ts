@@ -3,8 +3,11 @@ import {
   animFor, deriveSeatState, fnv1a32, inferPhase, isRejected, isWatcherAlive, lastSignalMs, pickCharacter,
   type AnimName, type CharacterName, type OrderStatus, type Phase, type SeatState,
 } from './seatState'
-import { deriveWaitReason, type PredecessorLike, type WaitReason } from './waitReason'
-import { stubPendingByItem, type StubPendingEntry } from './forceProgress'
+import { deriveWaitReason, unmetDepends, type PredecessorLike, type WaitReason } from './waitReason'
+import {
+  DEFAULT_BOTTLENECK, blockedSinceMs, bottleneckText, findBottlenecks, lastRefSegment, stubPendingByItem,
+  type BlockedSuccessor, type BottleneckSettings, type StubPendingEntry,
+} from './forceProgress'
 
 export interface OrderRow {
   id: string; project_id: string; wbs_item_id: string | null; status: OrderStatus
@@ -59,6 +62,8 @@ export interface SeatmapRows {
   leases?: LeaseRow[]
   /** 주문 항목들의 스텁 제거 하위(0103 stub_for) — 좌석 대상(items)에 섞지 않는다. 옛 호출부는 비운다. */
   stubs?: ItemRow[]
+  /** 프로젝트 id → 병목 제안 기준(0103). 없으면 DEFAULT_BOTTLENECK. */
+  bottleneckSettings?: Record<string, BottleneckSettings>
 }
 
 export interface Seat {
@@ -107,7 +112,11 @@ export interface LeadLease {
   /** 본인 lease 이거나 이 층 관리자. 서버 액션이 같은 판정(canReleaseLeadLease)을 다시 한다. */
   canRelease: boolean
 }
-export interface Floor { id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[]; leads: LeadLease[] }
+export interface Floor {
+  id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[]; leads: LeadLease[]
+  /** 병목 제안(강제 진행 스펙 F14) — 선택 필드(옛 층 픽스처 호환), 조립은 항상 채운다. 자동 면제는 하지 않는다. */
+  bottlenecks?: { text: string; predRef: string; successorIds: string[] }[]
+}
 export interface Attention { orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string }
 export interface Seatmap {
   floors: Floor[]
@@ -362,6 +371,25 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     })
     .sort((a, b) => (a.agent ?? '').localeCompare(b.agent ?? ''))
 
+  // 병목 제안(강제 진행 스펙 F14·§3.2) — 막힌 후속 = 위임된 리프의 ready 주문이 선행 때문에 대기 사유 dependency 인 것.
+  // 막힌 시각은 근사(max(주문 updated_at, 계획 시작일 00:00 KST)). 면제된 간선은 unmetDepends 가 뺀다.
+  const bottlenecksOf = (pid: string): NonNullable<Floor['bottlenecks']> => {
+    const settings = rows.bottleneckSettings?.[pid] ?? DEFAULT_BOTTLENECK
+    const blocked: BlockedSuccessor[] = []
+    for (const o of rows.orders) {
+      if (o.project_id !== pid || o.status !== 'ready' || !o.wbs_item_id) continue
+      const it = itemById.get(o.wbs_item_id)
+      if (!it || !(it.tags ?? []).includes(AGENT_TAG)) continue
+      const unmet = unmetDepends(it.depends ?? null, ref => predByKey.get(`${pid}\u0000${ref}`), it.depends_waived ?? [])
+      if (unmet.length === 0) continue
+      blocked.push({ itemId: it.id, unmetRefs: unmet.map(u => u.ref), blockedSinceMs: blockedSinceMs(o.updated_at, it.planned_start ?? null) })
+    }
+    return findBottlenecks(blocked, nowMs, settings).map(b => ({
+      predRef: b.predRef, successorIds: b.successorIds,
+      text: bottleneckText(b, predByKey.get(`${pid}\u0000${b.predRef}`)?.code ?? lastRefSegment(b.predRef)),
+    }))
+  }
+
   const floorIds = new Set<string>([...floorMap.keys(), ...done.keys()])
   const floors: Floor[] = [...floorIds].map(id => {
     const zones = [...(floorMap.get(id)?.values() ?? [])]
@@ -373,6 +401,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       doneCount: done.get(id) ?? 0,
       watchers: aliveWatchers.filter(w => w.projectId === null || w.projectId === id),
       leads: leadsOf(id),
+      bottlenecks: bottlenecksOf(id),
     }
   }).sort((a, b) => a.name.localeCompare(b.name))
 
