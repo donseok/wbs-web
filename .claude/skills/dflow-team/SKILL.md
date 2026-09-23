@@ -269,7 +269,9 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 - `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다. 아직 브랜치를 만들지 않은 Phase 01
   의 팀원도 이것으로 id8 을 안다.
 - `spawn_kind` 가 `resolve` 인 `team.spawn` 도 같게 잇는다. 해소 워커다(「5-2. 해소 spawn」). 워크트리는
-  `<MAIN>/.claude/worktrees/dflow-<id8>-resolve` 이고 detached 라 브랜치가 없다. 결과는 `references/merge-conflict.md`
+  `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`(Orca 는 `<MAIN>/dflow-<id8>-resolve`)이고 detached 라 브랜치가 없다.
+  **해소 워커 판별은 워크트리 이름 접미사 `-resolve` 로 한다**(4번 재기록이 `spawn_kind` 를 `readopt` 로 덮으므로,
+  `spawn_kind` 만 보면 팀장을 다시 띄운 뒤 해소 워커를 잃는다. `merge-conflict.md` 「0」). 결과는 `references/merge-conflict.md`
   「4. 해소 결과 처리」 표로 처리한다. 고아 스캔에서는 backends.md 「고아 정리 규칙」 2-1번으로 가르며 "재개 가능" 으로
   보내지 않는다. 워커 자동 재시작(H)의 대상도 아니다.
 - `team.result`·`team.blocked` 로 이미 판정한 작업, 제외 목록(`skipped` 는 일시, `failed`·`failed no-result`·
@@ -702,7 +704,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    `selected` 행이다. 이유: 어느 신원으로 도는지가 배정 목록·좌석표 신원·claim 주체를 모두 정하는데, 지금까지는
    시작 보고 어디에도 나오지 않았다.
 4. `team.start`(backend, slots, until, wp)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. 2번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
-   다시 기록한다: 흡수한 슬롯마다 `team.spawn`(`spawn_kind` 는 `readopt`), 답을 기다리는 `blocked` 마다
+   다시 기록한다: 흡수한 슬롯마다 `team.spawn`(`spawn_kind` 는 `readopt`)(원래 종류는 `orig_kind` 필드에 싣는다, `references/events.md`), 답을 기다리는 `blocked` 마다
    `team.blocked`, 흡수한 슬롯의 마지막 처리 해시마다 `team.result` 또는 `team.blocked`.
    이유: 이후 기상의 재구성은 새 `team.start` 이후만 읽으므로, 다시 기록하지 않으면
    이어받은 팀원이 살아 있지 않은 것으로 보이고 같은 결과가 다시 처리된다. 답을 기다리던 질문도 대기 목록에서 사라져 사람이 준 `<id8> <답>`
@@ -1062,7 +1064,7 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
 | `failed deps` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산. 설치는 claim 과 브랜치 생성 뒤라서(`/dflow-dev` 「--worker」 H) 서버에 claimed 로 남으므로 **"멈춤" 표**에 넣는다(사유는 그 status). 대상 리포의 lockfile·패키지 관리자 문제라 사람이 고친다 |
 | `cancelled`(사람이 D'Flow 에서 중단 — 주문 `cancelled`·위임 해제) | 해제 | 영구 제외 | **지우지 않는다**(산출물 보존). 미커밋 변경이 있어도 그대로 두고 경로만 보고하며, `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼다 | 사람 알림은 한 줄(`<TSK> <id8> 중단됨 — 워크트리 <경로> 보존`). 사람이 멈춘 것이라 "멈춤" 표에 넣지 않고, **차단기 계산에 넣지 않는다**(세지도 끊지도 않는다). 다시 맡기려면 사람이 위임 체크를 켜며, 그때 새 주문으로 다시 poll 에 잡힌다 |
 
-**해소 워커의 결과**: 슬롯의 `spawn_kind` 가 `resolve`(워크트리 `dflow-<id8>-resolve`)면 위 표가 아니라
+**해소 워커의 결과**: 슬롯의 워크트리 이름이 `-resolve` 로 끝나면(`dflow-<id8>-resolve`, `readopt` 뒤에도 같다) 위 표가 아니라
 `references/merge-conflict.md` 「4. 해소 결과 처리」 표를 따른다. 결과 줄 찾기·해시·`team.result`·`team.blocked` 기록·tmux
 회수는 위와 같다.
 

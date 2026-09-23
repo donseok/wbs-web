@@ -28,7 +28,9 @@
   `tmux:<pane_id>`(예: `tmux:%3`) 또는 Orca 터미널 핸들이며, 핸들이 없으면 `-`. 기본 필드 `tsk`·`order` 도
   채운다. `blocked` 는 재spawn 하지 않으므로 그 자리에 `team.spawn` 이 다시 오지 않는다.
   `spawn_kind` 는 네 값 중 하나인 문자열이다. `resolve` 는 「5-2. 해소 spawn」 의 해소 워커이며, 그 개수가 해소 카운터다(초기화하지 않는다, `scripts/resolve-decide.sh`). 재개 재시도 계산은 `resolve` 줄을 세지 않는다. `new` 는 「5. 팀원 spawn」 의 새 작업, `resume` 은
-  「5-1. 재개 spawn」, `readopt` 는 「1. 시작」 4번이 이어받은 슬롯을 다시 기록한 줄이다. 재구성은 마지막
+  「5-1. 재개 spawn」, `readopt` 는 「1. 시작」 4번이 이어받은 슬롯을 다시 기록한 줄이다. `readopt` 줄은 원래 종류
+  (`new`·`resume`·`resolve`)를 `orig_kind` 필드에 함께 싣는다(가드가 요구한다, 2026-09-23 머지 충돌). 해소 워커가 재기록
+  뒤에도 해소 워커로 남게 하기 위해서다. 판별의 정본은 워크트리 이름 접미사 `-resolve` 다(merge-conflict.md 「0」). 재구성은 마지막
   `team.result` 이후의 **`resume` 줄 개수**로 재개 재시도 상한을 잰다(SKILL.md 「팀장 상태」 고아 스캔 2번).
   세 값을 가르는 이유: 팀장을 다시 띄울 때마다 4번이 살아 있는 슬롯을 `team.spawn` 으로 재기록하므로, 종류를
   가르지 않으면 멀쩡히 돌고 있는 팀원의 재기록이 재시도 횟수로 세어져 상한에 금방 닿는다. 이 필드가 없는 옛
@@ -78,9 +80,12 @@ mkdir -p ~/.dflow && line=$(jq -nc \
   '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {slot:$slot,id8:$id8,status:$status,worktree:$worktree,hash:$hash,reason:$reason}') \
   && printf '%s\n' "$line" | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until","wp"],"team.spawn":["slot","id8","worktree","handle","spawn_kind"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected","resolved"],"team.conflict":["id8","decision","files"],"team.extend":["until","until_label"],"team.lost":["slot","id8","worktree","cause","next","restart_at"],"team.stop":[]} as $req
       | if ([.ts,.host,.repo,.event,.agent] | all(. != null and . != "")) and .phase == "team" and .host == $h and $req[.event] != null
-           and ([$req[.event][] as $k | has($k) and .[$k] != null and ($k == "reason" or .[$k] != "")] | all) then . else error("EVENT_ARGS_MISSING") end' \
+           and ([$req[.event][] as $k | has($k) and .[$k] != null and ($k == "reason" or .[$k] != "")] | all)
+           and (.event != "team.spawn" or .spawn_kind != "readopt" or ((.orig_kind // "") != "")) then . else error("EVENT_ARGS_MISSING") end' \
   >> ~/.dflow/events.jsonl || echo EVENT_ARGS_MISSING
 ```
+`team.spawn` 의 `readopt` 재기록은 추가 인자 줄에 `--arg orig_kind '<그 슬롯의 원래 spawn_kind>'` 를 더하고 객체에
+`orig_kind:$orig_kind` 를 더한다. 원래 종류는 이어받은 슬롯의 마지막 `team.spawn` 의 `orig_kind // spawn_kind` 다.
 `team.lost` 는 위 블록의 `--arg event` 를 `'team.lost'` 로 쓰고, 넷째·다섯째 줄(추가 인자 줄과 객체 줄)을 아래 두 줄로
 바꾼다. `cause`·`next`·`restart_at` 의 값은 restart.md 가 정한다.
 ```text

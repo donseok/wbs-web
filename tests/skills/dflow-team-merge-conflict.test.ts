@@ -86,6 +86,35 @@ describe('merge-conflict.md — 팀장 쪽 절차', () => {
   })
 })
 
+describe('해소 워커 판별 — readopt 뒤에도 워크트리 접미사로 남는다(2026-09-23 리뷰)', () => {
+  it('차단기의 해소 워커 id8 jq: resolve 뒤 readopt(orig_kind 있든 없든)도 해소 워커, 일반 워커 readopt 는 아니다', () => {
+    const at = MC.indexOf('## 6. 차단기')
+    const m = MC.slice(at).match(/jq -rs --arg a '<신원>\/<host>\/lead' --arg r '<MAIN>' '([^']+)'/)
+    expect(m).not.toBeNull()
+    const sp = (id8: string, kind: string, wt: string, extra: Record<string, unknown> = {}) =>
+      JSON.stringify({ ts: 't', host: 'mbp', repo: '/r', tsk: 'T', order: 'o', phase: 'team', event: 'team.spawn', agent: 'hong/mbp/lead', id8, slot: '1', worktree: wt, handle: '-', spawn_kind: kind, ...extra })
+    const input = [
+      sp('aaaa1111', 'resolve', '/r/.claude/worktrees/dflow-aaaa1111-resolve'),
+      sp('aaaa1111', 'readopt', '/r/.claude/worktrees/dflow-aaaa1111-resolve', { orig_kind: 'resolve' }),
+      sp('bbbb2222', 'resolve', '/r/dflow-bbbb2222-resolve'),
+      sp('bbbb2222', 'readopt', '/r/dflow-bbbb2222-resolve'), // orig_kind 없는 옛 줄 — 워크트리 이름으로 판별
+      sp('cccc3333', 'new', '/r/.claude/worktrees/dflow-cccc3333'),
+      sp('cccc3333', 'readopt', '/r/.claude/worktrees/dflow-cccc3333', { orig_kind: 'new' }),
+    ].join('\n')
+    const out = execFileSync('jq', ['-rs', '--arg', 'a', 'hong/mbp/lead', '--arg', 'r', '/r', m![1]], { input }).toString().trim()
+    // 이 목록에 든 id8 의 failed gate 는 차단기에 세지 않는다(「6」) — readopt 뒤에도 빠지지 않는다
+    expect(out.split('\n')).toEqual(['aaaa1111', 'bbbb2222'])
+    expect(MC).toContain('팀장을 다시 띄운 뒤에도 해소 워커의 내용 실패가\n차단기에 세지지 않는다')
+  })
+  it('해소 슬롯·결과 처리·동시 상한은 워크트리 접미사 -resolve 로 가른다', () => {
+    expect(MC).toContain('**해소 슬롯**: 워크트리 이름이 `-resolve` 로 끝나는 슬롯이다')
+    expect(MC).toContain('세는 대상은 위 판별(워크트리 접미사 `-resolve`)로 고른 해소 슬롯')
+    expect(MC).toContain('해소 슬롯(「0」 의\n판별 — 워크트리 이름 접미사 `-resolve`)')
+    expect(TEAM).toContain('**해소 워커 판별은 워크트리 이름 접미사 `-resolve` 로 한다**')
+    expect(TEAM).toContain('(원래 종류는 `orig_kind` 필드에 싣는다')
+  })
+})
+
 describe('events.md — 새 값과 가드', () => {
   const guard = () => {
     const m = EVENTS.match(/'(\{"team\.start":[\s\S]*?EVENT_ARGS_MISSING"\) end)'/)
@@ -105,6 +134,14 @@ describe('events.md — 새 값과 가드', () => {
   it('team.conflict 는 id8·decision·files 가 있어야 붙는다', () => {
     expect(run({ ...base, event: 'team.conflict', id8: 'aaaa1111', decision: 'queued', files: 'src/a.ts' })).not.toBe('EVENT_ARGS_MISSING')
     expect(run({ ...base, event: 'team.conflict', id8: 'aaaa1111', decision: 'queued' })).toBe('EVENT_ARGS_MISSING')
+  })
+  it('readopt 재기록은 orig_kind 가 있어야 붙고, 다른 spawn 은 orig_kind 없이도 붙는다(2026-09-23 리뷰)', () => {
+    const sp = { ...base, event: 'team.spawn', slot: '2', id8: 'aaaa1111', worktree: '/m/.claude/worktrees/dflow-aaaa1111-resolve', handle: '-' }
+    expect(run({ ...sp, spawn_kind: 'readopt' })).toBe('EVENT_ARGS_MISSING')
+    expect(run({ ...sp, spawn_kind: 'readopt', orig_kind: 'resolve' })).not.toBe('EVENT_ARGS_MISSING')
+    expect(run({ ...sp, spawn_kind: 'resolve' })).not.toBe('EVENT_ARGS_MISSING')
+    // H 의 team.lost 키는 그대로 남는다
+    expect(EVENTS).toContain('"team.lost":["slot","id8","worktree","cause","next","restart_at"]')
   })
   it('spawn_kind 는 네 값이고 resolve 를 설명한다', () => {
     expect(EVENTS).toContain('`spawn_kind` 는 네 값 중 하나인 문자열이다')

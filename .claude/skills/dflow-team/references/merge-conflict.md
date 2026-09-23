@@ -11,8 +11,11 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
   충돌을 다시 내기 때문이다.
 - **충돌 목록**: 표시를 풀어야 할 id8 이다. `team.conflict` 이벤트로 남기며, id8 마다 마지막 `decision` 이 `cleared` 가
   아닌 것이다(「5」 의 jq).
-- **해소 슬롯**: 슬롯 표에서 `spawn_kind` 가 `resolve` 인 슬롯이다(워크트리 `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`).
-- **동시 해소 상한**은 `max(1, ⌊인원/2⌋)` 이다. 답을 기다리는 `blocked` 해소 워커도 센다. 넘치는 것은 해소 큐에 남긴다.
+- **해소 슬롯**: 워크트리 이름이 `-resolve` 로 끝나는 슬롯이다(tmux `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`, Orca
+  `<MAIN>/dflow-<id8>-resolve`). `spawn_kind` 로 가르지 않는 이유: 팀장을 다시 띄우면 「1. 시작」 4번이 살아 있는 슬롯을
+  `spawn_kind: readopt` 로 다시 적어 `resolve` 가 사라진다. 그 줄은 `orig_kind` 에 원래 종류를 싣지만(events.md), 옛 줄에는
+  없으므로 판별의 정본은 워크트리 이름이다. 이 판별을 해소 결과 처리(「4」)·차단기(「6」)·동시 해소 상한이 모두 쓴다.
+- **동시 해소 상한**은 `max(1, ⌊인원/2⌋)` 이다. 세는 대상은 위 판별(워크트리 접미사 `-resolve`)로 고른 해소 슬롯이며, 답을 기다리는 `blocked` 해소 워커도 센다. 넘치는 것은 해소 큐에 남긴다.
   이유: `blocked` 해소 워커는 슬롯을 쥔다. 상한이 없으면 충돌이 많은 밤에 모든 슬롯이 사람을 기다리며 선다.
 - **해소는 이 신원의 주문(`mine`)만 한다.** 같은 신원+프로젝트의 팀장은 lease 가 하나로 묶는다.
 - `LEASE_LOST` 마감·잠금 상실 마감·「7. 마감」 에 들어선 뒤에는 해소를 새로 띄우지 않는다(spawn 이기 때문이다). 떠 있는
@@ -119,8 +122,8 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
 
 ## 4. 해소 결과 처리
 
-결과 줄 찾기·해시·`team.result`·`team.blocked` 기록·tmux 회수는 SKILL.md 「3. 결과 처리」 와 같다. 슬롯의
-`spawn_kind` 가 `resolve` 면 그 절의 status 표 대신 아래 표를 쓴다. `team.result` 의 `status` 는 `resolved`·`skipped`,
+결과 줄 찾기·해시·`team.result`·`team.blocked` 기록·tmux 회수는 SKILL.md 「3. 결과 처리」 와 같다. 해소 슬롯(「0」 의
+판별 — 워크트리 이름 접미사 `-resolve`)이면 그 절의 status 표 대신 아래 표를 쓴다. `team.result` 의 `status` 는 `resolved`·`skipped`,
 또는 `failed <첫 낱말>` 이다. 해소 워커의 실패에는 첫 낱말을 **늘 붙인다**(`resolve-decide.sh` 가 그 값으로 가른다).
 워크트리는 backends.md 「고아 정리 규칙」 2-1번으로 정리한다. 결과 줄 branch 칸이 `-` 여도 1번(부트스트랩 실패)을
 쓰지 않는다. SKILL.md 「3. 결과 처리」 에 결과 사유를 문제 기록으로 남기는 블록이 있는 판이면, `resolved` 도 `done`·
@@ -157,7 +160,12 @@ jq -rs --arg a '<신원>/<host>/lead' --arg r '<MAIN>' '[.[] | select(.agent == 
 `not-assignee` 처럼 **세지도 끊지도 않는다.** 이유: 의미 충돌 두 건이 연달아 `failed gate` 가 되면 차단기가 새 spawn 을
 모두 멈춘다. 이 설계가 풀려던 정지를 다시 만드는 셈이다. **환경 실패**(`rate-limit`·`no-result`·`deps`·`permission`·
 부트스트랩 실패 값)만 워커와 같이 센다. 실패가 아닌 결과(`resolved`·`skipped`·`blocked`)는 워커와 같이 연속 수를
-0으로 되돌린다. 재구성은 id8 마다 마지막 `team.spawn` 의 `spawn_kind` 로 이 규칙을 적용한다.
+0으로 되돌린다. 재구성에서 해소 워커인지는 id8 마다 마지막 `team.spawn` 의 워크트리 이름으로 가른다(「0」). `readopt`
+줄이 `spawn_kind` 를 덮어도 워크트리와 `orig_kind` 가 남으므로, 팀장을 다시 띄운 뒤에도 해소 워커의 내용 실패가
+차단기에 세지지 않는다. 해소 워커 id8 목록:
+```bash
+jq -rs --arg a '<신원>/<host>/lead' --arg r '<MAIN>' '[.[] | select(.agent == $a and .repo == $r and .event == "team.spawn")] | group_by(.id8) | map(last) | .[] | select(((.worktree // "") | test("-resolve/?$")) or .spawn_kind == "resolve" or (.orig_kind // "") == "resolve") | .id8' ~/.dflow/events.jsonl 2>/dev/null
+```
 
 ## 7. 마감
 
