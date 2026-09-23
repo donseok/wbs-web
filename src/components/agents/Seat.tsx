@@ -8,6 +8,7 @@ import { PhaseBadge } from './PhaseBadge'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { OwnerTag, ownerLabel } from './OwnerTag'
+import { DecisionChip } from './DecisionChip'
 import { IconBlocked, IconDependency, IconDone, IconOffline, IconRejected, IconStale, IconWait } from './icons'
 import css from './seatmap.module.css'
 
@@ -75,6 +76,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
           <span className={css.deskTop}>
             <span className={css.deskId}>{seat.code}</span>
             {owner && <OwnerTag owner={owner} />}
+            <DecisionChip count={seat.decisionCount} />
             <SeatMark state={seat.state} anim={seat.anim} />
           </span>
           <span className={css.deskName}>{seat.name}</span>

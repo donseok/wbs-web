@@ -5,6 +5,7 @@ import { ageLabel } from '@/lib/domain/seatmap'
 import { STATE_LABEL } from './Seat'
 import { opsFor, opSpec, type SeatOpKind } from './seatOps'
 import { IconApprove, IconReject, IconResume, IconRework, IconStop, IconUnapprove } from './icons'
+import { SeatDecisions } from './SeatDecisions'
 import css from './seatmap.module.css'
 
 const LADDER: Array<{ phase: string; pct: number }> = [
@@ -95,6 +96,8 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
       </dl>
       {seat.state === 'BLOCKED' && seat.note && <p className={css.quote}>{seat.note}</p>}
       {seat.rejected && <p className={css.quote}>반려 사유: {seat.reviewNote ?? '(없음)'}</p>}
+      {/* 결정이 딸린 승인 대기 — 승인 전에 읽을 목록. 좌석표는 수만 실으므로 여기서 본문을 좁게 읽는다(과제 C). */}
+      {seat.state === 'WAIT' && (seat.decisionCount ?? 0) >= 1 && <SeatDecisions key={seat.orderId} orderId={seat.orderId} />}
 
       {/* 결재 — 좌석 위 결재 바와 같은 op 표를 큰 버튼으로. 사유가 필요한 op 는 아래 입력이 열린다. */}
       <div className={css.acts} role="group" aria-label="결재">
