@@ -108,3 +108,73 @@ describe('taskdir·claim spec 캐시', () => {
     expect(existsSync(join(repo, 'docs/spec.md'))).toBe(false)
   })
 })
+
+describe('scaffold', () => {
+  const mine = (...o: unknown[]) => JSON.stringify({ assigned: o })
+  const state = (rel: string) => JSON.parse(readFileSync(join(repo, rel, 'state.json'), 'utf8'))
+
+  it('바인딩 안의 내 작업마다 state.json(ready)을 만들고 개발 브랜치에 커밋·push 한다', () => {
+    const r = run(['scaffold'], { MINE_BODY: mine(
+      order(O1, P1, 'MES/TSK-01-01'), order(O2, P2, 'MDM/TSK-01-02'), order(O3, PX, 'X/TSK-09-09')) })
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.stdout.trim()).toBe('scaffold created=2 skipped=0 no_ref=0')
+    expect(state('docs/tasks/TSK-01-01')).toEqual({ tsk: 'TSK-01-01', order: O1, api_base: 'https://x.test', phase: 'ready' })
+    expect(state('docs/mdm/tasks/TSK-01-02').order).toBe(O2)
+    expect(existsSync(join(repo, 'docs/tasks/TSK-09-09'))).toBe(false)   // 바인딩 밖(PX)
+    expect(git('show', '--name-only', '--format=%s', 'HEAD').trim().split('\n'))
+      .toEqual(['chore(dflow): 담당 작업 폴더 2건 생성', '', 'docs/mdm/tasks/TSK-01-02/state.json', 'docs/tasks/TSK-01-01/state.json'])
+    expect(execFileSync('git', ['--git-dir', bare, 'rev-parse', 'main'], { encoding: 'utf8' })).toBe(git('rev-parse', 'HEAD'))
+  })
+  it('이미 있는 폴더는 건드리지 않고 skipped 로 센다', () => {
+    mkdirSync(join(repo, 'docs/tasks/TSK-01-01'), { recursive: true })
+    writeFileSync(join(repo, 'docs/tasks/TSK-01-01/design.md'), 'keep')
+    const r = run(['scaffold'], { MINE_BODY: mine(order(O1, P1, 'MES/TSK-01-01')) })
+    expect(r.stdout.trim()).toBe('scaffold created=0 skipped=1 no_ref=0')
+    expect(existsSync(join(repo, 'docs/tasks/TSK-01-01/state.json'))).toBe(false)
+    expect(git('log', '--oneline').trim().split('\n')).toHaveLength(1)   // 새 파일 0건 → 커밋 없음
+  })
+  it('external_ref 가 전부 없으면 no_ref 로 세고 서버 업데이트를 안내한다', () => {
+    const r = run(['scaffold'], { MINE_BODY: mine(order(O1, P1, null)) })
+    expect(r.stdout).toContain('scaffold created=0 skipped=0 no_ref=1')
+    expect(r.stdout).toContain('D\'Flow 업데이트 필요')
+  })
+  it('같은 TSK 의 주문이 둘이면 폴더 하나, 첫 주문만 기록한다', () => {
+    const r = run(['scaffold'], { MINE_BODY: mine(order(O1, P1, 'MES/TSK-01-01'), order(O3, P1, 'MES/TSK-01-01')) })
+    expect(r.stdout.trim()).toBe('scaffold created=1 skipped=1 no_ref=0')
+    expect(state('docs/tasks/TSK-01-01').order).toBe(O1)
+  })
+  it('개발 브랜치가 아니면 파일만 만들고 커밋하지 않는다', () => {
+    git('checkout', '-q', '-b', 'topic')
+    const r = run(['scaffold'], { MINE_BODY: mine(order(O1, P1, 'MES/TSK-01-01')) })
+    expect(r.stdout).toContain('커밋하지 않음')
+    expect(existsSync(join(repo, 'docs/tasks/TSK-01-01/state.json'))).toBe(true)
+    expect(git('log', '--oneline').trim().split('\n')).toHaveLength(1)
+  })
+  it('사람이 stage 해 둔 다른 파일은 scaffold 커밋에 넣지 않는다', () => {
+    writeFileSync(join(repo, 'other.txt'), 'y'); git('add', 'other.txt')
+    run(['scaffold'], { MINE_BODY: mine(order(O1, P1, 'MES/TSK-01-01')) })
+    expect(git('show', '--name-only', '--format=', 'HEAD').trim()).toBe('docs/tasks/TSK-01-01/state.json')
+    expect(git('diff', '--cached', '--name-only').trim()).toBe('other.txt')
+  })
+  it('하위 디렉터리에서 실행해도 리포 최상위 기준으로 만든다', () => {
+    mkdirSync(join(repo, 'sub'))
+    run(['scaffold'], { MINE_BODY: mine(order(O1, P1, 'MES/TSK-01-01')) }, join(repo, 'sub'))
+    expect(existsSync(join(repo, 'docs/tasks/TSK-01-01/state.json'))).toBe(true)
+  })
+  it('push 가 실패해도 exit 0, 로컬 커밋을 남기고 알린다', () => {
+    git('remote', 'set-url', 'origin', join(tmp, 'gone.git'))
+    const r = run(['scaffold'], { MINE_BODY: mine(order(O1, P1, 'MES/TSK-01-01')) })
+    expect(r.status).toBe(0); expect(r.stdout).toContain('push 실패')
+    expect(git('log', '--oneline').trim().split('\n')).toHaveLength(2)
+  })
+  it('목록이 100건이면 잘림을 경고한다', () => {
+    const many = Array.from({ length: 100 }, (_, i) =>
+      order(`aaaaaaaa-aaaa-4aaa-8aaa-${String(i).padStart(12, '0')}`, P1, `MES/TSK-${i}`))
+    const r = run(['scaffold'], { MINE_BODY: mine(...many), DFLOW_DEV_BRANCH: 'nope' })
+    expect(r.stderr).toContain('100건에서 잘렸을 수 있습니다')
+  })
+  it('바인딩이 없으면 exit 2 PROJECT_MISMATCH', () => {
+    const r = run(['scaffold'], { MINE_BODY: mine(), DFLOW_PROJECT_ID: '', DFLOW_PROJECT_MAP: '' })
+    expect(r.status).toBe(2); expect(r.stderr).toContain('PROJECT_MISMATCH')
+  })
+})
