@@ -3280,3 +3280,5 @@ staging 반영 커밋(`git rev-parse --short HEAD`), 스테이징 DB 0102 적용
 - Task 10 Step 3: `.env` 링크는 필요 없었다 — `db:apply` 는 키체인의 Supabase CLI 토큰을 읽는다. `staging:sync` 는 계획의 판단대로 돌리지 않았다. 스크래치 SQL 은 `$TMPDIR` 대신 세션 스크래치 폴더에 썼다. assert 실패가 `db:apply` 비영(非0) 종료로 올라오는지 먼저 확인했다.
 - Task 10 Step 3 결과: 적용(2.55s) → 검증 SQL → 롤백 → 부재 확인 → 재적용 → 재검증 모두 exit 0. 검증 행 잔존 없음·기존 행 소급 없음·`decision_count` 생성 컬럼 확인. 스테이징 DB 는 0102 적용 상태로 두었다. 트레일러 커밋 806bd85f.
 - Task 10 Step 5~7(Preview push·staging push·doctor·ego-browser E2E)은 하지 않았다 — 지시상 컨트롤러가 머지 뒤에 한다.
+- 운영 반영 순서: **prod DB 에 0102 적용 → main 머지**(역순이면 허브·오피스·사이드바 조회와 completion 보고가 실패한다). 되돌릴 때는 반대로 코드 revert 배포 뒤 0102 롤백(롤백 파일 머리 주석).
+- 최종 리뷰 반영: Task 사이드바의 「결정 목록 미제출」은 가장 최근 completion 회차에만 보인다 — 0102 이전 옛 회차마다 붙는 잡음을 없앤다.
