@@ -100,6 +100,22 @@ describe('GET /wbs/structure', () => {
     expect(json.nodes[2]).toMatchObject({ external_ref: 'mes-op/SUB-OP-EV', depth: 2 })
   })
 
+  it('스텁 제거 하위(0103 stub_for)는 구조 원천에 싣지 않는다(강제 진행 F9)', async () => {
+    const { token, row } = patRow()
+    useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_settings: [{ data: { level_labels: ['A', 'B', 'C'], max_depth: 3 } }],
+      wbs_items: [{ data: [...TREE, { id: 's1', parent_id: 'n2', name: '스텁 제거', external_ref: 'mes-skel/SYS-OP.stub.X', level_idx: null, sort_order: 9, stub_for: 'mes/X' }] }],
+    })
+    const res = await structureGET(get(`project_id=${PROJECT_ID}&max_depth=2`, token))
+    const json = await res.json()
+    expect(json.nodes.map((n: { external_ref: string }) => n.external_ref)).not.toContain('mes-skel/SYS-OP.stub.X')
+    expect(json.nodes).toHaveLength(3)
+  })
+
   it('비멤버 PAT → 404 (존재 은닉)', async () => {
     const { token, row } = patRow()
     useAdmin({
