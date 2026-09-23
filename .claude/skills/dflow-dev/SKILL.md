@@ -42,7 +42,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   `{ "tsk", "order", "api_base", "phase", "baseline": {"failures": N, "tests": M}, "last": {"phase","event"} }`
   `model`(선택)은 **지금 도는 Phase 서브에이전트의 모델**이다(아래 Phase 02~05). heartbeat 훅이 이 값을 서버로 실어
   좌석표 에이전트 보기의 명찰·등급(Fable·Opus·Sonnet·Haiku …)이 Phase 마다 바뀐다(2026-09-18, 0100).
-  `phase` 값: `design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.
+  `phase` 값: `ready`·`design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.
+  `ready` 는 `dflow.sh scaffold` 가 만든 초기값이다(주문 전 폴더 자리). 진행 중 phase 가 아니므로 스윕·재개 판정은 건너뛴다.
   `rejected` 는 서버가 반려를 통지한 상태다 — 승인 대기(reported)와 구분해야 스윕이 헛돌지 않는다.
   **`order` 는 전체 UUID(하이픈 포함 36자)로 기록한다 — id8 금지.** 주문이 approved 가 되면
   목록에서 빠져 id8 접두 해석이 죽고, poll 의 승인 감지(exit 9)와 머지 판정이 그 주문을
@@ -74,6 +75,10 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   다시 하지 않으며, 이 격리도 하지 않는다. 격리는 **신규 claim 경로에서만** 돈다. 이유: 중단된 작업을 이어받을
   때 이 규칙이 잘못 발동하면 그 작업의 design.md 가 통째로 `.prev-` 로 밀려, 재개한 세션이 설계 없는 상태에서
   Design 부터 다시 하게 된다.
+  **scaffold 가 만든 폴더도 예외다.** 폴더 안에 `state.json` 하나만 있고 `phase=ready` 이면 잔재가 아니다. 옮기지 않고
+  `order`·`api_base` 를 이번 claim 값으로 덮어쓴 뒤 진행한다(담당이 바뀌어 남이 만든 ready 파일도 같다). 파일이 더 있거나
+  `phase` 가 `ready` 가 아니면 종전대로 격리한다. 이유: 팀장이 시작할 때 담당 작업 폴더를 미리 만들므로
+  (`dflow.sh scaffold`), 이 예외가 없으면 모든 신규 claim 이 방금 만든 폴더를 `.prev-` 로 밀어낸다.
 
 ## Phase 01-가 — 승인 스윕(머지, 오케스트레이터 본인)
 

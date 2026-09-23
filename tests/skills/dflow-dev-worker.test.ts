@@ -54,6 +54,8 @@ const CHANGED = [
   '- **재claim 시 이전 시도의 잔재 격리**: claim 하려는 작업의 `docs/tasks/<TSK>/` 가 이미 있으면',
   '  `docs/tasks/<TSK>.prev-<날짜>/` 로 옮긴 뒤 시작한다(stale state 로 Phase 건너뜀 방지).',
   '`docs/tasks/<TSK>/spec.md` + **design.md (Build 이후 Phase)** + **기준선 수치** + Phase 지시 +',
+  // 11. Task 6b: phase 값 목록에 scaffold 초기값 ready 를 더하고 뒤에 설명 문장을 붙인다
+  '  `phase` 값: `design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.',
 ] as const
 
 /**

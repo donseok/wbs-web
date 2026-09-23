@@ -116,6 +116,18 @@ dflow.sh taskdir <ref>
 이 작업의 작업 폴더(`<DOCS_DIR>/tasks/<TSK>`, 리포 최상위 기준 상대경로)를 출력한다. `<DOCS_DIR>` 를
 `docs` 로 박아 둔 고정 경로를 손으로 짓지 않고 이 명령으로 구한다.
 
+### 담당 작업 폴더 scaffold
+
+```bash
+dflow.sh scaffold
+```
+
+내게 배정된(assigned) 작업만 골라 바인딩된 프로젝트마다 `<DOCS_DIR>/tasks/<TSK>/state.json`
+(`{"tsk","order","api_base","phase":"ready"}`)을 미리 만든다. 이미 있는 폴더는 내용을 보지도 고치지도 않고
+건너뛴다. 출력 한 줄: `scaffold created=N skipped=N no_ref=N`(필요하면 뒤에 안내 한 마디가 더 붙는다).
+바인딩이 없으면 **exit 2** `PROJECT_MISMATCH`, 배정 목록을 못 읽으면 **exit 6**. 새 파일이 있고 현재 브랜치가
+`dflow.sh branch dev` 의 값이면 커밋·push 까지 하고, 아니면 파일만 남긴다.
+
 ### 진행 보고
 
 ```bash

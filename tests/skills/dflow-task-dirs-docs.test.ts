@@ -21,6 +21,14 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(read('dflow-team/SKILL.md')).toContain("'**/tasks/*/.result' '**/tasks/*/.issues'")
     expect(read('dflow-team/references/backends.md')).not.toContain('docs/tasks/<TSK>/(spec')
   })
+  it('dflow-dev 가 ready 단일 파일을 격리 예외로 둔다', () => {
+    const t = read('dflow-dev/SKILL.md')
+    expect(t).toContain('`state.json` 하나만 있고 `phase=ready`')
+    expect(t).toMatch(/`phase` 값: `ready`·`design`/)
+  })
+  it('팀장이 시작할 때 scaffold 를 부른다', () => {
+    expect(read('dflow-team/SKILL.md')).toContain('dflow.sh scaffold')
+  })
   it('팀장이 taskdir 에 order(전체 UUID·id8) 를 넘기고 external_ref 를 넘기지 않는다', () => {
     const t = read('dflow-team/SKILL.md')
     expect(t).not.toContain('taskdir <ref>)` 로 이 작업의 작업 폴더')
