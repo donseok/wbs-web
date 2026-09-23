@@ -1,11 +1,50 @@
 // tests/skills/dflow-team-kit.test.ts
 import { describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
+
+// install.sh 를 실제로 돌리기 위한 최소 가짜 KIT_DIR. kit/skills/ 는 빌드 산출물이라 소스 리포에는 없으므로
+// install.sh 가 참조하는 것만 골라 조립한다(.claude/skills/dflow-* 전부가 아니라 install.sh 가 실제로 쓰는
+// dflow-work·dflow-poll 만 — dflow-poll 은 install.sh 가 poll.sh 를 chmod +x 하기 때문에 있어야 한다).
+function buildFakeKit(): string {
+  const kit = mkdtempSync(join(tmpdir(), 'dflow-fake-kit-'))
+  cpSync(join(ROOT, 'kit/install.sh'), join(kit, 'install.sh'))
+  chmodSync(join(kit, 'install.sh'), 0o755)
+  cpSync(join(ROOT, 'kit/worker-allow.json'), join(kit, 'worker-allow.json'))
+  mkdirSync(join(kit, 'skills'), { recursive: true })
+  cpSync(join(ROOT, '.claude/skills/dflow-work'), join(kit, 'skills/dflow-work'), { recursive: true })
+  cpSync(join(ROOT, '.claude/skills/dflow-poll'), join(kit, 'skills/dflow-poll'), { recursive: true })
+  return kit
+}
+
+// gh·curl·python3 스텁 — 이 PC 에 실제로 있는지와 무관하게 의존 점검을 통과시킨다. git·jq 는 실제 바이너리를 쓴다.
+function buildStubBin(): string {
+  const bin = mkdtempSync(join(tmpdir(), 'dflow-stub-bin-'))
+  for (const name of ['gh', 'curl', 'python3']) {
+    const p = join(bin, name)
+    writeFileSync(p, '#!/bin/sh\nexit 0\n')
+    chmodSync(p, 0o755)
+  }
+  return bin
+}
+
+function runInstall(target: string) {
+  const kit = buildFakeKit()
+  const bin = buildStubBin()
+  try {
+    return spawnSync('sh', [join(kit, 'install.sh'), target], {
+      encoding: 'utf8',
+      env: { ...process.env, HOME: mkdtempSync(join(tmpdir(), 'dflow-fake-home-')), PATH: `${bin}:${process.env.PATH ?? ''}` },
+    })
+  } finally {
+    rmSync(kit, { recursive: true, force: true })
+    rmSync(bin, { recursive: true, force: true })
+  }
+}
 
 describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙 §11-1)', () => {
   it('kit-build.sh 배포 목록에 dflow-team 이 있고 권한 목록 파일을 킷에 싣는다', () => {
@@ -25,6 +64,36 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
     expect(t).toContain('dflow.local.example')
     expect(t).not.toContain('.env.example')
     expect(readFileSync(join(ROOT, 'scripts/kit-build.sh'), 'utf8')).not.toContain('.env.example')
+  })
+
+  it('레거시 대상(.env 에 DFLOW_* 가 있고 .dflow·.dflow.local 이 없음)은 초안을 만들지 않고 안내만 한다', () => {
+    const target = mkdtempSync(join(tmpdir(), 'dflow-legacy-target-'))
+    try {
+      writeFileSync(join(target, '.env'), 'export DFLOW_API_BASE=https://example.invalid\nDFLOW_PATS=x\n')
+      const r = runInstall(target)
+      expect(r.status, r.stderr).toBe(0)
+      expect(existsSync(join(target, '.dflow'))).toBe(false)
+      expect(existsSync(join(target, '.dflow.local'))).toBe(false)
+      expect(readFileSync(join(target, '.gitignore'), 'utf8')).toContain('.dflow.local')
+      expect(r.stdout).toContain('레거시 모드로 남긴다')
+      expect(r.stdout).toContain('dflow.example')
+      expect(r.stdout).toContain('dflow.local.example')
+    } finally {
+      rmSync(target, { recursive: true, force: true })
+    }
+  })
+
+  it('새 대상(.env 없음)은 .dflow·.dflow.local 초안을 둘 다 만든다', () => {
+    const target = mkdtempSync(join(tmpdir(), 'dflow-fresh-target-'))
+    try {
+      const r = runInstall(target)
+      expect(r.status, r.stderr).toBe(0)
+      expect(existsSync(join(target, '.dflow'))).toBe(true)
+      expect(existsSync(join(target, '.dflow.local'))).toBe(true)
+      expect(readFileSync(join(target, '.gitignore'), 'utf8')).toContain('.dflow.local')
+    } finally {
+      rmSync(target, { recursive: true, force: true })
+    }
   })
 
   it('worker-allow.json 은 권한 규칙 문자열 배열이고 git 규칙은 넣지 않는다', () => {

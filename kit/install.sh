@@ -34,13 +34,28 @@ done
 chmod +x "$TARGET"/.claude/skills/dflow-work/scripts/dflow.sh "$TARGET"/.claude/skills/dflow-poll/scripts/poll.sh
 
 # 3) 설정 초안 + .gitignore — .dflow 는 커밋 대상, .dflow.local 은 개인 파일
+#    레거시 대상(.env 에 DFLOW_* 가 있고 .dflow·.dflow.local 이 둘 다 없음)은 초안을 만들지 않는다.
+#    둘 다 만들면 dflow-config.sh 가 즉시 new 모드로 판정해 .env 값을 무시하고(NO_DEV_BRANCH 로 멈춘다),
+#    레거시로 잘 동작하던 리포가 install.sh 한 번으로 깨진다.
 EX="$TARGET/.claude/skills/dflow-work"
-if [ ! -f "$TARGET/.dflow" ]; then cp "$EX/dflow.example" "$TARGET/.dflow"; echo ".dflow 초안 생성 — 값을 채워 커밋하라: $TARGET/.dflow"
-else echo ".dflow 이미 있음"; fi
-if [ ! -f "$TARGET/.dflow.local" ]; then
-  ( umask 077; cp "$EX/dflow.local.example" "$TARGET/.dflow.local" ); echo ".dflow.local 초안 생성 — pats·dev_branch 를 채워라: $TARGET/.dflow.local"
-else echo ".dflow.local 이미 있음 — pats·dev_branch 가 있는지 확인할 것"; fi
-[ -f "$TARGET/.env" ] && grep -q '^DFLOW_' "$TARGET/.env" && echo "⚠ .env 의 DFLOW_* 는 .dflow·.dflow.local 로 옮겨라(두 파일이 있으면 .env 는 읽지 않는다)"
+LEGACY_ENV=0
+if [ -f "$TARGET/.env" ] && grep -Eq '^[[:space:]]*(export[[:space:]]+)?DFLOW_' "$TARGET/.env" \
+   && [ ! -f "$TARGET/.dflow" ] && [ ! -f "$TARGET/.dflow.local" ]; then
+  LEGACY_ENV=1
+fi
+if [ "$LEGACY_ENV" = 1 ]; then
+  echo "⚠ $TARGET/.env 에 DFLOW_* 가 있고 .dflow·.dflow.local 이 없다 — 레거시 모드로 남긴다(초안을 만들지 않았다)."
+  echo "  새 방식으로 옮기려면: cp $EX/dflow.example $TARGET/.dflow && cp $EX/dflow.local.example $TARGET/.dflow.local"
+  echo "  뒤 .env 의 값을 두 파일에 나눠 적고(공통은 .dflow, 개인은 .dflow.local) .env 를 지워라."
+else
+  if [ ! -f "$TARGET/.dflow" ]; then cp "$EX/dflow.example" "$TARGET/.dflow"; echo ".dflow 초안 생성 — 값을 채워 커밋하라: $TARGET/.dflow"
+  else echo ".dflow 이미 있음"; fi
+  if [ ! -f "$TARGET/.dflow.local" ]; then
+    ( umask 077; cp "$EX/dflow.local.example" "$TARGET/.dflow.local" ); echo ".dflow.local 초안 생성 — pats·dev_branch 를 채워라: $TARGET/.dflow.local"
+  else echo ".dflow.local 이미 있음 — pats·dev_branch 가 있는지 확인할 것"; fi
+  [ -f "$TARGET/.env" ] && grep -Eq '^[[:space:]]*(export[[:space:]]+)?DFLOW_' "$TARGET/.env" \
+    && echo "⚠ .env 의 DFLOW_* 는 .dflow·.dflow.local 로 옮겨라(두 파일이 있으면 .env 는 읽지 않는다)"
+fi
 touch "$TARGET/.gitignore"
 grep -qx '\.dflow\.local' "$TARGET/.gitignore" || printf '\n# dflow-kit — 개인 설정(토큰)\n.dflow.local\n' >> "$TARGET/.gitignore"
 
