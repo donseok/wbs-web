@@ -43,6 +43,7 @@ usage() {
   config <key>|projects|--source|docs-dir <uuid>|tasks-dirs
                          설정 값·바인딩·판정 출처·작업 폴더 역매핑(비밀 키는 거부)
   branch dev|release               개발 브랜치(.dflow.local dev_branch)·운영 브랜치(.dflow release_branch)
+  branch ensure-dev                개발 브랜치가 원격에 없으면 운영 브랜치에서 만들어 push 하고 이름을 낸다
 exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨
       10 = 사람이 D'Flow 에서 작업을 중단했다(409 code=cancelled). 더 진행하지 말고 멈춘다
 EOF
@@ -596,7 +597,25 @@ cmd_config() {
   esac
 }
 cmd_branch() {
-  case "${1:-}" in dev|release) dflow_config_branch "$1" || exit 2 ;; *) usage ;; esac
+  case "${1:-}" in
+    dev|release) dflow_config_branch "$1" || exit 2 ;;
+    ensure-dev) cmd_ensure_dev ;;
+    *) usage ;;
+  esac
+}
+# 개발 브랜치가 원격에 없으면 운영 브랜치(origin/<release>)에서 만들어 push 한다. 있으면 아무것도 바꾸지 않는다.
+# 작업을 시작하는 쪽(팀장 전제 검사·dflow-dev Phase 01)이 부른다 — 없다고 멈추지 말고 만든다(2026-09-23 사용자 결정).
+cmd_ensure_dev() {
+  _dev=$(dflow_config_branch dev) || exit 2
+  git fetch -q origin 2>/dev/null || die 6 "원격 fetch 실패"
+  if git rev-parse -q --verify "refs/remotes/origin/$_dev" >/dev/null; then printf '%s\n' "$_dev"; return 0; fi
+  _rel=$(dflow_config_branch release) || exit 2
+  { [ "$_rel" != "$_dev" ] && git rev-parse -q --verify "refs/remotes/origin/$_rel" >/dev/null; } \
+    || die 2 "NO_RELEASE_BRANCH origin/$_rel 이 없어 개발 브랜치 $_dev 를 만들 기점이 없다"
+  git push -q origin "refs/remotes/origin/$_rel:refs/heads/$_dev" 2>/dev/null || die 6 "개발 브랜치 생성 push 실패: $_dev"
+  git fetch -q origin "$_dev" 2>/dev/null || :
+  printf '개발 브랜치 %s 를 origin/%s 에서 만들었다\n' "$_dev" "$_rel" >&2
+  printf '%s\n' "$_dev"
 }
 
 # ---- main ----------------------------------------------------------------

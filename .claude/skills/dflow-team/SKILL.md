@@ -434,7 +434,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    case "$MAIN" in *' '*) bad SPACE_IN_PATH ;; esac
    base=$(.claude/skills/dflow-work/scripts/dflow.sh branch dev) || bad CONFIG
    [ -n "$base" ] || bad NO_DEFAULT_BRANCH
-   [ -z "$base" ] || git rev-parse -q --verify "refs/remotes/origin/$base" >/dev/null || bad "NO_REMOTE_DEV_BRANCH $base"
+   [ -z "$base" ] || git rev-parse -q --verify "refs/remotes/origin/$base" >/dev/null || .claude/skills/dflow-work/scripts/dflow.sh branch ensure-dev >/dev/null || bad "NO_REMOTE_DEV_BRANCH $base"
    cur=$(git branch --show-current)   # detached HEAD 면 빈 값
    [ -n "$base" ] && [ -n "$cur" ] && [ "$cur" != "$base" ] && bad "NOT_DEFAULT_BRANCH $base 또는 detached HEAD 여야 한다"
    for s in dflow-dev dflow-work dflow-poll dflow-merge dflow-team; do [ -e ".claude/skills/$s/SKILL.md" ] || bad "NO_SKILL $s"; done
@@ -591,7 +591,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      브랜치가 사람의 작업 브랜치일 수 있어, 스윕 뒤 최신으로 다시 detach 하는 일이 그 작업을 흔들기 때문이다.
      detached HEAD 를 허용하는 이유: 개발 브랜치는 워크트리 하나만 체크아웃할 수 있으므로, 같은 리포에서 두 번째
      팀장을 링크드 워크트리로 띄우려면 개발 브랜치를 잡지 않아야 한다(「두 번째 팀장」).
-   - `NO_REMOTE_DEV_BRANCH`: 개발 브랜치를 원격에 먼저 push 하라(`git push -u origin <브랜치>`). 이유: 팀원
+   - `NO_REMOTE_DEV_BRANCH`: 개발 브랜치가 원격에 없으면 먼저 `dflow.sh branch ensure-dev` 가 운영 브랜치에서 만들어
+     push 한다. 그것마저 실패했을 때(운영 브랜치도 없음·push 권한 없음)만 이 항목으로 멈춘다. 이유: 팀원
      워크트리와 「4. 승인 스윕」 의 머지는 `origin/<기본브랜치>` 를 기점으로 삼으므로, 로컬에만 있는 개발
      브랜치로는 그 어느 쪽도 동작하지 않는다.
    - `SAME_IDENTITY_LEAD`: 같은 리포의 다른 워크트리에 잠금 `owner` 가 같은 `<신원>/<host>/lead` 이고 `beat` 가

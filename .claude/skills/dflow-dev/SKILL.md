@@ -109,7 +109,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 ## Phase 01 — Claim·브랜치·기준선 (오케스트레이터 본인)
 
 `<기본브랜치>` 는 개발 브랜치, 즉 `dflow.sh branch dev` 의 값이다(`.dflow.local` 의 `dev_branch`, 레거시는
-`origin/HEAD`). 팀원은 팀장이 넘긴 `DEV_BRANCH` 를 쓴다.
+`origin/HEAD`). 팀원은 팀장이 넘긴 `DEV_BRANCH` 를 쓴다. 개발 브랜치가 원격에 없으면 멈추지 말고 먼저
+`.claude/skills/dflow-work/scripts/dflow.sh branch ensure-dev` 로 운영 브랜치에서 만든다(실패하면 그 사유로 중단·보고).
 
 작업 폴더 `<TASKS>` 는 `<DOCS_DIR>/tasks` 다(리포 최상위 기준). 한 주문의 폴더 `<TASKS>/<TSK>` 는
 `dflow.sh taskdir <ref>` 의 값이다 — `.dflow.local` 의 `project_map` 에서 그 주문의 프로젝트 키를, 없으면 `docs` 를 쓴다.
