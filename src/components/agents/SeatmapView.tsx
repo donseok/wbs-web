@@ -53,7 +53,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   const [note, setNote] = useState<NoteDraft | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
   /** 「팀장 해제」 실패 — 갱신 실패 배너(`error`)와 문구가 겹치면 사람이 "새로고침이 실패했나?" 로
-   *  오해한다(리뷰 라운드 2 지적). 따로 들고 다니고 "팀장 해제 실패: …" 로만 보인다. */
+   *  오해한다. 따로 들고 다니고 "팀장 해제 실패: …" 로만 보인다. */
   const [leadError, setLeadError] = useState<string | null>(null)
   const scopeRef = useRef(scope)
   const inflight = useRef(false)

@@ -308,13 +308,13 @@ describe('층의 팀장 lease', () => {
       { mine: { userId: 'u1', memberIds: new Set(['m1']) }, viewer: v(false) })
     expect(m.floors[0].leads.map(l => l.userId)).toEqual(['u9'])
   })
-  it('실제 파이프라인(리뷰 라운드 2): scope=mine 이 다른 계정의 감시자를 지워도 그 lease 는 남고, ' +
+  it('실제 파이프라인: scope=mine 이 다른 계정의 감시자를 지워도 그 lease 는 남고, ' +
     '에이전트 보기(assembleRoster)에서는 짝이 되는 감시자가 없어 unmatchedLeads 로 간다 — 관리자는 그래도 풀 수 있다', () => {
     const m = assembleSeatmap(rows({
       watchers: [{ id: 'w9', user_id: 'u9', project_id: null, agent: 'u9/x/lead', host: 'air', slots: 2, busy: 0, until_label: null, last_seen_at: ago(60_000) }],
       leases: [lease('u9', 120_000)],
     }), NOW, { mine: { userId: 'u1', memberIds: new Set(['m1']) }, viewer: v(true) })
-    // 감시자는 mine 필터에 걸려 층에서 빠지지만, lease 는 남는다(round-0).
+    // 감시자는 mine 필터에 걸려 층에서 빠지지만, lease 는 남는다.
     expect(m.floors[0].watchers).toEqual([])
     expect(m.floors[0].leads.map(l => l.userId)).toEqual(['u9'])
     expect(m.floors[0].leads[0].canRelease).toBe(true) // 관리자라 풀 수 있다

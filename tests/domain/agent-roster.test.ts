@@ -55,7 +55,7 @@ describe('assembleRoster', () => {
   })
 })
 
-describe('assembleRoster — 팀장 lease(0101, 리뷰 라운드 2)', () => {
+describe('assembleRoster — 팀장 lease(0101) — 짝이 되는 감시자가 없는 경우', () => {
   it('감시자와 identity(agent 문자열)가 같은 lease 는 그 책상에 붙는다', () => {
     const r = assembleRoster({ floors: [floor([], [watcher('jji/macbook/lead', 2)], [lease('u1', 'jji/macbook/lead')])] })
     const lead = r.hosts[0].desks.find(d => d.kind === 'lead')!

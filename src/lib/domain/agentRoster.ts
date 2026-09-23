@@ -98,7 +98,7 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     if (!cur || Date.parse(w.lastSeenAt) > Date.parse(cur.lastSeenAt)) watchers.set(w.agent, w)
   }
   // scope=mine 은 다른 계정의 감시자를 지운다(다른 계정 팀장이 떠 있는 것처럼 보이면 안 되므로) —
-  // 하지만 그 계정의 lease 는 지우지 않는다(관리자가 남의 것도 풀 수 있어야 한다, round-0 결정).
+  // 하지만 그 계정의 lease 는 지우지 않는다(관리자가 남의 것도 풀 수 있어야 한다 — assembleSeatmap 결정).
   // 그래서 감시자가 없는 채로 lease 만 남는 identity 가 생긴다 — 지금 살아 있는 감시자와 짝이 맞는
   // lease 만 책상에 붙이고, 짝이 없는 lease 는 존재하지 않는 "감시 중" 책상을 지어내지 않는다.
   for (const w of watchers.values()) {
