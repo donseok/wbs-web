@@ -14,6 +14,13 @@ import { useShellState } from './ShellStateProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { useProjectNavigation } from './ProjectNavigationContext'
 
+/** 결재 대기 배지 title 접미사(과제 C) — 수는 바꾸지 않고 결정이 딸렸다는 신호만 준다. 모름은 0 으로 위장하지 않는다. */
+function approvalDecisionSuffix(decisions: number | null, partial: boolean): string {
+  if (decisions === null) return ' · 확인 필요 결정 수 조회 실패'
+  if (decisions < 1) return ''
+  return partial ? ` · 확인 필요 결정 ${decisions}건 이상 · 일부 구버전 보고` : ` · 확인 필요 결정 ${decisions}건`
+}
+
 export type SidebarProject = {
   id: string
   name: string
@@ -116,13 +123,16 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
   // 안읽음 공지 배지 — ShellStateProvider 가 내비게이션당 통합 1왕복으로 조회한 값을 쓴다.
   // (종전엔 헤더와 이 컴포넌트가 같은 인자로 같은 액션을 각자 쐈다 — 2026-08-18 성능 감사.)
   // 회의록·내 회의에서는 보존한 프로젝트 메뉴(menuProjectId)의 배지를 유지한다.
-  const { menuUnreadAnnouncements, menuPendingApprovals } = useShellState()
+  const { menuUnreadAnnouncements, menuPendingApprovals, menuPendingDecisions, menuPendingDecisionsPartial } = useShellState()
   const unread = menuProjectId ? menuUnreadAnnouncements : 0
   // 에이전트 메뉴 결재 대기 배지(2026-09-18) — 내가 승인할 수 있는 완료 보고 수. 허브에 들어가지 않아도 알 수 있게.
   const pending = menuProjectId ? menuPendingApprovals : 0
-  const badges: Partial<Record<DictKey, { count: number; tip: string; bg: string }>> = {
+  // 그 결재에 딸린 확인 필요 결정(과제 C) — 수는 그대로 두고 title·점으로만 알린다.
+  const decisions = menuProjectId ? menuPendingDecisions : 0
+  const decisionSuffix = pending > 0 ? approvalDecisionSuffix(decisions, menuPendingDecisionsPartial) : ''
+  const badges: Partial<Record<DictKey, { count: number; tip: string; bg: string; suffix?: string; decisionDot?: boolean }>> = {
     'nav.announcements': { count: unread, tip: '', bg: 'bg-accent-secondary' },
-    'nav.projectAgents': { count: pending, tip: '결재 대기 ', bg: 'bg-amber-500' },
+    'nav.projectAgents': { count: pending, tip: '결재 대기 ', bg: 'bg-amber-500', suffix: decisionSuffix, decisionDot: pending > 0 && (decisions ?? 0) >= 1 },
   }
 
   return (
@@ -240,7 +250,7 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
                   const badge = badges[item.labelKey]
                   const n = badge && badge.count > 0 ? (badge.count > 99 ? '99+' : String(badge.count)) : null
                   const tip = collapsed && badge && n
-                    ? `${projectPrefix}${label} · ${badge.tip}${n}`
+                    ? `${projectPrefix}${label} · ${badge.tip}${n}${badge.suffix ?? ''}`
                     : `${projectPrefix}${label}`
                   return (
                     <Tooltip key={item.href} label={tip} side="right" disabled={!collapsed}>
@@ -248,9 +258,12 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
                         <ItemIcon className="h-[18px] w-[18px] shrink-0" />
                         {!collapsed && <span className="flex-1">{label}</span>}
                         {!collapsed && badge && n && (
-                          <span data-nav-badge={item.labelKey} title={badge.tip ? `${badge.tip}${n}건` : undefined}
-                            className={`flex h-5 min-w-5 items-center justify-center rounded-full ${badge.bg} px-1.5 text-[10px] font-bold tabular-nums text-white`}>
+                          <span data-nav-badge={item.labelKey} title={badge.tip ? `${badge.tip}${n}건${badge.suffix ?? ''}` : undefined}
+                            className={`relative flex h-5 min-w-5 items-center justify-center rounded-full ${badge.bg} px-1.5 text-[10px] font-bold tabular-nums text-white`}>
                             {n}
+                            {badge.decisionDot && (
+                              <span aria-hidden data-nav-decision-dot className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-delayed ring-2 ring-sidebar" />
+                            )}
                           </span>
                         )}
                         {collapsed && badge && n && (

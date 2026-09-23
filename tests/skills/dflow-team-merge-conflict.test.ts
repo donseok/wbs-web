@@ -19,7 +19,7 @@ describe('SKILL.md — 포인터 절과 바뀐 문구', () => {
     expect(TEAM).toContain('### 4-1. 머지 충돌 해소')
     expect(TEAM).toContain('### 5-2. 해소 spawn')
     expect(TEAM).toContain('cat .claude/skills/dflow-team/references/merge-conflict.md')
-    expect(TEAM).toContain('`references/events.md`, `references/merge-conflict.md`, `references/backends.md` 의')
+    expect(TEAM).toContain('`references/merge-conflict.md`, `references/backends.md` 의')
   })
   it('최종 판정 목록 두 곳에 resolved 가 있다', () => {
     expect(TEAM.split('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`)').length - 1).toBe(2)
@@ -36,11 +36,11 @@ describe('SKILL.md — 포인터 절과 바뀐 문구', () => {
     expect(TEAM).toContain('"머지됨(승인 전)"·"머지됨" 을 한 건이라도 냈거나 해소 워커가 `resolved` 로 끝났으면')
     expect(TEAM).toMatch(/선행 계열\(선행 미충족·[^)]*선행 미반영\)/)
   })
-  it('금지: heartbeat·--resolve 예외, 재spawn 예외는 넷', () => {
+  it('금지: heartbeat·--resolve 예외, 재spawn 예외는 다섯', () => {
     expect(TEAM).toContain('머지 충돌 표시 heartbeat(`merge_conflict` 설정·해제')
     expect(TEAM).toContain('해소 워커의 `/dflow-merge --resolve` 가 개발 브랜치에 한 건을 머지·push 한다')
-    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외는 넷이다')
-    expect(TEAM).toContain('같은 작업을 다시 띄우는 것은 넷뿐이다')
+    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외는 다섯이다(')
+    expect(TEAM).toContain('같은 작업을 다시 띄우는 것은 다섯뿐이다(')
   })
   it('team.sweep 은 resolved 를 함께 센다, 마감은 표시를 지우지 않는다', () => {
     expect(TEAM).toContain('`team.sweep`(merged, waiting, rejected, resolved 개수)을 기록한다.')

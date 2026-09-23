@@ -8,7 +8,7 @@ set -u
 
 # 이 스킬이 기대하는 계약 버전. doctor 는 major 만 본다 — 서버가 minor 를 올리는 것은
 # additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
-# 2.7: 팀장 머지 충돌 표시(heartbeat --clear-merge-conflict). 병행 과제 C 가 2.6 — 머지 순서에 따라 조정한다.
+# 2.6: 완료 보고 decisions(과제 C). 2.7: 팀장 머지 충돌 표시(heartbeat --clear-merge-conflict).
 CONTRACT_VERSION=2.7
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
@@ -36,7 +36,8 @@ usage() {
                          --clear-merge-conflict 로 해제(출력 MERGE_CONFLICT_SET·CLEARED·ABSENT)
   watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--holder h] [--json] [--stop]
                          감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll
-  done <ref> <요약> [--auto-links]
+  done <ref> <요약> [--auto-links] [--decisions <file>]
+                         --decisions: 확인 필요 결정 목록(JSON 배열). 형식 오류는 push 확인·전송 전에 exit 2
   release <ref>
   lease holder|acquire [--takeover]|renew|release|keep --pid <PID> --lost-file <path>
                          팀장 lease(신원+프로젝트당 팀장 하나). /dflow-team 이 쓴다
@@ -398,8 +399,86 @@ cmd_watch() {
   else printf '%s' "$_body" | jq -r '.expires_at'; fi
 }
 
+# ---- 결정 목록(과제 C, 계약 2.6) ------------------------------------------
+# 상한은 src/lib/domain/agentWork.ts 의 AGENT_DECISION* 상수와 같다(tests/skills/dflow-done-decisions.test.ts 가 대조).
+DECISIONS_MAX=20
+DECISION_OPTIONS_MIN=2
+DECISION_OPTIONS_MAX=6
+DECISION_QUESTION_MAX=300
+DECISION_OPTION_MAX=200
+DECISION_RATIONALE_MAX=1000
+DECISION_ON_REJECT_MAX=500
+# 서버 validateDecisions 와 같은 규칙·같은 사유 문구. 위반이면 첫 사유 한 줄, 통과면 빈 출력.
+# 글자 수는 trim 뒤 코드포인트(jq length) — 서버 Array.from(s.trim()).length 와 같은 축이다.
+DECISIONS_JQ='
+def tr: gsub("^[[:space:]]+|[[:space:]]+$"; "");
+def txt($m): if type == "string" then (tr | length) as $n | ($n >= 1 and $n <= $m) else false end;
+def fields: ["key", "question", "options", "chosen", "rationale", "on_reject"];
+def badopt: [ .options | to_entries[] | select(.value | txt($opmax) | not) | .key ] | .[0];
+if type != "array" then "decisions는 배열이어야 합니다."
+elif length > $max then "decisions는 \($max)건 이하여야 합니다."
+else
+  . as $all
+  | [ to_entries[] | .key as $i | .value as $d | "decisions[\($i)]" as $p
+      | if ($d | type) != "object" then "\($p)는 객체여야 합니다."
+        elif ([ $d | keys[] | select(. as $k | fields | index([$k]) | not) ] | length) > 0
+          then "\($p)에 알 수 없는 필드: \([ $d | keys[] | select(. as $k | fields | index([$k]) | not) ][0])"
+        elif ($d | .key | (type != "string") or (test("^D[1-9][0-9]?$") | not)) then "\($p).key는 D1~D99 형식이어야 합니다."
+        elif any($all[0:$i][]; (type == "object") and (.key == ($d | .key))) then "\($p).key가 중복됩니다: \($d | .key)"
+        elif ($d | .question | txt($qmax) | not) then "\($p).question은 1~\($qmax)자여야 합니다."
+        elif ($d | .options | (type != "array") or (length < $omin) or (length > $omax)) then "\($p).options는 \($omin)~\($omax)개여야 합니다."
+        elif ($d | badopt) != null then "\($p).options[\($d | badopt)]는 1~\($opmax)자여야 합니다."
+        elif ($d | .chosen | (type != "number") or (. != floor)) then "\($p).chosen은 정수여야 합니다."
+        elif ($d | .chosen < 0 or .chosen >= (.options | length)) then "\($p).chosen이 options 범위를 벗어났습니다."
+        elif ($d | .rationale | txt($rmax) | not) then "\($p).rationale은 1~\($rmax)자여야 합니다."
+        elif ($d | .on_reject | txt($jmax) | not) then "\($p).on_reject는 1~\($jmax)자여야 합니다."
+        else empty end ]
+  | .[0] // empty
+end'
+
+check_decisions() { # $1=파일 → stdout: trim 한 압축 JSON 배열. 위반이면 exit 2(보고하지 않는다)
+  [ -f "$1" ] || die 2 "DECISIONS_FILE 파일이 없습니다: $1"
+  # JSON 값이 정확히 하나여야 한다 — 빈 파일은 입력 0개라 검사가 조용히 통과하고 "제출 안 됨" 이 돼 버린다.
+  _ndoc=$(jq -s 'length' "$1" 2>/dev/null) || die 2 "DECISIONS_JSON JSON 이 아닙니다: $1"
+  [ "$_ndoc" = 1 ] || die 2 "DECISIONS_JSON JSON 값이 하나여야 합니다(현재 $_ndoc개): $1"
+  _derr=$(jq -r --argjson max "$DECISIONS_MAX" --argjson omin "$DECISION_OPTIONS_MIN" --argjson omax "$DECISION_OPTIONS_MAX" \
+    --argjson qmax "$DECISION_QUESTION_MAX" --argjson opmax "$DECISION_OPTION_MAX" \
+    --argjson rmax "$DECISION_RATIONALE_MAX" --argjson jmax "$DECISION_ON_REJECT_MAX" \
+    "$DECISIONS_JQ" "$1") || die 2 "DECISIONS_JSON 검사 실패: $1"
+  [ -z "$_derr" ] || die 2 "DECISIONS_INVALID $_derr"
+  jq -c 'def tr: gsub("^[[:space:]]+|[[:space:]]+$"; "");
+    map({key, question: (.question | tr), options: (.options | map(tr)), chosen,
+         rationale: (.rationale | tr), on_reject: (.on_reject | tr)})' "$1" || die 2 "DECISIONS_JSON 변환 실패: $1"
+}
+
+decisions_suffix_warn() { # $1=요약 $2=결정 JSON 배열 — 요약 접미사와 건수가 어긋나면 stderr 경고만(보고는 계속)
+  _dn=$(printf '%s' "$2" | jq 'length')
+  _sn=$(printf '%s' "$1" | LC_ALL=C sed -n 's/.*확인 필요 결정 \([0-9][0-9]*\)건.*/\1/p' | head -n 1)
+  if [ -n "$_sn" ] && [ "$_sn" != "$_dn" ]; then
+    printf 'DECISIONS_COUNT_MISMATCH 요약은 %s건, 목록은 %s건 — design.md 절과 decisions.json 을 대조하세요(보고는 계속).\n' "$_sn" "$_dn" >&2
+  elif [ -z "$_sn" ] && [ "$_dn" -gt 0 ]; then
+    printf 'DECISIONS_SUFFIX_MISSING 목록은 %s건인데 요약에 「확인 필요 결정 N건」 접미사가 없습니다(보고는 계속).\n' "$_dn" >&2
+  fi
+}
+
 cmd_done() {
-  _id=$(resolve_ref "$1"); _sum="$2"; _auto="${3:-}"
+  _ref="$1"; _sum="$2"; shift 2
+  _auto=''; _dfile=''
+  # 요약 뒤 인자는 순서 무관 플래그다(종전에는 셋째 위치 인자만 --auto-links 로 봤다).
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --auto-links) _auto=1; shift ;;
+      --decisions)  [ $# -ge 2 ] || usage; _dfile="$2"; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  # 결정 목록 선검사 — push 확인·네트워크보다 먼저 한다. 형식 오류로 보고가 반쯤 나가는 일이 없다(스펙 §5.2).
+  _decisions=''
+  if [ -n "$_dfile" ]; then
+    _decisions=$(check_decisions "$_dfile") || exit $?
+    decisions_suffix_warn "$_sum" "$_decisions"
+  fi
+  _id=$(resolve_ref "$_ref")
   # 완료 = push 완료(결정 C-③) — 현재 브랜치 tip 이 원격에 도달했는지 확인, 미도달이면 보고 거부.
   _branch=$(git branch --show-current 2>/dev/null)
   [ -n "$_branch" ] || die 2 "git 브랜치를 확인할 수 없습니다 — 리포 안에서 실행하세요."
@@ -408,7 +487,7 @@ cmd_done() {
   [ -n "$_remote" ] || die 2 "원격에 브랜치 $_branch 가 없습니다 — git push 후 다시 시도하세요."
   [ "$_remote" = "$_local" ] || die 2 "로컬 HEAD 가 원격에 반영되지 않았습니다 — git push 후 다시 시도하세요."
   _links='[]'; _evidence='{}'
-  if [ "$_auto" = "--auto-links" ]; then
+  if [ -n "$_auto" ]; then
     _sha=$(git rev-parse HEAD 2>/dev/null || printf '')
     _branch=$(git branch --show-current 2>/dev/null || printf '')
     _remote=$(git remote get-url origin 2>/dev/null || printf '')
@@ -422,10 +501,19 @@ cmd_done() {
        + (if $p != "" then {pr_url:$p} else {} end)') || die 2 "증적 JSON 생성 실패"
   fi
   # claim·progress 와 같은 신원 산출 — 완료 보고도 heartbeat_agent 와 귀속을 맞춘다.
-  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" \
-    "$(jq -nc --arg a "$(agent_id_default)" --arg s "$_sum" \
-       --argjson l "$_links" --argjson e "$_evidence" \
-       '{agent:$a, kind:"completion", percent:100, summary:$s, links:$l, evidence:$e}')") || exit $?
+  _json=$(jq -nc --arg a "$(agent_id_default)" --arg s "$_sum" \
+     --argjson l "$_links" --argjson e "$_evidence" \
+     '{agent:$a, kind:"completion", percent:100, summary:$s, links:$l, evidence:$e}') || die 2 "보고 JSON 생성 실패"
+  # --decisions 가 없으면 키를 넣지 않는다 — 서버 행은 null(제출 안 됨). [] 는 0건 명시다.
+  if [ -n "$_decisions" ]; then
+    _json=$(printf '%s' "$_json" | jq -c --argjson d "$_decisions" '. + {decisions: $d}') || die 2 "보고 JSON 생성 실패"
+  fi
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" "$_json") || exit $?
+  # 구 서버(계약 < 2.6)는 모르는 필드를 조용히 버린다 — 응답에 decisions_recorded 가 없으면 알린다.
+  # 보고 자체는 이미 됐으므로 실패로 만들지 않는다(스펙 D9).
+  if [ -n "$_decisions" ] && ! printf '%s' "$_body" | jq -e 'has("decisions_recorded")' >/dev/null 2>&1; then
+    printf '%s\n' '서버가 결정 목록을 모릅니다(계약 < 2.6) — 요약 접미사로만 전달됐습니다.' >&2
+  fi
   printf '%s' "$_body" | jq -r '"reported(승인 대기) — PM 승인은 웹에서"'
 }
 

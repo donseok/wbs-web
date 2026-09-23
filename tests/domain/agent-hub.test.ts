@@ -128,6 +128,28 @@ describe('assembleAgentHub — 카운터·큐·상태', () => {
     expect(hub.queue[1].assigneeMine).toBe(true)
     expect(hub.queue[0].assigneeMine).toBe(false)
   })
+  it('queue: 최신 completion 의 결정 상태를 싣는다 — none·ok·invalid 를 가른다', () => {
+    const o1 = '11111111-aaaa-4aaa-8aaa-000000000001', o2 = '11111111-aaaa-4aaa-8aaa-000000000002', o3 = '11111111-aaaa-4aaa-8aaa-000000000003'
+    const dec = { key: 'D1', question: 'q', options: ['a', 'b'], chosen: 1, rationale: 'r', on_reject: 'x' }
+    const base = { percent: 100, summary: 's', links: [], agent: 'x', review_action: null, review_note: null }
+    const hub = assembleAgentHub(rows({
+      orders: [
+        order({ id: o1, wbs_item_id: 'a1', status: 'reported', updated_at: ago(3000) }),
+        order({ id: o2, wbs_item_id: 'a2', status: 'reported', updated_at: ago(2000) }),
+        order({ id: o3, wbs_item_id: 'a1', status: 'reported', updated_at: ago(1000) }),
+      ],
+      reports: [
+        { ...base, work_order_id: o1, created_at: ago(9000), decisions: [dec, { ...dec, key: 'D2' }, { ...dec, key: 'D3' }] }, // 옛 회차
+        { ...base, work_order_id: o1, created_at: ago(3000), decisions: [dec] },                                               // 최신
+        { ...base, work_order_id: o2, created_at: ago(2000), decisions: null },
+        { ...base, work_order_id: o3, created_at: ago(1000), decisions: [{ ...dec, chosen: 7 }] },
+      ],
+    }), NOW, VIEWER)
+    const by = new Map(hub.queue.map(q => [q.orderId, q.decisions]))
+    expect(by.get(o1)).toEqual({ state: 'ok', items: [dec] })
+    expect(by.get(o2)).toEqual({ state: 'none' })
+    expect(by.get(o3)).toEqual({ state: 'invalid' })
+  })
   it('registered·enabled·projectName·fetchedAt', () => {
     const on = assembleAgentHub(rows(), NOW, VIEWER)
     expect(on).toMatchObject({ registered: true, enabled: true, projectId: P1, projectName: 'mes-base', fetchedAt: new Date(NOW).toISOString() })

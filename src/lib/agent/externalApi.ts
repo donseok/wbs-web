@@ -118,8 +118,7 @@ export async function agentMemberRole(
   return (roles[0] as { role: string }).role as 'admin' | 'member'
 }
 
-// 2.7: heartbeat 의 팀장 merge_conflict 표시(2026-09-23 머지 충돌 설계 §7.2). 병행 과제 C 가 2.6 을 쓴다 —
-// 머지 순서가 바뀌면(이 변경이 C 보다 먼저 staging 에 들어가면) 번호를 서로 맞춘다.
+// 2.6: 완료 보고 decisions(과제 C). 2.7: heartbeat 의 팀장 merge_conflict 표시(2026-09-23 머지 충돌 설계 §7.2).
 export const AGENT_CONTRACT_VERSION = '2.7'
 
 export type AgentPrincipal =

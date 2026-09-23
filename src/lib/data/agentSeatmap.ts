@@ -58,7 +58,8 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
   const liveIds = orders.filter(o => o.status === 'claimed' || o.status === 'reported').map(o => o.id)
   const [parents, reviews, watchers, projects, members, reports, leases] = await Promise.all([
     parentIds.length ? fetchAncestors(admin, parentIds) : Promise.resolve([] as ItemRow[]),
-    admin.from('agent_work_reports').select('work_order_id, review_action, review_note, created_at')
+    // decision_count 만 싣는다 — 본문은 상세 패널이 좁게 읽는다(주문 최대 2000건, 과제 C).
+    admin.from('agent_work_reports').select('work_order_id, review_action, review_note, created_at, decision_count')
       .in('work_order_id', orderIds).eq('kind', 'completion').then(r => must<ReviewRow[]>('완료 보고', r)),
     admin.from('agent_watchers').select('id, user_id, project_id, agent, host, slots, busy, until_label, last_seen_at')
       .gte('last_seen_at', new Date(nowMs - WATCHER_TTL_MS).toISOString()).then(r => must<WatcherRow[]>('감시자', r)),

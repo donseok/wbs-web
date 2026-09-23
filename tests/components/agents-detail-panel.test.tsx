@@ -1,12 +1,13 @@
 // tests/components/agents-detail-panel.test.tsx
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { Seat } from '@/lib/domain/seatmap'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
+vi.mock('@/app/actions/agentWork', () => ({ getReportDecisions: vi.fn(async () => ({ ok: true, decisions: [] })) }))
 import { DetailPanel } from '@/components/agents/DetailPanel'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')

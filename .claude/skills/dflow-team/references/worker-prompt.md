@@ -138,6 +138,16 @@ Skill 도구가 `dflow-dev` 를 모르면(스킬 없는 워크트리에서 세�
   이 절은 승인자가 검토할 목록이므로, 기본값이 있어 고른 사소한 결정은 넣지 않는다.
 - 이 결정들은 Phase 06 의 `done` 요약 끝에 `확인 필요 결정 N건: <질문 요약; …>` 으로 싣고, `.result` 의 `done`
   사유 끝에도 `(결정 N건)` 을 붙인다(7번). 승인자가 D'Flow 화면에서 보고, 팀장이 집계한다. 0건이면 붙이지 않는다.
+- 절의 결정마다 번호 `D1`, `D2` … 를 붙인다. 반려 사유와 D'Flow 화면이 이 번호로 결정을 가리킨다.
+  Phase 06 에서 그 절을 `docs/tasks/{TSK}/decisions.json` 으로 옮기고
+  `done {ID8} "<요약>" --auto-links --decisions docs/tasks/{TSK}/decisions.json` 으로 넘긴다. 파일은 결정 항목의 JSON
+  배열이고 항목은 여섯 필드다: `key`(절의 번호), `question`, `options`(2~6개), `chosen`(택한 선택지의 0부터 센 색인 — 문구가 아니다),
+  `rationale`(근거와 그 강약 순위), `on_reject`(반려되면 재작업할 방향). 예:
+  `[{"key":"D1","question":"판정 로직을 이 Task 에서 넣는가?","options":["넣지 않는다(spec 제약 우선)","넣는다"],"chosen":0,"rationale":"spec 본문이 넣지 않는다고 적었다. spec > 미승인 선행.","on_reject":"판정 로직을 verdict.ts 로 옮긴다."}]`
+  **0건이면 `[]` 를 써서 넘긴다** — 파일을 넘기지 않으면 서버는 "결정 목록 미제출" 로 보고 0건과 가르지 못한다.
+  이 파일은 커밋하지 않는다(정본은 design.md 절과 서버의 보고 행이다). `done` 이 `DECISIONS_INVALID …` 로 exit 2 면
+  파일을 고쳐 다시 부른다. 요약 끝의 `확인 필요 결정 N건: …` 과 `.result` 의 `(결정 N건)` 은 그대로 둔다 —
+  구 서버에서 결정이 남는 유일한 자리이고, 팀장은 `.result` 를 읽는다.
 - **`blocked` 로 멈추는 것은 되돌리기 어려운 결정뿐이다**: 데이터 삭제, 외부 공개(배포·외부 전송), 다른 Task
   산출물의 대폭 수정, 보안·권한 변경. 이유: 판단 분기마다 멈추면 슬롯이 사람을 기다리며 서고 사슬 전체가 밤새
   멈춘다(2026-09-19 mdm-dict-v2 TSK-01-02: spec 제약과 미승인 선행의 decisions.md 가 충돌해 Design 직후 멈췄다).
@@ -180,7 +190,7 @@ AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각�
 
 | status | 언제 | 사유 |
 |---|---|---|
-| `done` | Phase 06 까지 마치고 `done --auto-links` 가 exit 0 | 한 줄 요약. 6번의 확인 필요 결정이 있으면 끝에 `(결정 N건)` |
+| `done` | Phase 06 까지 마치고 `done --auto-links --decisions …` 가 exit 0 | 한 줄 요약. 6번의 확인 필요 결정이 있으면 끝에 `(결정 N건)` |
 | `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재` 중 하나 |
 | `needs-merge` | 재개 판정이 approved(`/dflow-dev` 「--worker」 C) | `approved` |
 | `blocked` | 6번 판단 규칙(되돌리기 어려운 결정만) | 질문과 선택지 |

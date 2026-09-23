@@ -23,4 +23,23 @@ describe('워커 판단 규칙: 골라서 진행하고 기록한다', () => {
     expect(prompt).toContain('끝에 `(결정 N건)`')
     expect(dev).toContain('Phase 06 `done` 요약 끝에 `확인 필요 결정 N건: …` 을 싣는다')
   })
+  it('Phase 06 은 결정 목록을 decisions.json 으로 옮겨 done --decisions 로 넘기고, 0건이면 [] 를 쓴다(과제 C)', () => {
+    for (const doc of [prompt, dev]) {
+      expect(doc).toContain('decisions.json')
+      expect(doc).toContain('--decisions')
+    }
+    expect(prompt).toContain('**0건이면 `[]` 를 써서 넘긴다**')
+    expect(prompt).toContain('`done --auto-links --decisions …`')
+    expect(prompt).toContain('`chosen`(택한 선택지의 0부터 센 색인 — 문구가 아니다)')
+    expect(dev).toContain('supervised 모드(플래그 없음)도 넘긴다')
+    expect(dev).toContain('done 이 exit 0 이면 지우고')
+  })
+  it('dflow-work 문서가 --decisions 와 경고 코드의 뜻을 안내한다', () => {
+    const skill = readFileSync(join(ROOT, '.claude/skills/dflow-work/SKILL.md'), 'utf8')
+    const trouble = readFileSync(join(ROOT, '.claude/skills/dflow-work/references/troubleshooting.md'), 'utf8')
+    expect(skill).toContain('--decisions')
+    for (const code of ['DECISIONS_INVALID', 'DECISIONS_COUNT_MISMATCH', 'DECISIONS_SUFFIX_MISSING', '서버가 결정 목록을 모릅니다']) {
+      expect(trouble).toContain(code)
+    }
+  })
 })

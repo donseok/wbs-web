@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import {
-  AGENT_LINKS_MAX, validateEvidence, validateReport, isUuidLike, type AgentReportKind,
+  AGENT_LINKS_MAX, validateDecisions, validateEvidence, validateReport, isUuidLike, type AgentReportKind,
 } from '@/lib/domain/agentWork'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
@@ -45,11 +45,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if ('error' in links) return apiBadRequest(links.error)
   const ev = validateEvidence(b.evidence)
   if (!ev.ok) return apiBadRequest(ev.error)
+  // 결정 목록(과제 C, 계약 2.6) — 승인자가 보는 것은 완료 보고라 completion 에서만 받는다(D6).
+  // kind 를 먼저 본다: progress 에 실린 결정은 모양과 무관하게 받을 자리가 없다.
+  if (b.decisions !== undefined && kind !== 'completion') {
+    return apiBadRequest('decisions는 완료 보고(kind=completion)에서만 받습니다.')
+  }
+  const dec = validateDecisions(b.decisions)
+  if (!dec.ok) return apiBadRequest(dec.error)
 
   try {
     const admin = createAdminClient()
     const actor = await resolveWriteActor(req, admin, raw, 'work:claim')
     if (!actor.ok) return actor.res
+    // v1 요청 형식은 불변(api-contract.md 머리말) — 레거시 경로는 결정을 받지 않는다.
+    if (dec.decisions !== null && actor.principal.kind !== 'pat') {
+      return apiBadRequest('decisions는 PAT 호출에서만 받습니다.')
+    }
 
     const loaded = actor.principal.kind === 'pat'
       ? await loadGatedOrderForUser(admin, id, actor.userId as string, actor.principal.userEmail, actor.principal)
@@ -92,6 +103,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       .insert({
         work_order_id: id, kind, percent, summary, links, evidence: ev.evidence,
         agent: actor.agentLabel, actor_user_id: loaded.userId, applied_to_wbs: appliedToWbs,
+        // 필드가 없으면 키 자체를 넣지 않는다 — 행은 null = 제출 안 됨.
+        ...(dec.decisions !== null ? { decisions: dec.decisions } : {}),
       })
       .select('id')
     if (repErr || !report || (report as unknown[]).length === 0) {
@@ -132,10 +145,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         if (itemNameErr) console.error('[agent-api] 항목 이름 조회 실패(알림 계속):', itemNameErr.message)
         else if (itemRow) itemName = (itemRow as { name: string }).name
       }
+      // 결정이 딸린 보고는 알림만 보고도 알 수 있게 한다(미결 1 — 별도 알림 유형은 두지 않는다).
+      const decisionCount = dec.decisions?.length ?? 0
       emitNotification({
         type: 'work.reported', projectId: order.project_id, actorUserId: loaded.userId ?? null,
         entityType: 'agent_order', entityId: id,
-        payload: { title: itemName, detail: '완료 보고 — 승인 대기', href: `/p/${order.project_id}/wbs` },
+        payload: {
+          title: itemName,
+          detail: decisionCount > 0 ? `완료 보고 — 승인 대기 · 확인 필요 결정 ${decisionCount}건` : '완료 보고 — 승인 대기',
+          href: `/p/${order.project_id}/wbs`,
+        },
         recipientUserIds: ((admins ?? []) as Array<{ user_id: string }>).map(a => a.user_id),
       }).catch(() => {
         // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않는다.
@@ -152,9 +171,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       if (touchErr) console.error('[agent-api] 주문 활동 시각 갱신 실패:', touchErr.message)
     }
 
+    // decisions_recorded: 보내지 않았으면 null, 보냈으면 저장 건수. CLI 는 이 키가 없으면 구 서버로 보고 경고한다(D9).
     return NextResponse.json(
       kind === 'completion'
-        ? { ok: true, status: 'reported' }
+        ? { ok: true, status: 'reported', decisions_recorded: dec.decisions === null ? null : dec.decisions.length }
         : { ok: true, status: 'claimed', applied_to_wbs: appliedToWbs },
     )
   } catch (e) {
