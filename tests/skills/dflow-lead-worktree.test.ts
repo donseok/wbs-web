@@ -59,6 +59,26 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     expect(TEAM.indexOf('stale() {')).toBeLessThan(TEAM.indexOf('SAME_IDENTITY_LEAD $dup'))
   })
 
+  it('일반 스킬만 추적하고 dflow-* 는 심링크인 리포 — dflow-* 만 링크하고 그 패턴만 exclude 한다', () => {
+    const r0 = sh(primary, `
+      mkdir -p .claude/skills/mine && printf 'm\\n' > .claude/skills/mine/SKILL.md
+      git add .claude/skills/mine && git commit -qm skills && git push -q origin main
+      mkdir -p '${tmp}/kit/dflow-team' && printf 'x\\n' > '${tmp}/kit/dflow-team/SKILL.md'
+      ln -s '${tmp}/kit/dflow-team' .claude/skills/dflow-team
+    `)
+    expect(r0.code, r0.out).toBe(0)
+    const r = sh(primary, `bash '${LEAD_WT}' k3`)
+    expect(r.code, r.out).toBe(0)
+    const lw = join(primary, '.claude/worktrees/lead-k3')
+    expect(lstatSync(join(lw, '.claude/skills')).isSymbolicLink()).toBe(false)
+    expect(existsSync(join(lw, '.claude/skills/mine/SKILL.md'))).toBe(true)
+    expect(lstatSync(join(lw, '.claude/skills/dflow-team')).isSymbolicLink()).toBe(true)
+    const ex = readFileSync(join(primary, '.git/info/exclude'), 'utf8').split('\n')
+    expect(ex).toContain('/.claude/skills/dflow-*')
+    expect(ex).not.toContain('/.claude/skills')
+    expect(sh(primary, 'git status --porcelain').out.trim()).toBe('')
+  })
+
   it('lead-worktree.sh 는 detached 워크트리·스킬 링크·.env 복사본을 만들고, 주 체크아웃은 그대로 둔다', () => {
     mkdirSync(join(primary, '.claude/skills/dflow-team'), { recursive: true })
     writeFileSync(join(primary, '.claude/skills/dflow-team/SKILL.md'), 'x')

@@ -34,6 +34,14 @@ if [ -z "$(git ls-files .claude/skills | head -n 1)" ]; then
   grep -qxF '/.claude/skills' "$ex" || printf '%s\n' '/.claude/skills' >> "$ex"
   mkdir -p "$LW/.claude"
   [ -e "$LW/.claude/skills" ] || ln -s "$PRIMARY/.claude/skills" "$LW/.claude/skills"
+elif [ -z "$(git ls-files .claude/skills/dflow-dev | head -n 1)" ]; then
+  # 일반 스킬은 추적되고 dflow-* 만 심링크인 리포 — 추적 스킬은 워크트리에 이미 있으니 dflow-* 만 링크한다.
+  grep -qxF '/.claude/skills/dflow-*' "$ex" || printf '%s\n' '/.claude/skills/dflow-*' >> "$ex"
+  mkdir -p "$LW/.claude/skills"
+  for s in "$PRIMARY"/.claude/skills/dflow-*; do
+    [ -e "$s" ] || continue
+    [ -e "$LW/.claude/skills/${s##*/}" ] || ln -s "$s" "$LW/.claude/skills/${s##*/}"
+  done
 fi
 
 if [ "$DFLOW_CONFIG_MODE" = new ]; then

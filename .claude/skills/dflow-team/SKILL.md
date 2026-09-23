@@ -476,8 +476,11 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    for p in '**/.claude/worktrees/' '/dflow-*/' '.vitest/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' '/.dflow.local' '**/tasks/*/.result' '**/tasks/*/.issues' '**/tasks/*/decisions.json' '/docs/dflow-team/'; do
      grep -qxF "$p" "$ex" || printf '%s\n' "$p" >> "$ex"
    done
-   tracked=$(git ls-files .claude/skills | head -n 1)   # 비어 있지 않으면 킷 복사형(스킬이 git 추적됨)
-   [ -n "$tracked" ] || { grep -qxF '/.claude/skills' "$ex" || printf '%s\n' '/.claude/skills' >> "$ex"; }
+   tracked=$(git ls-files .claude/skills/dflow-dev | head -n 1)   # 비어 있지 않으면 킷 복사형(dflow 스킬이 git 추적됨)
+   if [ -z "$tracked" ]; then   # 심링크형 — 일반 스킬을 추적하는 리포면 dflow-* 링크만 가린다
+     if [ -n "$(git ls-files .claude/skills | head -n 1)" ]; then sp='/.claude/skills/dflow-*'; else sp='/.claude/skills'; fi
+     grep -qxF "$sp" "$ex" || printf '%s\n' "$sp" >> "$ex"
+   fi
    if [ -n "$tracked" ] && [ -n "$base" ]; then
      if git fetch -q origin; then
        git show "origin/$base:.claude/skills/dflow-dev/SKILL.md" 2>/dev/null | grep -q -- '--worker' || bad "KIT_NOT_PUSHED dflow-dev"
@@ -603,13 +606,15 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
        lease 를 확인하지 못한 채 시작하지 않는다(fail-closed).
      `holder` 는 `~/.dflow/machine-id`(처음 쓸 때 만든다)와 이 체크아웃 경로로 정해진다. 같은 자리에서 다시 시작하면
      즉시 넘겨받는다.
-   - `KIT_NOT_PUSHED`: `.claude/skills` 가 git 추적되는 킷 복사형 리포면 `git fetch origin` 뒤
+   - `KIT_NOT_PUSHED`: `.claude/skills/dflow-dev` 가 git 추적되는 킷 복사형 리포면 `git fetch origin` 뒤
      `origin/<기본브랜치>` 의 `dflow-dev` SKILL.md 에 `--worker` 가, `dflow-merge` SKILL.md 에 원격 후보 지원
      (`origin/agent/*`)이 있어야 한다. fetch 가 실패하면 검사할 수 없으므로 실패로 친다. 이유: 팀원 워크트리는
      `origin/<기본브랜치>` 에서 만들어지거나 그리로 detach 해서 그 커밋의 스킬을 쓴다. 킷을 설치·커밋만 하고
      push 하지 않으면 작업트리 검사(`OLD_DFLOW_DEV`)는 통과하고 팀원은 전원 `failed no-worker-flag` 로 끝난다.
      안내에 "킷 커밋을 기본 브랜치에 push 한 뒤 다시 시작하라" 를 넣는다. 심링크 배포 리포는 워커가 메인
-     체크아웃의 스킬을 링크하므로 이 검사를 하지 않는다.
+     체크아웃의 스킬을 링크하므로 이 검사를 하지 않는다. 판정 대상을 `.claude/skills` 전체가 아니라
+     `dflow-dev` 로 좁히는 이유: 일반 스킬만 커밋하고 `dflow-*` 는 심링크로 둔 리포가 있다. 그런 리포를
+     킷 복사형으로 읽으면 원격에 없는 `dflow-dev` 를 찾다가 `KIT_NOT_PUSHED` 로 오탐한다(2026-09-23 dmes-standard).
    - `NO_PROJECT`: `.dflow` 의 `project_id` 또는 `.dflow.local` 의 `project_map`(레거시 `.env` 의
      `DFLOW_PROJECT_ID`·`DFLOW_PROJECT_MAP`)에 리포 ↔ D'Flow 프로젝트 바인딩이 없으면
      시작을 거부한다. 이유: 서버의 작업 목록(`/work/mine`)은 PAT 주인이 속한 **모든 프로젝트**의 주문을 돌려준다.
@@ -669,7 +674,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      커밋 대상이며, exclude 에 넣으면 아직 커밋되지 않은 `.dflow` 가 `git status`·`git add -A` 에서 조용히
      사라져 사람이 커밋을 잊고 다른 PC 가 `NO_DFLOW` 로 막힌다. `/.claude/skills`(끝 슬래시 없음)는 스킬 심링크다. 끝 슬래시가 붙은 패턴은 디렉터리에만 걸려 심링크를 가리지 못한다. 이 패턴은 **`.claude/skills`
      가 추적되지 않는 리포에서만** 넣는다. 스킬이 커밋된 리포에 넣으면 새로 추가하는 스킬 파일이 무시돼
-     `git add` 가 거부되기 때문이다. 이유: 부산물이 `/dflow-dev` Phase 06 의 "미커밋 잔여물 커밋" 에 섞이면,
+     `git add` 가 거부되기 때문이다. 일반 스킬은 커밋하고 `dflow-*` 만 심링크인 리포에는 `/.claude/skills/dflow-*`
+     를 넣는다. 이유: 부산물이 `/dflow-dev` Phase 06 의 "미커밋 잔여물 커밋" 에 섞이면,
      브랜치마다 다른 `.dflow-agent` 가 스윕 머지를 충돌시키고 절대경로 심링크가 main 에 들어간다.
    - `DIRTY`: exclude 를 넣은 뒤 `git status --porcelain` 이 비어 있어야 한다. 팀장 체크아웃이 더러우면 승인
      스윕이 위험하다. 실패 안내에 "미커밋 `<TASKS>/*/state.json` 은 파일명을 명시해 먼저 커밋하라(수동
