@@ -8,7 +8,7 @@
   minor 다. 이유: `.env` 에 토큰이 둘 이상이면 어느 키로 도는지 사람이 알아볼 수 없었고, 한 계정에 키가 둘이면
   이메일로도 갈리지 않는다. prefix 는 토큰 문자열 안에 평문으로 든 조회 키라 응답에 실어도 비밀이 늘지 않는다.
 - 클라이언트: `dflow.sh profiles`(토큰마다 한 줄 JSON) · `.dflow.local` 의 `as=<prefix>`(레거시 `.env` 의
-  `DFLOW_AS`, 리포가 쓸 키 고정) · `--as <prefix|email>`. 설계 정본: `docs/superpowers/specs/2026-09-18-dflow-key-select-design.md`.
+  `DFLOW_AS`, 리포가 쓸 키 고정) · `--as <prefix|email>`. 설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-18-dflow-key-select-design.md(킷에는 미동봉).
 
 ## v2.3 변경점 (2026-09-15)
 
