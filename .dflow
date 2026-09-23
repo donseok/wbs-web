@@ -1,0 +1,3 @@
+# .dflow — D'Flow 에이전트 프로젝트 공통 설정(커밋). 개인 값은 .dflow.local.
+api_base=https://dflow-staging.vercel.app
+release_branch=main
