@@ -1,7 +1,7 @@
 #!/bin/sh
 # kit-build.sh — wbs-web 정본(.claude/skills/dflow-*)에서 dflow-kit 배포 킷을 조립한다.
 # 사용법: scripts/kit-build.sh <출력 폴더>   (예: ~/dflow-kit — 그 폴더가 git 리포면 커밋·push 는 사람이)
-# 출력: <출력>/skills/dflow-* · install.sh · .env.example · README.md · VERSION
+# 출력: <출력>/skills/dflow-* · install.sh · README.md · VERSION
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -19,7 +19,6 @@ for s in $SKILLS; do
 done
 
 cp "$ROOT/kit/install.sh" "$OUT/install.sh"; chmod +x "$OUT/install.sh"
-cp "$ROOT/kit/.env.example" "$OUT/.env.example"
 cp "$ROOT/kit/.gitattributes" "$OUT/.gitattributes"
 cp "$ROOT/kit/worker-allow.json" "$OUT/worker-allow.json"
 cp "$ROOT/kit/README.md" "$OUT/README.md"

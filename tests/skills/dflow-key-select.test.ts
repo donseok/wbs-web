@@ -249,10 +249,12 @@ describe('/dflow-team 키 판정(스펙 §6)', () => {
 describe('킷·dflow-work 문서(스펙 §7)', () => {
   const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8')
 
-  it('.env.example 에 빈 DFLOW_AS 와 prefix 설명이 있다', () => {
-    const t = read('kit/.env.example')
-    expect(t).toMatch(/^DFLOW_AS=$/m)
-    expect(t).toContain('dflow.sh profiles')
+  it('dflow.local.example 에 빈 as 와 prefix 설명이 있고, dflow.example 에는 개인 키가 없다', () => {
+    const l = read('.claude/skills/dflow-work/dflow.local.example')
+    expect(l).toMatch(/^as=$/m); expect(l).toMatch(/^dev_branch=/m); expect(l).toContain('prefix')
+    const d = read('.claude/skills/dflow-work/dflow.example')
+    expect(d).toMatch(/^api_base=/m)
+    expect(d).not.toMatch(/^(pats|pat|as|dev_branch|automerge|project_map)=/m)
   })
   it('api-contract.md 가 v2.4 와 두 필드를 적는다', () => {
     const t = read('.claude/skills/dflow-work/references/api-contract.md')

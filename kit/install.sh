@@ -1,8 +1,8 @@
 #!/bin/sh
 # install.sh — dflow-kit 을 대상 리포에 심는다.
 # 사용법: ./install.sh <대상 리포 경로> [--hooks]
-# 하는 일: 의존 명령 점검 → .claude/skills/dflow-* 복사(갱신) → .env 초안·.gitignore 보강 → 다음 단계 안내
-# 하지 않는 일: 토큰 발급·.env 값 기입(사람 몫), git commit.
+# 하는 일: 의존 명령 점검 → .claude/skills/dflow-* 복사(갱신) → .dflow·.dflow.local 초안·.gitignore 보강 → 다음 단계 안내
+# 하지 않는 일: 토큰 발급·.dflow.local 값 기입(사람 몫), git commit.
 set -eu
 
 KIT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -33,15 +33,16 @@ for s in "$KIT_DIR"/skills/dflow-*; do
 done
 chmod +x "$TARGET"/.claude/skills/dflow-work/scripts/dflow.sh "$TARGET"/.claude/skills/dflow-poll/scripts/poll.sh
 
-# 3) .env 초안 + .gitignore
-if [ ! -f "$TARGET/.env" ]; then
-  cp "$KIT_DIR/.env.example" "$TARGET/.env"
-  echo ".env 초안 생성 — 값을 채워야 한다: $TARGET/.env"
-else
-  echo ".env 이미 있음 — DFLOW_API_BASE / DFLOW_PATS / DFLOW_PROJECT_ID 세 키가 있는지 확인할 것"
-fi
+# 3) 설정 초안 + .gitignore — .dflow 는 커밋 대상, .dflow.local 은 개인 파일
+EX="$TARGET/.claude/skills/dflow-work"
+if [ ! -f "$TARGET/.dflow" ]; then cp "$EX/dflow.example" "$TARGET/.dflow"; echo ".dflow 초안 생성 — 값을 채워 커밋하라: $TARGET/.dflow"
+else echo ".dflow 이미 있음"; fi
+if [ ! -f "$TARGET/.dflow.local" ]; then
+  ( umask 077; cp "$EX/dflow.local.example" "$TARGET/.dflow.local" ); echo ".dflow.local 초안 생성 — pats·dev_branch 를 채워라: $TARGET/.dflow.local"
+else echo ".dflow.local 이미 있음 — pats·dev_branch 가 있는지 확인할 것"; fi
+[ -f "$TARGET/.env" ] && grep -q '^DFLOW_' "$TARGET/.env" && echo "⚠ .env 의 DFLOW_* 는 .dflow·.dflow.local 로 옮겨라(두 파일이 있으면 .env 는 읽지 않는다)"
 touch "$TARGET/.gitignore"
-grep -qx '\.env' "$TARGET/.gitignore" || printf '\n# dflow-kit — 토큰 파일\n.env\n' >> "$TARGET/.gitignore"
+grep -qx '\.dflow\.local' "$TARGET/.gitignore" || printf '\n# dflow-kit — 개인 설정(토큰)\n.dflow.local\n' >> "$TARGET/.gitignore"
 
 # 3-c) 줄끝 고정: Windows 의 core.autocrlf=true 클론에서 스킬 스크립트가 CRLF 로 바뀌면 sh 가 `\r` 에서 죽는다.
 touch "$TARGET/.gitattributes"
@@ -74,8 +75,8 @@ cat <<EOF
 
 다음 단계
   1. D'Flow 웹 → 우상단 계정 → /account "내 토큰" 에서 PAT 발급
-  2. $TARGET/.env 에 DFLOW_API_BASE · DFLOW_PATS · DFLOW_PROJECT_ID 기입 (값은 어디에도 붙여넣지 말 것)
-  3. cd $TARGET && (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor)
+  2. $TARGET/.dflow 에 api_base·project_id, $TARGET/.dflow.local 에 pats·dev_branch 기입(값은 어디에도 붙여넣지 말 것). .dflow 는 커밋한다
+  3. cd $TARGET && .claude/skills/dflow-work/scripts/dflow.sh doctor
   4. Claude Code 를 $TARGET 에서 열고 "/dflow-dev" 등 스킬 사용. 스킬 킷은 리포에 커밋해 팀과 공유한다.
   Windows(Git Bash): .gitattributes 로 스킬 줄끝을 LF 로 고정했다. 이미 CRLF 로 받은 클론이면 git add --renormalize . 뒤 커밋한다.
   5. 좌석표 heartbeat 훅: ./install.sh <리포> --hooks 뒤 README 「좌석표 heartbeat 훅」 대로 settings.json 등록

@@ -14,16 +14,16 @@ git clone git@github.com:jongik-sv/dflow-kit.git ~/dflow-kit
 ```
 
 install.sh 가 하는 일: 의존 명령 점검(git curl jq python3 gh) → `<리포>/.claude/skills/dflow-*` 복사 →
-`.env` 초안 + `.gitignore` 보강 → `.claude/settings.json` 에 워커 허용 목록 병합(git 은 이 PC 의 절대경로) → 다음 단계 안내.
+`.dflow`·`.dflow.local` 초안 + `.gitignore` 보강 → `.claude/settings.json` 에 워커 허용 목록 병합(git 은 이 PC 의 절대경로) → 다음 단계 안내.
 
 그 다음 사람이 할 일:
 
 1. D'Flow 웹 → `/account` "내 토큰" → PAT 발급
-2. `<리포>/.env` 에 `DFLOW_API_BASE`(스테이징/운영) · `DFLOW_PATS` · `DFLOW_PROJECT_ID` 기입. 토큰이 둘 이상이면 `DFLOW_AS=<prefix>` 로 이 리포의 키를 고정한다(prefix 는 `dflow.sh profiles` 로 확인. `/dflow-team` 은 비어 있으면 시작할 때 묻고 적는다)
-3. 확인: `cd <리포> && (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor)`
+2. `<리포>/.dflow` 에 `api_base`(스테이징/운영)·`project_id` 기입(커밋 대상). `<리포>/.dflow.local` 에 `pats`·`dev_branch` 기입(개인, 커밋하지 않음). 토큰이 둘 이상이면 `.dflow.local` 의 `as=<prefix>`(내부적으로 `DFLOW_AS`) 로 이 리포의 키를 고정한다(prefix 는 `dflow.sh profiles` 로 확인. `/dflow-team` 은 비어 있으면 시작할 때 묻고 적는다)
+3. 확인: `cd <리포> && .claude/skills/dflow-work/scripts/dflow.sh doctor`
 4. Claude Code 를 **리포 루트에서** 연다 — 스킬은 프로젝트 스코프(`.claude/skills/`)라 cwd 가 리포 루트여야 한다
 
-`.claude/skills/` 는 리포에 커밋하고 기본 브랜치에 push 한다(`/dflow-team` 팀원 워크트리는 `origin` 의 스킬을 쓴다). 팀원은 클론만으로 같은 스킬을 쓴다. `.env` 는 커밋하지 않는다.
+`.claude/skills/` 는 리포에 커밋하고 기본 브랜치에 push 한다(`/dflow-team` 팀원 워크트리는 `origin` 의 스킬을 쓴다). 팀원은 클론만으로 같은 스킬을 쓴다. `.dflow` 는 커밋하고 `.dflow.local` 은 커밋하지 않는다.
 
 ## 들어 있는 것
 
@@ -54,7 +54,7 @@ git · curl · jq · python3 · gh(GitHub CLI, `done --auto-links` 와 리포 �
 ## Windows(Git Bash)
 
 Git for Windows 의 Git Bash 에서 같은 `install.sh` 를 쓴다. 킷과 설치 대상의 `.gitattributes` 가 스킬 줄끝을
-LF 로 고정한다(이미 CRLF 로 받은 클론은 `git add --renormalize .`). `.env` 를 CRLF 로 저장해도 `dflow.sh`·
+LF 로 고정한다(이미 CRLF 로 받은 클론은 `git add --renormalize .`). `.dflow`·`.dflow.local` 을 CRLF 로 저장해도 `dflow.sh`·
 heartbeat 훅이 `\r` 을 걷어낸다. 네이티브 설치기(`irm https://claude.ai/install.ps1 | iex`)는 `~/.local/bin` 을
 PATH 에 넣으라고 경고하므로 그대로 따른다. `/dflow-team` 은 `powershell.exe` 를 쓴다(프로세스 시작 시각·권한 감지).
 
@@ -72,7 +72,7 @@ D'Flow 좌석표(`/agents`)가 "진행 중/무응답/끊김"을 구분하려면 
    ```
 3. 확인: 작업 리포에서 `/dflow-dev` 를 한 사이클 돌리며 D'Flow `/agents` 의 그 책상이 1~2분 간격으로 갱신되는지 본다.
 
-끄기: settings.json 에서 위 원소를 지운다. 훅은 `.env` 의 첫 PAT 를 쓰고 토큰을 출력하거나 기록하지 않는다.
+끄기: settings.json 에서 위 원소를 지운다. 훅은 `.dflow.local` 의 첫 PAT 를 쓰고 토큰을 출력하거나 기록하지 않는다.
 
 **중단**: D'Flow 화면에서 사람이 "중단" 을 누르면 서버가 그 주문의 heartbeat 에 `409 code=cancelled` 를 준다. 훅은 그때만
 `~/.dflow/hb/<주문>.cancelled` 표식을 남기고 `{"continue": false, "stopReason": …}` 를 출력해 세션을 세우며, state.json 의

@@ -19,6 +19,14 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
     expect(readFileSync(join(ROOT, 'kit/README.md'), 'utf8')).toMatch(/^\| dflow-team \|/m)
   })
 
+  it('install.sh 는 .dflow·.dflow.local 초안을 만들고 .dflow.local 을 gitignore 에 넣는다', () => {
+    const t = readFileSync(join(ROOT, 'kit/install.sh'), 'utf8')
+    expect(t).toContain('.dflow.local')
+    expect(t).toContain('dflow.local.example')
+    expect(t).not.toContain('.env.example')
+    expect(readFileSync(join(ROOT, 'scripts/kit-build.sh'), 'utf8')).not.toContain('.env.example')
+  })
+
   it('worker-allow.json 은 권한 규칙 문자열 배열이고 git 규칙은 넣지 않는다', () => {
     const j = JSON.parse(readFileSync(join(ROOT, 'kit/worker-allow.json'), 'utf8'))
     expect(Array.isArray(j.allow)).toBe(true)
