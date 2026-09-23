@@ -27,6 +27,7 @@ usage() {
                          기본은 이 리포에 바인딩된 프로젝트(.dflow 의 project_id·.dflow.local 의 project_map)의 주문만.
                          --any-project 는 필터를 끈다(진단용)
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
+  taskdir <ref>          주문의 작업 폴더(<DOCS_DIR>/tasks/<TSK>, 리포 최상위 기준)
   claim <ref>            주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH)
   progress <ref> <pct 0-99> <요약>
   heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id] [--model m]
@@ -254,12 +255,14 @@ check_depends_local() { # $1=depends_evidence JSON 배열
   done || exit $?   # while 는 서브셸 — die 의 exit 코드를 그대로 부모로 전파(4 로 뭉개지 않는다)
 }
 
-# spec.md 로컬 캐시(결정 A) — DB 정본의 명세를 claim 시점에 스냅샷.
-write_spec_cache() { # $1=claim 응답 JSON
+# spec.md 로컬 캐시(결정 A) — DB 정본의 명세를 claim 시점에 스냅샷. 위치는 <DOCS_DIR>/tasks/<TSK>(리포 최상위 기준).
+write_spec_cache() { # $1=claim 응답 JSON. ORDER_DOCS_DIR 는 check_project 가 채운다.
   _tsk=$(printf '%s' "$1" | jq -r '.item.external_ref // empty' 2>/dev/null | awk -F/ '{print $NF}')
   [ -n "$_tsk" ] || return 0
-  mkdir -p "docs/tasks/$_tsk"
-  _spec_tmp="docs/tasks/$_tsk/spec.md.tmp"
+  _top=$(git rev-parse --show-toplevel 2>/dev/null) || _top=.
+  _rel="${ORDER_DOCS_DIR:-docs}/tasks/$_tsk"
+  mkdir -p "$_top/$_rel"
+  _spec_tmp="$_top/$_rel/spec.md.tmp"
   printf '%s' "$1" | jq -r '
     "# " + (.item.external_ref // "") + " " + (.item.name // "") + "\n" +
     "> stage: " + (.item.stage // "-") + " · category: " + (.item.category // "-") +
@@ -271,8 +274,8 @@ write_spec_cache() { # $1=claim 응답 JSON
     ((.item.acceptance // []) | map("- [ ] " + .) | join("\n"))
   ' > "$_spec_tmp" || { rm -f "$_spec_tmp"; die 6 "spec 파일 쓰기 실패"; }
   # 디스크·권한 문제다. 상태충돌(4)이 아니다 — 주문 상태는 멀쩡하고 고칠 곳이 로컬이다.
-  mv "$_spec_tmp" "docs/tasks/$_tsk/spec.md" || die 6 "spec 파일 원자 이동 실패"
-  printf 'spec 캐시: docs/tasks/%s/spec.md\n' "$_tsk"
+  mv "$_spec_tmp" "$_top/$_rel/spec.md" || die 6 "spec 파일 원자 이동 실패"
+  printf 'spec 캐시: %s/spec.md\n' "$_rel"
 }
 
 # 주문의 프로젝트가 이 리포 바인딩 안인지 확인한다. show 응답에는 project_id 가 없어 /work/mine 목록에서 찾는다.
@@ -284,6 +287,8 @@ check_project() { # $1=전체 UUID
   [ -n "$_p" ] || die 2 "PROJECT_MISMATCH 주문 $(printf '%s' "$1" | cut -c1-8) 의 프로젝트를 목록에서 찾지 못했습니다 — claim 하지 않습니다."
   printf '%s\n' "$ALLOWED_PROJECTS" | grep -qxF "$_p" \
     || die 2 "PROJECT_MISMATCH 주문 $(printf '%s' "$1" | cut -c1-8) 은 프로젝트 $(printf '%s' "$_p" | cut -c1-8) 소속입니다 — 이 리포의 바인딩 밖이라 claim 하지 않습니다."
+  # 작업 폴더의 DOCS_DIR — claim 전에 정해 둔다. 해석 실패(AMBIGUOUS_DOCS_DIR)는 claim 하지 않는다.
+  ORDER_DOCS_DIR=$(dflow_config_docs_dir "$_p") || exit 2
 }
 
 cmd_claim() {
@@ -301,6 +306,16 @@ cmd_claim() {
     "$(jq -nc --arg a "$_label" '{agent:$a}')") || exit $?
   write_spec_cache "$_resp"
   printf 'claimed %s\n' "$(printf '%s' "$_id" | cut -c1-8)"
+}
+
+# 주문의 작업 폴더(리포 최상위 기준 상대경로). 스킬 문서의 <TASKS>/<TSK> 가 이 값이다.
+cmd_taskdir() {
+  _id=$(resolve_ref "$1")
+  check_project "$_id"
+  _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
+  _tsk=$(printf '%s' "$_detail" | jq -r '.item.external_ref // empty' 2>/dev/null | awk -F/ '{print $NF}')
+  [ -n "$_tsk" ] || die 6 "NO_REF 주문 $(printf '%s' "$_id" | cut -c1-8) 에 external_ref 가 없다 — WBS import 로 만든 항목이 아니다"
+  printf '%s/tasks/%s\n' "$ORDER_DOCS_DIR" "$_tsk"
 }
 
 cmd_progress() {
@@ -529,6 +544,7 @@ case "$CMD" in
        me) cmd_me "$@" ;;
        list) cmd_list "$@" ;;
        show) [ $# -ge 1 ] || usage; cmd_show "$@" ;;
+       taskdir) [ $# -ge 1 ] || usage; cmd_taskdir "$@" ;;
        claim) [ $# -ge 1 ] || usage; cmd_claim "$@" ;;
        progress) [ $# -ge 3 ] || usage; cmd_progress "$@" ;;
        heartbeat) [ $# -ge 1 ] || usage; cmd_heartbeat "$@" ;;
