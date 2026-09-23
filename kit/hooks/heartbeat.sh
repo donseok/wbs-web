@@ -32,8 +32,15 @@ fi
 # 3) 대상 작업: 진행 중 phase 의 state.json 중 최신. 브랜치 이름에서 TSK 를 뽑지 않는다.
 #    중단 표식 검사(_mark)는 cancelled 도 포함한 최신 state.json 으로 한다 — 이미 cancelled 로 바꾼 작업도
 #    표식이 남아 있으면 부모 세션이 다음 도구를 부르는 즉시 다시 세워야 하기 때문이다.
+#    작업 폴더는 docs/tasks/<TSK> 와 project_map 리포의 <DOCS_DIR>/tasks/<TSK>(docs/<x>/tasks/<TSK>) 둘 다 본다.
+#    설정(project_map)을 읽지 않고 모양으로 찾는다 — 인증보다 먼저 도는 단계이고, 절제 전에는 싸야 한다.
+#    glob 대신 find 로 목록을 만든다: zsh 로 돌리면 매치 없는 glob 하나가 명령 전체를 죽인다(no matches found).
+#    -L 로 심볼릭 링크를 따라간다(glob 과 같다) — docs/<x> 를 다른 프로젝트로 링크해 두는 체크아웃이 있다.
+#    먼저 tasks 폴더(깊이 1~2 의 디렉터리)만 찾고 그 안을 훑는다 — 매 도구 호출마다 도는 곳이라 docs 전체를 stat 하지 않는다.
 _state=''; _mark=''
-for _f in $(ls -t "$_top"/docs/tasks/*/state.json 2>/dev/null); do
+_list=$(find -L "$_top/docs" -mindepth 1 -maxdepth 2 -type d -name tasks 2>/dev/null | while IFS= read -r _td; do
+  find -L "$_td" -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null; done)
+for _f in $([ -n "$_list" ] && printf '%s\n' "$_list" | xargs ls -t 2>/dev/null); do
   _ph=$("$JQ" -r '.phase // empty' "$_f" 2>/dev/null || :)
   case "$_ph" in
     design|build|verify|refactor|rejected) [ -n "$_mark" ] || _mark="$_f"; _state="$_f"; break ;;

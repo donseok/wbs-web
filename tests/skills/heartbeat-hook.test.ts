@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, utimesSync, copyFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, utimesSync, copyFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -239,5 +239,56 @@ describe('heartbeat.sh — 중단 신호', () => {
     })
     expect(JSON.parse(out).continue).toBe(false)
     expect(phase()).toBe('cancelled')
+  })
+})
+
+// project_map 리포는 state.json 을 <DOCS_DIR>/tasks 에 둔다(작업 폴더 scaffold 스펙 §3, 최종 리뷰 #1).
+// docs/tasks 만 보면 그런 리포에서 훅이 침묵해 좌석표 신호도 중단 정지도 없다.
+describe('heartbeat.sh — <DOCS_DIR>/tasks 작업 폴더', () => {
+  const MDM = '33333333-3333-4333-8333-333333333333'
+  const MSTATE = () => join(repo, 'docs/mdm/tasks/TSK-02/state.json')
+  beforeEach(() => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    rmSync(join(repo, 'docs/tasks'), { recursive: true, force: true })   // docs/tasks 가 없는 리포
+    mkdirSync(join(repo, 'docs/mdm/tasks/TSK-02'), { recursive: true })
+    writeFileSync(MSTATE(), JSON.stringify({ tsk: 'TSK-02', order: MDM, phase: 'build' }))
+  })
+  for (const shell of ['sh', 'zsh']) {
+    it(`docs/mdm/tasks 의 진행 중 state.json 으로 heartbeat 를 보낸다(${shell}, docs/tasks 없음)`, () => {
+      run(repo, {}, shell)
+      expect(sent()).toHaveLength(1)
+      expect(sent()[0]).toContain(`/api/v1/agent/work/${MDM}/heartbeat`)
+    })
+  }
+  it('docs/tasks 와 docs/mdm/tasks 가 둘 다 있으면 최신 진행 중 state.json 을 고른다', () => {
+    mkdirSync(join(repo, 'docs/tasks/TSK-01'), { recursive: true })
+    const old = join(repo, 'docs/tasks/TSK-01/state.json')
+    writeFileSync(old, JSON.stringify({ tsk: 'TSK-01', order: '22222222-2222-4222-8222-222222222222', phase: 'build' }))
+    const t = new Date(Date.now() - 600_000); utimesSync(old, t, t)
+    run()
+    expect(sent()[0]).toContain(`/api/v1/agent/work/${MDM}/heartbeat`)
+  })
+  it('docs/mdm/tasks 작업도 409 cancelled 면 세우고 phase=cancelled 로 바꾼다', () => {
+    const out = runOut({ FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"code":"cancelled"}' })
+    expect(JSON.parse(out).continue).toBe(false)
+    expect(existsSync(join(home, `.dflow/hb/${MDM}.cancelled`))).toBe(true)
+    expect(JSON.parse(readFileSync(MSTATE(), 'utf8')).phase).toBe('cancelled')
+  })
+})
+
+// 사용자 체크아웃은 docs 아래 폴더를 다른 프로젝트로 심볼릭 링크해 둔다(예 docs/mdm → mdm 프로젝트). glob 처럼 따라간다.
+describe('heartbeat.sh — 심볼릭 링크된 <DOCS_DIR>', () => {
+  it('docs/mdm 이 리포 밖 디렉터리를 가리키는 링크여도 그 아래 state.json 으로 보낸다', () => {
+    const MDM = '44444444-4444-4444-8444-444444444444'
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    rmSync(join(repo, 'docs/tasks'), { recursive: true, force: true })
+    const ext = join(tmp, 'mdm-docs'); mkdirSync(join(ext, 'tasks/TSK-09'), { recursive: true })
+    writeFileSync(join(ext, 'tasks/TSK-09/state.json'), JSON.stringify({ tsk: 'TSK-09', order: MDM, phase: 'design' }))
+    symlinkSync(ext, join(repo, 'docs/mdm'))
+    for (const shell of ['sh', 'zsh']) {
+      rmSync(join(home, '.dflow/hb'), { recursive: true, force: true })
+      run(repo, {}, shell)
+      expect(sent().at(-1), shell).toContain(`/api/v1/agent/work/${MDM}/heartbeat`)
+    }
   })
 })

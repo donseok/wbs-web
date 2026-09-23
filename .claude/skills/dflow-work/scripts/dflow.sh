@@ -27,6 +27,7 @@ usage() {
                          기본은 이 리포에 바인딩된 프로젝트(.dflow 의 project_id·.dflow.local 의 project_map)의 주문만.
                          --any-project 는 필터를 끈다(진단용)
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
+  taskdir <ref>          주문의 작업 폴더(<DOCS_DIR>/tasks/<TSK>, 리포 최상위 기준)
   claim <ref>            주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH)
   progress <ref> <pct 0-99> <요약>
   heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id] [--model m]
@@ -37,7 +38,8 @@ usage() {
   release <ref>
   profiles               토큰마다 한 줄 JSON(n·prefix·name·email·expires_at·projects·bound·selected). 토큰 값은 내지 않는다
   doctor                 설정·의존성·계약 버전 점검
-  config <key>|projects|--source   설정 값·바인딩·판정 출처(비밀 키는 거부)
+  config <key>|projects|--source|docs-dir <uuid>|tasks-dirs
+                         설정 값·바인딩·판정 출처·작업 폴더 역매핑(비밀 키는 거부)
   branch dev|release               개발 브랜치(.dflow.local dev_branch)·운영 브랜치(.dflow release_branch)
 exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨
       10 = 사람이 D'Flow 에서 작업을 중단했다(409 code=cancelled). 더 진행하지 말고 멈춘다
@@ -67,7 +69,9 @@ unset _x _cr
 # 리포 ↔ D'Flow 프로젝트 바인딩: DFLOW_PROJECT_ID 와 DFLOW_PROJECT_MAP(docs/x=<uuid>,…) 값의 합집합.
 # /work/mine 은 PAT 주인이 속한 모든 프로젝트의 주문을 돌려주므로, 거르지 않으면 한 리포의 세션이 다른
 # 프로젝트의 작업을 잡아 엉뚱한 리포에서 개발한다(2026-09-18 발견: 바인딩 없는 리포가 옛 프로젝트 작업을 봄).
-ALLOWED_PROJECTS=$(dflow_config_projects)
+# 여기서는 BAD_DOCS_DIR 경고를 내지 않는다 — 모든 호출(branch·config 등)마다 같은 줄이 쌓인다. 경고는 그 값을
+# 쓰는 경로(claim·taskdir 의 docs_dir, config projects|tasks-dirs|docs-dir, doctor)에서 낸다.
+ALLOWED_PROJECTS=$(DFLOW_CONFIG_QUIET=1; dflow_config_projects)
 # 목록 캐시는 바인딩과 고른 키(DFLOW_AS)마다 나눈다. 한 파일을 모든 리포가 쓰면 순번·접두 해석이 다른 리포가
 # 마지막으로 본 목록으로 풀리고, 같은 리포의 두 팀장(워크트리마다 다른 키)도 서로의 목록을 덮어쓴다.
 LIST_CACHE="$CACHE_DIR/last-list-$(printf '%s|%s' "${ALLOWED_PROJECTS:-any}" "${DFLOW_AS:-}" | cksum | cut -d' ' -f1).json"
@@ -253,12 +257,23 @@ check_depends_local() { # $1=depends_evidence JSON 배열
   done || exit $?   # while 는 서브셸 — die 의 exit 코드를 그대로 부모로 전파(4 로 뭉개지 않는다)
 }
 
-# spec.md 로컬 캐시(결정 A) — DB 정본의 명세를 claim 시점에 스냅샷.
-write_spec_cache() { # $1=claim 응답 JSON
+# spec.md 로컬 캐시(결정 A) — DB 정본의 명세를 claim 시점에 스냅샷. 위치는 <DOCS_DIR>/tasks/<TSK>(리포 최상위 기준).
+# external_ref 의 마지막 칸 = TSK(작업 폴더 이름). $1=item 을 담은 JSON(show·claim 응답). 없으면 빈 값.
+# '.'·'..'·경로 문자는 <DOCS_DIR>/tasks 밖을 가리키므로 거부한다(exit 6). $(...) 안에서 부르므로
+# die 는 서브셸만 끝낸다 — 호출부는 반드시 `|| exit $?` 로 받는다.
+_tsk_from_ref() {
   _tsk=$(printf '%s' "$1" | jq -r '.item.external_ref // empty' 2>/dev/null | awk -F/ '{print $NF}')
+  case "$_tsk" in .|..|*[!A-Za-z0-9._-]*) die 6 "BAD_REF external_ref 의 마지막 칸($_tsk)은 작업 폴더 이름으로 쓸 수 없다 — [A-Za-z0-9._-] 만, '.'·'..' 금지" ;; esac
+  printf '%s' "$_tsk"
+}
+
+write_spec_cache() { # $1=claim 응답 JSON. ORDER_DOCS_DIR 는 check_project 가 채운다.
+  _tsk=$(_tsk_from_ref "$1") || exit $?
   [ -n "$_tsk" ] || return 0
-  mkdir -p "docs/tasks/$_tsk"
-  _spec_tmp="docs/tasks/$_tsk/spec.md.tmp"
+  _top=$(git rev-parse --show-toplevel 2>/dev/null) || _top=.
+  _rel="${ORDER_DOCS_DIR:-docs}/tasks/$_tsk"
+  mkdir -p "$_top/$_rel"
+  _spec_tmp="$_top/$_rel/spec.md.tmp"
   printf '%s' "$1" | jq -r '
     "# " + (.item.external_ref // "") + " " + (.item.name // "") + "\n" +
     "> stage: " + (.item.stage // "-") + " · category: " + (.item.category // "-") +
@@ -270,8 +285,8 @@ write_spec_cache() { # $1=claim 응답 JSON
     ((.item.acceptance // []) | map("- [ ] " + .) | join("\n"))
   ' > "$_spec_tmp" || { rm -f "$_spec_tmp"; die 6 "spec 파일 쓰기 실패"; }
   # 디스크·권한 문제다. 상태충돌(4)이 아니다 — 주문 상태는 멀쩡하고 고칠 곳이 로컬이다.
-  mv "$_spec_tmp" "docs/tasks/$_tsk/spec.md" || die 6 "spec 파일 원자 이동 실패"
-  printf 'spec 캐시: docs/tasks/%s/spec.md\n' "$_tsk"
+  mv "$_spec_tmp" "$_top/$_rel/spec.md" || die 6 "spec 파일 원자 이동 실패"
+  printf 'spec 캐시: %s/spec.md\n' "$_rel"
 }
 
 # 주문의 프로젝트가 이 리포 바인딩 안인지 확인한다. show 응답에는 project_id 가 없어 /work/mine 목록에서 찾는다.
@@ -283,6 +298,8 @@ check_project() { # $1=전체 UUID
   [ -n "$_p" ] || die 2 "PROJECT_MISMATCH 주문 $(printf '%s' "$1" | cut -c1-8) 의 프로젝트를 목록에서 찾지 못했습니다 — claim 하지 않습니다."
   printf '%s\n' "$ALLOWED_PROJECTS" | grep -qxF "$_p" \
     || die 2 "PROJECT_MISMATCH 주문 $(printf '%s' "$1" | cut -c1-8) 은 프로젝트 $(printf '%s' "$_p" | cut -c1-8) 소속입니다 — 이 리포의 바인딩 밖이라 claim 하지 않습니다."
+  # 작업 폴더의 DOCS_DIR — claim 전에 정해 둔다. 해석 실패(AMBIGUOUS_DOCS_DIR)는 claim 하지 않는다.
+  ORDER_DOCS_DIR=$(dflow_config_docs_dir "$_p") || exit 2
 }
 
 cmd_claim() {
@@ -291,6 +308,8 @@ cmd_claim() {
   # ① show 로 선행 evidence 를 먼저 받아 로컬 검사 — 통과 전에는 claim 자체를 하지 않는다(결정 C-②).
   _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
   check_depends_local "$(printf '%s' "$_detail" | jq -c '.depends_evidence // []')"
+  # 작업 폴더 이름도 claim 전에 검사한다 — 잡은 뒤에 거부하면 주문만 claimed 로 남는다.
+  _tsk_from_ref "$_detail" >/dev/null || exit $?
   # 라벨 결정론(§3) — 무작위·타임스탬프 금지. .dflow-agent 가 있으면 그 신원, 없으면 종전과 같은
   # claude-<host> — 어느 경로든 같은 자리는 늘 같은 문자열을 낸다. heartbeat(agent_id_default)와
   # 신원을 맞춰야 좌석표가 claimed_by 와 heartbeat_agent 를 같은 에이전트로 합친다
@@ -300,6 +319,16 @@ cmd_claim() {
     "$(jq -nc --arg a "$_label" '{agent:$a}')") || exit $?
   write_spec_cache "$_resp"
   printf 'claimed %s\n' "$(printf '%s' "$_id" | cut -c1-8)"
+}
+
+# 주문의 작업 폴더(리포 최상위 기준 상대경로). 스킬 문서의 <TASKS>/<TSK> 가 이 값이다.
+cmd_taskdir() {
+  _id=$(resolve_ref "$1")
+  check_project "$_id"
+  _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
+  _tsk=$(_tsk_from_ref "$_detail") || exit $?
+  [ -n "$_tsk" ] || die 6 "NO_REF 주문 $(printf '%s' "$_id" | cut -c1-8) 에 external_ref 가 없다 — WBS import 로 만든 항목이 아니다"
+  printf '%s/tasks/%s\n' "$ORDER_DOCS_DIR" "$_tsk"
 }
 
 cmd_progress() {
@@ -458,6 +487,7 @@ cmd_doctor() {
   need curl; need jq
   _base=$(base) || exit $?
   printf 'base: %s\n' "$_base"
+  dflow_config_projects >/dev/null   # 잘못된 project_map 키(BAD_DOCS_DIR)를 알린다 — 시작 때는 조용히 구했다
   _n=0
   _toks=$(tokens) || exit $?
   _sel=$(pick_token "$AS" "$AS_EXACT" 2>/dev/null) || _sel=''
@@ -500,6 +530,8 @@ cmd_config() {
   case "${1:-}" in
     --source) printf 'mode=%s\ndflow=%s\nlocal=%s\n' "$DFLOW_CONFIG_MODE" "${DFLOW_CONFIG_DOT:--}" "${DFLOW_CONFIG_LOCAL:--}" ;;
     projects) dflow_config_projects ;;
+    docs-dir) [ -n "${2:-}" ] || usage; dflow_config_docs_dir "$2" || exit 2 ;;
+    tasks-dirs) dflow_config_tasks_dirs ;;
     pats|pat) die 2 "SECRET 비밀 값은 출력하지 않는다" ;;
     '') usage ;;
     *) _n=$(_dfc_env "$1") || die 2 "UNKNOWN_KEY $1"; eval "printf '%s\n' \"\${$_n:-}\"" ;;
@@ -526,6 +558,7 @@ case "$CMD" in
        me) cmd_me "$@" ;;
        list) cmd_list "$@" ;;
        show) [ $# -ge 1 ] || usage; cmd_show "$@" ;;
+       taskdir) [ $# -ge 1 ] || usage; cmd_taskdir "$@" ;;
        claim) [ $# -ge 1 ] || usage; cmd_claim "$@" ;;
        progress) [ $# -ge 3 ] || usage; cmd_progress "$@" ;;
        heartbeat) [ $# -ge 1 ] || usage; cmd_heartbeat "$@" ;;

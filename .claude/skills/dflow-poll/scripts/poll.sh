@@ -74,15 +74,21 @@ fi
 # 기본 좌표는 자기 위치 기준 — 이 스킬 묶음(.claude/skills/)을 어느 리포에 심어도 닫힌다.
 SKILLS_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 DFLOW="${DFLOW_SH:-$SKILLS_DIR/dflow-work/scripts/dflow.sh}"
-STATE_GLOB="$PWD/docs/tasks"   # dflow-dev state.json 위치 — 승인 감지 재료
 [ -x "$DFLOW" ]   || { echo "dflow.sh 없음: $DFLOW" >&2; exit 2; }
 # 설정: .dflow·.dflow.local(DFLOW_CONFIG_DIR 또는 git 최상위) → 없으면 레거시 .env(DFLOW_ENV_FILE 또는 ./.env).
 . "$SKILLS_DIR/dflow-work/scripts/dflow-config.sh"
 dflow_config_load || exit 2
+# dflow-dev state.json 위치 — 승인 감지 재료. 바인딩된 <DOCS_DIR>/tasks 전부(리포 최상위 기준).
+STATE_TOP=$(git rev-parse --show-toplevel 2>/dev/null) || STATE_TOP=$PWD
+STATE_FILES() { (DFLOW_CONFIG_QUIET=1; dflow_config_tasks_dirs) | while IFS= read -r _d; do
+  [ -d "$STATE_TOP/$_d" ] && find "$STATE_TOP/$_d" -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null; done; }
 # 리포 ↔ D'Flow 프로젝트 바인딩이 없으면 감시하지 않는다. /work/mine 은 PAT 주인이 속한 모든 프로젝트의 주문을
 # 돌려주므로, 바인딩 없이 돌면 다른 프로젝트의 ready 를 찾아 이 리포에서 착수하게 된다. 거르는 것은 dflow.sh list 다.
-[ -n "$(dflow_config_projects)" ] \
+[ -n "$(DFLOW_CONFIG_QUIET=1; dflow_config_projects)" ] \
   || { echo "프로젝트 바인딩 없음: .dflow 의 project_id 또는 .dflow.local 의 project_map(레거시는 .env 의 DFLOW_PROJECT_ID·DFLOW_PROJECT_MAP)을 넣으세요" >&2; exit 2; }
+# 잘못된 project_map 키(BAD_DOCS_DIR)는 시작 때 한 번 알린다. 그 항목만 건너뛰고 감시는 계속한다 — 매 주기
+# 반복하지 않도록 STATE_FILES 는 조용히 부른다.
+dflow_config_tasks_dirs >/dev/null
 
 net_fail=0
 cycle=0
@@ -107,39 +113,39 @@ while :; do
   # 그게 트리거다: 사람이 웹에서 승인해도 착수할 ready 가 없으면 아무도 못 보던 구멍(2026-08-25).
   merge_hits=''
   reject_hits=''
-  if [ -d "$STATE_GLOB" ]; then
-    for _sf in "$STATE_GLOB"/*/state.json; do
-      [ -f "$_sf" ] || continue
-      _phase=$(jq -r '.phase // empty' "$_sf" 2>/dev/null) || continue
-      # merged 도 훑는다(2026-08-27) — 사람이 승인을 무르고 재작업을 요청하면 서버는
-      # approved→claimed 로 롤백하는데, 그 시점 로컬은 이미 merged 다. reported 만 보면
-      # 그 재작업은 영영 안 잡힌다(ready 도 아니라서 아래 ready 스캔에도 안 걸린다).
-      case "$_phase" in reported|merged) ;; *) continue ;; esac
-      _ord=$(jq -r '.order // empty' "$_sf" 2>/dev/null)
-      [ -n "$_ord" ] || continue
-      _tsk=$(jq -r '.tsk // empty' "$_sf" 2>/dev/null)
-      # show 를 한 번만 부르고 status 와 마지막 완료리포트를 같은 응답에서 뽑는다(추가 호출 0회).
-      _json=$("$DFLOW" show "$_ord" 2>/dev/null) || _json=''
-      _st=$(printf '%s' "$_json" | jq -r '.order.status // empty' 2>/dev/null) || _st=''
-      # 반려 신호는 order 에 없다 — status 는 claimed 로 롤백될 뿐이라 일반 claimed 와 구분 불가.
-      # 최상위 .reports 의 마지막 completion 리포트 review_action 이 유일한 판정 근거(2026-08-25 실측).
-      _rv=$(printf '%s' "$_json" | jq -r '[.reports[]? | select(.kind == "completion")] | last | .review_action // empty' 2>/dev/null) || _rv=''
-      # merged + approved 는 이미 처리를 마친 주문이다 — 여기서 다시 잡으면 머지가 무한 재발한다.
-      if [ "$_st" = "approved" ] && [ "$_phase" = "reported" ]; then
-        merge_hits="${merge_hits}${_tsk}	${_ord}
+  while IFS= read -r _sf; do
+    [ -f "$_sf" ] || continue
+    _phase=$(jq -r '.phase // empty' "$_sf" 2>/dev/null) || continue
+    # merged 도 훑는다(2026-08-27) — 사람이 승인을 무르고 재작업을 요청하면 서버는
+    # approved→claimed 로 롤백하는데, 그 시점 로컬은 이미 merged 다. reported 만 보면
+    # 그 재작업은 영영 안 잡힌다(ready 도 아니라서 아래 ready 스캔에도 안 걸린다).
+    case "$_phase" in reported|merged) ;; *) continue ;; esac
+    _ord=$(jq -r '.order // empty' "$_sf" 2>/dev/null)
+    [ -n "$_ord" ] || continue
+    _tsk=$(jq -r '.tsk // empty' "$_sf" 2>/dev/null)
+    # show 를 한 번만 부르고 status 와 마지막 완료리포트를 같은 응답에서 뽑는다(추가 호출 0회).
+    _json=$("$DFLOW" show "$_ord" 2>/dev/null) || _json=''
+    _st=$(printf '%s' "$_json" | jq -r '.order.status // empty' 2>/dev/null) || _st=''
+    # 반려 신호는 order 에 없다 — status 는 claimed 로 롤백될 뿐이라 일반 claimed 와 구분 불가.
+    # 최상위 .reports 의 마지막 completion 리포트 review_action 이 유일한 판정 근거(2026-08-25 실측).
+    _rv=$(printf '%s' "$_json" | jq -r '[.reports[]? | select(.kind == "completion")] | last | .review_action // empty' 2>/dev/null) || _rv=''
+    # merged + approved 는 이미 처리를 마친 주문이다 — 여기서 다시 잡으면 머지가 무한 재발한다.
+    if [ "$_st" = "approved" ] && [ "$_phase" = "reported" ]; then
+      merge_hits="${merge_hits}${_tsk}	${_ord}
 "
-      elif [ "$_rv" = "reject" ]; then
-        # 사유는 한 줄로 눌러 담는다 — 출력 계약이 TAB 구분 한 줄이라 개행·탭이 섞이면 깨진다.
-        _note=$(printf '%s' "$_json" | jq -r '[.reports[]? | select(.kind == "completion")] | last | .review_note // ""' 2>/dev/null | tr '\n\t' '  ' | sed 's/ *$//')
-        reject_hits="${reject_hits}${_tsk}	${_ord}	${_note}
+    elif [ "$_rv" = "reject" ]; then
+      # 사유는 한 줄로 눌러 담는다 — 출력 계약이 TAB 구분 한 줄이라 개행·탭이 섞이면 깨진다.
+      _note=$(printf '%s' "$_json" | jq -r '[.reports[]? | select(.kind == "completion")] | last | .review_note // ""' 2>/dev/null | tr '\n\t' '  ' | sed 's/ *$//')
+      reject_hits="${reject_hits}${_tsk}	${_ord}	${_note}
 "
-      elif [ -z "$_st" ]; then
-        # 조용히 묻으면 "감지가 도는데 안 잡힌다"와 "조회가 깨졌다"를 구분 못 한다(2026-08-25).
-        # state.json 의 order 는 전체 UUID 가 계약 — id8 이면 dflow.sh idmap 폴백에 걸리길 빌 뿐이다.
-        echo "승인 조회 실패: ${_tsk} (order=${_ord}) — show 해석 불가(전체 UUID 로 기록됐는지 확인)" >&2
-      fi
-    done
-  fi
+    elif [ -z "$_st" ]; then
+      # 조용히 묻으면 "감지가 도는데 안 잡힌다"와 "조회가 깨졌다"를 구분 못 한다(2026-08-25).
+      # state.json 의 order 는 전체 UUID 가 계약 — id8 이면 dflow.sh idmap 폴백에 걸리길 빌 뿐이다.
+      echo "승인 조회 실패: ${_tsk} (order=${_ord}) — show 해석 불가(전체 UUID 로 기록됐는지 확인)" >&2
+    fi
+  done <<EOF
+$(STATE_FILES)
+EOF
   [ -n "$merge_hits" ] && { printf '%s' "$merge_hits"; exit 9; }
   # 반려는 승인 다음 — 머지가 후속을 해금하는 게 먼저고, 반려는 재작업이라 급하지 않다.
   [ -n "$reject_hits" ] && { printf '%s' "$reject_hits"; exit 10; }
