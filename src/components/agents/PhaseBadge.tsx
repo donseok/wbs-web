@@ -26,8 +26,10 @@ export const PHASE_LOOK: Record<string, { label: string; color: string; icon: Re
 const WORKING: ReadonlySet<Seat['state']> = new Set<Seat['state']>(['ACTIVE', 'STALE', 'OFFLINE', 'BLOCKED', 'REJECTED'])
 
 export function seatPhaseKey(seat: Pick<Seat, 'state' | 'phase'>): string | null {
-  // 머지 충돌은 WAIT·DONE 좌석에서 난다 — WORKING 검사보다 먼저 본다.
-  if (seat.phase === 'merge_conflict') return 'merge_conflict'
+  // 머지 충돌은 WAIT·DONE 좌석에서 난다 — WORKING 검사보다 먼저 본다. 반려(REJECTED) 등 점유 좌석에 남은
+  // merge_conflict 는 지난 표시의 잔재라 달지 않는다(REJECTED 는 아래에서 「재작업」 으로 간다).
+  if (seat.phase === 'merge_conflict' && (seat.state === 'WAIT' || seat.state === 'DONE')) return 'merge_conflict'
+  if (seat.phase === 'merge_conflict' && seat.state !== 'REJECTED') return null
   if (!WORKING.has(seat.state)) return null
   if (seat.state === 'BLOCKED') return 'blocked'
   if (seat.state === 'REJECTED' && !PHASE_STEPS.includes(seat.phase as typeof PHASE_STEPS[number])) return 'rejected'

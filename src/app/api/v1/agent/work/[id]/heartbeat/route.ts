@@ -9,7 +9,7 @@ import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteAct
  * heartbeat — 좌석표 v1 스펙 §3-2. 진행 중 주문의 "살아 있음"을 서버에 남긴다.
  * report 와 달리 보고 행·스냅샷·알림·revalidate 가 없다: 60초마다 오는 신호가 행을 늘리면
  * 승인 화면의 이력이 오염되고 디스크가 찬다(2026-08-05 장애 경로). 열 4개 touch 뿐이다.
- * 예외: reported·approved 주문의 merge_conflict 설정·해제(팀장 대리, 2026-09-23 머지 충돌 §7.2)는 phase·note 두 열만 쓴다.
+ * 예외: reported·approved 주문의 merge_conflict 설정과 claimed·reported·approved 주문의 해제(팀장 대리, 2026-09-23 머지 충돌 §7.2)는 phase·note 두 열만 쓴다.
  */
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +19,9 @@ const NOTE_MAX = 500
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,63}$/
 /** 팀장 대리 표시(머지 충돌 설계 2026-09-23 §7.2)를 받는 주문 상태. 워커 phase 는 여전히 claimed 에서만 받는다. */
 const LEAD_STATUSES = ['reported', 'approved'] as const
+/** 해제는 claimed 에서도 받는다 — 반려(reject)는 reported→claimed 로 바꾸며 heartbeat_phase 를 남긴다(0097).
+ *  그대로 두면 재작업 중인 주문에 머지 충돌 표시가 남는데 팀장이 지울 길이 없다. 설정은 여전히 reported·approved 만. */
+const LEAD_CLEAR_STATUSES = ['claimed', 'reported', 'approved'] as const
 const ALL_PHASES = [...HEARTBEAT_PHASES, ...LEAD_PHASES] as readonly string[]
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -64,8 +67,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     // 소유 판정보다 먼저 본다: 중단은 점유 흔적을 지우므로 뒤에 두면 403 not_claim_owner 로 뭉개진다.
     if (order.status === 'cancelled') return apiFail(409, 'cancelled', '작업이 중단되었습니다.')
     if (lead) {
-      if (order.status === 'claimed') return apiBadRequest('merge_conflict 는 완료 보고(reported)·승인(approved) 주문에만 씁니다.')
-      if (!(LEAD_STATUSES as readonly string[]).includes(order.status)) {
+      if (clear === null && order.status === 'claimed') return apiBadRequest('merge_conflict 는 완료 보고(reported)·승인(approved) 주문에만 씁니다.')
+      if (!((clear !== null ? LEAD_CLEAR_STATUSES : LEAD_STATUSES) as readonly string[]).includes(order.status)) {
         return apiFail(409, 'conflict', `merge_conflict 를 표시할 수 있는 상태가 아닙니다(현재: ${order.status}).`)
       }
     } else if (order.status !== 'claimed') {
@@ -118,7 +121,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
  */
 async function writeLeadMark(admin: ReturnType<typeof createAdminClient>, id: string, clear: boolean, note: string) {
   const patch = clear ? { heartbeat_phase: null, heartbeat_note: null } : { heartbeat_phase: 'merge_conflict', heartbeat_note: note }
-  let q = admin.from('agent_work_orders').update(patch).eq('id', id).in('status', [...LEAD_STATUSES])
+  let q = admin.from('agent_work_orders').update(patch).eq('id', id).in('status', clear ? [...LEAD_CLEAR_STATUSES] : [...LEAD_STATUSES])
   // 해제는 현재 값이 merge_conflict 일 때만 — 워커가 남긴 다른 phase 를 지우지 않는다.
   if (clear) q = q.eq('heartbeat_phase', 'merge_conflict')
   const { data, error } = await q.select('id')

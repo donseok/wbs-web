@@ -6,8 +6,8 @@
 
 - `POST /api/v1/agent/work/{id}/heartbeat` 에 팀장 대리 표시 갈래(머지 충돌 설계 §7.2). **PAT 전용**(레거시 400 `identity_required`), 소유 판정은 워커와 같다(`claimed_by_user_id`).
   - 주문 `reported`·`approved` 에 `{agent, phase:"merge_conflict", note}`(note 필수) → 200 `{ok, phase:"merge_conflict"}`. `heartbeat_phase`·`heartbeat_note` 두 열만 쓴다 — `updated_at`·`last_heartbeat_at`·`heartbeat_agent`·재개 요청 열은 그대로다.
-  - `{agent, clear:"merge_conflict"}` → 200 `{ok, phase:null, cleared}`. 현재 값이 `merge_conflict` 일 때만 지운다(`cleared:false` 는 지울 것이 없었다는 뜻).
-  - `claimed` 주문에 `merge_conflict` 는 400, 그 밖의 상태는 409 `conflict`, 중단은 409 `cancelled`. 워커 phase 는 종전대로 `claimed` 에서만 받는다.
+  - `{agent, clear:"merge_conflict"}` → 200 `{ok, phase:null, cleared}`. 주문 `claimed`·`reported`·`approved` 에서 받는다 — 반려(reject)가 reported→claimed 로 바꾸며 표시를 남기기 때문이다(0097). 현재 값이 `merge_conflict` 일 때만 지운다(`cleared:false` 는 지울 것이 없었다는 뜻).
+  - `claimed` 주문에 `merge_conflict` 설정은 400, 그 밖의 상태는 409 `conflict`, 중단은 409 `cancelled`. 워커 phase 는 종전대로 `claimed` 에서만 받는다.
 - CLI: `dflow.sh heartbeat <order> --agent <신원>/<host>/lead --phase merge_conflict --note "<…>"`(출력 `MERGE_CONFLICT_SET`), `--clear-merge-conflict`(출력 `MERGE_CONFLICT_CLEARED`·`MERGE_CONFLICT_ABSENT`).
 ```
 

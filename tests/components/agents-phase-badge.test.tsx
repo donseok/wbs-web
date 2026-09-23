@@ -44,4 +44,8 @@ describe('PhaseBadge — 캐릭터 머리 위 단계 말풍선(2026-09-18)', () 
     expect(b?.getAttribute('title')).toBe('머지 충돌')
     expect(host.querySelector('[data-phase-dot]')).toBeNull()
   })
+  it('반려(REJECTED)·일하는 좌석에 남은 merge_conflict 는 머지 충돌 말풍선을 달지 않는다(2026-09-23 리뷰)', () => {
+    expect(seatPhaseKey({ state: 'REJECTED', phase: 'merge_conflict' })).toBe('rejected')
+    expect(seatPhaseKey({ state: 'ACTIVE', phase: 'merge_conflict' })).toBeNull()
+  })
 })

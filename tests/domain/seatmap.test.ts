@@ -468,3 +468,19 @@ describe('assembleSeatmap — 머지 충돌 표시(2026-09-23 §7.3)', () => {
     expect(m.floors[0].zones[0].seats[0].note).toBeNull()
   })
 })
+
+describe('assembleSeatmap — 반려로 claimed 가 된 주문의 남은 merge_conflict(2026-09-23 리뷰)', () => {
+  it('REJECTED 좌석은 머지 충돌 phase·note·띠를 싣지 않는다(띠에는 REJECTED 한 줄뿐)', () => {
+    const o = order({ heartbeat_phase: 'merge_conflict', heartbeat_note: '충돌 1개(a) · 해소 대기 1/3' })
+    const m = assembleSeatmap(rows({
+      orders: [o],
+      reviews: [{ work_order_id: o.id, review_action: 'reject', review_note: '다시', created_at: ago(600_000) }],
+    }), NOW)
+    const s = m.floors[0].zones[0].seats[0]
+    expect(s.state).toBe('REJECTED')
+    expect(s.phase).not.toBe('merge_conflict')
+    expect(s.heartbeatPhase).toBeNull()
+    expect(s.note).toBeNull()
+    expect(m.attention.map(a => [a.state, a.mergeConflict ?? false])).toEqual([['REJECTED', false]])
+  })
+})

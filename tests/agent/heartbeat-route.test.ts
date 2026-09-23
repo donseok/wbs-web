@@ -184,7 +184,7 @@ describe('POST heartbeat — 팀장 대리 merge_conflict(2026-09-23 머지 충�
     expect(await res.json()).toEqual({ ok: true, phase: null, cleared: true })
     expect(calls.agent_work_orders[0]).toEqual({ heartbeat_phase: null, heartbeat_note: null })
     expect(calls['agent_work_orders:eq']).toContainEqual(['heartbeat_phase', 'merge_conflict'])
-    expect(calls['agent_work_orders:in']).toContainEqual(['status', ['reported', 'approved']])
+    expect(calls['agent_work_orders:in']).toContainEqual(['status', ['claimed', 'reported', 'approved']])
   })
   it('clear 인데 바뀐 행이 없으면(다른 phase 이거나 이미 해제) 200 cleared:false — 다른 값을 지우지 않는다', async () => {
     useAdmin({ ...okQueues(REPORTED), agent_work_orders: [{ data: REPORTED }, { data: [] }] })
@@ -203,6 +203,22 @@ describe('POST heartbeat — 팀장 대리 merge_conflict(2026-09-23 머지 충�
     useAdmin(okQueues(), calls)
     expect((await post({ agent: LEAD, phase: 'merge_conflict', note: 'x' })).status).toBe(400)
     expect(calls.agent_work_orders).toBeUndefined()
+  })
+  it('claimed 에서도 clear 는 받는다 — 반려(reported→claimed)가 남긴 표시를 팀장이 지운다(0097)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls)
+    const res = await post({ agent: LEAD, clear: 'merge_conflict' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, phase: null, cleared: true })
+    expect(calls.agent_work_orders[0]).toEqual({ heartbeat_phase: null, heartbeat_note: null })
+    expect(calls['agent_work_orders:eq']).toContainEqual(['heartbeat_phase', 'merge_conflict'])
+    expect(calls['agent_work_orders:in']).toContainEqual(['status', ['claimed', 'reported', 'approved']])
+  })
+  it('claimed clear 도 PAT·소유자 판정은 같다 — 다른 계정 403, 레거시 400', async () => {
+    useAdmin(okQueues({ ...ORDER, claimed_by_user_id: 'u-9' }))
+    expect((await post({ agent: LEAD, clear: 'merge_conflict' })).status).toBe(403)
+    useAdmin(okQueues())
+    expect((await post({ user_email: 'dev@example.com', agent: 'lead1', clear: 'merge_conflict' }, 'legacy-secret')).status).toBe(400)
   })
   it('409 conflict — reported 에 워커 phase(design) 는 종전대로 / ready 에 merge_conflict', async () => {
     useAdmin(okQueues(REPORTED))

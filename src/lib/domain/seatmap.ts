@@ -198,8 +198,11 @@ function ownerOf(accountId: string | null, viewerId: string | undefined, nameOf:
 }
 
 function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }, report: ReportRow | undefined, owner: { mine: boolean; name: string | null }): Seat {
+  // 반려(reject)는 reported→claimed 로 바꾸며 heartbeat_phase 를 남긴다(0097). 점유 중 주문의 merge_conflict 는
+  // 지난 표시의 잔재라 무시한다 — 머지 충돌은 승인 대기·승인 좌석에서만 뜻이 있다(2026-09-23 리뷰).
+  const hbPhase = o.status === 'claimed' && o.heartbeat_phase === 'merge_conflict' ? null : o.heartbeat_phase
   const input = {
-    status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
+    status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: hbPhase,
     updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
   }
   const state = deriveSeatState(input, nowMs)
@@ -215,8 +218,8 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     state, phase, anim: animFor(state, phase, idleSlot + fnv1a32(o.id) % 3), character: pickCharacter(agent ?? o.id),
     agent, progress: Math.max(0, Math.min(100, Math.round(item?.actual_pct ?? 0))),
     lastSignalAt: o.status === 'claimed' ? signal : null,
-    heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
-    note: o.heartbeat_phase === 'blocked' || o.heartbeat_phase === 'merge_conflict' ? o.heartbeat_note : null,
+    heartbeatAt: o.last_heartbeat_at, heartbeatPhase: hbPhase,
+    note: hbPhase === 'blocked' || hbPhase === 'merge_conflict' ? o.heartbeat_note : null,
     // 표식은 점유 중인 주문에서만 뜻이 있다 — 중단·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
     resumeRequestedAt: o.status === 'claimed' ? (o.resume_requested_at ?? null) : null,
     resumeRequestedHost: o.status === 'claimed' ? (o.resume_requested_host ?? null) : null,
@@ -378,7 +381,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const attention: Attention[] = []
   for (const f of floors) for (const z of f.zones) for (const s of z.seats) {
     // 머지 충돌은 승인 대기·승인 좌석에서 난다 — DONE 을 건너뛰기 전에 띠에 넣는다(카운터에는 넣지 않는다).
-    if (s.heartbeatPhase === 'merge_conflict') {
+    if (s.heartbeatPhase === 'merge_conflict' && (s.state === 'WAIT' || s.state === 'DONE')) {
       attention.push({ orderId: s.orderId, id8: s.id8, floorName: f.name, code: s.code, name: s.name, state: s.state, why: `머지 충돌 · ${s.note ?? '확인 필요'}`, mergeConflict: true })
     }
     if (s.state === 'DONE') continue // 승인분은 doneCount 로 따로 센다 — 현황판 넷에 끼우지 않는다
