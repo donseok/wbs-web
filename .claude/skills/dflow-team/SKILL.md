@@ -19,6 +19,8 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 
 참조: `references/backends.md`(백엔드별 spawn·정리 명령, 차이표, 고아 정리 규칙), `references/worker-prompt.md`
 (팀원 규칙. 팀장은 포인터로 넘기기만 한다), `references/events.md`(events.jsonl 이벤트 표·기록 명령).
+문제 기록: 팀원이 겪은 에러·문제점은 팀장 체크아웃의 `docs/dflow-team/issues.md` 에 쌓인다(「3. 결과 처리」).
+스킬 개선 재료이며 커밋하지 않는다.
 
 이 문서의 `dflow.sh` 는 `.claude/skills/dflow-work/scripts/dflow.sh` 이며, `.dflow`·`.dflow.local`(레거시는
 `.env`)을 스스로 읽으므로 접두를 붙이지 않는다. `<기본브랜치>` 는 「1. 시작」 전제 검사가 구한 이름이다(자세한
@@ -441,7 +443,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    [ -z "$legacy" ] || bad "LEGACY_REPORTED $legacy"
    mkdir -p ~/.dflow
    ex=$(git rev-parse --git-path info/exclude); mkdir -p "$(dirname "$ex")"; touch "$ex"
-   for p in '**/.claude/worktrees/' '/dflow-*/' '.vitest/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' '/.dflow.local' 'docs/tasks/*/.result'; do
+   for p in '**/.claude/worktrees/' '/dflow-*/' '.vitest/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' '/.dflow.local' 'docs/tasks/*/.result' 'docs/tasks/*/.issues' '/docs/dflow-team/'; do
      grep -qxF "$p" "$ex" || printf '%s\n' "$p" >> "$ex"
    done
    tracked=$(git ls-files .claude/skills | head -n 1)   # 비어 있지 않으면 킷 복사형(스킬이 git 추적됨)
@@ -608,7 +610,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      2026-09-19 mdm-dict-v2 실측. 빼면 재기동 때 `DIRTY` 에 걸린다), `.vitest/` 는 워커가 vitest 를 돌리면 남기는 결과
      파일(`.vitest/json/output.json`)이다(빼면 done 뒤 워크트리가 깨끗하지 않아 「고아 정리 규칙」 과 `orca worktree rm` 이
      실패한다. 2026-09-19 mdm-dict-v2 실측), `/.dflow-agent`·
-     `docs/tasks/*/.result` 는 워커가 쓰는 미추적 파일, `/.dflow-prompt`·`/.dflow-pane`·`/.dflow-run` 은
+     `docs/tasks/*/.result`·`docs/tasks/*/.issues` 는 워커가 쓰는 미추적 파일, `/docs/dflow-team/` 은 팀장이 쓰는
+     문제 기록(「3. 결과 처리」 문제 기록) 폴더, `/.dflow-prompt`·`/.dflow-pane`·`/.dflow-run` 은
      팀장이 spawn 때 쓰는 미추적 파일, `/.dflow.local` 은 워크트리 부트스트랩이 거는 심링크다. `.gitignore` 가
      `.dflow.local` 을 가리기 전에도 DIRTY 를 트립하지 않게 여기 둔다. `.dflow` 는 **넣지 않는다** — 스펙 §3.1 대로
      커밋 대상이며, exclude 에 넣으면 아직 커밋되지 않은 `.dflow` 가 `git status`·`git add -A` 에서 조용히
@@ -947,6 +950,34 @@ git -C <워크트리> status --porcelain | cksum                                
 확인 판별(backends.md)에만 쓴다. 스피너 때문에 화면이 매번 달라져 멈춘 팀원도 살아 있는 것처럼 보이기
 때문이다. 터미널 핸들이 없는 옛 Orca 런타임에서는 화면을 읽지 않고 위 셋만 쓴다.
 
+**문제 기록**: 결과 줄을 처리할 때 `blocked` 가 아니면 **`team.result` 기록과 워크트리 정리보다 먼저** 팀장
+체크아웃의 `docs/dflow-team/issues.md` 에 항목 하나를 붙인다. 목적은 팀원이 보고한 에러·문제점을 모아 스킬과
+환경을 개선하는 것이다. 이 파일은 커밋하지 않는다(「1. 시작」 exclude 의 `/docs/dflow-team/`). 커밋하면 승인
+스윕의 머지와 `DIRTY` 검사가 흔들린다.
+- 재료는 둘이다. 하나는 워커가 쓴 `<워크트리>/docs/tasks/<TSK>/.issues`(worker-prompt.md 「7-1」, 줄마다
+  `<phase>\t<분류>\t<내용>`)이고, 다른 하나는 `done` 이 아닌 결과의 사유(결과 줄 7번째 칸부터)다.
+- `done`·`needs-merge` 이고 `.issues` 가 없거나 비었으면 붙이지 않는다. 그 밖의 status 는 `.issues` 가 없어도
+  사유 한 줄로 항목을 만든다.
+- `failed no-result` 는 사유 대신 `pane_dead_status` 와 화면 마지막 20줄(tmux `capture-pane -p -J -S - | tail -n
+  20`, Orca `orca terminal read`)을 코드 블록으로 붙인다. 화면을 읽지 못하면 `화면 없음` 한 줄을 쓴다.
+- `blocked` 는 붙이지 않는다. 팀원이 답을 받아 이어 가며 `.issues` 에 계속 적고, 최종 결과 때 한 번에 옮긴다.
+- 워크트리를 정리하기 전에 옮기는 이유: 정리(`git worktree remove --force`·`orca worktree rm`)가 미추적
+  `.issues` 를 함께 지운다.
+```bash
+f='<MAIN>/docs/dflow-team/issues.md'; i='<워크트리>/docs/tasks/<TSK>/.issues'; st='<status>'
+if [ -s "$i" ] || { [ "$st" != done ] && [ "$st" != needs-merge ]; }; then
+  mkdir -p "$(dirname "$f")"
+  [ -s "$f" ] || printf '# /dflow-team 문제 기록\n\n팀원이 보고한 에러·문제점. 스킬·환경 개선 재료이며 커밋하지 않는다.\n' > "$f"
+  { printf '\n### %s · <TSK> (<id8>) · %s\n\n' "$(date '+%Y-%m-%d %H:%M')" "$st"
+    [ "$st" = done ] || [ "$st" = needs-merge ] || printf -- '- 결과 사유: %s\n' "$reason"
+    [ -s "$i" ] && awk -F'\t' 'NF{c=$2;p=$1;sub(/^[^\t]*\t[^\t]*\t/,"");printf "- [%s] %s: %s\n",c,p,$0}' "$i"
+  } >> "$f" || echo ISSUE_LOG_FAIL
+fi
+```
+`$reason` 은 events.md 「기록 명령」 의 추출 명령으로 얻은 값이다. `ISSUE_LOG_FAIL` 이 나와도 결과 처리를 멈추지
+않고 보고에 한 줄 적는다. 기록 실패가 슬롯 해제를 막으면 안 되기 때문이다. 해시 중복 방지가 결과 줄을 한 번만
+처리하게 하므로 같은 결과가 두 번 기록되지 않는다.
+
 **status 별 처리**: 결과 줄은 경로별 마지막 처리 해시와 다를 때만 처리하며, `blocked` 는 `team.blocked`,
 나머지는 `team.result` 로 해시·사유와 함께 기록한다(events.md). 모든 결과는 집계에 넣는다. 결과를 처리할 때는
 그 id8 을 먼저 진행 중 영구 제외에서 빼고, 아래 표의 제외 칸대로 일시·영구 제외를 새로 정한다. 이유: 「5. 팀원
@@ -1228,7 +1259,8 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    무한정 붙잡지 않게 한다. 팀원은 팀장이 끝나도 자기 pane 이나 탭에서 계속 돈다.
 3. 집계 표(TSK · id8 · 브랜치 · head · done exit · status · 사유)를 보고하고, 마지막 승인 스윕을 한 번 돈다.
    대기 큐·남은 슬롯과 **"멈춤" 표**(「팀장 상태」 — 재시작 명령 칸까지)도 함께 적는다. 이유: 마감 뒤에 남는
-   워크트리는 사람이 이어받는 수밖에 없으므로, 이어받는 방법이 그 자리에 있어야 한다.
+   워크트리는 사람이 이어받는 수밖에 없으므로, 이어받는 방법이 그 자리에 있어야 한다. 이번 실행에서 붙인 문제
+   기록이 있으면 `문제 기록 N건 → <MAIN>/docs/dflow-team/issues.md` 를 한 줄 더 적는다(「3. 결과 처리」 문제 기록).
 4. 남은 팀원 워크트리 중 살아 있는 팀원(「팀장 상태」 정의)이 없는 것만 백엔드별로 정리한다. tmux 는
    워크트리가 아직 있을 때만 `git worktree remove --force <경로>`, Orca 는
    `orca worktree rm --worktree path:<경로>` 다. 두 경우 모두 backends.md 「고아 정리 규칙」 을 따라, 깨끗하고
