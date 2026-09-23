@@ -64,8 +64,8 @@ stop_now() {
 # 사용 토큰(0104) 계산 — 백그라운드 전용. $1=transcript $2=session $3=since(빈 값이면 전부) $4=캐시 파일.
 # 부모 세션 기록과 <세션>/subagents/*.jsonl 을 합쳐 message.id 마다 마지막 줄만 센다(같은 id 가 스트리밍으로
 # 여러 줄 남고 output_tokens 는 뒤 줄이 크다). cat 대신 awk 1 로 이어 붙인다 — 쓰는 중인 파일의 끝 줄에 줄바꿈이
-# 없으면 다음 파일 첫 줄과 붙어 둘 다 깨진다. 깨진 줄은 fromjson? 이 건너뛴다. 모델명이 영숫자로 시작하지 않는
-# 줄(<synthetic> 등)은 뺀다. LLM 은 부르지 않는다.
+# 없으면 다음 파일 첫 줄과 붙어 둘 다 깨진다. 깨진 줄은 fromjson? 이 건너뛴다. 모델명은 서버 규칙(heartbeat 라우트의
+# TOKEN_MODEL_RE)과 같은 식으로 거른다 — <synthetic> 등이 빠진다. LLM 은 부르지 않는다.
 tokens_compute() {
   _sd="${1%.jsonl}/subagents"
   { awk 1 "$1"; [ -d "$_sd" ] && find "$_sd" -maxdepth 1 -type f -name '*.jsonl' -exec awk 1 {} +; } 2>/dev/null \
@@ -73,7 +73,7 @@ tokens_compute() {
   | "$JQ" -c -n -R --arg sid "$2" --arg since "$3" '
       reduce (inputs | fromjson? | select(type == "object" and .type == "assistant" and ((.message.usage // null) | type) == "object")
               | select($since == "" or ((.timestamp // "") >= $since))
-              | select((.message.model // "") | test("^[A-Za-z0-9]"))) as $l
+              | select((.message.model // "") | test("^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,63}$"))) as $l
         ({}; .[($l.message.id // $l.uuid // "") | tostring] = {m: $l.message.model, u: $l.message.usage})
       | [.[]] | group_by(.m)
       | map({model: .[0].m,

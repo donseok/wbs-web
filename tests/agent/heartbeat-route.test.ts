@@ -300,9 +300,21 @@ describe('POST heartbeat — 사용 토큰(0104)', () => {
     [{ session: SID, models: [{ model: 'x', input: 1.5, output: 0, cache_creation: 0, cache_read: 0 }] }],
     [{ session: SID, models: [{ model: 'x', input: 1, output: 0, cache_creation: 0, cache_read: 0 }, { model: 'x', input: 1, output: 0, cache_creation: 0, cache_read: 0 }] }],
     ['nope'],
-  ])('형식이 틀린 tokens 는 400 — %j', async (bad) => {
-    useAdmin(okQueues())
+  ])('형식이 틀린 tokens 는 버리고 heartbeat 는 기록한다(200, tokens_saved:false) — %j', async (bad) => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls)
     const res = await post({ agent: 'hong/mbp/w1', phase: 'build', tokens: bad })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.tokens_saved).toBe(false)
+    expect(typeof body.last_heartbeat_at).toBe('string')
+    expect((calls.agent_work_orders?.[0] as Record<string, unknown>).heartbeat_phase).toBe('build')
+    expect(calls['agent_work_order_tokens:upsert']).toBeUndefined()
+  })
+
+  it('팀장 대리 표시 갈래에 tokens 를 실으면 400', async () => {
+    useAdmin(okQueues({ ...ORDER, status: 'reported' }))
+    const res = await post({ agent: 'hong/mbp/lead', phase: 'merge_conflict', note: 'x', tokens })
     expect(res.status).toBe(400)
   })
 })

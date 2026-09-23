@@ -19,8 +19,9 @@
   서버는 (주문, 세션, 모델) 행을 upsert 한다(`agent_work_order_tokens`). 옛 서버는 모르는 필드를 무시하므로 버전을 올리지 않는다.
 - 보내는 쪽은 heartbeat 훅(`kit/hooks/heartbeat.sh`)뿐이다. 훅이 transcript(서브에이전트 기록 포함)를 jq 로 합쳐 싣고 LLM 은
   부르지 않는다. CLI(`dflow.sh heartbeat`)는 싣지 않는다.
-- 검증: session `^[A-Za-z0-9-]{1,64}$`, models 20개 이하·모델명 중복 금지, 수는 0 이상 정수(상한 1조). 틀리면 400.
-  팀장 대리 표시 갈래(merge_conflict 설정·해제)와 함께 보내면 400.
+- 검증: session `^[A-Za-z0-9-]{1,64}$`, models 20개 이하·모델명 중복 금지, 수는 0 이상 정수(상한 1조). 틀려도 heartbeat 는
+  기록하고(200) 토큰만 버린 뒤 `tokens_saved:false` 로 알린다 — 훅이 같은 캐시를 매분 다시 보내므로 400 을 주면 살아 있음
+  신호가 끊긴다. 팀장 대리 표시 갈래(merge_conflict 설정·해제)와 함께 보내면 400.
 - 토큰 저장이 실패해도 heartbeat 는 200 이고 응답에 `tokens_saved:false` 가 붙는다(성공이면 `true`, 안 보냈으면 필드 없음).
 - heartbeat 는 `claimed` 에서만 받으므로 마지막 신호 뒤(최대 1분)와 완료 보고 뒤의 사용량은 기록되지 않는다.
 

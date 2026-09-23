@@ -50,9 +50,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return apiBadRequest('model 은 영숫자로 시작하는 64자 이하 모델 이름이어야 합니다.')
   }
   // 사용 토큰(0104) — 훅이 세션 누적값을 싣는다. 선택이며, 팀장 대리 표시 갈래에서는 받지 않는다.
+  // 형식이 틀려도 heartbeat 는 거절하지 않는다: 훅은 409 cancelled 외의 응답을 보지 않고 같은 캐시를 매분 다시
+  // 보내므로, 400 을 주면 그 팀원의 살아 있음 신호가 통째로 끊겨 멀쩡한 팀원이 무응답·끊김으로 보인다.
+  // 대신 로그를 남기고 tokens_saved:false 로 알린다(3원칙: 표시 = 로깅).
+  if (b.tokens != null && lead) return apiBadRequest('tokens 는 워커 heartbeat 에만 보냅니다.')
   const tokens = parseTokenUsage(b.tokens)
-  if (!tokens.ok) return apiBadRequest(tokens.error)
-  if (tokens.value && lead) return apiBadRequest('tokens 는 워커 heartbeat 에만 보냅니다.')
+  if (!tokens.ok) console.error('[agent-api] heartbeat tokens 형식 오류 — 토큰만 버린다:', tokens.error)
+  const tokenValue = tokens.ok ? tokens.value : null
 
   try {
     const admin = createAdminClient()
@@ -113,11 +117,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }
     // 토큰 저장 실패는 heartbeat 를 실패시키지 않는다 — 살아 있음 신호가 본업이고, 토큰은 다음 신호가 같은 누적값을
     // 다시 싣는다. 대신 조용히 삼키지 않고 로그를 남기고 응답에 tokens_saved:false 로 알린다(3원칙: 표시 = 로깅).
-    let tokensSaved: boolean | undefined
-    if (tokens.value && tokens.value.models.length > 0) {
-      const session = tokens.value.session
+    let tokensSaved: boolean | undefined = tokens.ok ? undefined : false
+    if (tokenValue && tokenValue.models.length > 0) {
+      const session = tokenValue.session
       const { error: tokErr } = await admin.from('agent_work_order_tokens').upsert(
-        tokens.value.models.map(m => ({
+        tokenValue.models.map(m => ({
           work_order_id: id, session_id: session, model: m.model, updated_at: now,
           input_tokens: m.input, output_tokens: m.output, cache_creation_tokens: m.cache_creation, cache_read_tokens: m.cache_read,
         })),
