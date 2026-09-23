@@ -8,7 +8,7 @@ set -u
 
 # 이 스킬이 기대하는 계약 버전. doctor 는 major 만 본다 — 서버가 minor 를 올리는 것은
 # additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
-CONTRACT_VERSION=2.5
+CONTRACT_VERSION=2.8
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"
@@ -41,6 +41,7 @@ usage() {
   doctor                 설정·의존성·계약 버전 점검
   config <key>|projects|--source   설정 값·바인딩·판정 출처(비밀 키는 거부)
   branch dev|release               개발 브랜치(.dflow.local dev_branch)·운영 브랜치(.dflow release_branch)
+  stub-check [<ref>]               FORCE-STUB 표식 검사(기본 운영 브랜치). 있으면 exit 4
 exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨
       10 = 사람이 D'Flow 에서 작업을 중단했다(409 code=cancelled). 더 진행하지 말고 멈춘다
 EOF
@@ -244,7 +245,8 @@ cmd_show() {
 check_depends_local() { # $1=depends_evidence JSON 배열
   # 파싱 실패는 이쪽 환경·응답이 깨진 것이지 선행이 안 끝난 게 아니다 — 상태충돌(4)로 내면
   # 호출부가 "선행을 기다린다"로 읽고 영원히 재시도한다.
-  _jq_out=$(printf '%s' "$1" | jq -c '.[] | select(.head_sha != null)' 2>&1) || die 6 "의존성 정보 파싱 실패"
+  # 강제 진행으로 면제한 간선(waived, 계약 2.8)은 선행 코드가 없는 게 정상이다 — 스텁으로 대신한다.
+  _jq_out=$(printf '%s' "$1" | jq -c '.[] | select(.head_sha != null and .waived != true)' 2>&1) || die 6 "의존성 정보 파싱 실패"
   [ -n "$_jq_out" ] || return 0  # 의존성 없으면 통과
   printf '%s' "$_jq_out" | while IFS= read -r _d; do
     _sha=$(printf '%s' "$_d" | jq -r '.head_sha' 2>/dev/null)
@@ -513,11 +515,28 @@ cmd_config() {
 cmd_branch() {
   case "${1:-}" in dev|release) dflow_config_branch "$1" || exit 2 ;; *) usage ;; esac
 }
+# 승격 관문(스펙 2026-09-23 F7·§4) — 운영 브랜치로 올리기 전에 강제 진행 스텁 표식이 남았는지 본다.
+# ref 를 주면 설정을 쓰지 않는다(훅·스크립트에서 쓰기 쉽게). 없으면 운영 브랜치(release_branch).
+cmd_stub_check() {
+  _ref=${1:-}
+  if [ -z "$_ref" ]; then
+    _ref=$(dflow_config_branch release) || die 6 "운영 브랜치를 알 수 없다 — dflow.sh stub-check <ref> 로 지정하라"
+  fi
+  git rev-parse -q --verify "$_ref^{commit}" >/dev/null 2>&1 || die 6 "ref 없음: $_ref"
+  _hits=$(git grep -n 'FORCE-STUB:' "$_ref" -- . 2>/dev/null | sed "s#^$_ref:##")
+  if [ -n "$_hits" ]; then
+    printf 'FORCE_STUB_FOUND %s\n' "$(printf '%s\n' "$_hits" | wc -l | tr -d ' ')"
+    printf '%s\n' "$_hits"
+    exit 4
+  fi
+  echo FORCE_STUB_NONE
+}
 
 # ---- main ----------------------------------------------------------------
 case "${1:-}" in
   config) shift; cmd_config "$@"; exit $? ;;
   branch) shift; cmd_branch "$@"; exit $? ;;
+  stub-check) shift; cmd_stub_check "$@"; exit $? ;;
 esac
 need curl; need jq
 AS="${DFLOW_AS:-}"; AS_EXACT=1          # .dflow.local 의 as(레거시 .env 의 DFLOW_AS)는 prefix 만
