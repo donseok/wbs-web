@@ -15,6 +15,7 @@ import { AGENT_HELD_ORDER_STATUSES, stageLockedForHuman } from '@/lib/domain/age
 import { stubPendingLock } from '@/lib/domain/forceProgress'
 
 // 'use server' 파일이라 export 하지 않는다(비동기 함수 외 export 는 next build 를 깬다).
+const STUB_DELETE_MSG = '스텁 제거 작업은 후행 Task 사이드바 「강제 진행」 에서 사유와 함께 취소합니다.'
 const STUB_LOCK_ACTUAL_MSG = '스텁이 남아 있어 완료(100)로 둘 수 없습니다 — 스텁 제거 작업이 끝나면 승인으로 완료합니다.'
 
 export interface ChangeLogEntry {
@@ -631,6 +632,11 @@ export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; erro
   const g = await requireProjectAdmin(projectId)
   if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
+  // 스텁 제거 하위(0103)는 「강제 진행」 절의 취소로만 지운다 — 거기서 면제 확인·주문 취소·사유 이력을 함께 한다.
+  // 선행 조회 실패는 중단한다(모르고 지우면 면제가 살아 있는 채 하위가 사라진다).
+  const { data: row, error: rowErr } = await sb.from('wbs_items').select('stub_for').eq('id', itemId).maybeSingle()
+  if (rowErr) return { ok: false, error: `항목 조회 실패: ${rowErr.message}` }
+  if ((row as { stub_for: string | null } | null)?.stub_for) return { ok: false, error: STUB_DELETE_MSG }
   const { error } = await sb.from('wbs_items').delete().eq('id', itemId)
   if (error) return { ok: false, error: error.message }
   revalidatePath(`/p/${projectId}`, 'layout')

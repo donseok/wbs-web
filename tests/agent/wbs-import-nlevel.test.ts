@@ -145,9 +145,19 @@ function useAdmin(queues: Record<string, Resp[]>, rpcQueue: Resp[] = []) {
   const upserts: Record<string, unknown[]> = {}
   const admin = {
     from: vi.fn((table: string) => {
-      const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
+      let resp: Resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
       for (const k of ['select', 'update', 'insert', 'delete', 'eq', 'in', 'limit']) b[k] = () => b
+      // .not('stub_for', 'is', null) = 강제 진행 F11 사전 검사의 스텁 하위 조회 — 순서 큐를 소비하지 않도록 되돌리고
+      // '<table>:stubs' 큐(기본 빈 목록)로 답한다.
+      let stubQuery = false
+      b.not = () => {
+        if (!stubQuery) {
+          (queues[table] ??= []).unshift(resp); stubQuery = true
+          resp = (queues[`${table}:stubs`] ?? []).shift() ?? { data: [], error: null }
+        }
+        return b
+      }
       b.upsert = (v: unknown) => { (upserts[table] ??= []).push(v); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.single = async () => ({ data: resp.data ?? null, error: resp.error ?? null })

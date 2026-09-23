@@ -22,7 +22,7 @@ vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServer
 vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: vi.fn() }))
 vi.mock('@/lib/ai/ingest', () => ({ ingestProject: vi.fn(async () => ({ count: 0 })) }))
 
-import { addWbsItem, updateActual } from '@/app/actions/wbs'
+import { addWbsItem, deleteWbsItem, updateActual } from '@/app/actions/wbs'
 
 const W1 = '33333333-3333-4333-8333-333333333333'
 type Resp = { data?: unknown; error?: { message: string } | null }
@@ -101,5 +101,22 @@ describe('addWbsItem — F11', () => {
     server({ wbs_items: [{ data: [] }, { data: { stub_for: 'm/TSK-01' } }] })
     const r = await addWbsItem('p1', 'sub-id', '새 항목')
     expect(r).toEqual({ ok: false, error: '스텁 제거 작업 아래에는 하위 항목을 둘 수 없습니다' })
+  })
+})
+
+describe('deleteWbsItem — 스텁 제거 하위는 강제 진행 절의 취소로만', () => {
+  it('stub 하위는 지우지 않고 취소 경로를 안내한다', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue(ADMIN)
+    const { writes, calls } = server({ wbs_items: [{ data: { stub_for: 'm/TSK-01' } }] })
+    const r = await deleteWbsItem('sub-id')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('강제 진행')
+    expect(calls).toEqual(['wbs_items'])
+    expect(writes).toHaveLength(0)
+  })
+  it('조회 실패는 중단한다', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue(ADMIN)
+    server({ wbs_items: [{ error: { message: 'boom' } }] })
+    expect(await deleteWbsItem('x')).toEqual({ ok: false, error: '항목 조회 실패: boom' })
   })
 })
