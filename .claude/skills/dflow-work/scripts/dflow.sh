@@ -256,8 +256,17 @@ check_depends_local() { # $1=depends_evidence JSON 배열
 }
 
 # spec.md 로컬 캐시(결정 A) — DB 정본의 명세를 claim 시점에 스냅샷. 위치는 <DOCS_DIR>/tasks/<TSK>(리포 최상위 기준).
-write_spec_cache() { # $1=claim 응답 JSON. ORDER_DOCS_DIR 는 check_project 가 채운다.
+# external_ref 의 마지막 칸 = TSK(작업 폴더 이름). $1=item 을 담은 JSON(show·claim 응답). 없으면 빈 값.
+# '.'·'..'·경로 문자는 <DOCS_DIR>/tasks 밖을 가리키므로 거부한다(exit 6). $(...) 안에서 부르므로
+# die 는 서브셸만 끝낸다 — 호출부는 반드시 `|| exit $?` 로 받는다.
+_tsk_from_ref() {
   _tsk=$(printf '%s' "$1" | jq -r '.item.external_ref // empty' 2>/dev/null | awk -F/ '{print $NF}')
+  case "$_tsk" in .|..|*[!A-Za-z0-9._-]*) die 6 "BAD_REF external_ref 의 마지막 칸($_tsk)은 작업 폴더 이름으로 쓸 수 없다 — [A-Za-z0-9._-] 만, '.'·'..' 금지" ;; esac
+  printf '%s' "$_tsk"
+}
+
+write_spec_cache() { # $1=claim 응답 JSON. ORDER_DOCS_DIR 는 check_project 가 채운다.
+  _tsk=$(_tsk_from_ref "$1") || exit $?
   [ -n "$_tsk" ] || return 0
   _top=$(git rev-parse --show-toplevel 2>/dev/null) || _top=.
   _rel="${ORDER_DOCS_DIR:-docs}/tasks/$_tsk"
@@ -297,6 +306,8 @@ cmd_claim() {
   # ① show 로 선행 evidence 를 먼저 받아 로컬 검사 — 통과 전에는 claim 자체를 하지 않는다(결정 C-②).
   _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
   check_depends_local "$(printf '%s' "$_detail" | jq -c '.depends_evidence // []')"
+  # 작업 폴더 이름도 claim 전에 검사한다 — 잡은 뒤에 거부하면 주문만 claimed 로 남는다.
+  _tsk_from_ref "$_detail" >/dev/null || exit $?
   # 라벨 결정론(§3) — 무작위·타임스탬프 금지. .dflow-agent 가 있으면 그 신원, 없으면 종전과 같은
   # claude-<host> — 어느 경로든 같은 자리는 늘 같은 문자열을 낸다. heartbeat(agent_id_default)와
   # 신원을 맞춰야 좌석표가 claimed_by 와 heartbeat_agent 를 같은 에이전트로 합친다
@@ -313,7 +324,7 @@ cmd_taskdir() {
   _id=$(resolve_ref "$1")
   check_project "$_id"
   _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
-  _tsk=$(printf '%s' "$_detail" | jq -r '.item.external_ref // empty' 2>/dev/null | awk -F/ '{print $NF}')
+  _tsk=$(_tsk_from_ref "$_detail") || exit $?
   [ -n "$_tsk" ] || die 6 "NO_REF 주문 $(printf '%s' "$_id" | cut -c1-8) 에 external_ref 가 없다 — WBS import 로 만든 항목이 아니다"
   printf '%s/tasks/%s\n' "$ORDER_DOCS_DIR" "$_tsk"
 }
@@ -517,7 +528,7 @@ cmd_config() {
     --source) printf 'mode=%s\ndflow=%s\nlocal=%s\n' "$DFLOW_CONFIG_MODE" "${DFLOW_CONFIG_DOT:--}" "${DFLOW_CONFIG_LOCAL:--}" ;;
     projects) dflow_config_projects ;;
     docs-dir) [ -n "${2:-}" ] || usage; dflow_config_docs_dir "$2" || exit 2 ;;
-    tasks-dirs) dflow_config_tasks_dirs ;;
+    tasks-dirs) dflow_config_tasks_dirs || exit 2 ;;
     pats|pat) die 2 "SECRET 비밀 값은 출력하지 않는다" ;;
     '') usage ;;
     *) _n=$(_dfc_env "$1") || die 2 "UNKNOWN_KEY $1"; eval "printf '%s\n' \"\${$_n:-}\"" ;;

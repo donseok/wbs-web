@@ -20,6 +20,7 @@ out=''; url=''
 while [ $# -gt 0 ]; do
   case "$1" in -o) out="$2"; shift 2 ;; -X|-H|-w|--data) shift 2 ;; -sS) shift ;; *) url="$1"; shift ;; esac
 done
+[ -n "\${CURL_LOG:-}" ] && printf '%s\n' "$url" >> "$CURL_LOG"
 case "$url" in
   *"/agent/work/mine"*) printf '%s' "$MINE_BODY" > "$out" ;;
   *"/claim") printf '%s' "$SHOW_BODY" > "$out" ;;
@@ -78,5 +79,32 @@ describe('taskdir·claim spec 캐시', () => {
   it('external_ref 가 없으면 taskdir 는 exit 6 NO_REF', () => {
     const r = run(['taskdir', O2], { MINE_BODY: MINE, SHOW_BODY: JSON.stringify({ id: O2, item: {} }) })
     expect(r.status).toBe(6); expect(r.stderr).toContain('NO_REF')
+  })
+  // external_ref 마지막 칸이 '.'·'..' 이면 작업 폴더가 <DOCS_DIR>/tasks 밖으로 나간다(최종 리뷰 #2).
+  const bad = (ref: string) => JSON.stringify({ id: O2, item: { external_ref: ref, name: 't' }, depends_evidence: [] })
+  for (const ref of ['X/..', 'X/.']) {
+    it(`taskdir '${ref}' 는 exit 6 BAD_REF`, () => {
+      const r = run(['taskdir', O2], { MINE_BODY: MINE, SHOW_BODY: bad(ref) })
+      expect(r.status).toBe(6); expect(r.stderr).toContain('BAD_REF'); expect(r.stdout).toBe('')
+    })
+  }
+  it("claim 'X/..' 는 claim POST 전에 exit 6 — 주문도 잡지 않고 spec.md 도 쓰지 않는다", () => {
+    const log = join(tmp, 'curl.log')
+    const r = run(['claim', O2], { MINE_BODY: MINE, SHOW_BODY: bad('X/..'), CURL_LOG: log })
+    expect(r.status).toBe(6); expect(r.stderr).toContain('BAD_REF')
+    const urls = existsSync(log) ? readFileSync(log, 'utf8') : ''
+    expect(urls).toContain(`/agent/work/${O2}`)          // show 는 불렀다
+    expect(urls).not.toContain('/claim')                  // claim POST 는 없다
+    for (const p of ['docs/spec.md', 'docs/mdm/spec.md', 'docs/mdm/tasks/spec.md', 'docs/tasks/spec.md'])
+      expect(existsSync(join(repo, p)), p).toBe(false)
+  })
+  it("claim 'X/.' 도 claim POST 전에 exit 6 (project_id → docs)", () => {
+    const log = join(tmp, 'curl.log')
+    const mine1 = JSON.stringify({ claimed: [], assigned: [order(O1, P1, 'X/.')], available: [] })
+    const r = run(['claim', O1], { MINE_BODY: mine1, SHOW_BODY: JSON.stringify({ id: O1, item: { external_ref: 'X/.' }, depends_evidence: [] }), CURL_LOG: log })
+    expect(r.status).toBe(6); expect(r.stderr).toContain('BAD_REF')
+    expect(readFileSync(log, 'utf8')).not.toContain('/claim')
+    expect(existsSync(join(repo, 'docs/tasks/spec.md'))).toBe(false)
+    expect(existsSync(join(repo, 'docs/spec.md'))).toBe(false)
   })
 })
