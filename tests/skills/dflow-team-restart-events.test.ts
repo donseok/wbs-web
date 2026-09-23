@@ -33,7 +33,7 @@ function lostCommand(over: (code: string) => string = (c) => c): string {
   return over(code)
 }
 function run(code: string) {
-  return spawnSync('sh', ['-c', code], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: home } })
+  return spawnSync('sh', ['-c', code], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: home, NODE_ENV: process.env.NODE_ENV } })
 }
 const lines = () => {
   const f = join(home, '.dflow', 'events.jsonl')

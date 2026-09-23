@@ -32,7 +32,7 @@ afterEach(() => {
   if (existsSync(hb)) chmodSync(hb, 0o755)
   rmSync(tmp, { recursive: true, force: true })
 })
-const sh = (code: string) => spawnSync('sh', ['-c', code], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: home } })
+const sh = (code: string) => spawnSync('sh', ['-c', code], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: home, NODE_ENV: process.env.NODE_ENV } })
 const lead = (code: string) => code.replaceAll("'<신원>/<host>/lead'", "'me/h/lead'").replaceAll("'<MAIN>'", "'/r'")
 function events(rows: Record<string, unknown>[]) {
   mkdirSync(join(home, '.dflow'), { recursive: true })

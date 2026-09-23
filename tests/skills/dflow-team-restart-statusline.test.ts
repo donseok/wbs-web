@@ -12,7 +12,7 @@ const R = () => readFileSync(join(ROOT, '.claude/skills/dflow-team/references/re
 let tmp: string, home: string
 beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'sl-')); home = join(tmp, 'home'); mkdirSync(home) })
 afterEach(() => { rmSync(tmp, { recursive: true, force: true }) })
-const env = () => ({ PATH: process.env.PATH ?? '', HOME: home })
+const env = () => ({ PATH: process.env.PATH ?? '', HOME: home, NODE_ENV: process.env.NODE_ENV })
 
 function settingsLines(): string {
   const m = B().match(/^(LIM="\$HOME\/\.dflow\/limits"; mkdir -p "\$LIM"\njq -n --arg f "\$LIM\/<id8>\.json" [^\n]*> "\$LIM\/<id8>\.settings\.json")$/m)
@@ -48,7 +48,7 @@ describe('statusLine 덤프', () => {
     if (withSettings) makeSettings()
     const run = join(wt, '.dflow-run')
     writeFileSync(run, '#!/bin/sh\n' + m[1].replaceAll('<id8>', 'abcd1234').replaceAll('<모델 플래그>', '--model opus') + '\n'); chmodSync(run, 0o755)
-    return spawnSync('sh', [run], { cwd: wt, encoding: 'utf8', env: { PATH: `${bin}:${process.env.PATH ?? ''}`, HOME: home } })
+    return spawnSync('sh', [run], { cwd: wt, encoding: 'utf8', env: { PATH: `${bin}:${process.env.PATH ?? ''}`, HOME: home, NODE_ENV: process.env.NODE_ENV } })
   }
   it('.dflow-run 은 설정 파일이 있으면 --settings 로 싣는다', () => {
     const r = runTail(true)
