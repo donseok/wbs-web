@@ -37,23 +37,27 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      고정 glob `*/tasks/*/state.json` 을 쓰지 않는 이유: 이 repo 밖 어느
      디렉터리든 이름이 `tasks` 이기만 하면 걸린다(예 `src/tasks/…`) — 이 프로젝트의 작업 폴더가 아니다.
      ```bash
+     cd "$(git rev-parse --show-toplevel)" || exit 1   # tasks-dirs·pathspec 은 리포 최상위 기준이다
      api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}
      git fetch origin
      dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs); rc=$?
      { [ "$rc" = 0 ] && [ -n "$dirs" ]; } || { echo "건너뜀(tasks-dirs 조회 실패, exit $rc)"; exit 1; }
-     set --
-     while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done <<EOF
-     $dirs
-     EOF
-     for ref in $(git branch -r --list 'origin/agent/*'); do
-       id8=$(printf '%s' "${ref#origin/agent/}" | cut -c1-8)
-       git diff --name-only "origin/<기본브랜치>...$ref" -- "$@" | while IFS= read -r p; do
-         git show "$ref:$p" | jq -r --arg ref "$ref" --arg id8 "$id8" --arg api "$api" --arg p "$p" \
-           'select((.order // "") | startswith($id8)) | select(.phase != "merged")
-            | [$ref, .tsk, .order, .phase, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end), $p] | @tsv'
+     printf '%s\n' "$dirs" | {
+       set --
+       while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done
+       for ref in $(git branch -r --list 'origin/agent/*'); do
+         id8=$(printf '%s' "${ref#origin/agent/}" | cut -c1-8)
+         git diff --name-only "origin/<기본브랜치>...$ref" -- "$@" | while IFS= read -r p; do
+           git show "$ref:$p" | jq -r --arg ref "$ref" --arg id8 "$id8" --arg api "$api" --arg p "$p" \
+             'select((.order // "") | startswith($id8)) | select(.phase != "merged")
+              | [$ref, .tsk, .order, .phase, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end), $p] | @tsv'
+         done
        done
-     done
+     }
      ```
+     `$dirs` 를 here-doc(`<<EOF`)으로 넘기지 않는 이유: 이 블록은 목록 들여쓰기째 붙여 넣어질 수 있는데,
+     그러면 종결자 `EOF` 앞에 공백이 붙어 here-doc 이 끝나지 않고 뒤의 반복문 전체를 삼킨 채 exit 0 으로
+     끝난다(후보 0건이 오류 없이 보고된다). 파이프 뒤 `{ … }` 는 들여쓰기와 무관하다.
      `tasks-dirs` 가 실패하거나(exit≠0) 빈 값을 내면 `$dirs` 가 빈 줄 하나가 되어 `"$d/*/state.json"` 이
      `"/*/state.json"` 으로 풀린다. git 은 이런 pathspec 을 리포 바깥 경로로 보고 거부한다("outside
      repository") — `git diff` 자체가 실패해 원격 후보를 **조용히 0건**으로 만든다(오류가 파이프 뒤로 사라져
@@ -81,6 +85,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      만든 state.json)는 지금처럼 판정한다. `/dflow-team` 팀장은 그런 후보가 있으면 시작하지 않는다. 로컬
      후보의 값은 아래로 본다.
      ```bash
+     cd "$(git rev-parse --show-toplevel)" || exit 1   # tasks-dirs 는 최상위 기준. $f 도 최상위 기준 경로로 나와야 <W>/<경로> 로 재사용된다
      api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}   # 원격 스캔 블록과 별도 호출이라 다시 구한다
      .claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs | while IFS= read -r d; do
        find "$d" -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null
@@ -247,10 +252,19 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    grep -qxF '**/.claude/worktrees/' "$ex" || printf '%s\n' '**/.claude/worktrees/' >> "$ex"
    git worktree remove --force "$W" 2>/dev/null; rm -rf "$W"; git worktree prune
    git fetch origin && git worktree add --detach "$W" origin/<기본브랜치> || echo MERGE_WT_FAILED
+   echo "W=$W"
    ```
    - `MERGE_WT_FAILED` 면 이번 스윕은 아무것도 머지하지 않고 "머지 워크트리 생성 실패" 로 보고한다.
-   - 후보마다 위 1~5를 `<W>` 에서 한다. 달라지는 것은 셋뿐이다. 설정 블록과 후보 처리를 같은 셸 세션에서
-     이어 돈다면 `$W` 를 그대로 쓰고, 별도 호출로 나누면 그 블록이 만든 실제 경로를 `<W>` 자리에 옮겨 적는다.
+   - **`$W` 를 쓰는 뒤 호출은 모두 아래 가드 줄로 시작한다.** Bash 호출 사이에는 셸 변수가 남지 않는다.
+     빈 `$W` 로 `git -C "" …` 를 부르면 git 은 호출한 체크아웃에서 돈다 — 사용자 브랜치에 머지하고, 그것을
+     `HEAD:<기본브랜치>` 로 push 하고, 실패하면 `reset --hard` 로 그 체크아웃을 되돌린다. 가드는 `$W` 를 같은
+     규칙(`<ROOT>` = 호출한 체크아웃의 최상위)으로 다시 구하고, 워크트리가 없으면 아무것도 하지 않고 멈춘다.
+     ```bash
+     W="$(git rev-parse --show-toplevel)/.claude/worktrees/dflow-merge"; [ -e "$W/.git" ] || { echo NO_MERGE_WT; exit 1; }
+     ```
+     `NO_MERGE_WT` 면 그 후보를 처리하지 않고 "머지 워크트리 없음" 으로 보고한 뒤 스윕을 멈춘다.
+   - 후보마다 위 1~5를 `<W>` 에서 한다. 달라지는 것은 셋뿐이다. 설정 블록과 같은 호출 안에서 이어 돌 때만
+     가드 없이 `$W` 를 그대로 쓴다. 아래 `<W>`·`"$W"` 는 가드 줄이 구한 값이다.
      1. 1단계는 `git -C "$W" fetch origin && git -C "$W" switch --detach origin/<기본브랜치>` 다. `pull` 대신
         detach 하는 이유: `<W>` 는 브랜치를 잡지 않는다. 그 뒤 `git -C "$W" rev-parse HEAD` 를 머지 직전 HEAD 로 기록한다.
      2. 4단계의 state.json 은 `<W>/<후보 state.json 경로>` 를 고쳐 `<W>` 에서 커밋한다(같은 경로 재사용 규칙).

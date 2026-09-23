@@ -448,7 +448,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    who=$(printf '%s' "$email" | cut -d@ -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
    host=$(hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
    echo "user_email=$email lead=$who/$host/lead"
-   legacy=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs | while IFS= read -r d; do find "$d" -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null; done | while IFS= read -r f; do
+   legacy=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs | while IFS= read -r d; do find "$(git rev-parse --show-toplevel)/$d" -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null; done | while IFS= read -r f; do
      jq -e '.phase == "reported" and ((.api_base // "") == "")' "$f" >/dev/null 2>&1 && printf '%s ' "$f"
    done)
    [ -z "$legacy" ] || bad "LEGACY_REPORTED $legacy"

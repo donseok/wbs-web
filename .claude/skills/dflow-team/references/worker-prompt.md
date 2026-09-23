@@ -22,10 +22,10 @@
 `.dflow` 가 없어 다른 값이 나올 수 있기 때문이다. `DEV_BRANCH` 인자가 비어 있으면 `.result` 에
 `{TSK} {ID8} - - - failed no-dev-branch` 를 쓰고 끝낸다. `{TASK_DIR}` 도 같은 이유로 다시 해석하지 않는다 —
 detach 된 옛 커밋에는 `.dflow.local` 의 `project_map` 이 없거나 지금과 달라, 워커가 스스로 구하면 팀장이
-구한 값과 다른 `TASK_DIR` 이 나올 수 있기 때문이다. **`TASK_DIR` 이 비어 있으면** — `DEV_BRANCH` 와 달리
-아직 워크트리 격리를 확인하기 전(포인터를 막 읽은 시점)일 수 있으므로 `.result` 를 **쓰지 않고** 1번의
-`not-isolated` 와 같은 방식으로 마지막 응답으로 `{TSK} {ID8} - - - failed no-task-dir` 한 줄만 출력하고
-끝낸다.
+구한 값과 다른 `TASK_DIR` 이 나올 수 있기 때문이다. **`TASK_DIR` 이 비어 있으면** `{TASK_DIR}` 을 `docs/tasks/{TSK}` 로 보고 계속한다 —
+`TASK_DIR` 을 넘기기 전 버전으로 이미 떠 있는 팀장이 그 경로의 `.result` 를 폴링하므로, 실패로 끝내면 결과가
+그 팀장에게 닿지 않아 슬롯이 멈춘다. `project_id` 만 쓰는 리포에서는 이 값이 정본과 같다. `project_map` 리포에서는
+claim 의 `spec.md` 가 `<DOCS_DIR>/tasks/{TSK}` 에 따로 생길 수 있지만, 옛 팀장이 보는 곳은 이 폴백뿐이라 결과 전달을 앞세운다.
 
 ## 0. git 호출 규칙 (두 백엔드 공통, 모든 단계)
 

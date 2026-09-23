@@ -66,7 +66,8 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
   it('원격 후보: origin/agent/* 의 state.json 을 git diff 로 찾아 git show 로 읽고 merged 가 아니면 후보다', () => {
     expect(skill).toContain("git branch -r --list 'origin/agent/*'") // 팀장 전제 검사가 grep 하는 바이트열 포함
     expect(skill).toContain('dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs)')
-    expect(skill).toContain('while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done <<EOF')
+    expect(skill).toContain('while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done')
+    expect(skill).not.toContain('done <<EOF')   // 들여쓴 목록 안 here-doc 은 붙여넣기에서 종결되지 않는다
     expect(skill).toContain('git diff --name-only "origin/<기본브랜치>...$ref" -- "$@"')
     expect(skill).toContain('`git show <ref>:<경로>`')
     expect(skill).toContain('`git show` 에는 glob 을 쓰지 않는다')
