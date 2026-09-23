@@ -18,6 +18,10 @@ function run(show: unknown): { spec_empty: boolean; deps_unmet: string[] } {
 const order = (extra: Record<string, unknown>) => ({ order: { id: 'o1', item: { external_ref: 'd/TSK-03-02', spec: '본문' } }, ...extra })
 
 describe('dflow-team — spawn 전 선행 사전 검사(2026-09-19)', () => {
+  it('show 필터는 G1(중단 표식 정리)을 위해 status 를 싣는다', () => {
+    const r = JSON.parse(execFileSync('jq', ['-c', filterExpr()], { input: JSON.stringify({ order: { id: 'o1', status: 'ready', item: { external_ref: 'd/TSK-03-02', spec: '본문' } } }) }).toString())
+    expect(r.status).toBe('ready')
+  })
   it('reached 가 거짓인 선행만 deps_unmet 에 담는다', () => {
     const r = run(order({ depends_evidence: [
       { external_ref: 'd/TSK-03-01', reached: false, head_sha: null },
