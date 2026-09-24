@@ -209,6 +209,10 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
       머지 전에 `dflow.sh stub-check <머지 대상>` 을 돌린다. exit 4 면 머지하지 않고 「스텁 잔존 — 개발 브랜치 미설정 리포라
       운영에 스텁이 들어간다」 로 보고한 뒤 다음 후보로 간다(스펙 2026-09-23 §4). 두 브랜치가 다르면 이 검사를 하지 않는다 —
       스텁은 개발 브랜치에 머지되는 것이 정상이고(F5), 관문은 운영 승격이다.
+      **마이그레이션 버전 관문**: 머지 전에 `.claude/skills/dflow-merge/scripts/migration-check.sh HEAD <머지 대상>` 을 돈다
+      (「마이그레이션 버전 관문」, 임시 머지 워크트리면 `-C "$W"`). exit 1(버전 중복·역순 도착)이면 머지하지 않고
+      `머지 실패(충돌) <MIGRATION_FILES 의 파일,…> (마이그레이션 버전)` 으로 보고한 뒤 다음 후보로 간다 — 팀장은 텍스트 충돌과
+      똑같이 해소 워커에 넘긴다. exit 2(판정 불가)면 머지하지 않고 "건너뜀(마이그레이션 검사 실패)" 로 보고한다.
    3. `git merge --no-ff <머지 대상>`. 충돌하면 먼저 공용 결정 기록(`decisions.md`)의 충돌만 스크립트로 푼다(「결정 번호
       매김」). 남은 충돌이 없으면 `git commit --no-edit --cleanup=strip` 으로 머지를 완성하고 3-1 로 간다(`-m` 두 문단과
       트레일러는 `MERGE_MSG` 에 남아 있고, `--cleanup=strip` 이 git 이 덧붙인 `# Conflicts:` 주석을 지운다).
@@ -317,7 +321,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
 6. **보고**: 머지됨 / 머지됨(승인 전) / 승인 반영(이미 머지됨) / 승인 대기 / 승인 대기(머지됨) / 반려: 재작업 필요 (<review_note>) /
    반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>, 그 위에 쌓였을 수 있는 작업) / 머지 실패(충돌) <파일,…> / push 실패(경합) /
    push 실패(훅) / push 실패 / 건너뜀(서버 <status>·조회 실패·다른 D'Flow·조상 미승인·기점 미반영·승인 뒤 변경·
-   승인 뒤 변경 확인 불가·로컬 브랜치 삭제 건너뜀)을 표로. 반려·머지 실패(충돌)·push 실패(훅)는 id8 과 함께 따로
+   승인 뒤 변경 확인 불가·마이그레이션 검사 실패·로컬 브랜치 삭제 건너뜀)을 표로. 반려·머지 실패(충돌)·push 실패(훅)는 id8 과 함께 따로
    적는다. 반려(머지됨)도 따로 적는다. 호출자(`/dflow-team` 팀장 등)가 이 목록으로 후속 처리를 한다.
    머지된 작업에 3-1단계의 번호 매김 결과(`D-TSK-…→D-NNN`)가 있으면 그 줄에 붙이고, "결정 번호 매김 실패(<출력>)"·
    `UNION_SET <파일>` 은 표 아래에 따로 적는다.
@@ -344,6 +348,30 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
   `- **Reversible**: yes`)을 공유하면 줄을 맞춰 합치면서 한 블록의 줄이 사라지고 두 머리가 붙는다(샌드박스 실측,
   `tests/skills/dflow-merge-decisions.test.ts`). 충돌을 내게 두고 위 `merge-conflicts` 가 블록 단위로 푸는 편이 안전하다.
   이미 걸려 있으면 `renumber` 가 `UNION_SET <파일>` 로 알린다. 대상 리포 `.gitattributes` 에서 그 줄을 빼라고 보고한다.
+
+## 마이그레이션 버전 관문
+
+Flyway 처럼 파일명이 곧 버전인 마이그레이션(`V<버전>__<설명>.sql`)은 병렬 브랜치가 같은 다음 번호를 고르면 파일명이 달라
+**git 충돌 없이** 머지되고, 개발 브랜치에서 Flyway 가 `more than one migration with version N` 으로 기동에 실패한다
+(2026-09-24 dmes-standard mdm: TSK-04-02 의 `V4__term_abbr_index_relax` 가 개발 브랜치의 `V4__create_mdm_interface_layout` 과
+겹쳤고, 다른 Task 셋도 V5 를 고를 참이었다). 텍스트 충돌이 아니므로 해소 워커도 잡지 못했다. 그래서 머지 전에 합친 트리를
+검사하고, 걸리면 충돌로 취급해 해소 워커(`--resolve`, `resolve-prompt.md` 「해소 규약」 R9)가 다음 번호로 재채번하게 한다.
+
+도구는 `.claude/skills/dflow-merge/scripts/migration-check.sh` 다. 마이그레이션 폴더는 파일 패턴으로 찾고(폴더 설정을 읽지
+않는다), 폴더별로 두 가지를 본다.
+- **버전 중복**: 같은 폴더에 같은 버전이 둘 이상이고 그중 하나가 이 브랜치가 추가한 파일이다(`MIGRATION_DUP`). 개발
+  브랜치 자체의 중복은 경고(`MIGRATION_DEV_DUP`)만 하고 이 머지를 막지 않는다.
+- **역순 도착**: 이 브랜치가 추가한 버전이 그 폴더의 개발 브랜치 최대 버전보다 작다(`MIGRATION_ORDER`, 같으면 중복).
+  Flyway 기본값 `outOfOrder=false` 에서는 이미 더 높은 버전을 적용한 개발 DB 가 그 파일을 거부한다. 대상 리포가
+  `outOfOrder=true` 로 운영하면 팀장 세션 환경에 `DFLOW_MIGRATION_OUT_OF_ORDER=1` 을 두어(또는 `--allow-out-of-order`) 이 검사만
+  끈다. 중복 검사는 끄지 않는다.
+
+버전 비교는 Flyway 규칙이다(`_` 는 `.` 과 같고 부분마다 숫자로, 앞의 0 과 끝의 0 부분은 무시 — `V04`·`V4_0`·`V4.0` 은 `V4`).
+폴더 단위로 묶는 이유: 방언별 폴더(`…/mdm/sqlite`·`…/mdm/mssql`)가 같은 버전을 나란히 두는 것이 정상이다. `R__`(반복)·`U`
+(undo) 파일은 보지 않는다.
+
+- 스윕(4번 2단계): `migration-check.sh HEAD <머지 대상>` — 머지 대상이 merge-base 이후 추가한 파일을 본다.
+- 해소 머지(아래 4·5번): `migration-check.sh --staged` — 커밋 없이 머지한 index 에서 HEAD 에 없는 추가 파일을 본다.
 
 ## 해소 머지(`--resolve`)
 
@@ -381,9 +409,13 @@ force push 금지와 `merge-base --is-ancestor <head_sha>` 검사에 모두 걸�
    git -c rerere.enabled=true merge --no-ff --no-commit <머지 대상>
    git diff --name-only --diff-filter=U        # 충돌 파일 목록. 비었으면 텍스트 충돌은 없다(files=0)
    ```
+   - 텍스트 충돌과 별도로 `.claude/skills/dflow-merge/scripts/migration-check.sh --staged` 를 돈다(「마이그레이션 버전
+     관문」). exit 1 이면 `resolve-prompt.md` 「해소 규약」 R9 로 이 브랜치가 추가한 마이그레이션을 재채번한다. 스윕이
+     `(마이그레이션 버전)` 으로 넘긴 작업은 텍스트 충돌이 0 개일 수 있다(`files=0 rules=R9`). exit 2 면 해소하지 않고
+     `git merge --abort` 뒤 `RESOLVE_SKIPPED 건너뜀(마이그레이션 검사 실패)` 로 끝난다.
    - 공용 결정 기록(`decisions.md`) 충돌은 먼저 `.claude/skills/dflow-merge/scripts/decisions.sh merge-conflicts` 로 푼다
      (「결정 번호 매김」). 번호는 손으로 매기지 않는다. `DECISIONS_LEFT` 로 남은 파일은 아래 규약으로 푼다.
-   - 충돌 파일마다 `dflow-team/references/resolve-prompt.md` 「해소 규약」 의 R1~R8 로 푼다. 그 규약의 「blocked 로
+   - 충돌 파일마다 `dflow-team/references/resolve-prompt.md` 「해소 규약」 의 R1~R9 로 푼다. 그 규약의 「blocked 로
      멈추는 경우」 에 걸리면 머지를 워크트리에 멈춘 채 두고 `RESOLVE_BLOCKED <질문과 선택지 한 줄>` 로 끝난다
      (`--abort` 하지 않는다. 사람이 답하면 그 자리에서 이어 간다).
    - 푼 파일(R5 로 고친 파일 포함)을 파일명으로 stage 한다. **아직 커밋하지 않는다.**
@@ -393,7 +425,9 @@ force push 금지와 `merge-base --is-ancestor <head_sha>` 검사에 모두 걸�
      커밋되는 것은 index 이기 때문이다. 남은 변경이 있으면 stage 하거나 되돌려 맞춘 뒤 돌린다. 게이트 뒤에도 같은
      확인을 한 번 더 한다(시험이 추적 파일을 고쳤으면 `git restore --worktree -- <파일>` 로 index 판으로 되돌린다).
    - 판정은 `dflow-team/references/resolve-prompt.md` 「게이트」 다(기준선은 호출자가 기준 HEAD·머지 대상 단독·
-     merge-base 에서 잰 총수).
+     merge-base 에서 잰 총수). 시험과 함께 `.claude/skills/dflow-merge/scripts/migration-check.sh --staged` 가 exit 0 이어야
+     통과다 — 재채번하지 않은 채 push 하지 못하게 한다. exit 1·2 면 아래 실패와 같이 되돌리고 `RESOLVE_GATE_FAILED migration`
+     으로 끝난다(해소 워커 결과 `failed gate migration`).
    - 통과하지 못하면 **`git merge --abort`** 로 머지 전 상태로 되돌린다. 되돌린 뒤 `git status --porcelain` 이 비어 있고
      `git rev-parse HEAD` 가 기준 HEAD 와 같아야 한다. 그다음 `RESOLVE_GATE_FAILED <신규 실패 수>` 로 끝난다.
      `reset --keep <기준 HEAD>` 를 쓰지 않는 이유: 커밋 전이라 되돌릴 커밋이 없고(HEAD 는 이미 기준 HEAD), 머지 도중의

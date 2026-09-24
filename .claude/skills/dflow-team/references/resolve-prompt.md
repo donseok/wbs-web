@@ -142,6 +142,7 @@ AskUserQuestion 을 쓰지 않는 것과 권한 거부 처리는 `worker-prompt.
 | R6 | lockfile | 개발 브랜치 판을 받고 패키지 관리자로 다시 만든다(`npm install --package-lock-only` 등). 이 브랜치가 더한 의존만 다시 반영한다 |
 | R7 | Task 폴더(`{TASKS}/<TSK>/*`) | 이 Task 폴더는 이 브랜치 판, 다른 Task 폴더는 개발 브랜치 판 |
 | R8 | 설명 문서·주석 | 양쪽 문장을 모두 살려 합친다 |
+| R9 | 마이그레이션 버전 중복·역순 도착(파일명이 곧 버전. `migration-check.sh --staged` 가 exit 1, 텍스트 충돌은 없을 수 있다) | **이 브랜치가 추가한 마이그레이션만** 그 폴더의 개발 브랜치 최대 버전 다음 번호로 옮긴다(`git mv`, 설명 부분은 그대로). 여럿이면 원래 순서대로 이어서 매긴다. 번호 모양은 그 폴더의 관례(`V5`·`V005`·`V1_2`)를 따른다. 다른 폴더에 같은 옛 버전으로 짝을 이룬 파일(방언별 폴더 sqlite·mssql 등)은 모두 같은 새 번호로 옮긴다. 옛 파일명·버전을 가리키는 참조(시험의 파일명 문자열·Flyway `target`·design.md 등)를 `git grep -n '<옛 파일명>'` 으로 찾아 함께 고친다. 개발 브랜치 쪽 파일은 건드리지 않는다. 끝나면 `migration-check.sh --staged` 가 exit 0 이어야 한다 |
 
 공용 결정 기록(`docs/<모듈>/decisions.md` 등, `## D-NNN (…)` 블록 기록)의 충돌은 위 규약보다 먼저
 `.claude/skills/dflow-merge/scripts/decisions.sh merge-conflicts` 로 푼다(R1 의 기계적 형태 — 양쪽 블록을 모두 남긴다).
@@ -152,7 +153,9 @@ AskUserQuestion 을 쓰지 않는 것과 권한 거부 처리는 `worker-prompt.
 
 - 양쪽 기능을 모두 살리는 해소가 없다(한쪽 동작을 바꿔야만 통과한다).
 - 다른 Task 의 공개 계약(API 모양·DB 스키마·이벤트 페이로드)을 바꿔야 한다.
-- 마이그레이션 파일이 충돌하거나 번호가 겹친다(적용 이력과 얽혀 번호를 다시 매길 수 없다).
+- 마이그레이션 파일 **내용**이 충돌한다(같은 파일을 양쪽이 고침), 또는 번호를 바꿔야 하는 마이그레이션이 이미 공용 DB
+  (운영·스테이징·공유 개발 DB)에 적용됐다고 보인다(적용 이력과 얽혀 번호를 다시 매길 수 없다). 이 브랜치가 새로 추가해
+  아직 개발 브랜치에 없는 마이그레이션의 번호 겹침·역순 도착은 멈추지 않고 R9 로 푼다.
 - 시험을 지우거나 `skip` 하거나 기대값을 느슨하게 해야만 통과한다. R2·R3 의 목록 정리는 예외다. 그것은 단정 대상을
   바로잡는 일이기 때문이다.
 - 이미 머지된 다른 Task 의 소유 파일을 R5 범위를 넘어 고쳐야 한다.
@@ -185,7 +188,9 @@ num dev_total "$dev_total" && num head_total "$head_total" && num base_total "$b
 ```
 `GATE_FAIL` 이면 `/dflow-merge` 「해소 머지」 5번대로 커밋하지 않고 `git merge --abort` 로 머지를 버린 뒤(HEAD 는 `<BASE>`
 그대로다) `failed gate <신규 실패 수>` 다(총수 부족이면 `<n>` 은 모자란 수 `need − total` 이다). `GATE_FAIL invalid …` 는
-기준선을 다시 재서 채우고, 그래도 못 채우면 `failed gate invalid` 다. 빌드·린트·타입 검사가 대상 리포 기준선
+기준선을 다시 재서 채우고, 그래도 못 채우면 `failed gate invalid` 다. 시험과 별도로
+`.claude/skills/dflow-merge/scripts/migration-check.sh --staged` 가 exit 0 이어야 한다(R9 를 빠뜨리면 `failed gate migration`).
+빌드·린트·타입 검사가 대상 리포 기준선
 명령에 들어 있으면 같이 본다. 기준 이동이나 push 경합으로 다시 머지했으면 기준선부터 다시 잰다(merge-base 도 다시 구한다).
 
 총수는 전체로 판정하지만, 3번에서 스위트별 총수를 적어 뒀으면 스위트마다 "개발 브랜치 + (MERGE_HEAD 단독 − merge-base)"

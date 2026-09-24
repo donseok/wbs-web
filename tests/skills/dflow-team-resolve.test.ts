@@ -15,8 +15,8 @@ describe('resolve-prompt.md — 해소 워커 규칙', () => {
   it('포인터 키 표에 ORDER·TASK_DIR·ATTEMPT·ON_REPORT 가 있다', () => {
     for (const k of ['`ORDER`', '`TASK_DIR`', '`ATTEMPT`', '`ON_REPORT`', '`DEV_BRANCH`', '`AGENT_ID`']) expect(PROMPT).toContain(k)
   })
-  it('해소 규약 R1~R8, blocked 기준, 금지, 게이트, 결과 줄 표가 있다', () => {
-    for (const r of ['| R1 |', '| R2 |', '| R3 |', '| R4 |', '| R5 |', '| R6 |', '| R7 |', '| R8 |']) expect(PROMPT).toContain(r)
+  it('해소 규약 R1~R9, blocked 기준, 금지, 게이트, 결과 줄 표가 있다', () => {
+    for (const r of ['| R1 |', '| R2 |', '| R3 |', '| R4 |', '| R5 |', '| R6 |', '| R7 |', '| R8 |', '| R9 |']) expect(PROMPT).toContain(r)
     expect(PROMPT).toContain('## 해소 규약')
     expect(PROMPT).toContain('### blocked 로 멈추는 경우')
     expect(PROMPT).toContain('## 게이트')
