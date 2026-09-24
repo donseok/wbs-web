@@ -2,7 +2,7 @@
 # dflow-config.sh — D'Flow 에이전트 설정 해석. source 해서 쓴다(단독 실행하지 않는다).
 # .dflow(프로젝트 공통, 커밋)·.dflow.local(개인, gitignore)을 읽어 DFLOW_* env 로 export 한다.
 # 우선순위: 이미 export 된 env > 파일 > 레거시 .env. 설정 파일은 source 하지 않는다 — 값을 실행하지 않는다.
-# 두 파일이 모두 받는 키(범위 both, 예 no_docker)는 env > .dflow.local > .dflow 다 — PC 설정이 리포 공통 값을 덮는다.
+# 두 파일이 모두 받는 키(범위 both: no_docker·dialect_check)는 env > .dflow.local > .dflow 다 — PC 설정이 리포 공통 값을 덮는다.
 # 실패하면 사유 코드 한 줄을 stderr 에 내고 return 2. 값은 메시지에 넣지 않는다(토큰이 섞일 수 있다).
 
 _dfc_env() {
@@ -10,7 +10,7 @@ _dfc_env() {
     api_base) echo DFLOW_API_BASE ;; project_id) echo DFLOW_PROJECT_ID ;; release_branch) echo DFLOW_RELEASE_BRANCH ;;
     pats) echo DFLOW_PATS ;; pat) echo DFLOW_PAT ;; as) echo DFLOW_AS ;; dev_branch) echo DFLOW_DEV_BRANCH ;;
     automerge) echo DFLOW_AUTOMERGE ;; project_map) echo DFLOW_PROJECT_MAP ;;
-    no_docker) echo DFLOW_NO_DOCKER ;;
+    no_docker) echo DFLOW_NO_DOCKER ;; dialect_check) echo DFLOW_DIALECT_CHECK ;;
     *) return 1 ;;
   esac
 }
@@ -18,7 +18,7 @@ _dfc_scope() {
   case "$1" in
     api_base|project_id|release_branch) echo common ;;
     pats|pat|as|dev_branch|automerge|project_map) echo personal ;;
-    no_docker) echo both ;;
+    no_docker|dialect_check) echo both ;;
     *) echo unknown ;;
   esac
 }

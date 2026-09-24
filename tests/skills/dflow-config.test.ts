@@ -158,6 +158,34 @@ describe('no_docker — 두 파일 모두 받는 키', () => {
   })
 })
 
+// dialect_check: 방언 검증 명령(/dflow-merge 「방언 검증」). 리포 공통(.dflow)에 두고, PC 전용 값(JAVA_HOME 등)이 든 명령은
+// .dflow.local 이 덮는다(범위 both). 값에 공백·=·&&·경로가 든 셸 명령이 그대로 나와야 한다.
+describe('dialect_check — 두 파일 모두 받는 키', () => {
+  const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
+  const get = (env: Record<string, string> = {}) => sh(repo, `sh '${DFLOW}' config dialect_check`, env)
+  const CMD = 'cd src/backend/mdm && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ../gradlew :api:mssqlMigrationTest --no-daemon --console=plain'
+  it('.dflow 의 명령을 공백·=·&& 그대로 내고 범위 경고가 없다', () => {
+    writeFileSync(join(repo, '.dflow'), DOT + 'dialect_check=./gradlew mssqlMigrationTest -Pdb=mssql\n'); writeFileSync(join(repo, '.dflow.local'), LOCAL)
+    const r = get()
+    expect(r.code, r.err).toBe(0); expect(r.out).toBe('./gradlew mssqlMigrationTest -Pdb=mssql\n')
+    expect(r.err).not.toMatch(/PERSONAL_KEY_IN_DFLOW|COMMON_KEY_IN_LOCAL|UNKNOWN_KEY/)
+  })
+  it('.dflow.local 이 .dflow 를 덮는다(PC 전용 JAVA_HOME 이 든 명령)', () => {
+    writeFileSync(join(repo, '.dflow'), DOT + 'dialect_check=./gradlew mssqlMigrationTest\n')
+    writeFileSync(join(repo, '.dflow.local'), LOCAL + `dialect_check=${CMD}\n`)
+    const r = get()
+    expect(r.code, r.err).toBe(0); expect(r.out).toBe(`${CMD}\n`)
+    expect(r.err).not.toMatch(/COMMON_KEY_IN_LOCAL|UNKNOWN_KEY/)
+  })
+  it('export 된 DFLOW_DIALECT_CHECK 가 두 파일을 이기고, 어디에도 없으면 빈 값(단계 없음)', () => {
+    writeFileSync(join(repo, '.dflow'), DOT + 'dialect_check=a\n'); writeFileSync(join(repo, '.dflow.local'), LOCAL + 'dialect_check=b\n')
+    expect(get({ DFLOW_DIALECT_CHECK: 'c' }).out).toBe('c\n')
+    writeFileSync(join(repo, '.dflow'), DOT); writeFileSync(join(repo, '.dflow.local'), LOCAL)
+    const r = get()
+    expect(r.code, r.err).toBe(0); expect(r.out).toBe('\n')
+  })
+})
+
 describe('.dflow 위치 폴백과 브랜치(스펙 §5-2·§6)', () => {
   it('워크트리에 .dflow 가 없으면 origin/<dev_branch>:.dflow 를 읽는다', () => {
     const r0 = sh(repo, `git switch -q -c dev/me && printf '${DOT.replace(/\n/g, '\\n')}' > .dflow && git add .dflow && git commit -qm dflow && git push -q origin dev/me && git switch -q main`)

@@ -22,7 +22,8 @@
 .claude/skills/dflow-dev/scripts/baseline.sh run --base <기점> --task-dir <TASKS>/<TSK> -- '<테스트 명령>' 2>&1 | tail -30
 # 실패 목록과 테스트 총수를 기록해 둔다. 마지막 줄이 BASELINE_MEASURED 또는 BASELINE_REUSED 다
 ```
-전체 테스트는 `heavy.sh` 로 감싸 돌린다(`HEAVY_BUSY` 면 다시 호출) — 「무거운 명령 줄 세우기」(정본).
+전체 테스트는 `heavy.sh` 로 감싸 돌린다(`HEAVY_BUSY` 면 다시 호출) — 「무거운 명령 줄 세우기」(정본). 도커를 쓰는 명령이면
+`baseline.sh run … --pool docker -- '<명령>'` 으로 도커 슬롯에서 잰다 — 「도커 사용 규칙」(정본).
 
 - 게이트 판정 = **기준선 대비 신규 실패 0** + **테스트 총수 미감소**. "exit 0" 단독 판정 금지 —
   기준선이 빨간 리포(예: wbs-web 의 기존 실패 42건)에서도 게이트가 성립하려면 차분 판정이어야 한다.
@@ -125,20 +126,38 @@ Gradle 데몬까지 세웠다. `fe-run.sh` 류도 포트를 점유한 프로세�
 2026-09-24 dmes-standard 에서 팀원 6명이 기준선 단계에서 `mssqlMigrationTest`(Testcontainers 로 MSSQL 컨테이너를
 띄운다)를 동시에 돌렸고, 한 팀원은 꺼져 있던 OrbStack 을 `orb start` 로 스스로 켰다. RAM 16GB 장비가 스왑 17GB·
 load 52 까지 밀려 PC 전체가 느려졌다. 같은 날 두 워커가 OrbStack 을 켜서 사용자의 다른 컨테이너까지 함께 올라온
-기록도 있다. 이 절이 도커 규칙의 정본이다 — `/dflow-dev` SKILL.md, `/dflow-team` 의 worker-prompt.md·resolve-prompt.md
-는 이 절을 가리키기만 하고, 규칙 수정은 여기서만 한다.
+기록도 있다. 같은 날 오전에 넣은 첫 규칙(팀원 4명 이상이면 금지)은 3명 이하일 때 워커마다 같은 목적(DB 방언 검증)으로
+컨테이너를 따로 띄우는 것을 막지 못했다. 그래서 원칙을 바꿨다: **같은 목적으로 각자 도커를 띄우지 않는다. 꼭 필요한
+것은 한 곳에 모아 쓴다.** 이 절이 도커 규칙의 정본이다 — `/dflow-dev` SKILL.md, `/dflow-team` 의 SKILL.md·
+worker-prompt.md·resolve-prompt.md, `/dflow-merge` 「방언 검증」 은 이 절을 가리키기만 하고, 규칙 수정은 여기서만 한다.
 
 ### 도커 런타임을 켜지 않는다 (언제나)
 
-금지 모드·인원·설정과 **무관하게**, 워커(`/dflow-team` 팀원·해소 워커)와 그 Phase 서브에이전트는 꺼져 있는 도커
-런타임을 기동하지 않는다. 예: `orb start`·`orbctl start`, `open -a Docker`·`open -a OrbStack`, `colima start`,
-`podman machine start`, `limactl start`, `systemctl start docker`·`service docker start`. 도커 런타임은 PC 전체가
-나눠 쓰는 자원이다. 켜는 순간 사람의 다른 컨테이너까지 올라오고 메모리를 잡는다.
+금지 모드·태그·설정과 **무관하게**, 워커(`/dflow-team` 팀원·해소 워커)와 그 Phase 서브에이전트, 그리고 팀장의 방언
+검증은 꺼져 있는 도커 런타임을 기동하지 않는다. 예: `orb start`·`orbctl start`, `open -a Docker`·`open -a OrbStack`,
+`colima start`, `podman machine start`, `limactl start`, `systemctl start docker`·`service docker start`. 도커 런타임은
+PC 전체가 나눠 쓰는 자원이다. 켜는 순간 사람의 다른 컨테이너까지 올라오고 메모리를 잡는다.
 
 - 도커가 꺼져 있어 필요한 검증을 못 하면 우회하지 않는다. 워커·해소 워커는 팀장에게 이슈로 보고하고
   (`.claude/skills/dflow-team/references/worker-prompt.md` 「9. 이슈 보고」) 팀장 판단을 받는다. 수동 `/dflow-dev`
   는 사용자에게 알리고, 켜는 것은 사람이 한다.
 - 그 검증이 수용 기준을 확인하는 수단이었는데 끝내 돌리지 못했으면 아래 「기록」 의 확인하지 못한 수용 기준으로 적는다.
+
+### 누가 어디서 도커를 쓰나
+
+- **워커는 기본적으로 도커를 쓰지 않는다(인원과 무관).** 팀원 수 기준은 없어졌다. 워커의 기준선·게이트는 도커 없는
+  명령만으로 돈다(아래 「금지 모드에서 돌리지 않는 것」).
+- **방언 검증처럼 여러 Task 가 같은 목적으로 도는 도커 검증은 워커가 하지 않는다.** 개발 브랜치에 머지된 뒤 승인
+  스윕(`/dflow-merge` 「방언 검증」)이 스윕 한 번에 한 번, 마지막 머지 커밋에서 돌린다. 명령은 대상 리포 설정의
+  `dialect_check` 다(`.dflow` 리포 공통, PC 전용 값(JAVA_HOME 등)이 든 명령은 `.dflow.local` 이 덮는다). 워커가 도커 금지로
+  남긴 「확인하지 못한 수용 기준」 은 그 결과와 함께 보고돼 사람이 대조한다.
+- **꼭 도커가 필요한 Task 만 허용한다.** D'Flow 작업의 tags 에 `docker` 가 있는 Task 의 워커에게만 팀장이 포인터로
+  `DOCKER=allow` 를 넘긴다(팀장 SKILL.md 「인자」 의 「도커 허용 태그」). 태그는 사람이 D'Flow 웹(WBS 명세)이나 wbs.md
+  import 의 tags 필드로 단다(에이전트 위임 `agent` 태그와 같은 자리).
+- **허용된 도커 명령은 PC 전역 도커 슬롯에서 한 번에 하나씩 돈다.** 워커의 도커 명령과 팀장의 방언 검증이 같은 슬롯
+  (`heavy.sh --pool docker`, 기본 1개)을 나눠 쓴다 — 「무거운 명령 줄 세우기」.
+- **도커 명령은 대상 리포가 제공하는 컨테이너 재사용 방식을 따른다**(Testcontainers reuse, 외부 DB 주소 환경변수, 공유
+  DB 등). 워커가 재사용 설정을 새로 만들거나 바꾸지 않는다 — 그것은 대상 리포의 테스트 설정이다.
 
 ### 금지 모드 판정 (Phase 01 기준선 전에 한 번)
 
@@ -146,8 +165,11 @@ load 52 까지 밀려 PC 전체가 느려졌다. 같은 날 두 워커가 OrbSta
 
 | 출처 | 켜짐 조건 | 누가 정하나 |
 |---|---|---|
-| spawn | 팀장 포인터에 `NO_DOCKER=1` | `/dflow-team` 팀장이 인원으로 정해 넘긴다(팀장 SKILL.md 「인자」 의 「도커 금지 인원 기준」). 워커·해소 워커만 받는다. 포인터에 키가 없으면(옛 팀장) 꺼짐 |
-| 설정 | `dflow.sh config no_docker` 가 `1` | `.dflow` 의 `no_docker`(리포 전체), `.dflow.local` 의 `no_docker`(이 PC, `.dflow` 를 덮는다), export 된 `DFLOW_NO_DOCKER`(둘 다 덮는다). 인원과 무관한 강제 스위치이며 수동 `/dflow-dev` 에도 적용한다 |
+| spawn | 워커·해소 워커인데 팀장 포인터에 `DOCKER=allow` 가 **없다**(키 없음·다른 값·옛 포인터의 `NO_DOCKER` 뿐인 경우 모두) | 워커의 기본값이다. `/dflow-team` 팀장은 `docker` 태그가 있는 Task 에만 `DOCKER=allow` 를 싣는다(팀장 SKILL.md 「인자」 의 「도커 허용 태그」). 옛 팀장의 `NO_DOCKER=0` 은 허용이 아니다 — 인원 기준 시절의 값이라 태그를 보지 않고 적혔기 때문이다 |
+| 설정 | `dflow.sh config no_docker` 가 `1` | 강제 금지 스위치다. `.dflow` 의 `no_docker`(리포 전체), `.dflow.local` 의 `no_docker`(이 PC, `.dflow` 를 덮는다), export 된 `DFLOW_NO_DOCKER`(둘 다 덮는다). `docker` 태그로 허용된 워커와 수동 `/dflow-dev` 도 막는다. `0`·빈 값은 아무것도 풀지 않는다(워커의 기본 금지는 포인터에서 오므로 설정으로 풀 수 없다) |
+
+수동 `/dflow-dev`(포인터 없음)는 설정 출처만 본다 — 사람이 지켜보는 세션 하나라 금지가 기본이 아니다. 대신 도커
+명령은 워커와 똑같이 도커 슬롯에서만 돌린다(아래 「금지 모드가 아닐 때」).
 
 ```bash
 .claude/skills/dflow-work/scripts/dflow.sh config no_docker   # 1 이면 설정 출처 켜짐. 빈 값·0 은 꺼짐
@@ -156,9 +178,19 @@ load 52 까지 밀려 PC 전체가 느려졌다. 같은 날 두 워커가 OrbSta
   보고 그 사실을 기준선 기록에 함께 적는다.
 - **판정 결과를 기준선 기록에 한 줄 남긴다.** state.json 의 `baseline` 에 `"docker"` 를 `"off"`·`"banned:spawn"`·
   `"banned:config"`·`"banned:spawn+config"` 중 하나로 저장하고, 같은 뜻을 한 줄 출력한다(예
-  `도커 금지 모드: 켜짐(출처 spawn NO_DOCKER=1)`). 금지 모드인지, 무엇 때문인지를 이 값으로 안다.
-- 재개·재spawn 으로 이어받은 세션의 판정이 기록된 `docker` 값과 다르면(인원이 다른 팀장이 띄웠다 등) 기준선을 다시
+  `도커 금지 모드: 켜짐(출처 spawn, 워커 기본)`). 금지 모드인지, 무엇 때문인지를 이 값으로 안다. `"off"` 는 태그로
+  허용된 워커이거나 수동 세션이다.
+- 재개·재spawn 으로 이어받은 세션의 판정이 기록된 `docker` 값과 다르면(그사이 사람이 태그를 바꿨다 등) 기준선을 다시
   잰다. 제외한 명령이 달라 차분 비교가 성립하지 않는다.
+
+### 금지 모드가 아닐 때: 도커 슬롯
+
+- 도커를 쓰는 명령(아래 목록의 명령, 또는 그런 태스크·테스트를 포함하는 명령 줄 — 예 `testAll` 이 `mssqlMigrationTest` 를
+  포함한다)은 일반 `heavy.sh` 가 아니라 `.claude/skills/dflow-dev/scripts/heavy.sh --pool docker <명령>` 으로 감싼다.
+  도커 슬롯(PC 전체 1개)과 일반 슬롯을 함께 잡으므로 PC 전체의 무거운 명령 수도 늘지 않는다.
+- 기준선은 `baseline.sh run … --pool docker -- '<명령>'` 으로 잰다. 바깥에서 `baseline.sh` 를 `heavy.sh --pool docker` 로
+  감싸지 않는다(측정 잠금을 도커 슬롯을 쥔 채 기다리게 된다 — 「무거운 명령 줄 세우기」 의 교착 불변식).
+- `HEAVY_DOCKER_BUSY`(exit 75)는 `HEAVY_BUSY` 와 같다 — 실패가 아니며 같은 명령을 다시 호출한다.
 
 ### 금지 모드에서 돌리지 않는 것
 
@@ -184,15 +216,16 @@ load 52 까지 밀려 PC 전체가 느려졌다. 같은 날 두 워커가 OrbSta
   를 쓰는 명령과 테스트(이름에 mssql·container·testcontainers·docker 가 든 태스크, docker·docker compose·orb 명령,
   Testcontainers 를 쓰는 테스트 클래스)를 돌리지 않고, 도커 런타임을 켜지 않는다. 검증 명령은 기준선 명령 줄(제외
   포함)만 쓴다. 생략한 검증과 그 때문에 확인하지 못한 수용 기준은 보고에 올린다. 정본: dev-discipline.md 「도커 사용
-  규칙」." 금지 모드가 아니어도 워커 경로에서는 "도커 런타임을 켜지 않는다(`orb start`·`open -a Docker` 등). 꺼져 있어
-  필요한 검증을 못 하면 보고에 올린다" 를 넣는다.
+  규칙」." 금지 모드가 아니면 "도커 런타임을 켜지 않는다(`orb start`·`open -a Docker` 등). 도커를 쓰는 명령은
+  `heavy.sh --pool docker` 로 감싸고, 대상 리포의 컨테이너 재사용 방식을 따른다. 꺼져 있어 필요한 검증을 못 하면
+  보고에 올린다" 를 넣는다.
 
 ### 게이트 판정과 기록
 
 - 게이트는 생략한 명령을 뺀 나머지로 판정한다(같은 제외 집합에서 기준선 대비 신규 실패 0 + 총수 미감소).
 - 생략한 명령마다 design.md 의 `## 도커 금지로 생략한 검증` 절에 `- 도커 금지로 생략: <명령>` 을 한 줄씩 적는다. 절의
-  첫 줄은 `- 금지 모드 출처: <spawn NO_DOCKER=1 | 설정 no_docker=1 | 둘 다>` 다. Design 이 테스트 전략을 쓰며 이 절을
-  만들고, 오케스트레이터는 게이트에서 실제로 뺀 명령과 맞는지 보고 모자라면 더해 커밋한다.
+  첫 줄은 `- 금지 모드 출처: <워커 기본(DOCKER=allow 아님) | 설정 no_docker=1 | 둘 다>` 다. Design 이 테스트 전략을
+  쓰며 이 절을 만들고, 오케스트레이터는 게이트에서 실제로 뺀 명령과 맞는지 보고 모자라면 더해 커밋한다.
 - **생략 때문에 수용 기준을 확인할 수 없게 되면 조용히 통과시키지 않는다.** design.md 「수용 기준 매핑」 의 그 항목을
   `확인하지 못함(도커 금지로 생략: <명령>)` 으로 적고, 위 절에 `- 확인하지 못한 수용 기준: <항목> — <생략한 명령>` 을
   더한다.
@@ -200,6 +233,8 @@ load 52 까지 밀려 PC 전체가 느려졌다. 같은 날 두 워커가 OrbSta
   싣는다. 승인자가 D'Flow 화면에서 이 줄을 보고 판단한다. 워커는 같은 내용을 `.issues` 에 `env` 분류로도 한 줄 남긴다
   (worker-prompt.md 「7-1」).
 - 해소 워커는 design.md·`done` 대신 `resolution.md` 의 그 시도 절에 같은 줄(`- 도커 금지로 생략: <명령>`)을 적는다.
+- 이 줄들의 문구(`도커 금지로 생략:`·`확인하지 못한 수용 기준:`)를 바꾸지 않는다. 머지 뒤 방언 검증
+  (`dialect-check.sh`)이 design.md·resolution.md 에서 이 문구를 세어 그 Task 를 결과에 함께 적는다.
 
 ## Phase 02 — Design (설계)
 
@@ -361,6 +396,18 @@ PC 에서 load average 52, 스왑 18GB 중 17GB, 압축 메모리 약 45GB 까�
   4. release 를 잊으면 세션이 끝나거나 1시간(`DFLOW_HEAVY_HOLD_TTL`)이 지나야 회수된다. 그동안 다른 팀원 하나가 설
      자리를 막는다.
   서버를 시험 러너 안에서 띄우고 치우는 리포(globalSetup 등)는 acquire 없이 시험 명령만 감싼다.
+- **도커 슬롯**: 도커를 쓰는 명령(허용된 워커·수동 세션의 Testcontainers·docker compose, 팀장의 방언 검증)은
+  `heavy.sh --pool docker <명령>` 으로 감싼다. PC 전역 도커 슬롯(`DFLOW_HEAVY_DOCKER_SLOTS`, 기본 1 — 같은 목적의 컨테이너를
+  PC 에서 하나만 띄운다)과 일반 슬롯 하나를 **함께** 잡는다. 도커 명령도 무거운 명령이라 K 에 들어가야 PC 전체 동시 실행이
+  K 를 넘지 않기 때문이다. 이미 일반 슬롯을 쥔 세션(acquire 한 E2E 세션, 감싼 실행 안)은 도커 슬롯만 더 잡는다. 못 얻으면
+  `HEAVY_DOCKER_BUSY` 와 exit 75 — `HEAVY_BUSY` 와 같이 다시 호출한다. `heavy.sh status` 의 `HEAVY_DOCKER` 줄이 보유자를 보인다.
+  규칙 정본은 「도커 사용 규칙」.
+- **교착 불변식: 도커 슬롯을 쥔 쪽은 아무것도 기다리지 않는다.** `heavy.sh` 는 도커 슬롯을 마지막에, 필요한 슬롯을 한
+  번에 잡는다. 도커 슬롯을 잡았는데 일반 슬롯이 없으면 그 자리에서 도커 슬롯을 돌려주고 다시 시도한다. 그래서 "일반을
+  쥐고 도커를 기다리는 쪽"(예: E2E 서버 슬롯을 쥔 세션)과 "도커를 쥐고 일반을 기다리는 쪽"이 서로를 막는 순환이 생기지
+  않는다. 이 불변식을 깨는 호출을 하지 않는다: 도커 슬롯 안에서 다른 잠금을 기다리는 명령을 감싸지 않는다(예:
+  `baseline.sh` 를 바깥에서 `--pool docker` 로 감싸지 않고 `baseline.sh run --pool docker` 로 넘긴다). 감싼 실행 안에서
+  부른 `heavy.sh acquire` 는 새 슬롯을 기다리지 않고 그 실행의 슬롯을 쓴다.
 
 ## 포그라운드 실행(백그라운드 게이트 금지)
 

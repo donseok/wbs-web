@@ -173,14 +173,21 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   사람이 전원 설정으로 막는다.
 - 인원은 동시 팀원 슬롯 수다. **기본 3, 하드 상한 6.** 6 을 넘기면 6 으로 자르고 그 사실을 한 줄 알린다.
   슬롯마다 독립 메인 에이전트가 떠서 비용과 사용량 한도 소모가 빠르게 늘기 때문이다.
-- **도커 금지 인원 기준: 인원이 4명 이상이면 팀원의 도커 실행을 금지한다.** 이 기준값을 정하는 곳은 이 줄
-  하나다. 6 으로 자른 뒤의 인원으로 판정해 `<NO_DOCKER>` 를 `1`(기준 이상) 또는 `0` 으로 정하고, 모든 포인터(새 작업·
-  재개·재시작·해소)에 `NO_DOCKER=<NO_DOCKER>` 로 싣는다(「5. 팀원 spawn」 4번). 압축 뒤에는 `team.start` 의 `slots` 로
-  다시 구한다. 켜졌으면 시작 보고에 "도커 금지: 켜짐(인원 <N>명)" 을 한 줄 적는다. 워커가 무엇을 빼고 어떻게 보고하는지는
-  dev-discipline.md 「도커 사용 규칙」 이 정본이다. 인원과 무관하게 켜는 스위치는 `.dflow`·`.dflow.local` 의
-  `no_docker=1` 이며 워커가 스스로 읽는다. 이유: 2026-09-24 dmes-standard 에서 팀원 6명이 Testcontainers(MSSQL)를
-  동시에 돌려 RAM 16GB 장비가 스왑 17GB·load 52 까지 밀렸다. 이 기준은 팀장 하나 단위라, 한 PC 에서 팀장 둘이 3명씩
-  돌리면 걸리지 않는다. 그때는 설정 키를 쓴다.
+- **도커 허용 태그: 팀원은 도커를 쓰지 않는 것이 기본이고(인원과 무관), D'Flow 작업의 tags 에 `docker` 가 있는 Task 의
+  팀원에게만 허용한다.** 이 판정을 정하는 곳은 이 줄 하나다. 새 작업·재개·재시작·해소 포인터를 쓸 때마다 띄우기 직전에
+  `.claude/skills/dflow-team/scripts/docker-allow.sh <id8>` 로 그 작업의 서버 tags 를 다시 읽고, 출력의 `DOCKER=allow`·
+  `DOCKER=ban` 을 포인터에 그대로 싣는다(「5. 팀원 spawn」 3·4번, 「5-1」 4·6항, merge-conflict.md 「2」 4번). 조회에 실패하면
+  `ban` 이다(모르면 금지). 옛 포인터(`.dflow-prompt`)의 값을 옮겨 쓰지 않는다 — 그사이 사람이 태그를 바꿨을 수 있고, 옛
+  팀장이 인원 기준으로 적은 `NO_DOCKER=0` 이 남아 있을 수 있다. 허용 값을 `NO_DOCKER=0` 이 아니라 새 키 `DOCKER=allow` 로
+  둔 이유가 그것이다: 인원 기준 시절 팀장은 3명 이하면 모든 포인터에 `NO_DOCKER=0` 을 실었으므로, 그 값을 허용으로 읽으면
+  태그 없는 Task 까지 풀린다. 허용된 팀원도 도커 명령은 PC 전역 도커 슬롯(`heavy.sh --pool docker`, 기본 1개)을 잡은
+  동안에만 돌린다. 여러 Task 가 같은 목적으로 도는 도커 검증(DB 방언)은 팀원이 아니라 「4. 승인 스윕」 끝의 방언 검증이 한
+  번 돈다. `.dflow`·`.dflow.local` 의 `no_docker=1` 은 태그가 있어도 막는 강제 스위치이며 워커가 스스로 읽는다(`0` 은
+  아무것도 풀지 않는다). 태그는 사람이 D'Flow 웹의 WBS 명세나 wbs.md import 의 tags 필드로 단다(`agent` 와 같은 자리).
+  도커 명령은 대상 리포가 제공하는 컨테이너 재사용 방식을 따른다. 규칙 정본은 dev-discipline.md 「도커 사용 규칙」.
+  이유: 2026-09-24 dmes-standard 에서 워커마다 기준선·게이트에서 Testcontainers(MSSQL)를 각자 띄워 RAM 16GB 장비가
+  스왑 17GB·load 52 까지 밀렸고, 오전에 넣은 인원 기준(4명 이상 금지)은 3명 이하에서 같은 목적의 컨테이너가 워커마다 뜨는
+  것을 막지 못했다.
 - 모델은 선택이다(`opus`|`sonnet`). 없으면 포인터에 `MODEL=default` 를 넘겨 기본 모델을 쓴다. 값은 팀원이
   `/dflow-dev --model` 로 넘기고, tmux 백엔드는 팀원을 띄우는 `.dflow-run` 의 `claude --model` 에도 붙인다.
 - **추론 강도(effort)는 기본 `high` 다**(2026-09-23 사용자 지시). 사람이 `effort xhigh`·`추론 강도 max` 처럼 요청할 때만
@@ -1322,6 +1329,23 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
   spawn 전 확인이 같은 작업을 두 번 띄우지 않게 막는다(「2-3」 5번).
 - `team.sweep`(merged, waiting, rejected, resolved 개수)을 기록한다. `resolved` 는 직전 스윕 뒤 해소 워커의 `resolved` 가 조상 확인까지 통과한 수다(없으면 0). `merged` 에는 승인 전 머지를 포함하고, `waiting` 에는
   승인 대기(머지됨)를, `rejected` 에는 반려(머지됨)를 포함한다.
+- **방언 검증**: `/dflow-merge` 가 스윕 끝에 「방언 검증」 을 한 번 돌고(`.dflow`·`.dflow.local` 의 `dialect_check` 가 있을
+  때만, 머지마다가 아니라 스윕마다 한 번) 결과 줄 `DIALECT_*` 를 보고에 싣는다. 팀장은 이렇게 처리한다. 방언 검증은
+  자동으로 되돌리거나 Task 를 재오픈하지 않는다 — 어느 머지가 깨뜨렸는지와 되돌리기는 사람이 판단한다.
+  - `DIALECT_FAIL`: 사람에게 "방언 검증 실패 <sha>: 직전 통과 <since> 이후 머지된 Task <tasks>. 도커 금지로 확인하지 못한
+    항목이 있는 Task <unverified>. 로그 <log>" 로 알린다. `docs/dflow-team/issues.md` 에 같은 내용을 항목 하나로 붙이고
+    (`DIALECT_UNVERIFIED` 줄도 함께), `team.issue` 를 남긴다. id8 는 `dialect`, `tsk` 는 `-`, `summary` 는 위 알림 문장,
+    `decision` 은 `사람 판단(자동 되돌리기·재오픈 없음)` 이다. `decision` 을 `pending` 으로 쓰지 않는다 — 재구성이 `pending`
+    을 답하지 않은 팀원 이슈로 읽고 지시를 보낼 팀원을 찾기 때문이다.
+  - `DIALECT_DEFERRED docker-off … notify=1`: "방언 검증 보류(도커 꺼짐): <sha>. 도커를 켜면 다음 스윕이 같은 커밋을 돌린다"
+    로 알리고 issues.md 에 한 줄 남긴다. `notify=0` 이면 알리지 않는다(같은 커밋의 보류를 기상마다 되풀이하지 않는다).
+    팀장은 도커 런타임을 켜지 않는다.
+  - `DIALECT_PASS`: 한 줄 보고한다. `unverified=` 가 `-` 가 아니면 "방언 검증 통과. 도커 금지로 확인하지 못한 항목이 있던
+    Task: <unverified>" 를 붙여 사람이 대조하게 한다.
+  - `DIALECT_BUSY`·`DIALECT_RUNNING`·`DIALECT_SKIP`·`DIALECT_NONE`: 보고하지 않는다. BUSY 는 다음 스윕이 다시 시도한다.
+  - 방언 검증은 팀장 Bash 한 번으로 돈다(timeout 600000). 10분을 넘겨 하네스가 백그라운드로 옮기면 완료 알림으로 결과를
+    받고, 컨텍스트 압축 등으로 놓쳤으면 `.claude/skills/dflow-merge/scripts/dialect-check.sh status --dev <기본브랜치>` 로
+    마지막 결과를 읽는다(스크립트가 결과를 출력하기 전에 상태 파일에 기록한다). 도는 동안 겹친 스윕은 `DIALECT_RUNNING` 이다.
 - 머지 자리는 팀장 체크아웃의 상태로 갈린다(`/dflow-merge` 4번). 기본 브랜치 위의 팀장은 그 체크아웃에서
   머지한다. detached HEAD 인 팀장은 임시 머지 워크트리 `<MAIN>/.claude/worktrees/dflow-merge` 에서 머지하고
   `HEAD:<기본브랜치>` 로 push 한다. 팀원은 각자 워크트리의 agent 브랜치나 detached HEAD 에 있으므로 어느 쪽과도
@@ -1357,6 +1381,7 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
    order='<order>'   # show 출력의 .order.id(전체 UUID)를 옮겨 쓴다
    TASK_DIR=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$order"); rc=$?
    echo "TASK_DIR=${TASK_DIR:-없음} rc=$rc"
+   .claude/skills/dflow-team/scripts/docker-allow.sh "$order"   # DOCKER=allow|ban — 4번 포인터에 그대로 옮긴다(「인자」 도커 허용 태그)
    ```
    로 이 작업의 작업 폴더(`<TASKS>/<TSK>`)를 구한다. `taskdir` 는 순번·id8·전체 UUID 만 받고 `external_ref` 는
    모른다 — `ref` 가 아니라 `order`(전체 UUID, id8 도 된다)를 넘긴다. `rc` 가 0 이 아니면(exit 2
@@ -1367,10 +1392,11 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
 4. 포인터 **한 줄**을 만든다. 백엔드에는 워커 프롬프트 전문이 아니라 이 포인터를 넘기고, 워커가
    `references/worker-prompt.md` 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다.
    ```
-   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<작업 폴더> NO_DOCKER=<NO_DOCKER>
+   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<작업 폴더> DOCKER=<allow|ban>
    ```
-   - `NO_DOCKER` 는 「인자」 의 도커 금지 인원 기준으로 정한 `0`|`1` 이다. 재개(「5-1」)·재시작(restart.md 재투입)은
-     이 형식으로 포인터를 다시 쓰고 해소(「5-2」)는 merge-conflict.md 의 해소 포인터에 실으므로, 같은 값이 모두에 간다.
+   - `DOCKER` 는 3번 블록의 `docker-allow.sh` 가 낸 값이다(「인자」 의 「도커 허용 태그」). 재개(「5-1」)·재시작(restart.md
+     재투입)은 이 형식으로 포인터를 다시 쓰며 그때도 `docker-allow.sh` 로 다시 구하고, 해소(「5-2」)는 merge-conflict.md 의
+     해소 포인터에 같은 방법으로 싣는다. 옛 포인터의 값을 옮겨 쓰지 않는다.
    - `DEV_BRANCH` 는 전제 검사의 `base` 다. 워커가 detach 된 옛 커밋에서 다른 값을 읽지 않도록 팀장이 넘긴다.
    - `TASK_DIR` 은 3번이 출력한 값이다. 워커는 이 값을 다시 해석하지 않는다 — detach 된 옛 커밋에는
      `.dflow.local` 의 `project_map` 이 없거나 지금과 달라, 워커가 스스로 구하면 팀장이 구한 값과 다른
@@ -1473,6 +1499,7 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
    ```bash
    task_dir=$(sed -n 's/.*TASK_DIR=\([^ ]*\).*/\1/p' <워크트리>/.dflow-prompt 2>/dev/null | head -n 1)
    echo "task_dir=${task_dir:-없음}"
+   .claude/skills/dflow-team/scripts/docker-allow.sh '<id8>'   # DOCKER=allow|ban — 6항 포인터에 옮긴다. 옛 포인터 값은 쓰지 않는다
    ```
    비어 있으면(`TASK_DIR` 이전에 만들어진 옛 포인터) 다시 구한다:
    ```bash
@@ -1497,7 +1524,7 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
    **이 되돌리기를 워커가 뜨기 전에 한다.** `dflow.sh heartbeat` 는 값이 `*/parked` 면 exit 2 로 거부하므로,
    `parked` 인 채로 띄우면 그 팀원은 좌석표에 진척을 하나도 알리지 못한다.
 6. **포인터를 다시 쓴다.** 5번 4항의 형식 그대로이며 `AGENT_ID` 는 5항에서 정한 슬롯, `TASK_DIR` 은
-   `<4항에서 출력된 작업 폴더>` 다. 옛 파일을 그대로 두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의
+   `<4항에서 출력된 작업 폴더>`, `DOCKER` 는 4항 블록의 `docker-allow.sh` 출력이다. 옛 파일을 그대로 두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의
    `AGENT_ID` 와 어긋나 팀원이 남의 좌석으로 heartbeat 를 보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
 7. **띄운다.** 먼저 `references/restart.md` 「중단 표식 정리」 블록을 돈다(`st` 는 재개 판정이 받은 show 의 `status`,
    곧 `claimed`). `CANCEL_MARK_RM_FAILED` 면 띄우지 않고 「멈춤」 표(사유 `중단 표식 삭제 실패`)에 넣는다. 백엔드별 명령은 5번 5항과 같다. tmux 는 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든

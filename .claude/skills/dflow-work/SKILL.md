@@ -17,8 +17,8 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    `.dflow.local`(개인: `pats`·`as`·`dev_branch`·`automerge`·`project_map`)을 스스로 읽는다. 이미 export 된
    env 가 이긴다. 두 파일이 모두 없으면 종전대로 현재 디렉터리의 `.env`(`DFLOW_ENV_FILE`)를 읽는다. 값 확인은
    `dflow.sh config <key>`(비밀 제외)·`dflow.sh branch dev` 로.
-   두 파일이 모두 받는 키는 `no_docker` 하나다(`.dflow.local` 이 `.dflow` 를 덮는다). 뜻은 dflow-dev
-   `references/dev-discipline.md` 「도커 사용 규칙」.
+   두 파일이 모두 받는 키는 `no_docker`·`dialect_check` 둘이다(`.dflow.local` 이 `.dflow` 를 덮는다). 뜻은 dflow-dev
+   `references/dev-discipline.md` 「도커 사용 규칙」, `dialect_check` 의 실행은 dflow-merge 「방언 검증」.
 1. `dflow.sh doctor` 실행 — 모든 프로필 확인, 계약 버전 검증.
    ```bash
    dflow.sh doctor

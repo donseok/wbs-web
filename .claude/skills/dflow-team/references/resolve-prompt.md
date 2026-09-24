@@ -19,7 +19,7 @@
 | `{TASK_DIR}` | `TASK_DIR` | 이 작업의 폴더(리포 최상위 기준, 예 `docs/tasks/TSK-03-02`). `{TASKS}` 는 그 부모 |
 | `{ATTEMPT}` | `ATTEMPT` | 이번 해소 시도 번호(1~3) |
 | `{ON_REPORT}` | `ON_REPORT` | `1` 이면 팀장이 자동 머지 운영이다. `/dflow-merge` 에 `--on-report` 를 붙인다 |
-| `{NO_DOCKER}` | `NO_DOCKER` | `worker-prompt.md` 와 같다. 키가 없으면 `0` 으로 본다(「도커」) |
+| `{DOCKER}` | `DOCKER` | `worker-prompt.md` 와 같다. `allow` 가 아니면(키 없음 포함) 도커 금지 모드다(「도커」) |
 
 `DEV_BRANCH`·`TASK_DIR`·`ORDER` 중 하나라도 비어 있으면 파일을 쓰지 않고 마지막 응답으로
 `{TSK} {ID8} - - - failed no-dev-branch` 한 줄만 출력하고 끝낸다.
@@ -130,6 +130,8 @@ AskUserQuestion 을 쓰지 않는 것과 권한 거부 처리는 `worker-prompt.
 
 3번 기준선의 두 번과 「게이트」 의 전체 시험은 PC 전역 세마포어로 감싼다(`.claude/skills/dflow-dev/scripts/heavy.sh <명령>`).
 `HEAVY_BUSY` 로 끝나면 실패가 아니다. 같은 명령을 다시 호출한다. 규칙 정본은 `dev-discipline.md` 「무거운 명령 줄 세우기」 다.
+도커가 허용된 해소(`{DOCKER}` 가 `allow`)에서 도커를 쓰는 명령은 `heavy.sh --pool docker <명령>` 으로 감싼다(`HEAVY_DOCKER_BUSY`
+도 다시 호출한다, 「도커」).
 
 ## 해소 규약
 
@@ -238,6 +240,7 @@ num dev_total "$dev_total" && num head_total "$head_total" && num base_total "$b
 ## 도커
 
 해소 워커도 기준선과 게이트를 돌리므로 `.claude/skills/dflow-dev/references/dev-discipline.md` 「도커 사용 규칙」(정본)을
-따른다: `{NO_DOCKER}` 또는 `dflow.sh config no_docker` 가 `1` 이면 도커·Testcontainers 명령을 3번 기준선과 게이트에서
-같은 방식으로 빼고, 생략한 명령은 `resolution.md` 그 시도 절에 `- 도커 금지로 생략: <명령>` 으로 적는다. 꺼진 도커
-런타임은 언제나 켜지 않는다.
+따른다: `{DOCKER}` 가 `allow` 가 아니거나(기본) `dflow.sh config no_docker` 가 `1` 이면 도커·Testcontainers 명령을 3번
+기준선과 게이트에서 같은 방식으로 빼고, 생략한 명령은 `resolution.md` 그 시도 절에 `- 도커 금지로 생략: <명령>` 으로
+적는다(머지 뒤 팀장 스윕의 방언 검증이 이 줄을 세어 결과에 함께 적는다). `allow` 면 도커를 쓰는 명령을 「7」 의
+`heavy.sh --pool docker` 로 감싸고 대상 리포의 컨테이너 재사용 방식을 따른다. 꺼진 도커 런타임은 언제나 켜지 않는다.
