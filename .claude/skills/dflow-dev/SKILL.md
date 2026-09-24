@@ -353,6 +353,10 @@ Phase 종료마다 오케스트레이터가:
 1. 게이트 집행(위 원칙 — 직접 실행).
    - **Build 게이트**: 전체 스위트를 `heavy.sh` 로 감싸 한 번 돈다. 결과(HEAD sha·명령 줄·통과/실패 수·신규 실패 목록)를
      state.json 의 `build_gate` 에 적고 Verify 프롬프트에 그대로 넣는다 — Verify 는 전체 스위트를 다시 돌리지 않는다.
+     기록 형식은 게이트마다(`build_gate`·`verify_gate`·`refactor_gate`) 같다:
+     `{"head":"<게이트를 돈 HEAD sha>","cmds":[{"cwd":"<폴더>","cmd":"<명령 줄>","tests":<총수>,"failures":<실패 수>}],"new_failures":[…]}`.
+     재실행을 생략한 게이트는 `"reused_from":"build_gate"` 를 더하고 `head` 는 Build 게이트의 sha 를 그대로 둔다
+     (해소 워커가 `head` 로 어느 트리를 잰 기록인지 판단한다 — dflow-team resolve-prompt.md 「3」).
    - **Verify·Refactor 게이트**: 먼저 `git diff --name-only <Build 게이트 sha>..HEAD` 를 본다. 바뀐 파일이 Task 문서
      (`<TASKS>/<TSK>/` 아래)와 `*.md` 뿐이고 `git status --porcelain` 도 Task 문서 밖에서 비어 있으면 전체 스위트를 다시
      돌리지 않고 Build 게이트 결과를 그대로 쓴다. 커밋 밖에 남은 파일(되돌리지 못한 변이 등)은 Phase 06 이 커밋에 섞으므로
