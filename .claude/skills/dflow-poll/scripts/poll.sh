@@ -20,6 +20,11 @@ EXCLUDE=""        # 쉼표 구분 id8 — 영구성 제외(사용자 결정 대�
 EXCLUDE_TEMP=""   # 쉼표 구분 id8 — 일시성 제외(spec 부재·선행 대기). RECHECK_CYCLES 뒤 자동 해제
                   # → 재발견(exit 0)으로 세션이 착수 판정을 다시 하게 만든다(자율 재검사).
 RECHECK_CYCLES=6  # 일시성 제외를 유지할 주기 수. 기본 6주기(interval 300s면 30분).
+EXCLUDE_WAIT=""   # 쉼표 구분 id8 — 선행 대기(서버 판정 reached=false 인 선행을 기다리는 작업). WAIT_CYCLES 뒤 자동 해제.
+                  # 일시성 제외와 따로 두는 이유: 선행이 끝나기 전에는 몇 번을 다시 봐도 결과가 같다. 30분마다 풀면
+                  # 같은 Task 를 선행이 끝날 때까지 되풀이해 검사한다(2026-09-24 실측 13~16회). 선행이 끝나거나 머지되면
+                  # 호출자(팀장)가 목록에서 빼고 poll 을 다시 띄운다. 이 해제는 그 신호를 놓쳤을 때의 안전망이다.
+WAIT_CYCLES=24    # 선행 대기를 유지할 주기 수. 기본 24주기(interval 300s면 2시간).
 REQUIRE_TAG=""    # 지정 시 item.tags 에 이 태그가 있는 작업만 감지(에이전트 위임 플래그).
                   # list 응답에는 tags 가 없어 후보별 show 1회씩 조회한다.
 WP=""             # 쉼표 구분 WP 목록(WP-02 또는 모듈/WP-02). 지정 시 그 WP 의 Task 만 감지.
@@ -27,7 +32,7 @@ WP=""             # 쉼표 구분 WP 목록(WP-02 또는 모듈/WP-02). 지정 �
                   # Task ID 의 첫 칸이 WP 번호다. list 응답에는 external_ref 가 없어 show 를 쓴다.
 NET_FAIL_MAX=3
 
-usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM|\"YYYY-MM-DD HH:MM\"|none] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--require-tag 태그] [--wp WP-02,모듈/WP-03]" >&2; exit 2; }
+usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM|\"YYYY-MM-DD HH:MM\"|none] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--exclude-wait id8,id8] [--wait-cycles N] [--require-tag 태그] [--wp WP-02,모듈/WP-03]" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -36,6 +41,8 @@ while [ $# -gt 0 ]; do
     --exclude)        EXCLUDE="${2:-}"; shift 2 || usage ;;
     --exclude-temp)   EXCLUDE_TEMP="${2:-}"; shift 2 || usage ;;
     --recheck-cycles) RECHECK_CYCLES="${2:-}"; shift 2 || usage ;;
+    --exclude-wait)   EXCLUDE_WAIT="${2:-}"; shift 2 || usage ;;
+    --wait-cycles)    WAIT_CYCLES="${2:-}"; shift 2 || usage ;;
     --require-tag)    REQUIRE_TAG="${2:-}"; shift 2 || usage ;;
     --wp)             WP="${2:-}"; shift 2 || usage ;;
     *) usage ;;
@@ -59,6 +66,7 @@ case "$UNTIL_RAW" in
 esac
 [ -z "$UNTIL_RAW" ] || [ "$UNTIL_RAW" = none ] || [ -n "$UNTIL_EPOCH" ] || usage
 case "$RECHECK_CYCLES" in ''|*[!0-9]*) usage ;; esac
+case "$WAIT_CYCLES"    in ''|*[!0-9]*) usage ;; esac
 # --wp 형식 검사와 정규화: 항목마다 WP-<숫자> 또는 <모듈>/WP-<숫자>. 오타가 조용히 "감지 0건" 이 되지 않게
 # 막는다. 번호는 앞의 0 을 떼어 적는다(WP-2 와 WP-02 를 같게 보고, TSK-02-05 의 02 도 같은 방식으로 뗀다).
 if [ -n "$WP" ]; then
@@ -107,6 +115,11 @@ while :; do
     echo "일시성 제외 해제(재검사 유도): $EXCLUDE_TEMP" >&2
     EXCLUDE_TEMP=""
   fi
+  # 선행 대기는 더 길게 붙든다(WAIT_CYCLES). 풀리면 위와 같이 재발견으로 세션이 다시 판정한다.
+  if [ -n "$EXCLUDE_WAIT" ] && [ "$cycle" -gt "$WAIT_CYCLES" ]; then
+    echo "선행 대기 해제(안전망 재검사): $EXCLUDE_WAIT" >&2
+    EXCLUDE_WAIT=""
+  fi
 
   # ── 승인 감지 (ready 스캔보다 먼저 — 머지가 후속 작업을 해금한다) ──────────────
   # 로컬 state.json 이 phase=reported 인 주문의 서버 status 가 approved 로 바뀌었으면
@@ -154,7 +167,7 @@ EOF
   case "$rc" in
     0)
       net_fail=0
-      ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE,$EXCLUDE_TEMP," \
+      ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE,$EXCLUDE_TEMP,$EXCLUDE_WAIT," \
         '$2=="RD" && index(ex, ","$4",")==0 {print $1"\t"$4"\t"$5}')
       # 위임 플래그 필터: --require-tag 지정 시 태그가 있는 작업만 남긴다.
       # 태그 없는 ready 는 수동 몫이므로 감지 대상이 아니다(통지는 세션이 한다).

@@ -148,6 +148,7 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
     1. **종료 시각**(필수): 선택지는 넷이다. 오늘 안의 가까운 정시 하나(없으면 뺀다), `내일 09:00`, `다음 월요일
        09:00`(오늘이 금·토·일일 때만. 아니면 `내일 18:00`), `종료 요청 전까지`. 사람이 "Other" 로 직접 적을 수 있다.
     2. **인원**: 이번 인자에 없을 때만. `3 (기본)`·`2`·`4`·`6` 순이다. 1·5 는 "Other" 로 직접 적는다(선택지는 넷까지다).
+       이 PC 의 인원 상한(아래 「인원」 줄)을 넘는 선택지는 뺀다.
     3. **WP 범위**: 이번 인자에 없을 때만. `전체 (기본)` 하나와, 서버 ready 목록에서 뽑은 WP 를 최대 3개까지
        선택지로 낸다. 목록은 `dflow.sh list --scope assigned` 의 `RD` 행마다 show 한 `external_ref` 의 TSK 번호
        첫 칸(`TSK-02-05` → `WP-02`)이며, 조회가 실패하면 `전체 (기본)` 과 "Other 로 직접 적는다" 만 둔다.
@@ -177,8 +178,18 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   돕니다. 답을 기다리는 팀원은 사람이 답할 때까지 슬롯을 잡습니다." 를 한 줄 더 적는다. macOS 면 절전 방지를
   건다(「1. 시작」 6번). 서버(Linux)와 Windows 는 절전 방지를 걸지 않는다. 서버는 절전하지 않고, 절전하는 PC 라면
   사람이 전원 설정으로 막는다.
-- 인원은 동시 팀원 슬롯 수다. **기본 3, 하드 상한 6.** 6 을 넘기면 6 으로 자르고 그 사실을 한 줄 알린다.
-  슬롯마다 독립 메인 에이전트가 떠서 비용과 사용량 한도 소모가 빠르게 늘기 때문이다.
+- 인원은 동시 팀원 슬롯 수다. **기본 3, 인원 상한은 이 PC 의 `min(6, K+2)`.** K 는 무거운 명령 슬롯 수
+  (`heavy.sh` 와 같은 계산: `DFLOW_HEAVY_SLOTS`, 없으면 `max(1, ⌊RAM_GB/8⌋)`)라 16GB 면 4명, 32GB 이상이면 6명이다.
+  상한은 아래로 구하고, 인원(기본 3 포함)이 상한을 넘으면 상한으로 자르고 그 사실을 출력 줄과 함께 한 줄 알린다.
+  ```bash
+  .claude/skills/dflow-team/scripts/capacity.sh max
+  ```
+  출력은 `TEAM_MAX <상한> k=<K> ram=<GB>GB source=<default|DFLOW_TEAM_MAX>` 한 줄이다. 사람이 상한을 바꾸려면 팀장
+  세션의 환경변수 `DFLOW_TEAM_MAX`(1~6)로 덮는다. 6 은 덮어도 넘지 못한다(`clamped=` 가 붙는다). 이유: 6 은 비용
+  천장이다. 슬롯마다 독립 메인 에이전트가 떠서 비용과 사용량 한도 소모가 빠르게 늘기 때문이다. K+2 는 자원
+  기준이다. 무거운 검증은 PC 전체에서 K 개만 동시에 돌므로 팀원이 K 보다 훨씬 많으면 슬롯 앞에 줄만 길어지고, 줄 선
+  팀원은 기다리는 동안에도 턴을 태운다(2026-09-24: 16GB PC 의 슬롯 2개를 두고 6명이 대기). 2 를 더하는 것은 설계·
+  구현처럼 슬롯을 쓰지 않는 구간의 팀원 몫이다.
 - **도커 허용 태그: 팀원은 도커를 쓰지 않는 것이 기본이고(인원과 무관), D'Flow 작업의 tags 에 `docker` 가 있는 Task 의
   팀원에게만 허용한다.** 이 판정을 정하는 곳은 이 줄 하나다. 새 작업·재개·재시작·해소 포인터를 쓸 때마다 띄우기 직전에
   `.claude/skills/dflow-team/scripts/docker-allow.sh <id8>` 로 그 작업의 서버 tags 를 다시 읽고, 출력의 `DOCKER=allow`·
@@ -218,7 +229,8 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   범위는 `team.start` 의 `wp` 에 남긴다(「1. 시작」 5번). 컨텍스트 압축 뒤 poll 을 다시 띄울 때 그 값으로 복원한다.
 - poll 조회 주기는 180초(3분)로 고정하고, 일시 제외는 `--recheck-cycles 10`(10주기 = 30분)으로 유지한다. 이유: 조회는
   셸 프로세스의 `curl` 이라 토큰을 쓰지 않으므로 발견만 빨라진다. 주기만 줄이면 일시 제외가 빨리 풀려 팀장 기상(토큰)이
-  늘므로, 주기 수를 함께 늘려 유지 시간을 30분으로 둔다.
+  늘므로, 주기 수를 함께 늘려 유지 시간을 30분으로 둔다. 선행 대기(「2-3」 「선행 사전 검사」)는 따로
+  `--wait-cycles 40`(40주기 = 2시간)으로 붙든다.
 - **자동 머지 `automerge=1`**(`.dflow.local`, 개인 설정, 기본 0. 레거시는 `.env` 의 `DFLOW_AUTOMERGE=1`): 켜면
   팀원이 완료 보고(`done`)를 하는 즉시 팀장이 그
   agent 브랜치를 기본 브랜치에 머지하고 다음 Task 를 착수한다. **승인은 사후 확인이다.** 스윕이 `/dflow-merge --on-report`
@@ -240,7 +252,8 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 
 팀장이 다루는 상태는 슬롯 표(슬롯 번호, `AGENT_ID`, TSK, id8, 워크트리 경로, 터미널 핸들 또는 pane id,
 시작 시각, 직전 생존 증거), 대기 큐(ready 인데 슬롯이 없어 아직 못 준 id8), 영구 제외
-목록(failed·반려·진행 중), 일시 제외 목록(선행·spec 사유), 답을 기다리는 `blocked` 작업, 결과 줄 경로별
+목록(failed·반려·진행 중), 일시 제외 목록(선행·spec 사유), 선행 대기 목록(사전 검사의 선행 미충족, id8 과 그
+선행 ref), 답을 기다리는 `blocked` 작업, 결과 줄 경로별
 마지막 처리 해시, 차단기 상태, 감지된 백엔드다. **답을 받아 팀원 화면에 넣는 일은 한 번의 기상 안에서
 끝내며 중간 상태를 남기지 않는다.** `team.answer` 는 답을 넣은 뒤에 기록하므로, 넣기 직전에 컨텍스트가
 압축되면 그 답은 되살아나지 않는다. 그때는 재구성이 그 작업을 여전히 답 대기로 보고 다시 통지하므로 사람이
@@ -249,8 +262,8 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 슬롯이 빠지면 `.result` 가 와도 처리되지 않는다.
 
 **압축 뒤 첫 기상**: 요약은 절차의 정본도 아니다. 컨텍스트 압축 뒤 첫 기상에서는 행동하기 전에 이 파일의
-「2. 기상과 감시」「3. 결과 처리」「6. blocked」「7. 마감」 과 `references/events.md`, `references/restart.md`(전부), `references/merge-conflict.md`, `references/backends.md` 의
-「고아 정리 규칙」 을 Bash `cat` 으로 다시 읽고(심링크 배포 리포에서 Read 는 작업 디렉터리 밖 읽기 확인을
+「2. 기상과 감시」「3. 결과 처리」「5-3. 입장 제어」「6. blocked」「7. 마감」 과 `references/events.md`, `references/restart.md`(전부), `references/merge-conflict.md`, `references/backends.md` 의
+「입장 제어」「고아 정리 규칙」 을 Bash `cat` 으로 다시 읽고(심링크 배포 리포에서 Read 는 작업 디렉터리 밖 읽기 확인을
 부른다), `<host>` 도 기억이 아니라 「1. 시작」 의 명령으로 다시 구한다. 이유:
 요약에서 빠진 규칙(이벤트의 추가 필드, `parked` 표시, host 슬러그와 `host` 필드의 차이)은 기억으로 메워지지
 않으며, 그렇게 기록한 줄은 다음 재구성이 읽지 못한다.
@@ -314,6 +327,8 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
   `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit` 은 제외
   없음), 차단기 상태(끝에서부터 연속한 `failed…` 수. `failed not-assignee`·`cancelled`·해소 워커의 내용 실패(`references/merge-conflict.md` 「6. 차단기」)는 세지도 끊지도 않고 건너뛴다. `team.lost` 는 `cause` 와 무관하게 실패 1건으로 센다. 단 `next=wait` 인 `team.lost` 는 세지도 끊지도 않는다), 결과 줄 경로별 마지막 처리 해시(경로는
   `<worktree>/<TASKS>/<tsk>/.result`)를 복원한다.
+- 단 사유가 `선행 미충족(사전 검사:` 로 시작하는 `skipped` 는 일시 제외가 아니라 **선행 대기**다. 선행 대기 목록은
+  기억이 아니라 「2-3」 의 선행 대기 블록 출력으로 복원한다(2시간이 지난 것과 선행이 이미 `done` 난 것은 그 블록이 뺀다).
 - 제외 목록은 id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다. 마지막이 `team.spawn` 이나
   `team.blocked` 면 진행 중(영구 제외)이고, `team.result` 면 위 status 별 제외다. `team.answer` 는 제외를 바꾸지
   않는다. 이유: 일시 제외가 풀려 다시 띄운 작업이 옛 `skipped` 로 다시 일시 제외되거나, 결과가 난 작업이 진행
@@ -843,7 +858,7 @@ mkdir -p "$(git rev-parse --git-path dflow-team-poll)"
 POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 ( cd "$POLL_DIR" && DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0 \
     "<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until '<UNTIL>' --interval 180 --recheck-cycles 10 \
-    [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] )
+    --wait-cycles 40 [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] [--exclude-wait <id8,id8>] )
 ```
 대괄호는 선택 플래그 표기이며 실제 명령에는 쓰지 않는다. `<MAIN>` 경로는 따옴표로 감싼다. 경로에 공백이 있으면
 `DFLOW_CONFIG_DIR` 값이 끊기고 poll.sh 를 찾지 못해 poll 이 곧바로 죽기 때문이다.
@@ -858,7 +873,8 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
   팀장이 둘로 보이거나 `slots`·`busy` 없는 신호가 `lead` 행을 덮어쓴다.
 - `--exclude` 에는 **영구 제외 ∪ 현재 슬롯의 id8** 을 넣는다. 슬롯의 id8 은 재구성으로 복원된다. 이유: 팀원이
   claim 하기 전까지 그 작업은 ready 라서, 넣지 않으면 poll 이 즉시 다시 찾아 짧은 간격으로 서버를 친다.
-  `--exclude-temp` 에는 일시 제외 목록을 넣는다.
+  `--exclude-temp` 에는 일시 제외 목록을, `--exclude-wait` 에는 선행 대기 목록(「2-3」 선행 대기 블록 출력의 id8)을
+  넣는다. 한 id8 은 둘 중 한쪽에만 넣는다.
 - 목록은 공백 없는 쉼표 구분이다. **목록이 비면 그 플래그 자체를 생략한다.** 빈 값을 넘기면 poll.sh 가 다음
   플래그를 값으로 삼켜 사용법 오류로 끝난다.
 - `--wp` 에는 WP 범위(`team.start` 의 `wp`)를 공백 없는 쉼표 구분으로 넣는다. 범위가 전체(`-`)면 플래그를 생략한다.
@@ -878,7 +894,9 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 재대조는 일시 제외 목록을 보지 않는다(「2-3」 표). 팀장이 자기 일시 제외 목록으로 다시 버리면, 같은 목록을 다시
 `--exclude-temp` 로 넘겨 그 작업이 그 세션에서 끝내 뜨지 않기 때문이다. poll 을 다른 이유로
 재기동하면 10주기 계산이 처음부터 다시 시작된다(poll.sh 프로세스 안에서 세기 때문이다). 재검사가 늦어질 뿐
-틀린 착수는 생기지 않는다.
+틀린 착수는 생기지 않는다. 선행 대기는 poll.sh 가 40주기(2시간) 뒤에 푼다. poll 은 ready 를 찾을 때마다 끝나 자주
+다시 뜨므로 이 계산도 자주 처음부터 시작되는데, 그래서 선행 대기 블록이 기록 시각으로 2시간 지난 것을 목록에서
+뺀다. 두 장치 가운데 먼저 닿는 쪽이 푼다.
 
 ### 2-2. 감시 루프
 
@@ -1048,7 +1066,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 
 | 기상 | 처리 |
 |---|---|
-| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다. 이유: 겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌고 있을 수 있다. 일시 제외는 대조하지 않는다. poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정해야 하기 때문이며(「2-1」), 대가로 겹쳐 뜬 옛 poll 이 막 일시 제외한 작업을 돌려주면 한 번 더 띄워 `skipped` 로 끝난다. 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 같은 처리를 한다(아래 「선행 사전 검사」). `deps_unmet` 이 비었고 `deps_nohead` 가 비어 있지 않으면 아래 「선행 반영 사전 검사」 를 거친다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다 |
+| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다. 이유: 겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌고 있을 수 있다. 일시 제외는 대조하지 않는다. poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정해야 하기 때문이며(「2-1」), 대가로 겹쳐 뜬 옛 poll 이 막 일시 제외한 작업을 돌려주면 한 번 더 띄워 `skipped` 로 끝난다. 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 보고와 `team.result` 는 같게 하되, 일시 제외가 아니라 **선행 대기**에 넣는다(아래 「선행 사전 검사」). `deps_unmet` 이 비었고 `deps_nohead` 가 비어 있지 않으면 아래 「선행 반영 사전 검사」 를 거친다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다 |
 | `STOP_REQUESTED`, 사람의 종료 요청("팀장 종료"·"마감해" 등) | 종료 시각과 무관하게 「7. 마감」 으로 간다. "종료 요청으로 마감합니다" 를 한 줄 알린다. 종료 파일은 이 자리에서 지운다(요청을 받았다). 남기면 마감 중 다시 띄운 감시 루프가 곧바로 다시 끝나 공회전한다. 마감의 기다림(「7. 마감」 2번) 중에 종료 요청이 **한 번 더** 오면 기다림을 끝내고 곧바로 3번으로 간다 |
 | poll exit 8 (시한) | 먼저 지금 시각이 현재 `<UNTIL>`(연장 반영) 전인지 본다. 전이면 연장 전에 띄운 옛 poll 이 끝난 것이므로 무시하고 재기동 조건(「2-1」)대로 새 `--until` 로 다시 띄운다. 지났으면 새 배정을 멈춘다. 대기 큐를 비우고(보고만 한다) 「7. 마감」 으로 간다 |
 | poll exit 2·3·5·6·7 | 중단 사유(stderr)를 보고하고 「7. 마감」 으로 간다 |
@@ -1081,9 +1099,47 @@ show 가 실패하면(dflow.sh 가 0 이 아닌 코드로 끝나거나, 404 로 
 스택해 진행하는 것이 워커 규칙(행 B)이라, merged 기준은 확정 skip 이 아닌 작업까지 30분씩 묶는다. 이유(이 검사를 두는
 까닭): poll 은 10주기마다 일시 제외를 풀어 선행이 진행 중인 후속을 다시 돌려준다. 그대로 띄우면 후속마다 팀원 세션이
 열려 행 G 판정만 하고 `skipped` 로 끝나며, 선행이 끝날 때까지 30분마다 되풀이되어 토큰과 슬롯을 쓴다(2026-09-19
-mdm-dict-v2 실측: 한 선행에 걸린 후속 5건). 사유 문자열이 「선행 미충족」 으로 시작하므로 자동 머지 뒤 일시 제외
-해제(「3. 결과 처리」)의 선행 계열에 그대로 들어간다. 면제된 간선(`waived:true`, 계약 2.8)은 서버가 `reached:true` 로 주므로
+mdm-dict-v2 실측: 한 선행에 걸린 후속 5건). 면제된 간선(`waived:true`, 계약 2.8)은 서버가 `reached:true` 로 주므로
 이 검사에 걸리지 않는다 — 그대로 spawn 한다.
+
+**선행 대기**(2026-09-24): 이 검사로 건너뛴 작업은 일시 제외(30분)가 아니라 선행 대기에 둔다. 사유의 `<ref…>` 는
+`deps_unmet` 원소를 공백으로 이어 적는다(`선행 미충족(사전 검사: d/TSK-03-01 d/TSK-03-02)`). 이유: 선행이 끝나기
+전에는 몇 번을 다시 봐도 결과가 같다. 30분마다 풀면 같은 Task 를 선행이 끝날 때까지 되풀이해 검사하며 기상마다
+토큰을 쓴다(2026-09-24 실측: 한 Task 를 13~16회). 푸는 길은 셋이다.
+- **선행 완료**: 선행 대기 블록(아래)이 그 선행 TSK 의 `done`·`needs-merge`·`resolved` 결과(`team.result`)가 건너뛴
+  뒤에 있으면 목록에서 뺀다. 이 팀의 팀원이 선행을 끝낸 경우다. 결과를 처리한 기상에서 블록을 다시 돌려 줄었으면
+  재기동 조건(「2-1」)대로 poll 을 줄어든 `--exclude-wait` 로 다시 띄운다.
+- **선행 머지**: 승인 스윕이 "머지됨"·"머지됨(승인 전)" 을 냈거나 해소 워커가 `resolved` 로 끝났으면, 그 TSK 를
+  선행 ref 에 가진 id8 을 이번 기상의 선행 대기에서 빼고 같은 방법으로 poll 을 다시 띄운다. 이 해제는 이벤트에 남지
+  않으므로 poll 이 그 작업을 돌려주기 전에 컨텍스트가 압축되면 블록이 다시 넣는다. 그때는 아래 안전망이 푼다.
+- **안전망**: 블록은 기록한 지 2시간이 지난 것을 빼고, poll.sh 도 `--wait-cycles 40`(2시간) 뒤에 스스로 푼다. 다른 PC
+  나 사람이 선행을 끝낸 경우처럼 이 팀장이 신호를 받지 못하는 갈래다.
+푼 작업을 팀장이 직접 띄우지 않는다. poll 이 다시 돌려주면 이 사전 검사를 다시 하고, 여전히 막히면 새 `team.result`
+로 다시 선행 대기에 들어간다(2시간 계산도 새로 시작한다). poll exit 0 의 재대조는 선행 대기도 보지 않는다(일시
+제외와 같은 이유).
+
+선행 대기 블록 — 출력 한 줄이 `<id8><TAB><선행 TSK,…>` 이다. 목록은 기억이 아니라 이 출력이 정본이며, poll 을
+띄울 때마다 돌린다.
+```bash
+now=$(date +%s)
+jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .repo == $r)' ~/.dflow/events.jsonl 2>/dev/null \
+  | awk '/"event":"team.start"/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' \
+  | jq -rs --argjson now "$now" '
+      def t: (.ts // "");
+      ($now - 7200 | todate) as $cut
+      | [.[] | select(.event == "team.result" and (.status == "done" or .status == "needs-merge" or .status == "resolved"))
+        | {tsk: (.tsk // ""), t: t}] as $done
+      | reduce (.[] | select((.event == "team.spawn" or .event == "team.blocked" or .event == "team.result" or .event == "team.lost")
+          and (.id8 // "") != "")) as $e ({}; .[$e.id8] = $e)
+      | .[]
+      | select(.event == "team.result" and .status == "skipped" and ((.reason // "") | startswith("선행 미충족(사전 검사:")))
+      | t as $at
+      | [.reason | ltrimstr("선행 미충족(사전 검사:") | rtrimstr(")") | splits("[ ,]+") | select(. != "") | split("/") | last] as $refs
+      | select($at > $cut)
+      | select(any($done[]; .t >= $at and (.tsk as $k | any($refs[]; . == $k))) | not)
+      | "\(.id8)\t\($refs | join(","))"'
+```
+시각은 `ts`(UTC `YYYY-MM-DDTHH:MM:SSZ`) 문자열끼리 견준다. 형식이 같아 사전순이 곧 시간순이다.
 
 **선행 반영 사전 검사**(`deps_nohead`, 2026-09-23): `deps_unmet` 이 비었고 `deps_nohead`(서버 `reached` 는 참인데
 `head_sha` 가 없는 선행, 즉 완료 보고 뒤 승인 전)가 비어 있지 않으면 워커 행 G 갈래 2 의 반영 확인을 여기서 먼저 한다.
@@ -1430,7 +1486,9 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
 
 ## 5. 팀원 spawn
 
-0. **입장 제어**: 띄우기 직전마다 「5-3. 입장 제어」 를 먼저 돈다. `CAPACITY_LOW` 면 이번 기상에는 띄우지 않는다(「5-1」·「5-2」 도 같다).
+0. **입장 제어는 spawn 블록이 집행한다**(「5-3. 입장 제어」). 5항에서 도는 backends.md 의 spawn 블록이 첫 단계에서
+   `capacity.sh` 를 부르고, 막히면 `SPAWN_DEFERRED_CAPACITY` 를 내고 아무것도 만들지 않은 채 끝난다. 그러면 6항
+   (`team.spawn`·진행 중 제외)을 하지 않고 이 작업을 대기 큐에 되돌리며, 이번 기상의 나머지 spawn 도 하지 않는다. 재개(「5-1」)·해소(「5-2」)·재투입도 같은 블록을 거친다.
 1. 그 id8 이 재구성한 슬롯 표에 있으면 띄우지 않는다. poll 이 겹쳐 떠서 같은 ready 를 두 번 돌려줘도 한 번만
    띄우기 위해서다.
 2. 슬롯 번호를 정하고(「팀장 상태」 의 발급 규칙) `AGENT_ID = <신원>/<host>/w<slot>` 을 만든다.
@@ -1476,7 +1534,7 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
      「pane(tmux)」). pane id 를 `<워크트리>/.dflow-pane` 에 쓰고, `allow-set-title off` 를 걸고 `select-pane -T` 로 그 pane 에 `w<slot> · <TSK> <id8> · <작업 이름>` 이름표를 붙인다(순서와 테두리 표시 설정은 backends.md. 옵션을 먼저 걸지 않으면 claude 가 제목을 자기 진행 표시로 덮는다). **이어서 폴더 신뢰 확인 루프를 반드시 돈다.**
      그 확인을 넘기지 않으면 팀원이 첫 화면에서 멈춘 채 살아 있어 한 슬롯이 통째로 놀게 된다. 기점은
      `origin/<기본브랜치>` 로 명시하고, 스택 기점은 `/dflow-dev` Phase 01 2번이 claim 전에 맞춘다.
-   - **pane(Orca)**:
+   - **pane(Orca)**: 먼저 backends.md 「입장 제어」 블록을 따로 돈다(`SPAWN_DEFERRED_CAPACITY` 면 아래를 부르지 않는다).
      ```
      orca worktree create --name dflow-<id8> --agent claude --no-parent \
        --base-branch origin/<기본브랜치> --prompt "<포인터 한 줄>" --json
@@ -1525,6 +1583,10 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
   한다.
 
 절차:
+0. **입장 제어**: 무엇이든 바꾸기 전에 backends.md 「입장 제어」 블록을 돈다(두 백엔드 공통). `SPAWN_DEFERRED_CAPACITY`
+   면 이 재개를 이번 기상에 하지 않는다. 워크트리·`.dflow-agent`·포인터를 건드리지 않았으므로 다음 기상의 재구성이 같은
+   대상으로 다시 잡는다. 이 자리에서 도는 이유: 5항이 `.dflow-agent` 를 `parked` 에서 되돌린 뒤에 막히면 팀원 없는
+   워크트리가 `parked` 아닌 채 남는다. 7항의 띄우기는 이 검사를 다시 하지 않는다.
 1. **손실 보고 한 줄을 먼저 낸다.** 사람이 이 줄만 보고 멈출 수 있어야 한다.
    ```
    재개 <id8> <TSK>: 워크트리 <경로|없음> · 브랜치 <agent/…@<head>|없음> · 원격 <origin/agent/…@<sha>|없음>
@@ -1587,7 +1649,7 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
    `<4항에서 출력된 작업 폴더>`, `DOCKER` 는 4항 블록의 `docker-allow.sh` 출력이다. 옛 파일을 그대로 두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의
    `AGENT_ID` 와 어긋나 팀원이 남의 좌석으로 heartbeat 를 보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
 7. **띄운다.** 먼저 `references/restart.md` 「중단 표식 정리」 블록을 돈다(`st` 는 재개 판정이 받은 show 의 `status`,
-   곧 `claimed`). `CANCEL_MARK_RM_FAILED` 면 띄우지 않고 「멈춤」 표(사유 `중단 표식 삭제 실패`)에 넣는다. 백엔드별 명령은 5번 5항과 같다. tmux 는 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
+   곧 `claimed`). `CANCEL_MARK_RM_FAILED` 면 띄우지 않고 「멈춤」 표(사유 `중단 표식 삭제 실패`)에 넣는다. 백엔드별 명령은 5번 5항과 같다(입장 제어 줄과 `git worktree add` 줄은 빼고 쓴다. 입장 제어는 0항에서 했다). tmux 는 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
    워크트리에는 없고, 남아 있던 것은 옛 모델 인자를 달고 있다) pane id 를 `.dflow-pane` 에 덮어쓴다. **폴더 신뢰 확인 루프를 반드시 돈다.** 넘기면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가
    통째로 논다. Orca 는 포인터를 `--prompt` 로 넘겨 기존 워크트리에 탭을 다시 연다.
 8. **옛 `.result` 를 지운다**(`rm -f <워크트리>/<4항에서 출력된 작업 폴더>/.result`). 이유: `failed…` 로 끝난 워크트리를
@@ -1605,8 +1667,13 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
 
 해소 큐의 작업을 해소 전용 워커로 띄운다. 워크트리는 `origin/<기본브랜치>` 에 detach 한
 `<MAIN>/.claude/worktrees/dflow-<id8>-resolve` 이고, 포인터는 `references/resolve-prompt.md` 를 가리키며, `team.spawn` 의
-`spawn_kind` 는 `resolve` 다. 재개 다음·대기 큐보다 먼저 띄우고, 동시에는 `max(1, ⌊인원/2⌋)` 까지다. claim 하지 않는다.
-tmux·Orca 띄우기, 신뢰 확인 루프, 이름표(`w<slot> · 해소 <TSK> <id8>`)는 5번과 같다. 절차 정본은
+`spawn_kind` 는 `resolve` 다. 재개 다음·대기 큐보다 먼저 띄우고, 동시에는 `max(1, ⌊인원/2⌋)` 까지다(인원은 「인자」 의
+인원 상한으로 자른 뒤의 값이다. 16GB PC 의 기본 상한 4 면 해소는 2개까지). claim 하지 않는다.
+tmux·Orca 띄우기, 신뢰 확인 루프, 이름표(`w<slot> · 해소 <TSK> <id8>`)는 5번과 같다. 입장 제어도 같다: tmux 는
+merge-conflict.md 가 backends.md 의 spawn 블록을 그대로 돌리므로 그 첫 단계가 집행하고, Orca 는 `orca worktree create`
+앞에 backends.md 「입장 제어」 블록을 따로 돈다. `SPAWN_DEFERRED_CAPACITY` 면 해소 큐에 그대로 두고 merge-conflict.md
+「2」 의 5~7번(`team.spawn`·표시 note·감시 루프 항목)을 하지 않는다. 띄우지 않았으므로 해소 시도로 세지 않는다 —
+`team.spawn`(`resolve`) 줄 수가 해소 카운터이고 그 id8 을 진행 중(영구 제외)으로 만들기 때문이다. 절차 정본은
 `references/merge-conflict.md` 「2. 해소 spawn」 이고 결과 처리는 같은 문서 「4」 다.
 
 ### 5-3. 입장 제어 (spawn 직전 자원 확인)
@@ -1616,11 +1683,19 @@ spawn 모두 해당한다. 이유: 2026-09-24 dmes-standard 에서 10코어·16G
 average 52, 스왑 18GB 중 17GB 까지 올라 PC 전체가 멈추다시피 했다. 이미 모자란 PC 에 팀원을 더 얹지 않는다.
 **이미 떠 있는 팀원은 건드리지 않는다**(끄거나 멈추지 않는다). 무거운 명령 자체의 동시 실행은 워커 쪽 `heavy.sh`
 (`dev-discipline.md` 「무거운 명령 줄 세우기」)가 따로 묶는다.
+
+**집행은 spawn 블록 한 곳이다.** backends.md 「입장 제어」 블록이 아래 명령을 부르고, 막히면 `SPAWN_DEFERRED_CAPACITY`
+를 내고 끝난다. tmux spawn 블록은 그 두 줄로 시작하므로 새 작업(「5」)과 해소(「5-2」, merge-conflict.md 가 같은 블록을
+돈다)는 블록을 돌기만 하면 걸린다. 블록을 통째로 돌지 않는 자리 — Orca 의 `orca worktree create` 앞, 재개·재투입
+(「5-1」 0항, restart.md 「재투입」) — 는 「입장 제어」 블록을 첫 단계로 따로 돈다. 이유: 전에는 이 절 한 줄과
+"「5-1」·「5-2」 도 같다" 로만 이어져, 해소 spawn(merge-conflict.md)·재투입(restart.md)·backends.md 의 spawn 블록 어디에도
+호출이 없었다.
 ```bash
 .claude/skills/dflow-team/scripts/capacity.sh --state "$(git rev-parse --git-path dflow-team.capacity)"; echo "rc=$?"
 ```
 - `CAPACITY_OK`(rc=0): 띄운다.
-- `CAPACITY_LOW`(rc=1): 이번 기상에는 팀원을 새로 띄우지 않는다. 후보는 대기 큐(재개 대상은 재개 목록)에 그대로 둔다.
+- `CAPACITY_LOW`(rc=1) = 블록의 `SPAWN_DEFERRED_CAPACITY`: 이번 기상에는 팀원을 새로 띄우지 않는다. 후보는 대기 큐(재개 대상은 재개 목록,
+  해소는 해소 큐, 재투입은 재시작 대기)에 그대로 둔다.
   작업 탓이 아니므로 `team.result` 를 남기지 않고 일시 제외에도 넣지 않는다. 다음 기상(늦어도 `TICK`)에 다시 본다.
 - `CAPACITY_UNKNOWN`(rc=0): 판정할 수 없는 OS 이거나 측정 명령이 실패했다. 막지 않고 띄운다. 성능 보호이지 보안
   가드가 아니기 때문이다. 일부 항목만 못 읽었으면 `unknown=` 에 적히고 판정은 읽은 항목으로 한다.
@@ -1628,9 +1703,13 @@ average 52, 스왑 18GB 중 17GB 까지 올라 PC 전체가 멈추다시피 했�
   `CAPACITY_OK` 면 "자원 회복, 팀원 spawn 재개", `CAPACITY_UNKNOWN` 이면 "자원 판정 불가(막지 않음): <출력 줄>" 이다.
   `notify=0` 이면 알리지 않는다. 상태 파일(git-path `dflow-team.capacity`)이 마지막 판정과 시각을 담는 기록이며, 판정이
   바뀔 때만 `notify=1` 이 되므로 `TICK` 마다나 컨텍스트 압축 뒤에 같은 알림을 되풀이하지 않는다.
-- 기준값의 정본은 `capacity.sh` 머리다. 여유 메모리 30% 미만, 스왑 사용량이 RAM 크기 이상, 5분 load average 가 코어당
-  3.0 초과, macOS 메모리 압박 warn 이상 가운데 하나라도 걸리면 `CAPACITY_LOW` 다. 사람이 바꾸려면 팀장 세션의 환경변수
-  `DFLOW_CAP_MIN_FREE_PCT`·`DFLOW_CAP_MAX_SWAP_PCT`·`DFLOW_CAP_MAX_LOAD_PER_CPU` 로 덮는다.
+- 기준값의 정본은 `capacity.sh` 머리다. macOS 메모리 압박 warn 이상, 여유 메모리 30% 미만, 5분 load average 가 코어당
+  2.0 초과, 무거운 명령 슬롯의 대기자 수가 슬롯 수 이상(`heavy_wait=<대기>/<슬롯>`, `heavy.sh status` 첫 줄에서 읽는다) 가운데
+  하나라도 걸리면 `CAPACITY_LOW` 다. 스왑은 RAM 의 150% 이상일 때만 막는 극단 안전망이다. macOS 스왑은 압박이 풀린 뒤에도
+  몇 시간씩 남아(실측: 스왑 12GB=76% 에서도 `CAPACITY_OK`) 평상시 기준으로 쓸 수 없기 때문이다. heavy 대기자를 보는 이유:
+  슬롯이 이미 줄을 서 있으면 팀원을 더 얹어도 줄만 길어진다. `heavy.sh status` 를 못 읽으면 그 항목만 판정하지 않는다
+  (`unknown=heavy`). 사람이 바꾸려면 팀장 세션의 환경변수 `DFLOW_CAP_MIN_FREE_PCT`·`DFLOW_CAP_MAX_LOAD_PER_CPU`·
+  `DFLOW_CAP_MAX_SWAP_PCT` 로 덮는다.
 
 ## 6. blocked
 
@@ -1816,4 +1895,5 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
   자리에서 이어 간다.
 - poll·감시 루프를 셸 `&` 로 띄우는 것. 둘은 Bash `run_in_background` 로만 띄운다. 팀원 spawn 에도 `&` 를
   쓰지 않는다. tmux `split-window` 가 곧바로 돌아오고 pane 은 tmux 서버가 붙잡기 때문이다.
-- 인원 6 초과.
+- 인원 상한(「인자」, `capacity.sh max`) 초과. 덮어도 6 초과.
+- 입장 제어(backends.md 「입장 제어」)를 거치지 않은 spawn.
