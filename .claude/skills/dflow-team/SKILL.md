@@ -1309,6 +1309,7 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
 
 ## 5. 팀원 spawn
 
+0. **입장 제어**: 띄우기 직전마다 「5-3. 입장 제어」 를 먼저 돈다. `CAPACITY_LOW` 면 이번 기상에는 띄우지 않는다(「5-1」·「5-2」 도 같다).
 1. 그 id8 이 재구성한 슬롯 표에 있으면 띄우지 않는다. poll 이 겹쳐 떠서 같은 ready 를 두 번 돌려줘도 한 번만
    띄우기 위해서다.
 2. 슬롯 번호를 정하고(「팀장 상태」 의 발급 규칙) `AGENT_ID = <신원>/<host>/w<slot>` 을 만든다.
@@ -1481,6 +1482,29 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
 `spawn_kind` 는 `resolve` 다. 재개 다음·대기 큐보다 먼저 띄우고, 동시에는 `max(1, ⌊인원/2⌋)` 까지다. claim 하지 않는다.
 tmux·Orca 띄우기, 신뢰 확인 루프, 이름표(`w<slot> · 해소 <TSK> <id8>`)는 5번과 같다. 절차 정본은
 `references/merge-conflict.md` 「2. 해소 spawn」 이고 결과 처리는 같은 문서 「4」 다.
+
+### 5-3. 입장 제어 (spawn 직전 자원 확인)
+
+팀원 세션을 새로 띄우기 직전마다 PC 여유 자원을 본다. 새 작업(「5」)·재개와 재투입(「5-1」)·해소(「5-2」)·차단기의 시험
+spawn 모두 해당한다. 이유: 2026-09-24 dmes-standard 에서 10코어·16GB PC 에 팀원 6명이 동시에 무거운 검증을 돌려 load
+average 52, 스왑 18GB 중 17GB 까지 올라 PC 전체가 멈추다시피 했다. 이미 모자란 PC 에 팀원을 더 얹지 않는다.
+**이미 떠 있는 팀원은 건드리지 않는다**(끄거나 멈추지 않는다). 무거운 명령 자체의 동시 실행은 워커 쪽 `heavy.sh`
+(`dev-discipline.md` 「무거운 명령 줄 세우기」)가 따로 묶는다.
+```bash
+.claude/skills/dflow-team/scripts/capacity.sh --state "$(git rev-parse --git-path dflow-team.capacity)"; echo "rc=$?"
+```
+- `CAPACITY_OK`(rc=0): 띄운다.
+- `CAPACITY_LOW`(rc=1): 이번 기상에는 팀원을 새로 띄우지 않는다. 후보는 대기 큐(재개 대상은 재개 목록)에 그대로 둔다.
+  작업 탓이 아니므로 `team.result` 를 남기지 않고 일시 제외에도 넣지 않는다. 다음 기상(늦어도 `TICK`)에 다시 본다.
+- `CAPACITY_UNKNOWN`(rc=0): 판정할 수 없는 OS 이거나 측정 명령이 실패했다. 막지 않고 띄운다. 성능 보호이지 보안
+  가드가 아니기 때문이다. 일부 항목만 못 읽었으면 `unknown=` 에 적히고 판정은 읽은 항목으로 한다.
+- **알림은 줄 끝이 `notify=1` 일 때만 한 줄** 사람에게 한다. `CAPACITY_LOW` 면 "자원 부족으로 새 팀원 보류: <출력 줄>",
+  `CAPACITY_OK` 면 "자원 회복, 팀원 spawn 재개", `CAPACITY_UNKNOWN` 이면 "자원 판정 불가(막지 않음): <출력 줄>" 이다.
+  `notify=0` 이면 알리지 않는다. 상태 파일(git-path `dflow-team.capacity`)이 마지막 판정과 시각을 담는 기록이며, 판정이
+  바뀔 때만 `notify=1` 이 되므로 `TICK` 마다나 컨텍스트 압축 뒤에 같은 알림을 되풀이하지 않는다.
+- 기준값의 정본은 `capacity.sh` 머리다. 여유 메모리 30% 미만, 스왑 사용량이 RAM 크기 이상, 5분 load average 가 코어당
+  1.5 초과, macOS 메모리 압박 warn 이상 가운데 하나라도 걸리면 `CAPACITY_LOW` 다. 사람이 바꾸려면 팀장 세션의 환경변수
+  `DFLOW_CAP_MIN_FREE_PCT`·`DFLOW_CAP_MAX_SWAP_PCT`·`DFLOW_CAP_MAX_LOAD_PER_CPU` 로 덮는다.
 
 ## 6. blocked
 
