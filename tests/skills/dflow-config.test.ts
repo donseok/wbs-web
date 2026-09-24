@@ -115,6 +115,49 @@ describe('dflow_config_load — 우선순위·키 범위(스펙 §3·§4)', () =
   })
 })
 
+// no_docker: 두 파일 모두 받는 키(범위 both). 우선순위 env > .dflow.local > .dflow. 규칙 정본은
+// .claude/skills/dflow-dev/references/dev-discipline.md 「도커 사용 규칙」(2026-09-24 dmes-standard 사고).
+describe('no_docker — 두 파일 모두 받는 키', () => {
+  const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
+  const get = (env: Record<string, string> = {}) => sh(repo, `sh '${DFLOW}' config no_docker`, env)
+  it('.dflow 에만 no_docker=1 이면 1, 범위 경고 없이', () => {
+    writeFileSync(join(repo, '.dflow'), DOT + 'no_docker=1\n'); writeFileSync(join(repo, '.dflow.local'), LOCAL)
+    const r = get()
+    expect(r.code, r.err).toBe(0); expect(r.out).toBe('1\n')
+    expect(r.err).not.toMatch(/PERSONAL_KEY_IN_DFLOW|COMMON_KEY_IN_LOCAL|UNKNOWN_KEY/)
+  })
+  it('.dflow.local 에만 no_docker=1 이면 1, 범위 경고 없이', () => {
+    writeFileSync(join(repo, '.dflow'), DOT); writeFileSync(join(repo, '.dflow.local'), LOCAL + 'no_docker=1\n')
+    const r = get()
+    expect(r.code, r.err).toBe(0); expect(r.out).toBe('1\n')
+    expect(r.err).not.toMatch(/PERSONAL_KEY_IN_DFLOW|COMMON_KEY_IN_LOCAL|UNKNOWN_KEY/)
+  })
+  it('.dflow.local 이 .dflow 를 덮는다 — 리포가 1 이어도 PC 가 0 이면 0, 반대도 같다', () => {
+    writeFileSync(join(repo, '.dflow'), DOT + 'no_docker=1\n'); writeFileSync(join(repo, '.dflow.local'), LOCAL + 'no_docker=0\n')
+    expect(get().out).toBe('0\n')
+    writeFileSync(join(repo, '.dflow'), DOT + 'no_docker=0\n'); writeFileSync(join(repo, '.dflow.local'), LOCAL + 'no_docker=1\n')
+    expect(get().out).toBe('1\n')
+  })
+  it('export 된 DFLOW_NO_DOCKER 가 두 파일을 이긴다', () => {
+    writeFileSync(join(repo, '.dflow'), DOT + 'no_docker=1\n'); writeFileSync(join(repo, '.dflow.local'), LOCAL + 'no_docker=1\n')
+    expect(get({ DFLOW_NO_DOCKER: '0' }).out).toBe('0\n')
+  })
+  it('어느 파일에도 없으면 빈 값(꺼짐)', () => {
+    writeFileSync(join(repo, '.dflow'), DOT); writeFileSync(join(repo, '.dflow.local'), LOCAL)
+    const r = get()
+    expect(r.code, r.err).toBe(0); expect(r.out).toBe('\n')
+  })
+  it('순서를 바꿔 적용해도 한쪽 범위 키의 규칙은 그대로다(.dflow 의 개인 키는 exit 2, .dflow.local 의 공통 키는 무시)', () => {
+    writeFileSync(join(repo, '.dflow'), DOT + 'dev_branch=dev/other\n'); writeFileSync(join(repo, '.dflow.local'), LOCAL)
+    const r1 = load(repo, 'echo ok')
+    expect(r1.code).toBe(2); expect(r1.err).toContain('PERSONAL_KEY_IN_DFLOW dev_branch')
+    writeFileSync(join(repo, '.dflow'), DOT); writeFileSync(join(repo, '.dflow.local'), LOCAL + 'release_branch=other\n')
+    const r2 = load(repo, 'echo "$DFLOW_RELEASE_BRANCH|$DFLOW_DEV_BRANCH"')
+    expect(r2.code, r2.err).toBe(0); expect(r2.out.trim()).toBe('main|dev/me')
+    expect(r2.err).toContain('COMMON_KEY_IN_LOCAL release_branch')
+  })
+})
+
 describe('.dflow 위치 폴백과 브랜치(스펙 §5-2·§6)', () => {
   it('워크트리에 .dflow 가 없으면 origin/<dev_branch>:.dflow 를 읽는다', () => {
     const r0 = sh(repo, `git switch -q -c dev/me && printf '${DOT.replace(/\n/g, '\\n')}' > .dflow && git add .dflow && git commit -qm dflow && git push -q origin dev/me && git switch -q main`)
