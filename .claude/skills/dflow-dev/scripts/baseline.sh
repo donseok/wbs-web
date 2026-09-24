@@ -25,19 +25,23 @@
 # 동시 측정: 같은 키를 둘이 동시에 재려 하면 mkdir 잠금을 잡은 쪽만 재고 다른 쪽은 결과를 기다렸다가 재사용한다.
 # 둘 다 재면 시간을 못 줄이고, testAll·마이그레이션 시험은 같은 DB·포트를 두고 서로 부딪칠 수 있다. 잠금에는
 # pid·host·시작 시각을 적고, 같은 host 에서 pid 가 죽었거나 DFLOW_BASELINE_LOCK_TTL(초, 기본 7200)을 넘기면 버려진
-# 잠금으로 보고 가져간다. DFLOW_BASELINE_WAIT(초, 기본 1800)를 기다려도 안 끝나면 잠금 없이 직접 잰다. 결과
+# 잠금으로 보고 가져간다. DFLOW_BASELINE_WAIT(초, 기본 240)를 기다려도 안 끝나면 재지 않고 BASELINE_BUSY 와 exit 75
+# 로 끝난다 — 워커는 같은 명령을 다시 호출한다. 한 번의 Bash 호출로 오래 기다리면 heartbeat 가 끊겨 팀장이 무응답으로
+# 오판하기 때문이다(heavy.sh 의 HEAVY_BUSY 와 같은 이유·같은 exit). 측정 명령은 같은 폴더의 heavy.sh(PC 전역 무거운 명령
+# 세마포어)로 감싸 돌린다. heavy.sh 가 HEAVY_BUSY(exit 75)로 끝나면 저장하지 않고 BASELINE_BUSY 로 끝난다. 결과
 # 파일은 임시 파일에 쓴 뒤 하드링크로 게시한다(원자적, 이미 있으면 먼저 쓴 쪽이 남는다). flock 은 macOS 에 없다.
 #
 # 출력 마지막 줄(`| tail -30` 뒤에도 남는다):
 #   BASELINE_MEASURED exit=<n> key=<key> json=<경로>         새로 쟀고 저장했다
 #   BASELINE_MEASURED exit=<n> cache=off(<사유>)              새로 쟀고 저장하지 않았다
 #   BASELINE_REUSED exit=<n> key=<key> measured_at=<ISO> json=<경로>   다른 팀원이 잰 결과를 그대로 냈다
-# 그 밖: BASELINE_WAITING(다른 측정을 기다린다) · BASELINE_WAIT_TIMEOUT · BASELINE_LOCK_STALE · BASELINE_SUMMARY
+#   BASELINE_BUSY exit=75 <사유>                            재지 못했다 — 같은 명령을 다시 호출한다(실패가 아니다)
+# 그 밖: BASELINE_WAITING(다른 측정을 기다린다) · BASELINE_LOCK_STALE · BASELINE_SUMMARY
 # note 는 파싱한 총수·실패 목록을 결과에 더한다. 재사용하는 쪽은 BASELINE_SUMMARY 줄과 json 으로 같은 수를 얻는다.
 set -u
 
 MAX_AGE="${DFLOW_BASELINE_MAX_AGE:-21600}"
-WAIT="${DFLOW_BASELINE_WAIT:-1800}"
+WAIT="${DFLOW_BASELINE_WAIT:-240}"
 LOCK_TTL="${DFLOW_BASELINE_LOCK_TTL:-7200}"
 POLL="${DFLOW_BASELINE_POLL:-2}"
 MODE="${DFLOW_BASELINE_CACHE:-1}"
@@ -164,16 +168,26 @@ cmd_run() {
       waited=1
     fi
     if [ "$(now)" -ge "$deadline" ]; then
-      echo "BASELINE_WAIT_TIMEOUT ${WAIT}초를 기다려도 끝나지 않아 직접 잰다"
-      break
+      echo "BASELINE_BUSY exit=75 다른 팀원의 측정(pid $opid@$ohost)이 ${WAIT}초 안에 끝나지 않았다 — 같은 명령을 다시 호출한다"
+      exit 75
     fi
     sleep "$POLL"
   done
 
   LOG="$KEY.$$.log"
   started=$(now)
-  bash -c "$CMD" 2>&1 | tee "$C/$LOG"
+  HEAVY="$(cd "$(dirname "$0")" && pwd)/heavy.sh"
+  if [ -x "$HEAVY" ]; then
+    "$HEAVY" bash -c "$CMD" 2>&1 | tee "$C/$LOG"
+  else
+    bash -c "$CMD" 2>&1 | tee "$C/$LOG"
+  fi
   rc=${PIPESTATUS[0]}
+  if [ "$rc" -eq 75 ] && grep -q '^HEAVY_BUSY' "$C/$LOG" 2>/dev/null; then
+    rm -f "$C/$LOG"
+    echo "BASELINE_BUSY exit=75 PC 전역 무거운 명령 슬롯이 차 있다 — 같은 명령을 다시 호출한다"
+    exit 75
+  fi
   if [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ] || [ "$rc" -ge 128 ]; then
     rm -f "$C/$LOG"
     echo "BASELINE_MEASURED exit=$rc cache=off(exit $rc 는 저장하지 않는다)"
@@ -192,7 +206,7 @@ cmd_run() {
   elif ln "$T" "$J" 2>/dev/null; then
     rm -f "$T"
   else
-    # 잠금 없이 잰 쪽(대기 시간 초과)과 겹쳤다. 먼저 게시된 결과를 남긴다
+    # 먼저 게시된 결과가 있다(refresh 가 아닌데 잠금 밖에서 게시된 경우). 먼저 쓴 쪽을 남긴다
     rm -f "$T" "$C/$LOG"
   fi
   # 정리: 7일 넘은 결과·로그·임시 파일

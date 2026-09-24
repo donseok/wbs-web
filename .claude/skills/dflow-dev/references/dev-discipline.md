@@ -54,7 +54,7 @@
 - **동시 측정**: 같은 키를 둘이 동시에 재려 하면 잠금을 잡은 쪽만 재고 다른 쪽(`BASELINE_WAITING`)은 결과를 기다렸다
   재사용한다. 둘 다 재면 시간을 못 줄이고, testAll·마이그레이션 시험은 같은 DB·포트를 두고 서로 부딪칠 수 있어서다.
   잰 쪽이 죽었으면(같은 host 에서 pid 가 없음, 또는 `DFLOW_BASELINE_LOCK_TTL` 초과) 기다리던 쪽이 가져가 직접 잰다.
-  `DFLOW_BASELINE_WAIT`(기본 1800초)를 넘기면 잠금 없이 직접 잰다. 결과 게시는 원자적이며 먼저 쓴 쪽이 남는다.
+  `DFLOW_BASELINE_WAIT`(기본 240초)를 넘기면 재지 않고 `BASELINE_BUSY`(exit 75)로 끝난다 — 같은 명령을 다시 호출한다(실패가 아니다, heartbeat 가 끊기지 않게 대기를 짧게 끊는다). 측정은 `baseline.sh` 가 `heavy.sh` 로 감싸 돌리므로 `--` 뒤 명령에 `heavy.sh` 를 붙이지 않는다. 슬롯이 차 있으면 역시 `BASELINE_BUSY` 다. 결과 게시는 원자적이며 먼저 쓴 쪽이 남는다.
 - **끄기·갈아엎기**: `DFLOW_BASELINE_CACHE=0` 이면 읽지도 쓰지도 않는다. `DFLOW_BASELINE_CACHE=refresh` 면 새로 재서
   덮어쓴다. `DFLOW_BASELINE_MAX_AGE`(기본 21600초=6시간)보다 오래된 결과는 쓰지 않고 새로 잰다. 키가 커밋이라 코드는
   낡지 않지만 DB 상태·포트·도구 버전처럼 커밋 밖의 환경이 결과를 바꿀 수 있다. 재사용한 기준선이 이번 트리의 실측과

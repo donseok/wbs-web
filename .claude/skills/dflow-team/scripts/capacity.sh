@@ -25,7 +25,7 @@
 #   pressure = macOS 커널 판정(kern.memorystatus_vm_pressure_level 1 normal · 2 warn · 4 critical). warn 이상이면 막는다.
 MIN_FREE_PCT="${DFLOW_CAP_MIN_FREE_PCT:-30}"      # free 가 이보다 작으면 막는다
 MAX_SWAP_PCT="${DFLOW_CAP_MAX_SWAP_PCT:-100}"     # swap 이 이 이상이면 막는다
-MAX_LOAD_PER_CPU="${DFLOW_CAP_MAX_LOAD_PER_CPU:-1.5}"  # load 가 이보다 크면 막는다
+MAX_LOAD_PER_CPU="${DFLOW_CAP_MAX_LOAD_PER_CPU:-3.0}"  # load 가 이보다 크면 막는다
 # 시험용 주입: DFLOW_CAP_OS(uname -s 대신), DFLOW_CAP_PROC(/proc 대신), DFLOW_CAP_NCPU(코어 수)
 set -u
 

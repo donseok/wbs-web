@@ -482,7 +482,7 @@ origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10
   pnpm 이 확인 프롬프트에서 영원히 멈춘다(stdin 이 없어도 실패하지 않는다). 메인의 `node_modules` 가 없거나
   심링크거나, 복제나 그 뒤 install 이 실패하면 복제본을 모두 지우고 새로 설치한다(`DEPS_SYNC_FAILED`·`DEPS_CLONE_FAILED`
   뒤 `DEPS_INSTALLED pnpm`). 자기 lockfile 을 가진 하위 프로젝트는 워크스페이스 패키지로 보지 않고 따로 설치한다.
-  `DFLOW_DEPS_MAIN_CLONE=0` 이면 메인 복제를 건너뛰고 새로 설치한다. 파일이 아주 많은 `node_modules` 는 `cp -Rc` 가
+  **메인 복제는 `DFLOW_DEPS_MAIN_CLONE=1` 일 때만 하고 기본은 꺼져 있다(새로 설치).** 파일이 아주 많은 `node_modules` 는 `cp -Rc` 가
   파일마다 복제해 전역 store 에서 새로 링크하는 것보다 느릴 수 있다. 2026-09-24 dmes-standard `src/frontend`(루트
   `node_modules` 파일 7.9만 개 + 워크스페이스 9개) 실측: 복제 경로 134초·53초(그중 `cp -Rc` 113초·48초, 뒤 install 은
   3~16초로 어긋난 6개만 바로잡음) 대 새 설치(`--prefer-offline`, store 가 따뜻함) 53초·26초.

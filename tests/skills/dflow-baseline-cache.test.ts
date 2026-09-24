@@ -17,6 +17,8 @@ const GIT_ENV = {
   GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
   GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
   DFLOW_BASELINE_POLL: '0.2',
+  // baseline.sh 는 측정을 heavy.sh(PC 전역 세마포어)로 감싼다 — 시험이 이 PC 의 실제 슬롯을 쓰지 않게 임시 폴더로 돌린다
+  DFLOW_HEAVY_DIR: mkdtempSync(join(tmpdir(), 'dflow-baseline-heavy-')),
 }
 
 function sh(cwd: string, script: string, env: Record<string, string> = {}) {
@@ -237,4 +239,37 @@ describe('문서: 기준선 캐시', () => {
     expect(sec).toContain('게이트')
     expect(sec).toContain('"source": "cache"')
   })
+})
+
+describe('baseline.sh — 대기 상한과 PC 전역 슬롯(2026-09-24 통합)', () => {
+  it('다른 팀원의 측정이 대기 상한 안에 끝나지 않으면 재지 않고 BASELINE_BUSY·exit 75 로 끝난다', () => {
+    const key = `${base}-${sh(repo, `printf '%s\\n%s' '' '${CMD}' | (sha256sum 2>/dev/null || shasum -a 256) | tr -dc '0-9a-f' | cut -c1-12`).out.trim()}`
+    const lock = join(cacheDir(), `${key}.lock`)
+    mkdirSync(lock, { recursive: true })
+    writeFileSync(join(lock, 'owner'), `${process.pid} ${hostname()} ${Math.floor(Date.now() / 1000)}\n`)
+    const r = run(repo, { DFLOW_BASELINE_WAIT: '1' })
+    expect(r.code, r.out).toBe(75)
+    expect(r.out).toContain('BASELINE_BUSY exit=75')
+    expect(runs()).toBe(0)
+    expect(jsons()).toEqual([])
+  })
+
+  it('PC 전역 무거운 명령 슬롯이 차 있으면(HEAVY_BUSY) 기준선으로 저장하지 않고 BASELINE_BUSY 로 끝난다', async () => {
+    const env = { DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_DIR: join(tmp, 'heavy') }
+    const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh')
+    const holder = shAsync(repo, `bash '${HEAVY}' sleep 8`, env)
+    // 쥐는 쪽이 슬롯을 실제로 잡을 때까지 기다린다(고정 대기는 부하가 높을 때 흔들린다)
+    for (let i = 0; i < 100 && !(existsSync(env.DFLOW_HEAVY_DIR) && readdirSync(env.DFLOW_HEAVY_DIR).some((n) => n.startsWith('slot-'))); i++) {
+      await new Promise((res) => setTimeout(res, 100))
+    }
+    const r = run(repo, { ...env, DFLOW_HEAVY_WAIT: '1' })
+    expect(r.code, r.out).toBe(75)
+    expect(r.out).toContain('BASELINE_BUSY exit=75')
+    expect(runs()).toBe(0)
+    expect(jsons()).toEqual([])
+    await holder
+    const again = run(repo, env)
+    expect(again.out).toMatch(/BASELINE_MEASURED exit=1 key=/)
+    expect(runs()).toBe(1)
+  }, 30_000)
 })

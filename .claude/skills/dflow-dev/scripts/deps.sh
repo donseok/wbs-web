@@ -35,7 +35,8 @@
 #      있으면 묻지 않고 지운 뒤 새로 설치한다(결과는 맞고 이득만 없다). 같은 PC 의 워커는 store 가 같아 해당 없다.
 #    - 메인의 node_modules 가 심링크면 복제하지 않는다(링크째 복제되면 워커의 install 이 사람 체크아웃에 쓴다).
 #    - 복제나 복제 뒤 install 이 실패하면 복제본을 모두 지우고 새로 설치한다(반쯤 망가진 node_modules 를 남기지 않는다).
-#    DFLOW_DEPS_MAIN_CLONE=0 이면 메인 복제를 건너뛰고 새로 설치한다(복제가 새 설치보다 느린 PC·리포에서 끈다).
+#    메인 복제는 DFLOW_DEPS_MAIN_CLONE=1 일 때만 한다(기본 꺼짐). dmes-standard src/frontend(파일 약 7.9만 개) 실측에서
+#    복제+설치 134s·53s 가 새 설치(--prefer-offline, 따뜻한 store) 53s·26s 보다 두 배쯤 느렸다 — 시간이 cp 에 든다(2026-09-24).
 #    메인에 설치본이 없으면 새로 설치한다(`--prefer-offline` 으로 전역 store 를 최대한 쓴다). pnpm 은 공용 캐시를
 #    두지 않는다 — 메인 복제가 그 역할을 하고, 새 설치도 store 에서 링크만 하므로 캐시로 줄일 몫이 작다.
 #  2-c) yarn(yarn.lock): 종전대로 새로 설치한다(이 PC 에 yarn 이 없어 복제 방식을 실측하지 못했다).
@@ -152,7 +153,7 @@ install_dir() (
   elif [ -f pnpm-lock.yaml ]; then
     # 2-b) 메인 체크아웃의 설치본을 복제한 뒤 이 워크트리의 lockfile 로 바로잡는다(머리 주석).
     src_root="$MAIN/$dir"
-    if [ "${DFLOW_DEPS_MAIN_CLONE:-1}" != 0 ] && [ -n "$MAIN" ] && [ -d "$src_root/node_modules" ] && [ ! -L "$src_root/node_modules" ]; then
+    if [ "${DFLOW_DEPS_MAIN_CLONE:-0}" = 1 ] && [ -n "$MAIN" ] && [ -d "$src_root/node_modules" ] && [ ! -L "$src_root/node_modules" ]; then
       cloned=""; ok=1
       t="node_modules.dflow-tmp.$$"; rm -rf "$t"
       if clone_dir "$src_root/node_modules" "$t" && mv "$t" node_modules; then

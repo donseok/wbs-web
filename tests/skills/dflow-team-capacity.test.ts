@@ -60,13 +60,13 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
   it('macOS: 여유 있으면 CAPACITY_OK·exit 0 이고 측정값을 한 줄에 싣는다', () => {
     const r = cap([], fakeDarwin({ free: 64, swapUsedM: '8192.00M', load5: 9, level: 1 }))
     expect(r.code).toBe(0)
-    expect(r.out).toBe('CAPACITY_OK free=64% swap=50% load=0.9 pressure=normal os=darwin limits=free>=30%,swap<100%,load<=1.5')
+    expect(r.out).toBe('CAPACITY_OK free=64% swap=50% load=0.9 pressure=normal os=darwin limits=free>=30%,swap<100%,load<=3.0')
   })
 
   it('macOS: 2026-09-24 사고 수준(스왑 17GB/RAM 16GB·load 52·warn)이면 CAPACITY_LOW·exit 1 과 사유 전부', () => {
     const r = cap([], fakeDarwin({ free: 20, swapUsedM: '17408.00M', load5: 52, level: 2 }))
     expect(r.code).toBe(1)
-    expect(r.out).toMatch(/^CAPACITY_LOW 여유메모리20%<30% 스왑106%>=100% load5\.2\/코어>1\.5 메모리압박=warn \| free=20% /)
+    expect(r.out).toMatch(/^CAPACITY_LOW 여유메모리20%<30% 스왑106%>=100% load5\.2\/코어>3\.0 메모리압박=warn \| free=20% /)
   })
 
   it('macOS: 스왑이 RAM 보다 적게 남아 있을 뿐이고 압박이 정상이면 막지 않는다(오래된 스왑)', () => {
@@ -112,10 +112,10 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
   it('Linux: MemAvailable·SwapFree·/proc/loadavg 로 판정한다', () => {
     const ok = cap([], fakeLinux('MemTotal: 16000000 kB\nMemAvailable: 9600000 kB\nSwapTotal: 8000000 kB\nSwapFree: 8000000 kB\n'))
     expect(ok.code).toBe(0)
-    expect(ok.out).toBe('CAPACITY_OK free=60% swap=0% load=0.2 os=linux limits=free>=30%,swap<100%,load<=1.5')
+    expect(ok.out).toBe('CAPACITY_OK free=60% swap=0% load=0.2 os=linux limits=free>=30%,swap<100%,load<=3.0')
     const low = cap([], fakeLinux('MemTotal: 16000000 kB\nMemAvailable: 1600000 kB\nSwapTotal: 8000000 kB\nSwapFree: 1000000 kB\n', '40.0 30.0 20.0 1/1 1\n'))
     expect(low.code).toBe(1)
-    expect(low.out).toMatch(/^CAPACITY_LOW 여유메모리10%<30% load3\.0\/코어>1\.5 \| free=10% swap=44%/)
+    expect(low.out).toMatch(/^CAPACITY_LOW 여유메모리10%<30% \| free=10% swap=44%/)
   })
 
   it('--state: 판정이 바뀔 때만 notify=1 — TICK 마다 같은 알림을 되풀이하지 않는다', () => {

@@ -509,7 +509,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     commitWorkspace()
     mainInstall()
     const w = worker('dflow-a1a1a1a1')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}` })
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1' })
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
     const c = calls()
@@ -531,7 +531,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     commitWorkspace()
     mainInstall()
     const w = worker('dflow-b2b2b2b2')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, FAKE_PNPM_FAIL_CLONED: '1' })
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, FAKE_PNPM_FAIL_CLONED: '1', DFLOW_DEPS_MAIN_CLONE: '1' })
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SYNC_FAILED pnpm install exit 7')
     expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
@@ -541,11 +541,11 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     expect(existsSync(join(w, 'src/frontend/node_modules/.main-marker'))).toBe(false)
   })
 
-  it('DFLOW_DEPS_MAIN_CLONE=0 이면 메인 설치본이 있어도 복제하지 않고 새로 설치한다', () => {
+  it('기본(DFLOW_DEPS_MAIN_CLONE 없음)은 메인 설치본이 있어도 복제하지 않고 새로 설치한다', () => {
     commitWorkspace()
     mainInstall()
     const w = worker('dflow-c9c9c9c9')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '0' })
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}` })
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('DEPS_SYNC')
     expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
@@ -559,7 +559,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     writeFileSync(join(real, '.main-marker'), 'LINKED')
     sh(primary, `ln -s '${real}' src/frontend/node_modules`)
     const w = worker('dflow-c3c3c3c3')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}` })
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1' })
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('DEPS_SYNC')
     expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
@@ -576,7 +576,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     writeFileSync(join(primary, 'src/frontend/x/node_modules/.main-marker'), 'X')
     expect(sh(primary, 'git add src && git commit -qm x && git push -q origin main').code).toBe(0)
     const w = worker('dflow-d4d4d4d4')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}` })
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1' })
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
     expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend/x')
@@ -588,7 +588,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
   const hasPnpm = spawnSync('pnpm', ['--version'], { encoding: 'utf8' }).status === 0
   const psh = (cwd: string, script: string, env: Record<string, string> = {}) => {
     // 퍼지 확인 프롬프트 회귀는 실패가 아니라 무한 대기로 나타난다 — timeout 으로 실패시킨다
-    const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', timeout: 90_000, env: { ...GIT_ENV, CI: '', ...env } })
+    const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', timeout: 90_000, env: { ...GIT_ENV, CI: '', DFLOW_DEPS_MAIN_CLONE: '1', ...env } })
     return { code: r.status, out: (r.stdout || '') + (r.stderr || '') + (r.error ? String(r.error) : '') }
   }
   const realWorkspace = (store: string) => {

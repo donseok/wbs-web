@@ -1542,7 +1542,7 @@ average 52, 스왑 18GB 중 17GB 까지 올라 PC 전체가 멈추다시피 했�
   `notify=0` 이면 알리지 않는다. 상태 파일(git-path `dflow-team.capacity`)이 마지막 판정과 시각을 담는 기록이며, 판정이
   바뀔 때만 `notify=1` 이 되므로 `TICK` 마다나 컨텍스트 압축 뒤에 같은 알림을 되풀이하지 않는다.
 - 기준값의 정본은 `capacity.sh` 머리다. 여유 메모리 30% 미만, 스왑 사용량이 RAM 크기 이상, 5분 load average 가 코어당
-  1.5 초과, macOS 메모리 압박 warn 이상 가운데 하나라도 걸리면 `CAPACITY_LOW` 다. 사람이 바꾸려면 팀장 세션의 환경변수
+  3.0 초과, macOS 메모리 압박 warn 이상 가운데 하나라도 걸리면 `CAPACITY_LOW` 다. 사람이 바꾸려면 팀장 세션의 환경변수
   `DFLOW_CAP_MIN_FREE_PCT`·`DFLOW_CAP_MAX_SWAP_PCT`·`DFLOW_CAP_MAX_LOAD_PER_CPU` 로 덮는다.
 
 ## 6. blocked
