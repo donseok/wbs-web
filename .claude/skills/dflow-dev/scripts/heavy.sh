@@ -10,7 +10,10 @@
 #   heavy.sh acquire <이름>   세션이 슬롯 하나를 붙잡는다(E2E 서버를 띄우기 직전). 소유자는 이 세션(아래 OWNER).
 #                             같은 세션의 이후 `heavy.sh <명령>` 은 이 슬롯을 다시 쓴다(두 번째 슬롯을 기다리지 않는다).
 #   heavy.sh release          이 세션이 붙잡은 슬롯을 푼다(서버를 끈 직후).
-#   heavy.sh status           K 와 슬롯 현황(도커 슬롯 포함).
+#   heavy.sh status           stdout 에 정확히 한 줄 `HEAVY_STATUS slots=<K> held=<N> waiting=<M>` 을 내고 exit 0.
+#                             held = 살아 있는 일반 슬롯 보유 수, waiting = 일반 슬롯을 기다리는 heavy.sh 수(아래 대기 표식).
+#                             이 줄은 기계가 읽는다(dflow-team capacity.sh) — 형식을 바꾸지 않는다. 사람이 볼 세부(ram·dir·
+#                             보유 명령, 도커 슬롯의 `HEAVY_DOCKER docker=<n> held=<n> waiting=<n> <보유>` 줄)는 stderr 로 낸다.
 #   heavy.sh --pool docker <명령> [인자…]
 #                             도커를 쓰는 명령(Testcontainers·docker compose·방언 검증). PC 전역 **도커 슬롯**(기본 1개)과
 #                             일반 슬롯 하나를 **함께** 잡는다. 도커 명령도 무거운 명령이라 일반 슬롯 수(K)에 들어가야
@@ -33,7 +36,8 @@
 #   DFLOW_HEAVY_SLOTS    K. 기본 max(1, floor(RAM_GB/8)) — 16GB 면 2. RAM 을 못 읽으면 2.
 #   DFLOW_HEAVY_DOCKER_SLOTS  도커 슬롯 수. 기본 1(같은 목적의 컨테이너를 PC 에서 하나만 띄운다).
 #   DFLOW_HEAVY_DIR      슬롯 폴더. 기본 ~/.dflow/locks/heavy (시험은 임시 폴더로 바꾼다)
-#   DFLOW_HEAVY_WAIT     슬롯 대기 상한(초). 기본 240
+#   DFLOW_HEAVY_WAIT     슬롯 대기 상한(초). 기본 240. baseline.sh 는 자기 공유 마감까지 남은 시간(최소 5초)을 넘긴다
+#                        — 앞선 대기와 겹쳐 Bash 한 번이 10분 상한에 닿지 않게.
 #   DFLOW_HEAVY_POLL     재시도 간격(초). 기본 2
 #   DFLOW_HEAVY_HOLD_TTL acquire 슬롯의 최대 보유(초). 기본 3600. 넘으면 버려진 것으로 보고 회수한다
 #                        (release 를 잊은 세션이 몇 시간씩 슬롯을 막지 않게).
@@ -42,6 +46,10 @@
 # 슬롯 = <DIR>/slot-<i> 폴더(1..K), 도커 슬롯 = <DIR>/docker-<i> 폴더. 안의 owner 파일에 pid·kind(run|hold)·start(epoch)·pstart(ps lstart)·host·cwd·cmd.
 # 소유 PID 가 죽었거나(kill -0 실패, 또는 lstart 가 달라 PID 가 재사용됨) hold 의 TTL 이 지났으면 회수한다.
 # 회수는 <DIR>/slot-<i>.reclaim mkdir 뮤텍스 안에서 owner 를 다시 읽고 확인한 뒤에만 지운다.
+#
+# 대기 표식: 슬롯을 기다리는 동안 <DIR>/wait-<pid>(pid = 기다리는 heavy.sh 자신의 $$) 파일을 둔다. 안에 pid·pool
+# (general|docker)·start·pstart·cmd. 슬롯을 얻거나, 포기하거나(BUSY), 신호로 끝나면 지운다(trap). SIGKILL 처럼 지우지
+# 못하고 죽은 표식은 status 가 소유 PID 생존(+ lstart)을 확인해 무시하고 지운다.
 #
 # 출력(stderr): HEAVY_WAIT · HEAVY_SLOT · HEAVY_REUSE · HEAVY_RECLAIM · HEAVY_BUSY · HEAVY_ACQUIRED · HEAVY_RELEASED
 #   도커 풀은 HEAVY_DOCKER_WAIT · HEAVY_DOCKER_SLOT · HEAVY_DOCKER_BUSY(exit 75, 일반 풀의 HEAVY_BUSY 와 같은 규약)
@@ -93,6 +101,56 @@ alive() {
 }
 field() { sed -n "s/^$2=//p" "$1/owner" 2>/dev/null | head -n 1; }
 owner_pid() { echo "${DFLOW_HEAVY_OWNER:-${CLAUDE_PID:-$PPID}}"; }
+
+# 대기 표식(머리 주석). 임시 파일은 wait-* 패턴 밖(.wtmp.*)에 써서 status 가 반쯤 쓴 표식을 세지 않게 한다.
+WAITF=
+wait_mark() { # $1 pool $2 cmd
+  local t="$DIR/.wtmp.$$" p c
+  [ -z "$WAITF" ] || return 0
+  p=$(pstart "$$"); c=$(printf '%s' "$2" | tr '\n' ' ')
+  if { echo "pid=$$"; echo "pool=$1"; echo "start=$(now)"; echo "pstart=${p:--}"; echo "cmd=$c"; } > "$t" 2>/dev/null &&
+    mv -f "$t" "$DIR/wait-$$" 2>/dev/null; then
+    WAITF="$DIR/wait-$$"
+  else
+    rm -f "$t" 2>/dev/null
+  fi
+  return 0
+}
+wait_unmark() { [ -z "$WAITF" ] || rm -f "$WAITF" 2>/dev/null; WAITF=; }
+wfield() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1; }
+# 표식의 주인이 죽었으면 0(무시·청소 대상). pid 를 못 읽으면 쓰는 중일 수 있어 1분 넘었을 때만 죽은 것으로 본다.
+wait_dead() {
+  local f="$1" pid ps0 ps1
+  pid=$(wfield "$f" pid)
+  case "$pid" in ''|*[!0-9]*) [ -n "$(find "$f" -maxdepth 0 -mmin +1 2>/dev/null)" ]; return ;; esac
+  alive "$pid" || return 0
+  ps0=$(wfield "$f" pstart)
+  if [ -n "$ps0" ] && [ "$ps0" != "-" ]; then
+    ps1=$(pstart "$pid")
+    [ -z "$ps1" ] || [ "$ps1" = "$ps0" ] || return 0   # PID 재사용
+  fi
+  return 1
+}
+# $1 pool(general|docker) — 살아 있는 대기 표식 수. 죽은 표식은 지운다
+count_waiting() {
+  local f n=0 pool
+  for f in "$DIR"/wait-*; do
+    [ -f "$f" ] || continue
+    if wait_dead "$f"; then rm -f "$f" 2>/dev/null; continue; fi
+    pool=$(wfield "$f" pool); [ -n "$pool" ] || pool=general
+    [ "$pool" = "$1" ] && n=$((n + 1))
+  done
+  echo "$n"
+}
+# $1 접두(slot|docker) $2 개수 — 살아 있는 보유 슬롯 수(죽은 소유자·만료된 hold 는 빈 슬롯으로 센다)
+count_held() {
+  local i n=0
+  for i in $(seq 1 "$2"); do
+    [ -d "$DIR/$1-$i" ] || continue
+    stale "$DIR/$1-$i" || n=$((n + 1))
+  done
+  echo "$n"
+}
 
 # 죽은 소유자·만료된 hold·주인 없이 1분 넘은 폴더면 0(회수 대상)
 stale() {
@@ -174,13 +232,15 @@ wait_slot() {
   mkdir -p "$DIR" 2>/dev/null || { echo "HEAVY_UNLOCKED 슬롯 폴더를 만들 수 없음: $DIR" >&2; return 2; }
   deadline=$(( $(now) + WAIT ))
   while :; do
-    take "$kind" "$pid" "$cmd" && return 0
+    take "$kind" "$pid" "$cmd" && { wait_unmark; return 0; }
     for i in $(seq 1 "$K"); do stale "$DIR/slot-$i" && reclaim "$DIR/slot-$i"; done
-    take "$kind" "$pid" "$cmd" && return 0
+    take "$kind" "$pid" "$cmd" && { wait_unmark; return 0; }
     if [ "$(now)" -ge "$deadline" ]; then
+      wait_unmark
       echo "HEAVY_BUSY k=$K wait=${WAIT}s 보유: $(holders)" >&2
       return 1
     fi
+    wait_mark general "$cmd"
     [ "$announced" = 1 ] || { echo "HEAVY_WAIT k=$K 보유: $(holders)" >&2; announced=1; }
     sleep "$POLL"
   done
@@ -196,15 +256,17 @@ wait_docker() {
   while :; do
     DSLOT=; SLOT=
     if take run "$pid" "[docker] $cmd" docker "$KD"; then
-      if [ "$need" = 0 ] || take run "$pid" "[docker] $cmd" slot "$K"; then return 0; fi
+      if [ "$need" = 0 ] || take run "$pid" "[docker] $cmd" slot "$K"; then wait_unmark; return 0; fi
       rm -rf "$DSLOT"; DSLOT=
     fi
     for i in $(seq 1 "$KD"); do stale "$DIR/docker-$i" && reclaim "$DIR/docker-$i"; done
     for i in $(seq 1 "$K"); do stale "$DIR/slot-$i" && reclaim "$DIR/slot-$i"; done
     if [ "$(now)" -ge "$deadline" ]; then
+      wait_unmark
       echo "HEAVY_DOCKER_BUSY k=$K docker=$KD wait=${WAIT}s 도커: $(holders docker "$KD") 일반: $(holders)" >&2
       return 1
     fi
+    wait_mark docker "$cmd"
     [ "$announced" = 1 ] || { echo "HEAVY_DOCKER_WAIT k=$K docker=$KD 도커: $(holders docker "$KD") 일반: $(holders)" >&2; announced=1; }
     sleep "$POLL"
   done
@@ -224,6 +286,7 @@ mine_release() { # 내 것일 때만 지운다(회수된 뒤 남이 잡은 슬�
   [ -n "${SLOT:-}" ] && [ "$(field "$SLOT" pid)" = "$MYPID" ] && rm -rf "$SLOT"
   [ -n "${DSLOT:-}" ] && [ "$(field "$DSLOT" pid)" = "$MYPID" ] && rm -rf "$DSLOT"
   SLOT=; DSLOT=
+  wait_unmark
 }
 
 cmd_run() {
@@ -325,12 +388,18 @@ cmd_release() {
   exit 0
 }
 
+# stdout 은 정확히 한 줄(기계가 읽는다). 세부는 stderr. 늘 exit 0 — 폴더가 없거나 못 읽어도 held=0 waiting=0 이다.
 cmd_status() {
-  local g
+  local g h
+  echo "HEAVY_STATUS slots=$K held=$(count_held slot "$K") waiting=$(count_waiting general)"
   g=$(ram_gb) || g='?'
-  echo "HEAVY_STATUS k=$K ram=${g}GB dir=$DIR wait=${WAIT}s"
-  local h; h=$(holders); echo "${h:-(비어 있음)}"
-  h=$(holders docker "$KD"); echo "HEAVY_DOCKER docker=$KD ${h:-(비어 있음)}"
+  {
+    echo "HEAVY_DETAIL k=$K ram=${g}GB dir=$DIR wait=${WAIT}s"
+    h=$(holders); echo "${h:-(비어 있음)}"
+    h=$(holders docker "$KD")
+    echo "HEAVY_DOCKER docker=$KD held=$(count_held docker "$KD") waiting=$(count_waiting docker) ${h:-(비어 있음)}"
+  } >&2
+  exit 0
 }
 
 POOL=general

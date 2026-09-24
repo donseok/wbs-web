@@ -3,7 +3,7 @@
 // 슬롯 폴더는 DFLOW_HEAVY_DIR 로 임시 폴더에 둔다(사용자 홈의 ~/.dflow/locks/heavy 를 건드리지 않는다).
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir, totalmem } from 'node:os'
 import { join } from 'node:path'
 
@@ -26,7 +26,7 @@ function env(extra: Record<string, string> = {}) {
 
 function run(args: string[], extra: Record<string, string> = {}) {
   const r = spawnSync('bash', [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000 })
-  return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), err: r.stderr || '' }
+  return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), err: r.stderr || '', stdout: r.stdout || '' }
 }
 
 function start(args: string[], extra: Record<string, string> = {}) {
@@ -243,8 +243,10 @@ EOF
   it('K 기본값은 max(1, floor(RAM_GB/8)) 이고 DFLOW_HEAVY_SLOTS 로 덮는다', () => {
     const gb = Math.round(totalmem() / 2 ** 30)
     const k = Math.max(1, Math.floor(gb / 8))
-    expect(run(['status'], { DFLOW_HEAVY_SLOTS: '' }).out).toContain(`HEAVY_STATUS k=${k} ram=${gb}GB`)
-    expect(run(['status'], { DFLOW_HEAVY_SLOTS: '5' }).out).toContain('HEAVY_STATUS k=5')
+    const s = run(['status'], { DFLOW_HEAVY_SLOTS: '' })
+    expect(s.out).toContain(`HEAVY_STATUS slots=${k} held=0 waiting=0`)
+    expect(s.err).toContain(`HEAVY_DETAIL k=${k} ram=${gb}GB`)
+    expect(run(['status'], { DFLOW_HEAVY_SLOTS: '5' }).out).toContain('HEAVY_STATUS slots=5 ')
   })
 
   it('슬롯 폴더를 만들 수 없으면 줄 세우지 않고 그냥 돌린다(fail-open)', () => {
@@ -350,10 +352,106 @@ describe('heavy.sh --pool docker — 도커 전용 슬롯', { timeout: 30000 }, 
 
   it('status 는 도커 슬롯을 따로 한 줄에 보이고, 도커 풀은 명령 실행만 받는다', () => {
     const s = run(['status'])
-    expect(s.out.split('\n')[0]).toMatch(/^HEAVY_STATUS k=1 ram=\d+GB /)
-    expect(s.out).toContain('HEAVY_DOCKER docker=1 (비어 있음)')
+    expect(s.out.split('\n')[0]).toBe('HEAVY_STATUS slots=1 held=0 waiting=0')
+    expect(s.err).toContain('HEAVY_DOCKER docker=1 held=0 waiting=0 (비어 있음)')
     for (const a of [['acquire', 'x'], ['release'], ['status'], []]) expect(run(['--pool', 'docker', ...a]).code).toBe(2)
     expect(run(['--pool', 'bogus', 'true']).code).toBe(2)
+  })
+})
+
+// 대기 표식과 status(2026-09-24 P1): 기다리는 동안 <DIR>/wait-<pid> 를 두고, status 는 stdout 에 정확히 한 줄
+// `HEAVY_STATUS slots=<K> held=<N> waiting=<M>` 을 낸다(dflow-team capacity.sh 가 파싱한다).
+describe('heavy.sh — 대기 표식과 status 한 줄', { timeout: 30000 }, () => {
+  const waitFiles = () => (existsSync(dir) ? readdirSync(dir).filter((n) => n.startsWith('wait-')) : [])
+  const liveSlot = (name = 'slot-1', cmd = 'live') => {
+    mkdirSync(join(dir, name), { recursive: true })
+    writeFileSync(join(dir, name, 'owner'), `pid=${process.pid}\nkind=run\nstart=${Math.floor(Date.now() / 1000)}\npstart=-\ncmd=${cmd}\n`)
+  }
+
+  it('status 는 stdout 에 정확히 한 줄을 내고 exit 0 — 빈 폴더(없는 폴더)도 held=0 waiting=0', () => {
+    const r = run(['status'], { DFLOW_HEAVY_SLOTS: '3' })
+    expect(r.code).toBe(0)
+    expect(r.stdout).toBe('HEAVY_STATUS slots=3 held=0 waiting=0\n')
+  })
+
+  it('status 는 살아 있는 보유·대기만 세고, 주인이 죽은 대기 표식은 무시하고 지운다', () => {
+    const dead = spawnSync('sh', ['-c', 'echo $$']).stdout.toString().trim()
+    liveSlot('slot-1')
+    // 죽은 소유자의 슬롯은 보유로 세지 않는다
+    mkdirSync(join(dir, 'slot-2'), { recursive: true })
+    writeFileSync(join(dir, 'slot-2', 'owner'), `pid=${dead}\nkind=run\nstart=1\npstart=-\ncmd=dead\n`)
+    writeFileSync(join(dir, `wait-${process.pid}`), `pid=${process.pid}\npool=general\nstart=1\npstart=-\ncmd=x\n`)
+    writeFileSync(join(dir, 'wait-1000001'), `pid=${process.pid}\npool=docker\nstart=1\npstart=-\ncmd=d\n`)
+    writeFileSync(join(dir, `wait-${dead}`), `pid=${dead}\npool=general\nstart=1\npstart=-\ncmd=gone\n`)
+    writeFileSync(join(dir, `.wtmp.${process.pid}`), `pid=${process.pid}\npool=general\n`) // 쓰는 중인 임시 파일은 세지 않는다
+    const r = run(['status'], { DFLOW_HEAVY_SLOTS: '2' })
+    expect(r.code).toBe(0)
+    expect(r.stdout.trim().split('\n')).toEqual(['HEAVY_STATUS slots=2 held=1 waiting=1'])
+    expect(r.err).toContain('HEAVY_DOCKER docker=1 held=0 waiting=1')
+    expect(existsSync(join(dir, `wait-${dead}`))).toBe(false)
+    expect(waitFiles().sort()).toEqual(['wait-1000001', `wait-${process.pid}`].sort())
+  })
+
+  it('기다리는 동안 wait-<pid> 를 두고, 슬롯을 얻으면 지운다', async () => {
+    const a = start(['sh', '-c', 'sleep 30'])
+    await until(() => existsSync(join(dir, 'slot-1', 'owner')))
+    const b = start(['echo', 'B-ran'], { DFLOW_HEAVY_WAIT: '20' })
+    const mark = join(dir, `wait-${b.p.pid}`)
+    await until(() => existsSync(mark))
+    expect(readFileSync(mark, 'utf8')).toMatch(new RegExp(`^pid=${b.p.pid}\\npool=general\\n`))
+    expect(run(['status']).stdout).toBe('HEAVY_STATUS slots=1 held=1 waiting=1\n')
+    a.p.kill('SIGTERM')
+    const rb = await b.done
+    expect(rb.code).toBe(0)
+    expect(rb.out).toContain('B-ran')
+    expect(waitFiles()).toEqual([])
+    expect(run(['status']).stdout).toBe('HEAVY_STATUS slots=1 held=0 waiting=0\n')
+  })
+
+  it('대기 상한을 넘겨 포기(HEAVY_BUSY)해도 표식을 지운다', () => {
+    liveSlot()
+    const r = run(['true'], { DFLOW_HEAVY_WAIT: '1' })
+    expect(r.code).toBe(75)
+    expect(r.err).toContain('HEAVY_BUSY')
+    expect(waitFiles()).toEqual([])
+  })
+
+  it('기다리다 신호(TERM·INT)로 끝나도 표식을 지운다. acquire 대기도 같다', async () => {
+    liveSlot()
+    for (const [sig, args] of [['SIGTERM', ['true']], ['SIGINT', ['true']], ['SIGTERM', ['acquire', 'srv']]] as const) {
+      const b = start([...args], { DFLOW_HEAVY_WAIT: '20', DFLOW_HEAVY_OWNER: '1' })
+      await until(() => existsSync(join(dir, `wait-${b.p.pid}`)))
+      b.p.kill(sig)
+      const r = await b.done
+      expect(r.code).toBe(sig === 'SIGTERM' ? 143 : 130)
+      expect(waitFiles()).toEqual([])
+    }
+  })
+
+  it('SIGKILL 로 죽어 남은 표식은 status 가 청소한다', async () => {
+    liveSlot()
+    const b = start(['true'], { DFLOW_HEAVY_WAIT: '20' })
+    const mark = join(dir, `wait-${b.p.pid}`)
+    await until(() => existsSync(mark))
+    b.p.kill('SIGKILL')
+    await b.done
+    expect(existsSync(mark)).toBe(true)
+    expect(run(['status']).stdout).toBe('HEAVY_STATUS slots=1 held=1 waiting=0\n')
+    expect(existsSync(mark)).toBe(false)
+  })
+
+  it('도커 풀 대기는 pool=docker 표식으로 두고 첫 줄 waiting 이 아니라 HEAVY_DOCKER 줄에 센다', async () => {
+    liveSlot('docker-1', '[docker] other')
+    const b = start(['--pool', 'docker', 'true'], { DFLOW_HEAVY_WAIT: '20', DFLOW_HEAVY_SLOTS: '2' })
+    const mark = join(dir, `wait-${b.p.pid}`)
+    await until(() => existsSync(mark))
+    expect(readFileSync(mark, 'utf8')).toContain('pool=docker')
+    const s = run(['status'], { DFLOW_HEAVY_SLOTS: '2' })
+    expect(s.stdout).toBe('HEAVY_STATUS slots=2 held=0 waiting=0\n')
+    expect(s.err).toContain('HEAVY_DOCKER docker=1 held=1 waiting=1')
+    b.p.kill('SIGTERM')
+    expect((await b.done).code).toBe(143)
+    expect(waitFiles()).toEqual([])
   })
 })
 

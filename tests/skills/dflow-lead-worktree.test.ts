@@ -22,7 +22,10 @@ const GIT_ENV = {
 }
 
 function sh(cwd: string, script: string, env: Record<string, string> = {}) {
-  const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', env: { ...GIT_ENV, ...env } })
+  // deps.sh 는 설치 명령을 heavy.sh(PC 전역 세마포어)로 감싼다 — 시험이 이 PC 의 실제 슬롯(~/.dflow/locks/heavy)을
+  // 쓰거나 기다리지 않게 임시 폴더로 돌린다
+  const heavy = { DFLOW_HEAVY_DIR: join(tmp, 'heavy-locks'), DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_OWNER: '', DFLOW_HEAVY_HELD: '' }
+  const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', env: { ...GIT_ENV, ...heavy, ...env } })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
 }
 
@@ -387,6 +390,29 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
     expect(sh(primary, 'ls .git/dflow-deps 2>/dev/null | wc -l').out.trim()).toBe('0')
   })
 
+  // 설치 명령은 heavy.sh 로 감싼다(2026-09-24 P1). 슬롯이 차 있으면 설치하지 않고 DEPS_BUSY·exit 75, 다시 부르면 이어서 한다
+  it('PC 전역 슬롯이 차 있으면 npm ci 를 돌리지 않고 DEPS_BUSY <dir>·exit 75 로 끝나며, 다시 부르면 설치한다', () => {
+    const bin = fakeBin()
+    const locks = join(tmp, 'heavy-locks')
+    mkdirSync(join(locks, 'slot-1'), { recursive: true })
+    writeFileSync(join(locks, 'slot-1', 'owner'), `pid=${process.pid}\nkind=run\nstart=${Math.floor(Date.now() / 1000)}\npstart=-\ncmd=./gradlew testAll\n`)
+    const env = { PATH: `${bin}:${process.env.PATH}`, DFLOW_HEAVY_WAIT: '0' }
+    const w = worker('dflow-11111111')
+    const r = sh(w, `bash '${DEPS}'`, env)
+    expect(r.code, r.out).toBe(75)
+    expect(r.out).toContain('HEAVY_BUSY')
+    expect(r.out.trim().split('\n').pop()).toBe('DEPS_BUSY .')
+    expect(npmCalls()).toBe(0)
+    expect(existsSync(join(w, 'node_modules'))).toBe(false)
+    rmSync(join(locks, 'slot-1'), { recursive: true })
+    const again = sh(w, `bash '${DEPS}'`, env)
+    expect(again.code, again.out).toBe(0)
+    expect(again.out).toContain('HEAVY_SLOT slot-1')
+    expect(again.out).toContain('DEPS_INSTALLED npm ci')
+    expect(npmCalls()).toBe(1)
+    expect(existsSync(join(locks, 'slot-1'))).toBe(false)
+  })
+
   it('node_modules 가 이미 있거나 package.json 이 없으면 아무것도 하지 않는다', () => {
     const bin = fakeBin()
     const env = { PATH: `${bin}:${process.env.PATH}` }
@@ -584,11 +610,34 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     expect(calls().length).toBe(2)
   })
 
+  it('복제 뒤 install 이 슬롯을 못 얻으면(HEAVY_BUSY) 복제본을 지우고 DEPS_BUSY·exit 75, 다시 부르면 이어서 한다', () => {
+    commitWorkspace()
+    mainInstall()
+    const locks = join(tmp, 'heavy-locks')
+    mkdirSync(join(locks, 'slot-1'), { recursive: true })
+    writeFileSync(join(locks, 'slot-1', 'owner'), `pid=${process.pid}\nkind=run\nstart=${Math.floor(Date.now() / 1000)}\npstart=-\ncmd=other\n`)
+    const w = worker('dflow-f6f6f6f6')
+    const env = { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1', DFLOW_HEAVY_WAIT: '0' }
+    const r = sh(w, `bash '${DEPS}'`, env)
+    expect(r.code, r.out).toBe(75)
+    expect(r.out.trim().split('\n').pop()).toBe('DEPS_BUSY src/frontend')
+    expect(calls().length).toBe(0)
+    // 반쯤 만든 복제본을 남기지 않는다 — 남기면 다음 호출이 DEPS_SKIP(node_modules 있음)으로 건너뛴다
+    expect(existsSync(join(w, 'src/frontend/node_modules'))).toBe(false)
+    expect(existsSync(join(w, 'src/frontend/packages/a/node_modules'))).toBe(false)
+    rmSync(join(locks, 'slot-1'), { recursive: true })
+    const again = sh(w, `bash '${DEPS}'`, env)
+    expect(again.code, again.out).toBe(0)
+    expect(again.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
+    expect(calls().length).toBe(1)
+  })
+
   // ---- 실제 pnpm(이 PC 에 있을 때만). 네트워크 없이 file: 로컬 패키지만 쓴다 ----
   const hasPnpm = spawnSync('pnpm', ['--version'], { encoding: 'utf8' }).status === 0
   const psh = (cwd: string, script: string, env: Record<string, string> = {}) => {
     // 퍼지 확인 프롬프트 회귀는 실패가 아니라 무한 대기로 나타난다 — timeout 으로 실패시킨다
-    const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', timeout: 90_000, env: { ...GIT_ENV, CI: '', DFLOW_DEPS_MAIN_CLONE: '1', ...env } })
+    const heavy = { DFLOW_HEAVY_DIR: join(tmp, 'heavy-locks'), DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_OWNER: '', DFLOW_HEAVY_HELD: '' }
+    const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', timeout: 90_000, env: { ...GIT_ENV, CI: '', DFLOW_DEPS_MAIN_CLONE: '1', ...heavy, ...env } })
     return { code: r.status, out: (r.stdout || '') + (r.stderr || '') + (r.error ? String(r.error) : '') }
   }
   const realWorkspace = (store: string) => {

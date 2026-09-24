@@ -41,11 +41,39 @@
 #    두지 않는다 — 메인 복제가 그 역할을 하고, 새 설치도 store 에서 링크만 하므로 캐시로 줄일 몫이 작다.
 #  2-c) yarn(yarn.lock): 종전대로 새로 설치한다(이 PC 에 yarn 이 없어 복제 방식을 실측하지 못했다).
 #
+# 3) 설치 명령(npm ci · pnpm install · yarn install)은 같은 폴더의 heavy.sh(PC 전역 무거운 명령 세마포어)로 감싸 돈다.
+#    팀원 여럿이 동시에 설치하면 그것만으로 메모리·CPU 가 바닥난다(2026-09-24, 16GB PC 에서 Gradle JVM 10개와 겹쳤다).
+#    복제·심링크·jar 복사는 감싸지 않는다(가볍다). heavy.sh 가 대기 상한 안에 슬롯을 못 얻으면(HEAVY_BUSY, exit 75)
+#    그 폴더를 `DEPS_BUSY <dir>`(루트는 ".") 로 알리고 곧바로 exit 75 로 끝난다. 실패가 아니다 — 같은 명령을 다시 부르면
+#    이미 끝난 폴더는 DEPS_SKIP(node_modules 있음)으로 넘기고 이어서 진행한다(멱등). 그래서 BUSY 때는 반쯤 만든
+#    node_modules(메인 복제본)를 남기지 않는다. 설치 명령 자신이 75 로 끝나도 BUSY 와 같이 거기서 멈춘다(드묾).
+#    heavy.sh 의 출력(stderr)은 설치 출력과 함께 stdout 으로 나온다. 시험은 DFLOW_HEAVY_DIR 로 슬롯 폴더를 바꾼다.
+#
 # 출력 첫 단어: DEPS_GRADLE_JAR · DEPS_GRADLE_JAR_MISSING · DEPS_LINK · DEPS_SKIP · DEPS_CLONED · DEPS_CLONE_FAILED ·
-#   DEPS_CACHED · DEPS_SYNCED · DEPS_SYNC_FAILED · DEPS_INSTALLED · DEPS_FAILED(exit 는 설치 명령의 exit)
+#   DEPS_CACHED · DEPS_SYNCED · DEPS_SYNC_FAILED · DEPS_INSTALLED · DEPS_FAILED(exit 는 설치 명령의 exit) ·
+#   DEPS_BUSY(exit 75, 다시 부른다)
 set -u
 
 MAXDEPTH="${DEPS_MAXDEPTH:-4}"
+# install_dir 이 폴더로 cd 하기 전에 절대경로로 잡는다
+HEAVY="$(cd "$(dirname "$0")" && pwd)/heavy.sh"
+BUSY_RC=75
+HBUSY=0
+
+# 설치 명령을 heavy.sh 로 감싸 돌리고 그 exit 를 돌려준다. 슬롯을 못 얻었으면(HEAVY_BUSY) HBUSY=1 로 표시한다.
+# heavy.sh 가 없거나 실행할 수 없으면 그냥 돌린다(줄 세우기는 성능 보호다 — fail-open, heavy.sh 와 같은 태도).
+heavy_install() {
+  local lf rc
+  HBUSY=0
+  if [ ! -x "$HEAVY" ]; then "$@"; return; fi
+  lf=$(mktemp "${TMPDIR:-/tmp}/dflow-deps-heavy.XXXXXX" 2>/dev/null) || lf=""
+  if [ -z "$lf" ]; then "$HEAVY" "$@"; return; fi
+  "$HEAVY" "$@" 2>&1 | tee "$lf"
+  rc=${PIPESTATUS[0]}
+  [ "$rc" -eq "$BUSY_RC" ] && grep -q '^HEAVY_BUSY' "$lf" 2>/dev/null && HBUSY=1
+  rm -f "$lf"
+  return "$rc"
+}
 
 # ---- 1) gradle-wrapper.jar ----
 MAIN="${MAIN_CHECKOUT:-}"
@@ -132,7 +160,9 @@ install_dir() (
       rm -rf "$t" node_modules
       echo "DEPS_CLONE_FAILED $key, npm ci 로 설치한다$suffix"
     fi
-    npm ci || { rc=$?; echo "DEPS_FAILED npm ci exit $rc$suffix"; exit "$rc"; }
+    heavy_install npm ci; rc=$?
+    [ "$HBUSY" = 1 ] && { echo "DEPS_BUSY $dir"; exit "$BUSY_RC"; }
+    [ "$rc" -eq 0 ] || { echo "DEPS_FAILED npm ci exit $rc$suffix"; exit "$rc"; }
     echo "DEPS_INSTALLED npm ci$suffix"
     # 캐시 채우기. mkdir 에 성공한 한 팀원만 쓰고, 다 쓴 뒤 ok 를 남긴다. 실패해도 설치 결과는 유효하다.
     mkdir -p "$C" 2>/dev/null
@@ -181,10 +211,13 @@ EOF
         done <<EOF
 $cloned
 EOF
-        if pnpm install $PNPM_FLAGS; then
+        heavy_install pnpm install $PNPM_FLAGS; rc=$?
+        if [ "$HBUSY" = 1 ]; then
+          :   # 아래에서 복제본을 지우고 DEPS_BUSY 로 끝낸다(다시 부르면 처음부터 — 멱등)
+        elif [ "$rc" -eq 0 ]; then
           echo "DEPS_SYNCED pnpm 메인 복제 + frozen install$suffix"; exit 0
         else
-          rc=$?; echo "DEPS_SYNC_FAILED pnpm install exit $rc, 복제본을 지우고 새로 설치한다$suffix"
+          echo "DEPS_SYNC_FAILED pnpm install exit $rc, 복제본을 지우고 새로 설치한다$suffix"
         fi
       else
         echo "DEPS_CLONE_FAILED 메인 node_modules 복제 실패, 새로 설치한다$suffix"
@@ -193,11 +226,16 @@ EOF
       while IFS= read -r c; do [ -n "$c" ] && rm -rf "$c"; done <<EOF
 $cloned
 EOF
+      [ "$HBUSY" = 1 ] && { echo "DEPS_BUSY $dir"; exit "$BUSY_RC"; }
     fi
-    pnpm install $PNPM_FLAGS || { rc=$?; echo "DEPS_FAILED pnpm install --frozen-lockfile exit $rc$suffix"; exit "$rc"; }
+    heavy_install pnpm install $PNPM_FLAGS; rc=$?
+    [ "$HBUSY" = 1 ] && { echo "DEPS_BUSY $dir"; exit "$BUSY_RC"; }
+    [ "$rc" -eq 0 ] || { echo "DEPS_FAILED pnpm install --frozen-lockfile exit $rc$suffix"; exit "$rc"; }
     echo "DEPS_INSTALLED pnpm$suffix"
   elif [ -f yarn.lock ]; then
-    yarn install --frozen-lockfile || { rc=$?; echo "DEPS_FAILED yarn install --frozen-lockfile exit $rc$suffix"; exit "$rc"; }
+    heavy_install yarn install --frozen-lockfile; rc=$?
+    [ "$HBUSY" = 1 ] && { echo "DEPS_BUSY $dir"; exit "$BUSY_RC"; }
+    [ "$rc" -eq 0 ] || { echo "DEPS_FAILED yarn install --frozen-lockfile exit $rc$suffix"; exit "$rc"; }
     echo "DEPS_INSTALLED yarn$suffix"
   else
     echo "DEPS_SKIP lockfile 없음$suffix"
@@ -205,7 +243,9 @@ EOF
 )
 
 status=0
+# 설치 슬롯을 못 얻은 폴더(DEPS_BUSY, exit 75)가 나오면 거기서 멈추고 75 로 끝난다 — 다시 부르면 이어서 진행한다
 install_dir . || status=$?
+[ "$status" -eq "$BUSY_RC" ] && exit "$BUSY_RC"
 
 # 하위 폴더의 lockfile 도 찾는다(루트 자신은 제외). node_modules·.git·.claude(워크트리 포함) 는 배제한다.
 # -mindepth 는 쓰지 않는다 — -prune 과 섞으면 얕은 깊이에서 -prune 이 억눌릴 수 있다. 대신 dirname 뒤 "." 을
@@ -216,7 +256,7 @@ sub_dirs=$(find . -maxdepth "$MAXDEPTH" \( -name node_modules -o -name .git -o -
 if [ -n "$sub_dirs" ]; then
   while IFS= read -r d; do
     [ -z "$d" ] && continue
-    install_dir "$d" || { rc=$?; [ "$status" -eq 0 ] && status=$rc; }
+    install_dir "$d" || { rc=$?; [ "$rc" -eq "$BUSY_RC" ] && exit "$BUSY_RC"; [ "$status" -eq 0 ] && status=$rc; }
   done <<EOF
 $sub_dirs
 EOF
