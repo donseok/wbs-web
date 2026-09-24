@@ -19,6 +19,7 @@
 | `{TASK_DIR}` | `TASK_DIR` | 이 작업의 폴더(리포 최상위 기준, 예 `docs/tasks/TSK-03-02`). `{TASKS}` 는 그 부모 |
 | `{ATTEMPT}` | `ATTEMPT` | 이번 해소 시도 번호(1~3) |
 | `{ON_REPORT}` | `ON_REPORT` | `1` 이면 팀장이 자동 머지 운영이다. `/dflow-merge` 에 `--on-report` 를 붙인다 |
+| `{NO_DOCKER}` | `NO_DOCKER` | `worker-prompt.md` 와 같다. 키가 없으면 `0` 으로 본다(「도커」) |
 
 `DEV_BRANCH`·`TASK_DIR`·`ORDER` 중 하나라도 비어 있으면 파일을 쓰지 않고 마지막 응답으로
 `{TSK} {ID8} - - - failed no-dev-branch` 한 줄만 출력하고 끝낸다.
@@ -184,3 +185,10 @@ if [ "$new_fail" -eq 0 ] && [ "$total" -ge "$need" ]; then echo "GATE_PASS need=
 - 서버 쓰기(claim·progress·done·heartbeat·release). `{ID8}` 외 주문 조회.
 - `git config` 로 rerere 켜기(공용 설정이 바뀐다). 명령줄 `-c` 만 쓴다.
 - 팀장 체크아웃에서 git 을 조작하는 것.
+
+## 도커
+
+해소 워커도 기준선과 게이트를 돌리므로 `.claude/skills/dflow-dev/references/dev-discipline.md` 「도커 사용 규칙」(정본)을
+따른다: `{NO_DOCKER}` 또는 `dflow.sh config no_docker` 가 `1` 이면 도커·Testcontainers 명령을 3번 기준선과 게이트에서
+같은 방식으로 빼고, 생략한 명령은 `resolution.md` 그 시도 절에 `- 도커 금지로 생략: <명령>` 으로 적는다. 꺼진 도커
+런타임은 언제나 켜지 않는다.

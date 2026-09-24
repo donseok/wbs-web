@@ -82,6 +82,87 @@ Gradle 데몬까지 세웠다. `fe-run.sh` 류도 포트를 점유한 프로세�
   `.claude/skills/dflow-team/references/worker-prompt.md` 「8」에도 있지만, 규칙 본문의 정본은 이 절이다
   — 수정은 여기서만 한다.
 
+## 도커 사용 규칙 (정본, 2026-09-24 dmes-standard 사고)
+
+2026-09-24 dmes-standard 에서 팀원 6명이 기준선 단계에서 `mssqlMigrationTest`(Testcontainers 로 MSSQL 컨테이너를
+띄운다)를 동시에 돌렸고, 한 팀원은 꺼져 있던 OrbStack 을 `orb start` 로 스스로 켰다. RAM 16GB 장비가 스왑 17GB·
+load 52 까지 밀려 PC 전체가 느려졌다. 같은 날 두 워커가 OrbStack 을 켜서 사용자의 다른 컨테이너까지 함께 올라온
+기록도 있다. 이 절이 도커 규칙의 정본이다 — `/dflow-dev` SKILL.md, `/dflow-team` 의 worker-prompt.md·resolve-prompt.md
+는 이 절을 가리키기만 하고, 규칙 수정은 여기서만 한다.
+
+### 도커 런타임을 켜지 않는다 (언제나)
+
+금지 모드·인원·설정과 **무관하게**, 워커(`/dflow-team` 팀원·해소 워커)와 그 Phase 서브에이전트는 꺼져 있는 도커
+런타임을 기동하지 않는다. 예: `orb start`·`orbctl start`, `open -a Docker`·`open -a OrbStack`, `colima start`,
+`podman machine start`, `limactl start`, `systemctl start docker`·`service docker start`. 도커 런타임은 PC 전체가
+나눠 쓰는 자원이다. 켜는 순간 사람의 다른 컨테이너까지 올라오고 메모리를 잡는다.
+
+- 도커가 꺼져 있어 필요한 검증을 못 하면 우회하지 않는다. 워커·해소 워커는 팀장에게 이슈로 보고하고
+  (`.claude/skills/dflow-team/references/worker-prompt.md` 「9. 이슈 보고」) 팀장 판단을 받는다. 수동 `/dflow-dev`
+  는 사용자에게 알리고, 켜는 것은 사람이 한다.
+- 그 검증이 수용 기준을 확인하는 수단이었는데 끝내 돌리지 못했으면 아래 「기록」 의 확인하지 못한 수용 기준으로 적는다.
+
+### 금지 모드 판정 (Phase 01 기준선 전에 한 번)
+
+금지 모드는 아래 둘 중 하나라도 참이면 켜진다.
+
+| 출처 | 켜짐 조건 | 누가 정하나 |
+|---|---|---|
+| spawn | 팀장 포인터에 `NO_DOCKER=1` | `/dflow-team` 팀장이 인원으로 정해 넘긴다(팀장 SKILL.md 「인자」 의 「도커 금지 인원 기준」). 워커·해소 워커만 받는다. 포인터에 키가 없으면(옛 팀장) 꺼짐 |
+| 설정 | `dflow.sh config no_docker` 가 `1` | `.dflow` 의 `no_docker`(리포 전체), `.dflow.local` 의 `no_docker`(이 PC, `.dflow` 를 덮는다), export 된 `DFLOW_NO_DOCKER`(둘 다 덮는다). 인원과 무관한 강제 스위치이며 수동 `/dflow-dev` 에도 적용한다 |
+
+```bash
+.claude/skills/dflow-work/scripts/dflow.sh config no_docker   # 1 이면 설정 출처 켜짐. 빈 값·0 은 꺼짐
+```
+- 이 명령이 `UNKNOWN_KEY` 로 exit 2 면 리포의 `dflow-config.sh` 가 이 키를 모르는 옛 버전이다. 설정 출처는 꺼짐으로
+  보고 그 사실을 기준선 기록에 함께 적는다.
+- **판정 결과를 기준선 기록에 한 줄 남긴다.** state.json 의 `baseline` 에 `"docker"` 를 `"off"`·`"banned:spawn"`·
+  `"banned:config"`·`"banned:spawn+config"` 중 하나로 저장하고, 같은 뜻을 한 줄 출력한다(예
+  `도커 금지 모드: 켜짐(출처 spawn NO_DOCKER=1)`). 금지 모드인지, 무엇 때문인지를 이 값으로 안다.
+- 재개·재spawn 으로 이어받은 세션의 판정이 기록된 `docker` 값과 다르면(인원이 다른 팀장이 띄웠다 등) 기준선을 다시
+  잰다. 제외한 명령이 달라 차분 비교가 성립하지 않는다.
+
+### 금지 모드에서 돌리지 않는 것
+
+기준선·Build·Verify·Refactor 게이트, 해소 워커의 기준선·게이트, 그리고 Phase 서브에이전트의 테스트 실행 모두에서
+도커나 Testcontainers 를 쓰는 명령을 돌리지 않는다.
+
+- 도커 CLI: `docker …`·`docker compose`·`docker-compose`·`podman`·`nerdctl`·`orb`·`orbctl`·`colima`.
+- 이름에 `mssql`·`container`·`testcontainers`·`docker` 가 든(대소문자 무시) 빌드 태스크·스크립트. 예: Gradle
+  `mssqlMigrationTest`·`containerTest`, npm `test:docker`.
+- Testcontainers 를 쓰는 테스트 클래스·파일. 테스트 폴더에서 `grep -rliE 'testcontainers' <테스트 폴더>` 로 찾는다
+  (`org.testcontainers`·`@Testcontainers`·npm·pip 의 `testcontainers` 모두 걸린다).
+- 테스트 셋업이 compose 파일이나 컨테이너를 띄우는 러너 설정(`globalSetup` 등).
+
+빼는 방법:
+- **명령행 수단만 쓴다.** Gradle `-x <태스크>`, `--tests` 로 도커 없는 클래스만 고르기, 러너의 파일 제외 인자
+  (vitest `--exclude`, jest `--testPathIgnorePatterns`, pytest `--deselect`·`-k 'not …'`).
+- 빌드 파일·테스트 코드를 고쳐 빼지 않는다(`@Disabled`, `build.gradle` 수정 등). 산출물에 섞이고, 금지 모드가 아닌
+  실행에서도 빠진다. 명령행으로 가를 수 없으면 그 명령 전체를 생략한다.
+- **기준선과 게이트는 같은 제외를 적용한 같은 명령 줄로 돈다.** 기준선을 제외 없이 재고 게이트에서만 빼면 테스트
+  총수가 줄어 「게이트 기준선」 의 총수 미감소 규칙에 걸린다. `/dflow-dev` 는 Phase 프롬프트의 검증 명령을 기준선에서
+  실제로 돌린 명령 줄 그대로 옮기므로, 제외도 그 줄에 실려 전달된다.
+- 금지 모드면 오케스트레이터는 Phase 02~05 공통 프롬프트에 이 문구를 넣는다: "도커 금지 모드다. docker·Testcontainers
+  를 쓰는 명령과 테스트(이름에 mssql·container·testcontainers·docker 가 든 태스크, docker·docker compose·orb 명령,
+  Testcontainers 를 쓰는 테스트 클래스)를 돌리지 않고, 도커 런타임을 켜지 않는다. 검증 명령은 기준선 명령 줄(제외
+  포함)만 쓴다. 생략한 검증과 그 때문에 확인하지 못한 수용 기준은 보고에 올린다. 정본: dev-discipline.md 「도커 사용
+  규칙」." 금지 모드가 아니어도 워커 경로에서는 "도커 런타임을 켜지 않는다(`orb start`·`open -a Docker` 등). 꺼져 있어
+  필요한 검증을 못 하면 보고에 올린다" 를 넣는다.
+
+### 게이트 판정과 기록
+
+- 게이트는 생략한 명령을 뺀 나머지로 판정한다(같은 제외 집합에서 기준선 대비 신규 실패 0 + 총수 미감소).
+- 생략한 명령마다 design.md 의 `## 도커 금지로 생략한 검증` 절에 `- 도커 금지로 생략: <명령>` 을 한 줄씩 적는다. 절의
+  첫 줄은 `- 금지 모드 출처: <spawn NO_DOCKER=1 | 설정 no_docker=1 | 둘 다>` 다. Design 이 테스트 전략을 쓰며 이 절을
+  만들고, 오케스트레이터는 게이트에서 실제로 뺀 명령과 맞는지 보고 모자라면 더해 커밋한다.
+- **생략 때문에 수용 기준을 확인할 수 없게 되면 조용히 통과시키지 않는다.** design.md 「수용 기준 매핑」 의 그 항목을
+  `확인하지 못함(도커 금지로 생략: <명령>)` 으로 적고, 위 절에 `- 확인하지 못한 수용 기준: <항목> — <생략한 명령>` 을
+  더한다.
+- 완료 보고(`done` 요약)에 `도커 금지로 생략: <명령>; …` 과, 있으면 `확인하지 못한 수용 기준 N건: <항목>; …` 을
+  싣는다. 승인자가 D'Flow 화면에서 이 줄을 보고 판단한다. 워커는 같은 내용을 `.issues` 에 `env` 분류로도 한 줄 남긴다
+  (worker-prompt.md 「7-1」).
+- 해소 워커는 design.md·`done` 대신 `resolution.md` 의 그 시도 절에 같은 줄(`- 도커 금지로 생략: <명령>`)을 적는다.
+
 ## Phase 02 — Design (설계)
 
 - 입력: spec.md(수용 기준 포함) + 대상 리포 탐색.
