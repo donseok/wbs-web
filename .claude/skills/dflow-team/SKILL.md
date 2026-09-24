@@ -1556,8 +1556,8 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
      `WT` 는 tmux 와 같은 자리 `<MAIN>/.claude/worktrees/dflow-<id8>` 다(2026-09-24부터 — 옛 리포 루트 위치는
      쓰지 않는다). 기점은 agent 브랜치가 결국 머지될 `origin/<기본브랜치>` 로 명시한다(준비 블록의 `git worktree
      add`). 결과 JSON 의 `result.terminal.handle`(옛 런타임은 `result.agentTerminalHandle`)을 슬롯 표와
-     `$WT/.dflow-pane` 에 저장한다. 핸들이 없으면 화면 읽기 없이 git·서버 증거만 쓴다. **이어서 폴더 신뢐 확인
-     루프를 반드시 돈다**(backends.md 「pane(Orca)」 「폴더 신뢐 확인」) — `I trust this folder` 가 보이면 키를
+     `$WT/.dflow-pane` 에 저장한다. 핸들이 없으면 화면 읽기 없이 git·서버 증거만 쓴다. **이어서 폴더 신뢰 확인
+     루프를 반드시 돈다**(backends.md 「pane(Orca)」 「폴더 신뢰 확인」) — `I trust this folder` 가 보이면 키를
      보내지 않고 "사람 확인 필요"로 보고한다. 준비 블록이 이미 포인터를 `$WT/.dflow-prompt` 에 썼으므로 따로
      쓰지 않는다. 이후 이 워크트리를 가리킬 때는 `--worktree "path:$WT"` 선택자를 쓴다.
 
@@ -1665,7 +1665,7 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
    `AGENT_ID` 와 어긋나 팀원이 남의 좌석으로 heartbeat 를 보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
 7. **띄운다.** 먼저 `references/restart.md` 「중단 표식 정리」 블록을 돈다(`st` 는 재개 판정이 받은 show 의 `status`,
    곧 `claimed`). `CANCEL_MARK_RM_FAILED` 면 띄우지 않고 「멈춤」 표(사유 `중단 표식 삭제 실패`)에 넣는다. 백엔드별 명령은 5번 5항과 같다(입장 제어 줄과 `git worktree add` 줄은 빼고 쓴다. 입장 제어는 0항에서 했다). 두 백엔드 모두 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
-   워크트리에는 없고, 남아 있던 것은 옛 모델 인자를 달고 있다) 핸들을 `.dflow-pane` 에 덮어쓴다. **폴더 신뢐 확인 루프를 반드시 돈다.** 넘기면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가
+   워크트리에는 없고, 남아 있던 것은 옛 모델 인자를 달고 있다) 핸들을 `.dflow-pane` 에 덮어쓴다. **폴더 신뢰 확인 루프를 반드시 돈다.** 넘기면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가
    통째로 논다. tmux 는 pane id 를, Orca 는 `orca terminal create --worktree "path:$WT" --command ./.dflow-run
    --json` 이 낸 `result.terminal.handle` 을 쓴다(backends.md 「pane(Orca)」 — 2026-09-24부터. 옛 방식은 포인터를
    `--prompt` 로 넘겨 기존 워크트리에 탭을 다시 열었다).

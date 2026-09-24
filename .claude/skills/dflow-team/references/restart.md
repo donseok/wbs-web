@@ -144,7 +144,9 @@ esac
 | 그 밖 | `restart` | 같은 기상 안에서 「재투입」 |
 
 차례(세 갈래 공통):
-1. **거두기**를 먼저 한다. `TM` 이 있으면 tmux, 없으면(빈 값) Orca 다(팀 시작 때 정해진 백엔드는 세션 내내
+1. **거두기**를 먼저 한다. `TM` 이 있으면 tmux, 없으면(빈 값) Orca 다(**이 문서의 모든 `TM` 자리표는 Orca 백엔드면 tmux 가
+   설치돼 있어도 빈 값으로 채운다** — 공용 준비 블록이 Orca 에서도 `find_tmux` 를 돌리지만 그 값은 그 호출 안에서만 쓴다.
+   채우면 Orca 핸들에 `kill-pane` 을 부르고 빈 응답을 사라짐으로 오판해 탭을 닫지 않은 채 `REAPED` 를 낸다)(팀 시작 때 정해진 백엔드는 세션 내내
    바뀌지 않으므로 이 값으로 가른다). `REAPED <pane|handle>` 이 나와야 다음으로 간다.
    ```bash
    TM='<진짜 tmux 절대경로 또는 빈 값>'; w='<워크트리>'; pane='<pane id 또는 Orca 핸들>'
@@ -296,7 +298,7 @@ esac
 **관문 셋을 2026-09-24 리허설(Orca 1.4.210, Claude Code 2.1.281)로 통과했다**: `orca terminal close --terminal
 <핸들> --tab --json` 이 팀원 claude 를 실제로 끝낸다(`ptyKilled:false` 로 답해도 `lsof` 로는 끝나 있었다),
 `orca terminal create --worktree path:<워크트리> --command ./.dflow-run --json` 으로 띄운 세션이 권한 확인
-생략 모드로 돌고 포인터가 첫 입력으로 들어가며(리허설 워크트리가 이미 신뢐된 리포 아래라 폴더 신뢐 확인
+생략 모드로 돌고 포인터가 첫 입력으로 들어가며(리허설 워크트리가 이미 신뢰된 리포 아래라 폴더 신뢰 확인
 화면 자체는 뜨지 않았다) 새 탭의 핸들을 `.result.terminal.handle` 로 JSON 에 준다. 이 관문을 통과했으므로
 **Orca 도 이제 tmux 와 같은 방식으로 재투입한다**: 탭 닫기(위 「재시작 후보를 띄울지」 「거두기」)→
 `.dflow-run` 새로 쓰기 → `orca terminal create`(SKILL.md 「5-1. 재개 spawn」 7항, backends.md 「pane(Orca)」).

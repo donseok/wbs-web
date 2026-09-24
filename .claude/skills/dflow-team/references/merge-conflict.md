@@ -81,14 +81,14 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
      워크트리 생성(`git worktree add --detach "$WT" origin/<기본브랜치>`)도 그 블록이 한다. 바꾸는 것은 셋이다:
      블록의(입장 제어 줄 다음) `WT="<MAIN>/.claude/worktrees/dflow-<id8>"` 를
      `WT="<MAIN>/.claude/worktrees/dflow-<id8>-resolve"` 로 쓰고, `<포인터 한 줄>` 을 아래 4번의 해소 포인터로 쓰고,
-     이름표를 `w<slot> · 해소 <TSK> <id8>` 로 붙인다. 그 뒤의 `.dflow-pane` 기록·**폴더 신뢐 확인 루프**는 같다.
+     이름표를 `w<slot> · 해소 <TSK> <id8>` 로 붙인다. 그 뒤의 `.dflow-pane` 기록·**폴더 신뢰 확인 루프**는 같다.
    - **Orca**(2026-09-24부터 — 옛 방식은 `orca worktree create --name dflow-<id8>-resolve --agent claude
      --no-parent --base-branch origin/<개발브랜치> --prompt "<포인터 한 줄>" --json` 으로 브랜치 워크트리를 만들고
      해소 워커가 부트스트랩 끝에서 `origin/<개발브랜치>` 로 detach 했다): tmux 와 같은 블록을 같은 `WT`
      치환(`-resolve` 접미)으로 그대로 돈 뒤(입장 제어 두 줄 포함이므로 따로 부르지 않는다), `chmod +x
      "$WT/.dflow-run"` 줄 뒤를 backends.md 「pane(Orca)」 대로 `orca terminal create --worktree "path:$WT"
      --title 'w<slot> · 해소 <TSK> <id8>' --command ./.dflow-run --json` 으로 잇는다. 결과 핸들을 `$WT/.dflow-pane`
-     에 쓰고 **폴더 신뢐 확인 루프**를 돈다(backends.md 「pane(Orca)」와 같다). 준비 블록이 이미 포인터를
+     에 쓰고 **폴더 신뢰 확인 루프**를 돈다(backends.md 「pane(Orca)」와 같다). 준비 블록이 이미 포인터를
      `$WT/.dflow-prompt` 에 썼으므로 따로 쓰지 않는다.
 4. **포인터 한 줄**:
    ```

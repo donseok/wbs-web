@@ -47,15 +47,15 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     expect(b()).toContain('`orca:` 접두 없음')
   })
 
-  it('Orca 폴더 신뢐 확인은 화면을 읽기만 하고 키를 보내지 않으며, I trust this folder 면 사람 확인 필요로 보고한다', () => {
-    expect(b()).toContain('**폴더 신뢐 확인**: tmux 처럼 spawn 직후 화면을 최대 10 회(1초 간격) 읽어 가려낸다')
+  it('Orca 폴더 신뢰 확인은 화면을 읽기만 하고 키를 보내지 않으며, I trust this folder 면 사람 확인 필요로 보고한다', () => {
+    expect(b()).toContain('**폴더 신뢰 확인**: tmux 처럼 spawn 직후 화면을 최대 10 회(1초 간격) 읽어 가려낸다')
     expect(b()).toContain('orca terminal read --terminal "$H"')
     expect(b()).toContain('TRUST_NEEDS_HUMAN $H')
     expect(b()).toContain('**키를 보내는 방법은\n실측하지 않았으므로 보내지 않는다.**')
   })
 
   it('Orca 정리는 orca worktree list --json 유무로 옛/새 방식을 갈라 orca worktree rm 또는 git worktree remove --force 를 고른다', () => {
-    expect(b()).toContain('orca worktree list --json 2>/dev/null | jq -e --arg p "<경로>" \'[.[].path] | index($p) != null\'')
+    expect(b()).toContain('orca worktree list --json 2>/dev/null | jq -e --arg p "<경로>" \'[.result.worktrees[]?.path] | index($p) != null\'')
     expect(b()).toContain('orca worktree rm --worktree path:<경로>')
     expect(b()).toContain('git worktree remove --force "<경로>"')
     expect(b()).toContain('"Orca 정리 명령"은 「pane(Orca)」 「정리」의') // 고아 정리 규칙이 이 줄임말을 쓴다

@@ -18,7 +18,7 @@ SKILL.md 「0. 환경 감지」 가 백엔드를 고른다. 워커 프롬프트�
 | 회수 | 결과 줄 처리 뒤 `kill-pane -t <pane>` | 결과 줄 처리 뒤 `orca terminal close --terminal <handle> --tab --json`(핸들이 `-` 면 건너뜀. 2026-09-24부터 — 예전에는 회수하지 않았다) |
 | 팀장 세션이 죽으면 | 팀원은 살아남는다(tmux 서버가 따로 돈다). 새 팀장이 재구성에서 `.dflow-pane` 과 `#{pane_start_path}` 로 흡수한다 | 팀원은 살아남는다 |
 | 정리 | `git worktree remove --force <경로>` | 새 방식(git worktree add)이면 tmux 와 같다. 옛 방식(`orca worktree create`, 리포 루트 워크트리)만 `orca worktree rm --worktree path:<경로>`(「pane(Orca)」 「정리」의 전환 규칙) |
-| 팀원 화면 | `capture-pane -p -t <pane>`(보고용), `-J -S -`(결과 줄 폴백) | `orca terminal read`(보고용). 신뢐 확인 판별에도 쓴다(「pane(Orca)」) |
+| 팀원 화면 | `capture-pane -p -t <pane>`(보고용), `-J -S -`(결과 줄 폴백) | `orca terminal read`(보고용). 신뢰 확인 판별에도 쓴다(「pane(Orca)」) |
 | git 호출 | `command -v git` 절대경로 | 같다(두 백엔드 공통) |
 
 ## 입장 제어
@@ -168,8 +168,9 @@ cat "$WT/.dflow-pane"
   9종 → 0, 스킬 134 → 49. 전역 `~/.claude/settings.json` 의 훅(`PreToolUse` `rtk hook claude`, `PostToolUse` heartbeat)은
   `--settings` 로 덮지 않으므로 그대로 돈다 — **`--setting-sources` 는 쓰지 않는다.** 쓰면 user 설정의 heartbeat 훅이
   함께 빠져 좌석표가 이 팀원의 진척을 보지 못한다. 전역 `~/.claude/settings.json` 자체는 읽기만 하고 건드리지 않는다.
-  사람이 끄고 싶지 않으면 팀장 세션의 환경변수 `DFLOW_WORKER_PLUGINS=keep`(플러그인은 그대로 두고)·
-  `DFLOW_WORKER_MCP=keep`(MCP·`claude-in-chrome` 도 그대로 두고)으로 각각 되돌린다. 이 블록(플러그인·MCP 끄기)을
+  사람이 끄고 싶지 않으면 `DFLOW_WORKER_PLUGINS=keep`(플러그인은 그대로 두고, 팀장 세션 환경에서 읽는다)·
+  `DFLOW_WORKER_MCP=keep`(MCP·`claude-in-chrome` 도 그대로 두고, 팀원 실행 시점에 `.dflow-run` 이 읽는다)으로 각각
+  되돌린다. 후자는 tmux pane 이면 팀장 환경을 물려받지만 Orca 새 탭은 로그인 셸 환경이므로 셸 프로필에 export 해야 한다. 이 블록(플러그인·MCP 끄기)을
   쓰는 곳은 tmux spawn(이 블록), Orca spawn(「pane(Orca)」), 「5-1. 재개 spawn」, `references/restart.md` 「재투입」
   넷이며, 모두 같은 「팀원 워크트리 준비」 블록을 그대로 돌려 얻는다.
 - **statusLine 덤프**: `--settings` 로 붙인 statusLine 이 입력 JSON 의 `.rate_limits`(구독자일 때 `five_hour`·`seven_day`
@@ -371,7 +372,8 @@ Claude Code 2.1.281)로 관문 셋을 확인했다: `git worktree add --detach` 
 호출 안에서** 돈다(입장 제어 두 줄 포함이므로 따로 부르지 않는다 — `SPAWN_DEFERRED_CAPACITY` 로 끝나면 아래를
 부르지 않는다). `WT` 는 tmux 와 같은 자리 `<MAIN>/.claude/worktrees/dflow-<id8>` 다 — 옛 리포 루트 위치
 (`<MAIN>/dflow-<id8>`)는 새로 쓰지 않는다. 그 블록 뒤, tmux 의 `if "$TM" -L dflow has-session ...` 대신 같은
-호출 안에서 아래로 잇는다.
+호출 안에서 아래로 잇는다. 블록 안의 `TM=$(find_tmux)` 는 이 호출 안에서만 쓰이고 버려진다 — Orca 팀장이 다른
+블록(SKILL.md·restart.md)의 `TM` 자리표를 채울 때는 tmux 가 설치돼 있어도 **빈 값**이다.
 ```bash
 R=$(orca terminal create --worktree "path:$WT" --title 'w<slot> · <TSK> <id8> · <작업 이름>' --command ./.dflow-run --json)
 printf '%s\n' "$R"
@@ -397,7 +399,7 @@ printf '%s\n' "$H" > "$WT/.dflow-pane"
   않는다.** 스피너 때문에 화면이 매번 달라져 멈춘 팀원도 살아 있는 것처럼 보이기 때문이다. 생존 증거는
   SKILL.md 「3. 결과 처리」 의 셋(브랜치 tip 커밋 시각·서버 progress·미커밋 변경 목록)이다.
 
-**폴더 신뢐 확인**: tmux 처럼 spawn 직후 화면을 최대 10 회(1초 간격) 읽어 가려낸다. **키를 보내는 방법은
+**폴더 신뢰 확인**: tmux 처럼 spawn 직후 화면을 최대 10 회(1초 간격) 읽어 가려낸다. **키를 보내는 방법은
 실측하지 않았으므로 보내지 않는다.**
 ```bash
 for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -410,14 +412,14 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
 done
 ```
 `I trust this folder` 가 보이면 "사람 확인 필요" 로 보고하고 넘어간다 — 그 탭에서 사람이 직접 답해야 한다.
-이유: `orca terminal send` 로 방향키를 보내 신뢐 확인을 넘기는 방법은 실측하지 않았다(위 배경). 2026-09-24
-리허설에서는 워크트리가 이미 신뢐된 리포(`<MAIN>`) 아래라 이 화면이 뜨지 않았다 — 그래도 이 루프는 남긴다.
+이유: `orca terminal send` 로 방향키를 보내 신뢰 확인을 넘기는 방법은 실측하지 않았다(위 배경). 2026-09-24
+리허설에서는 워크트리가 이미 신뢰된 리포(`<MAIN>`) 아래라 이 화면이 뜨지 않았다 — 그래도 이 루프는 남긴다.
 다른 부모 경로에서는 뜰 수 있다. `bypass permissions on` 이 보이면 통과다. 이 규칙은 화면 문자열에 기댄다
-(pane(tmux) 「폴더 신뢐 확인」과 같은 한계 — Claude Code 판본이 문구를 바꾸면 깨진다).
+(pane(tmux) 「폴더 신뢰 확인」과 같은 한계 — Claude Code 판본이 문구를 바꾸면 깨진다).
 
 **정리**: 전환 규칙을 먼저 본다.
 ```bash
-if orca worktree list --json 2>/dev/null | jq -e --arg p "<경로>" '[.[].path] | index($p) != null' >/dev/null; then
+if orca worktree list --json 2>/dev/null | jq -e --arg p "<경로>" '[.result.worktrees[]?.path] | index($p) != null' >/dev/null; then
   orca worktree rm --worktree path:<경로>
 else
   git worktree remove --force "<경로>"
@@ -427,8 +429,9 @@ orca worktree list        # 누수 확인. 옛 방식 워크트리(dflow-<id8>, 
 옛 방식(`orca worktree create`)으로 뜬 워크트리만 `orca worktree list --json` 에 나타난다 — 그 경로면
 `orca worktree rm`(체크아웃된 로컬 브랜치만 삭제를 시도하고, 머지됐음을 입증하지 못하는 브랜치와 워크트리보다
 먼저 있던 브랜치는 보존한다), 아니면(새 방식, `git worktree add`) tmux 와 같은 `git worktree remove --force`
-다. 미커밋분을 잃으므로 먼저 「고아 정리 규칙」 을 따른다. `--force` 는 「고아 정리 규칙」 1번(부트스트랩
-실패)에서만 붙인다. 두 갈래 모두 워크트리 강제 제거만 하고 브랜치 삭제는 강제하지 않는다.
+다(`--force` 이유는 tmux 「정리」 와 같다: 미추적 부산물). 미커밋분을 잃으므로 먼저 「고아 정리 규칙」 을 따른다.
+옛 방식의 `orca worktree rm` 에는 `--force` 를 「고아 정리 규칙」 1번(부트스트랩 실패)에서만 붙인다. 두 갈래 모두
+브랜치 삭제는 강제하지 않는다. `orca worktree list --json` 의 모양은 `{result:{worktrees:[{path,…}]}}` 다(2026-09-24 실측).
 
 ## 고아 정리 규칙
 
