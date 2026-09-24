@@ -88,6 +88,33 @@ describe('heartbeat.sh — 스펙 §4-2', () => {
     writeFileSync(join(repo, 'docs/tasks/TSK-01/state.json'), JSON.stringify({ tsk: 'TSK-01', order: '2'.repeat(8), phase: 'merged' }))
     run(); expect(sent()).toHaveLength(0)
   })
+  // 2026-09-24 dmes-standard: Phase 01(claim·기준선) 동안 state.json 이 scaffold 값 ready 라 5분 넘게 신호가 없었다.
+  // /dflow-dev 가 claim 뒤 phase=prepare 를 쓰고, 훅은 prepare 만 더 받는다(ready 는 여전히 받지 않는다).
+  it('phase=prepare(Phase 01 준비)면 보낸다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, 'docs/tasks/TSK-01/state.json'), JSON.stringify({ tsk: 'TSK-01', order: '22222222-2222-4222-8222-222222222222', phase: 'prepare' }))
+    run()
+    expect(sent()).toHaveLength(1)
+    expect(sent()[0]).toContain('/api/v1/agent/work/22222222-2222-4222-8222-222222222222/heartbeat')
+    expect(sent()[0]).toContain('"phase":"prepare"')
+  })
+  it('scaffold 자리표(phase=ready)는 더 최근이어도 고르지 않는다 — prepare 인 주문에만 보낸다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, 'docs/tasks/TSK-01/state.json'), JSON.stringify({ tsk: 'TSK-01', order: '22222222-2222-4222-8222-222222222222', phase: 'prepare' }))
+    const old = new Date(Date.now() - 600_000)
+    utimesSync(join(repo, 'docs/tasks/TSK-01/state.json'), old, old)
+    mkdirSync(join(repo, 'docs/tasks/TSK-02'), { recursive: true })
+    writeFileSync(join(repo, 'docs/tasks/TSK-02/state.json'), JSON.stringify({ tsk: 'TSK-02', order: '33333333-3333-4333-8333-333333333333', phase: 'ready' }))
+    run()
+    expect(sent()).toHaveLength(1)
+    expect(sent()[0]).toContain('/22222222-2222-4222-8222-222222222222/heartbeat')
+    expect(sent().join('\n')).not.toContain('33333333-3333-4333-8333-333333333333')
+  })
+  it('ready 만 있으면(주문 전 자리표) 보내지 않는다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, 'docs/tasks/TSK-01/state.json'), JSON.stringify({ tsk: 'TSK-01', order: '22222222-2222-4222-8222-222222222222', phase: 'ready' }))
+    run(); expect(sent()).toHaveLength(0)
+  })
   it('60초 절제: 두 번 연속 실행하면 한 번만 보낸다, 절제 파일이 오래되면 다시 보낸다', () => {
     writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
     run(); run()

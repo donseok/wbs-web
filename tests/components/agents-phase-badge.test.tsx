@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { PhaseBadge, seatPhaseKey } from '@/components/agents/PhaseBadge'
+import { PHASE_LOOK, PhaseBadge, seatPhaseKey } from '@/components/agents/PhaseBadge'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -43,6 +43,20 @@ describe('PhaseBadge — 캐릭터 머리 위 단계 말풍선(2026-09-18)', () 
     expect(b?.textContent).toContain('머지 충돌')
     expect(b?.getAttribute('title')).toBe('머지 충돌')
     expect(host.querySelector('[data-phase-dot]')).toBeNull()
+  })
+  it('준비(prepare)는 「준비」 말풍선을 달고, 네 단계(설계→리팩터) 앞이라 점은 그리지 않는다(2026-09-24)', () => {
+    expect(seatPhaseKey({ state: 'ACTIVE', phase: 'prepare' })).toBe('prepare')
+    expect(seatPhaseKey({ state: 'STALE', phase: 'prepare' })).toBe('prepare')
+    act(() => root.render(<PhaseBadge seat={{ state: 'ACTIVE', phase: 'prepare' }} />))
+    const b = host.querySelector('[data-phase-badge="prepare"]')
+    expect(b?.textContent).toContain('준비')
+    expect(b?.textContent).not.toContain('구현')
+    expect(b?.getAttribute('title')).toBe('준비')
+    expect(host.querySelector('[data-phase-dot]')).toBeNull()
+  })
+  it('준비 색은 구현(파랑)과 다르다', () => {
+    expect(PHASE_LOOK.prepare?.label).toBe('준비')
+    expect(PHASE_LOOK.prepare?.color).not.toBe(PHASE_LOOK.build.color)
   })
   it('반려(REJECTED)·일하는 좌석에 남은 merge_conflict 는 머지 충돌 말풍선을 달지 않는다(2026-09-23 리뷰)', () => {
     expect(seatPhaseKey({ state: 'REJECTED', phase: 'merge_conflict' })).toBe('rejected')

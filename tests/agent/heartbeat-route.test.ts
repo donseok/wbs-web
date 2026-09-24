@@ -99,6 +99,14 @@ describe('POST /agent/work/[id]/heartbeat', () => {
     expect(upd.heartbeat_phase).toBe('blocked')
     expect(upd.heartbeat_note).toBeNull()
   })
+  it('prepare(Phase 01 준비, 2026-09-24)는 받고, scaffold 자리표 값 ready 는 받지 않는다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls)
+    const res = await post({ agent: 'hong/mbp/w1', phase: 'prepare' })
+    expect(res.status).toBe(200)
+    expect((calls.agent_work_orders[0] as Record<string, unknown>).heartbeat_phase).toBe('prepare')
+    useAdmin(okQueues()); expect((await post({ agent: 'a', phase: 'ready' })).status).toBe(400)
+  })
   it('400 — agent 없음 / 모르는 phase / note 500자 초과', async () => {
     useAdmin(okQueues()); expect((await post({ phase: 'build' })).status).toBe(400)
     useAdmin(okQueues()); expect((await post({ agent: 'a', phase: 'lunch' })).status).toBe(400)
