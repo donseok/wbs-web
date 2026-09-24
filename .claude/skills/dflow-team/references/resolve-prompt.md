@@ -121,8 +121,10 @@ done
    - `BASELINE_MEASURED … key=<key>`: 새로 쟀다. 출력에서 읽은 수를
      `.claude/skills/dflow-dev/scripts/baseline.sh note <key> --tests <총수> --failures <실패 수> [--failed-file <파일>]` 로
      더한다. 다음 해소 시도와 다른 워커가 같은 수를 받는다.
-   - `BASELINE_MEASURED … cache=off(<사유>)`: 쟀지만 캐시를 못 썼다. 수는 그대로 쓴다. 사유가 "작업 트리가 깨끗하지 않음"
-     이면 이 워크트리에 남은 미추적 파일을 확인해 치운다(다음 측정도 캐시를 못 쓴다).
+   - `BASELINE_MEASURED … cache=off(<사유>)`: 쟀지만 캐시를 못 썼다. 수는 그대로 쓰고 **아무 파일도 지우지 않는다** —
+     미추적 파일은 「2」 의 스킬 링크나 팀장이 쓰는 `.dflow-prompt`·`.dflow-pane`·`.dflow-run` 일 수 있어, 지우면 해소 머지나
+     팀장의 생존 판정이 깨진다. 사유가 "작업 트리가 깨끗하지 않음" 이면 `git status --porcelain` 에 나온 경로를 `.issues`
+     (`env` 분류)에 적어 팀장이 공유 `info/exclude` 를 고치게 한다.
    - `BASELINE_BUSY exit=75 …`: 실패가 아니다. 같은 명령을 다시 호출한다(「7」). 한 번의 Bash 호출로 오래 기다리지 않는다.
    - 도커가 허용된 해소(`{DOCKER}` 가 `allow`)에서 도커를 쓰는 명령은 `--` 앞에 `--pool docker` 를 붙인다(「도커」).
 4. 두 커밋의 lockfile 이 `<BASE>` 와 다르면 그 커밋의 시험 전에 `.claude/skills/dflow-dev/scripts/deps.sh` 를 다시 돌리고,

@@ -32,6 +32,9 @@ describe('resolve-prompt.md 「3. 기준선」 — 세 측정은 baseline.sh 캐
     expect(S3).toContain('`BASELINE_SUMMARY` 가 없으면')
     expect(S3).toMatch(/`BASELINE_BUSY exit=75 …`: 실패가 아니다\. 같은 명령을 다시 호출한다/)
     expect(S3).toContain('`--pool docker`')
+    // cache=off 는 수만 쓰고 파일을 지우지 않는다(스킬 링크·팀장의 .dflow-pane 등이 미추적 파일이다)
+    expect(S3).toContain('수는 그대로 쓰고 **아무 파일도 지우지 않는다**')
+    expect(S3).not.toContain('미추적 파일을 확인해 치운다')
   })
 
   it('MERGE_HEAD 단독 총수는 워커의 게이트 기록(커밋이 맞을 때만)을 먼저 쓴다', () => {
