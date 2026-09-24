@@ -58,6 +58,8 @@ const CHANGED = [
   '  `phase` 값: `design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.',
   // 12. Phase 06 3번: 결정 목록을 done --decisions 로 넘긴다(과제 C, docs/superpowers/specs/2026-09-23-worker-decision-report-design.md §6)
   '   `dflow.sh done <ref> "<요약>" --auto-links`.',
+  // 13. Phase 종료 4번: Verify 는 처음부터 sonnet 이고 Build 게이트도 1회 재시도한다(2026-09-24 게이트 절감)
+  '   Verify 만 1회 재시도(sonnet 승격, 수정은 Build 규율로 — dev-discipline 참조).',
 ] as const
 
 /**
@@ -173,9 +175,9 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
     })
   })
 
-  it('--worker 절이 행 A~H 와 핵심 규칙을 담는다', () => {
+  it('--worker 절이 행 A~I 와 핵심 규칙을 담는다', () => {
     const sec = section()
-    for (const row of ['| A |', '| B |', '| C |', '| D |', '| E |', '| F |', '| G |', '| H |']) expect(sec, row).toContain(row)
+    for (const row of ['| A |', '| B |', '| C |', '| D |', '| E |', '| F |', '| G |', '| H |', '| I |']) expect(sec, row).toContain(row)
     expect(sec).toContain('**팀장 전용, 사람이 직접 쓰지 않는다.**')
     expect(sec).toContain('기점을 그 `head_sha` 로 잡고')
     expect(sec).toContain('branch_base')
@@ -185,7 +187,7 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
     expect(sec).toContain('`skipped 선행 미승인`')
     expect(sec).toContain('`skipped 선행 승인 대기`')
     expect(sec).toContain('행 A·B·C 뿐')
-    expect(sec).toContain('위 여덟 행')
+    expect(sec).toContain('위 아홉 행')
     expect(sec).toContain('.claude/skills/dflow-team/references/worker-prompt.md')
   })
 
