@@ -228,6 +228,150 @@ describe('decisions.sh — 머지 때 번호 매김(실제 git)', { timeout: 300
   })
 })
 
+// 전역 번호 중복(2026-09-24 dmes-standard: 새 규칙 전에 시작한 TSK-08-01·TSK-04-03 이 둘 다 D-050~052 를 직접 매겨,
+// merge-conflicts 가 두 쪽 블록을 그대로 붙인 개발 브랜치에 `## D-050` 이 두 번씩 생겼다 — 팀장이 손으로 고침, 86baa20).
+// 여기서는 base D-001·D-002 위에서 X(TSK-08-01) 가 D-003·D-004 를 직접 매겨 먼저 머지된 뒤, 같은 기점의 다른 브랜치가 같은
+// 번호를 직접 매겨 들어오는 모양을 재현한다.
+const blk = (id: string, ts: string, note = '') =>
+  `\n## ${id} (${ts})\n- **Phase**: design\n- **Decision needed**: ${id} 질문\n- **Decision made**: ${id} 결정\n- **Rationale**: ${id} 근거${note}\n- **Reversible**: yes\n`
+const SPEC = '# spec\n본문 1\n본문 2\n본문 3\n본문 4\n본문 5\n'
+const X3 = blk('D-003', '2026-09-24T01:00:00Z')
+const X4 = blk('D-004', '2026-09-24T02:00:00Z', ' — D-003 을 잇는다')
+const Y3 = blk('D-003', '2026-09-24T05:00:00Z')
+const Y4 = blk('D-004', '2026-09-24T06:00:00Z', ' — D-003 을 잇는다')
+const Y5 = blk('D-005', '2026-09-24T07:00:00Z', ' — D-004 보완')
+const Z3 = blk('D-003', '2026-09-24T08:00:00Z')
+// 옮긴 블록의 기대 모양: 머리 번호가 새 번호, 바로 아래 Renumbered from 줄, 본문 속 자기 번호 참조도 새 번호
+const moved = (b: string, from: string, to: string) =>
+  b.split(from).join(to).replace(/(\n## [^\n]+\n)/, `$1- **Renumbered from**: ${from} (중복 번호)\n`).replace(/^\n/, '')
+
+describe('decisions.sh — 직접 매긴 전역 번호가 겹치면 머지 대상 쪽을 다음 번호로 옮긴다(실제 git)', { timeout: 60000 }, () => {
+  beforeEach(() => {
+    const w = (b: string) => JSON.stringify(b)
+    const r = sh(repo, `
+      set -e
+      printf '%b' ${w(SPEC)} > docs/mdm/spec.md && git add docs && git commit -qm spec && git push -q origin main
+      # X: TSK-08-01 — 옛 규칙. D-003·D-004 를 직접 매긴다(개발 브랜치 max 가 2 라 겹치지 않는다)
+      git switch -q -c agent/xxxxxxxx-x
+      printf '%b' ${w(X3 + X4)} >> docs/mdm/decisions.md
+      mkdir -p docs/tasks/TSK-08-01 && printf '근거 D-003\\n' > docs/tasks/TSK-08-01/design.md
+      sed -i.bak 's/^본문 1$/본문 1 (X: D-003 참조)/' docs/mdm/spec.md && rm docs/mdm/spec.md.bak
+      git add docs && git commit -qm x && git push -q origin agent/xxxxxxxx-x
+      # Y: TSK-04-03 — 같은 기점, D-003·D-004 가 겹치고 D-005 는 겹치지 않는다. 끝에 붙여 X 와 충돌한다
+      git switch -q main && git switch -q -c agent/yyyyyyyy-y
+      printf '%b' ${w(Y3 + Y4 + Y5)} >> docs/mdm/decisions.md
+      mkdir -p docs/tasks/TSK-04-03 && printf '근거 D-003·D-004·D-005 (D-0030 아님)\\n' > docs/tasks/TSK-04-03/design.md
+      sed -i.bak 's/^본문 5$/본문 5 (Y: D-004 참조)/' docs/mdm/spec.md && rm docs/mdm/spec.md.bak
+      git add docs && git commit -qm y && git push -q origin agent/yyyyyyyy-y
+      # Z: TSK-05-01 — 같은 기점, D-003 블록을 D-001 뒤에 끼워 넣었다. X 의 끝 추가와 위치가 달라 충돌 없이 합쳐진다
+      git switch -q main && git switch -q -c agent/zzzzzzzz-z
+      printf '%b' ${w(HEAD + block('D-001', '2026-09-20T00:00:00Z') + Z3 + block('D-002', '2026-09-21T00:00:00Z'))} > docs/mdm/decisions.md
+      mkdir -p docs/tasks/TSK-05-01 && printf '근거 D-003\\n' > docs/tasks/TSK-05-01/design.md
+      sed -i.bak 's/^본문 5$/본문 5 (Z: D-003 참조)/' docs/mdm/spec.md && rm docs/mdm/spec.md.bak
+      git add docs && git commit -qm z && git push -q origin agent/zzzzzzzz-z
+      # W: TSK-06-01 — 같은 기점, 겹치지 않지만 D-003 을 건너뛰고 D-004 를 매겼다
+      git switch -q main && git switch -q -c agent/wwwwwwww-w
+      printf '%b' ${w(blk('D-004', '2026-09-24T09:00:00Z'))} >> docs/mdm/decisions.md
+      git add docs && git commit -qm w && git push -q origin agent/wwwwwwww-w
+      # V: TSK-07-01 — 같은 기점, D-003 이 겹친다. Task 폴더 결정 기록이 자기 D-001~D-003 을 쓰고 notes 가 그 D-003 을 가리킨다
+      git switch -q main && git switch -q -c agent/vvvvvvvv-v
+      printf '%b' ${w(blk('D-003', '2026-09-24T10:00:00Z'))} >> docs/mdm/decisions.md
+      mkdir -p docs/tasks/TSK-07-01
+      printf '%b' ${w(HEAD + blk('D-001', '2026-09-24T10:01:00Z') + blk('D-002', '2026-09-24T10:02:00Z') + blk('D-003', '2026-09-24T10:03:00Z'))} > docs/tasks/TSK-07-01/decisions.md
+      printf '로컬 D-003 을 따른다\\n' > docs/tasks/TSK-07-01/notes.md
+      git add docs && git commit -qm v && git push -q origin agent/vvvvvvvv-v
+      git switch -q main
+    `)
+    expect(r.code, r.out).toBe(0)
+  }, 60000)
+
+  const mergeX = () => {
+    const x = sh(repo, mergeStep('origin/agent/xxxxxxxx-x', 'TSK-08-01'))
+    expect(x.code, x.out).toBe(0)
+    // 겹치지 않은 직접 번호는 건드리지 않고 아무 경고도 없다
+    expect(x.out.trim()).toBe('NO_TEMP_IDS')
+  }
+  const unchanged = (p: string, want: string) => expect(readFileSync(join(repo, p), 'utf8')).toBe(want)
+  const SPEC_X = SPEC.replace('본문 1\n', '본문 1 (X: D-003 참조)\n')
+
+  it('(a) 충돌로 풀린 중복: 개발 브랜치 블록은 그대로, 머지 대상의 D-003·D-004 를 D-006·D-007 로 옮겨 끝에 두고 브랜치 문서 참조만 바꾼다', () => {
+    mergeX()
+    const y = sh(repo, mergeStep('origin/agent/yyyyyyyy-y', 'TSK-04-03'))
+    expect(y.code, y.out).toBe(0)
+    expect(y.out).toContain('DECISIONS_RESOLVED docs/mdm/decisions.md')
+    expect(y.out).toContain('DUP_RENUMBERED D-003=D-006 docs/mdm/decisions.md')
+    expect(y.out).toContain('DUP_RENUMBERED D-004=D-007 docs/mdm/decisions.md')
+    expect(y.out).not.toContain('D-005=')   // 겹치지 않은 D-005 는 번호를 두고
+    expect(y.out).not.toMatch(/DECISIONS_SEQ|DUP_LEFT|RENUMBER_FAILED/)
+    // 개발 브랜치 블록(X 의 D-004 본문 속 D-003 포함)은 한 바이트도 바뀌지 않는다. 옮기지 않은 머지 대상 블록(D-005)의 본문 참조는 바뀐다
+    expect(doc()).toBe(BASE_DOC + X3 + X4 + Y5.replace('D-004 보완', 'D-007 보완')
+      + '\n' + moved(Y3, 'D-003', 'D-006') + '\n' + moved(Y4, 'D-004', 'D-007').replace('D-003 을 잇는다', 'D-006 을 잇는다'))
+    const v = validate()
+    expect(v.code, v.out).toBe(0)
+    expect(v.out).toContain('"entry_count": 7')
+    // 머지 대상만 만든 파일은 치환, 양쪽이 바꾼 파일은 그대로 두고 위치를 알린다, 개발 브랜치 파일은 손대지 않는다
+    unchanged('docs/tasks/TSK-04-03/design.md', '근거 D-006·D-007·D-005 (D-0030 아님)\n')
+    expect(y.out).toContain('DUP_REF_REPLACED docs/tasks/TSK-04-03/design.md D-003→D-006,D-004→D-007')
+    unchanged('docs/mdm/spec.md', SPEC_X.replace('본문 5\n', '본문 5 (Y: D-004 참조)\n'))
+    expect(y.out).toContain('DUP_REF_AMBIGUOUS docs/mdm/spec.md:2 D-003 dev-changed')
+    expect(y.out).toContain('DUP_REF_AMBIGUOUS docs/mdm/spec.md:6 D-004 dev-changed')
+    unchanged('docs/tasks/TSK-08-01/design.md', '근거 D-003\n')
+    const log = sh(repo, `git log -1 --format='%s|%(trailers:key=DFlow-Order,valueonly,separator=)'`)
+    expect(log.out).toContain('chore(TSK-04-03): 결정 번호 매김 (D-003→D-006(중복), D-004→D-007(중복))|o-TSK-04-03')
+  })
+
+  it('(b) 충돌 없이 합쳐진 중복: 가운데 끼운 머지 대상 블록도 잡아 다음 번호로 끝에 옮긴다', () => {
+    mergeX()
+    // 머지 자체가 충돌 없이 끝나는 모양인지 먼저 못박는다(나중에 충돌 사례로 "고쳐" 지지 않게)
+    const probe = sh(repo, `git merge --no-ff --no-commit origin/agent/zzzzzzzz-z >/dev/null 2>&1; echo "merge=$?"; git merge --abort`)
+    expect(probe.out).toContain('merge=0')
+    const z = sh(repo, mergeStep('origin/agent/zzzzzzzz-z', 'TSK-05-01'))
+    expect(z.code, z.out).toBe(0)
+    expect(z.out).not.toContain('DECISIONS_RESOLVED')
+    expect(z.out).not.toMatch(/DECISIONS_SEQ|DUP_LEFT|RENUMBER_FAILED/)
+    expect(z.out).toContain('DUP_RENUMBERED D-003=D-005 docs/mdm/decisions.md')
+    expect(doc()).toBe(BASE_DOC + X3 + X4 + '\n' + moved(Z3, 'D-003', 'D-005'))
+    const v = validate()
+    expect(v.code, v.out).toBe(0)
+    expect(v.out).toContain('"entry_count": 5')
+    unchanged('docs/tasks/TSK-05-01/design.md', '근거 D-005\n')
+    expect(z.out).toContain('DUP_REF_REPLACED docs/tasks/TSK-05-01/design.md D-003→D-005')
+    unchanged('docs/mdm/spec.md', SPEC_X.replace('본문 5\n', '본문 5 (Z: D-003 참조)\n'))
+    expect(z.out).toContain('DUP_REF_AMBIGUOUS docs/mdm/spec.md:2 D-003 dev-changed')
+    expect(z.out).toContain('DUP_REF_AMBIGUOUS docs/mdm/spec.md:6 D-003 dev-changed')
+    unchanged('docs/tasks/TSK-08-01/design.md', '근거 D-003\n')
+  })
+
+  it('Task 폴더 결정 기록이 같은 번호를 쓰면 브랜치 문서 참조도 모호로 보고 바꾸지 않는다(그 기록 자체도 그대로)', () => {
+    mergeX()
+    const r = sh(repo, mergeStep('origin/agent/vvvvvvvv-v', 'TSK-07-01'))
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DUP_RENUMBERED D-003=D-005 docs/mdm/decisions.md')
+    expect(r.out).toContain('DUP_REF_AMBIGUOUS docs/tasks/TSK-07-01/notes.md:1 D-003 ambiguous')
+    unchanged('docs/tasks/TSK-07-01/notes.md', '로컬 D-003 을 따른다\n')
+    expect(readFileSync(join(repo, 'docs/tasks/TSK-07-01/decisions.md'), 'utf8')).toContain('## D-003 (2026-09-24T10:03:00Z)')
+    expect(validate().code).toBe(0)
+  })
+
+  it('겹치지 않은 직접 번호가 순번을 건너뛰면 고치지 않고 DECISIONS_SEQ 로 알린다', () => {
+    const r = sh(repo, mergeStep('origin/agent/wwwwwwww-w', 'TSK-06-01'))
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DECISIONS_SEQ docs/mdm/decisions.md at=3 found=D-004 want=D-003')
+    expect(r.out).toContain('NO_TEMP_IDS')
+    expect(doc()).toBe(BASE_DOC + blk('D-004', '2026-09-24T09:00:00Z'))
+  })
+
+  it('머지 커밋이 아닌 HEAD 의 중복은 바로잡지 않고 DUP_LEFT 로 알린다', () => {
+    const r = sh(repo, `
+      printf '%b' ${JSON.stringify(blk('D-002', '2026-09-24T11:00:00Z'))} >> docs/mdm/decisions.md && git commit -qam dup
+      h=$(git rev-parse HEAD); sh "$S" renumber; [ "$(git rev-parse HEAD)" = "$h" ] && echo HEAD_SAME
+    `)
+    expect(r.out).toContain('DUP_LEFT docs/mdm/decisions.md D-002 not-a-merge')
+    expect(r.out).toContain('NO_TEMP_IDS')
+    expect(r.out).toContain('HEAD_SAME')
+  })
+})
+
 describe('문서 계약 — 결정 번호는 머지 때 매긴다', () => {
   it('dev-discipline 에 임시 ID 규칙이 있다(Phase 서브에이전트가 읽는 정본)', () => {
     const sec = DISC.slice(DISC.indexOf('## 공용 결정 기록(decisions.md)의 번호'))
@@ -253,6 +397,19 @@ describe('문서 계약 — 결정 번호는 머지 때 매긴다', () => {
     const r = MERGE.slice(MERGE.indexOf('## 해소 머지(`--resolve`)'), MERGE.indexOf('## 금지'))
     expect(r.indexOf('decisions.sh renumber')).toBeGreaterThan(r.indexOf('6. **기록·커밋**'))
     expect(r.indexOf('decisions.sh renumber')).toBeLessThan(r.indexOf('7. **state.json**'))
+  })
+  it('전역 번호 중복: /dflow-merge 가 동작·출력 줄을 적고, dev-discipline 은 직접 번호가 옮겨진다고 알린다', () => {
+    const sec = MERGE.slice(MERGE.indexOf('\n## 결정 번호 매김\n'), MERGE.indexOf('\n## 마이그레이션 버전 관문\n'))
+    expect(sec).toContain('**전역 번호 중복**')
+    expect(sec).toContain('HEAD^2 = 머지 대상(그때의 MERGE_HEAD)')
+    expect(sec).toContain('`- **Renumbered from**: D-050 (중복 번호)`')
+    for (const k of ['DUP_RENUMBERED', 'DUP_REF_REPLACED', 'DUP_REF_AMBIGUOUS', 'DUP_LEFT', 'DECISIONS_SEQ']) {
+      expect(sec).toContain(k)
+      expect(MERGE.slice(MERGE.indexOf('6. **보고**'), MERGE.indexOf('\n## 방언 검증\n'))).toContain(k)
+    }
+    const d = DISC.slice(DISC.indexOf('## 공용 결정 기록(decisions.md)의 번호'), DISC.indexOf('## 마이그레이션 버전'))
+    expect(d).toContain('전역 번호를 직접 쓰면')
+    expect(d).toContain('Renumbered from')
   })
   it('resolve-prompt: decisions.md 충돌은 손으로 번호를 매기지 않는다', () => {
     expect(RESOLVE).toContain('decisions.sh merge-conflicts')
