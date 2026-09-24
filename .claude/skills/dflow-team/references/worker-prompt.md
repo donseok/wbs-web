@@ -144,7 +144,10 @@ Skill 도구가 `dflow-dev` 를 모르면(스킬 없는 워크트리에서 세�
   이 절은 승인자가 검토할 목록이므로, 기본값이 있어 고른 사소한 결정은 넣지 않는다.
 - 이 결정들은 Phase 06 의 `done` 요약 끝에 `확인 필요 결정 N건: <질문 요약; …>` 으로 싣고, `.result` 의 `done`
   사유 끝에도 `(결정 N건)` 을 붙인다(7번). 승인자가 D'Flow 화면에서 보고, 팀장이 집계한다. 0건이면 붙이지 않는다.
-- 절의 결정마다 번호 `D1`, `D2` … 를 붙인다. 반려 사유와 D'Flow 화면이 이 번호로 결정을 가리킨다.
+- 절의 결정마다 번호 `D1`, `D2` … 를 붙인다. 반려 사유와 D'Flow 화면이 이 번호로 결정을 가리킨다. 이 번호는 대상 리포의
+  공용 결정 기록(`docs/<모듈>/decisions.md` 등)의 `D-NNN` 과 다르다. 그 기록에 블록을 더할 때는 전역 번호를 매기지 않고
+  임시 ID `D-{TSK}-<n>` 을 쓴다 — 규칙은 dev-discipline 「공용 결정 기록(decisions.md)의 번호」 이며, 번호는 `/dflow-merge` 가
+  머지 때 매긴다.
   Phase 06 에서 그 절을 `{TASK_DIR}/decisions.json` 으로 옮기고
   `done {ID8} "<요약>" --auto-links --decisions {TASK_DIR}/decisions.json` 으로 넘긴다. 파일은 결정 항목의 JSON
   배열이고 항목은 여섯 필드다: `key`(절의 번호), `question`, `options`(2~6개), `chosen`(택한 선택지의 0부터 센 색인 — 문구가 아니다),

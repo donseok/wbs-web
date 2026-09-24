@@ -187,6 +187,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    git merge-base --is-ancestor <증적 head_sha> <머지 대상>   # 증적에 head_sha 가 있을 때만. 0 이 아니면(커밋이 없거나 조상이 아님) 머지하지 않는다
    git diff --name-only <증적 head_sha>..<머지 대상>   # 증적에 head_sha 가 있을 때만. 실패하면 머지하지 않고, 그 작업의 state.json 뿐이거나 비어 있어야 머지한다
    git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)" -m "DFlow-Order: <order>"   # 로컬 후보 agent/<id8>-<slug>, 원격 전용 후보 origin/agent/<id8>-<slug>. 승인 전 머지는 (reported, 승인 전). <order> 는 그 후보 state.json 의 order. git merge 는 --trailer 를 모른다(git commit 전용) — 둘째 -m 이 빈 줄 뒤 문단이 되어 트레일러로 인식된다
+   .claude/skills/dflow-merge/scripts/decisions.sh renumber --tsk <TSK> --order <order>   # 「결정 번호 매김」. 임시 ID 가 없으면 NO_TEMP_IDS 로 아무것도 하지 않는다
    git add "<후보 state.json 경로>" && git commit -m "chore(<TSK>): phase=merged" \
      && git push origin <기본브랜치>   # state.json 을 phase=merged 로 고친 뒤 push. add·commit 이 실패하면(경로 없음 등) && 사슬이 끊겨 push 하지 않는다
    ```
@@ -208,18 +209,30 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
       머지 전에 `dflow.sh stub-check <머지 대상>` 을 돌린다. exit 4 면 머지하지 않고 「스텁 잔존 — 개발 브랜치 미설정 리포라
       운영에 스텁이 들어간다」 로 보고한 뒤 다음 후보로 간다(스펙 2026-09-23 §4). 두 브랜치가 다르면 이 검사를 하지 않는다 —
       스텁은 개발 브랜치에 머지되는 것이 정상이고(F5), 관문은 운영 승격이다.
-   3. `git merge --no-ff <머지 대상>`. 충돌하면 먼저 충돌 파일 목록을 읽은 뒤 `git merge --abort` 로 되돌리고 "머지 실패(충돌)" 로
+   3. `git merge --no-ff <머지 대상>`. 충돌하면 먼저 공용 결정 기록(`decisions.md`)의 충돌만 스크립트로 푼다(「결정 번호
+      매김」). 남은 충돌이 없으면 `git commit --no-edit --cleanup=strip` 으로 머지를 완성하고 3-1 로 간다(`-m` 두 문단과
+      트레일러는 `MERGE_MSG` 에 남아 있고, `--cleanup=strip` 이 git 이 덧붙인 `# Conflicts:` 주석을 지운다).
+      남은 충돌이 있으면 그 목록을 읽은 뒤 `git merge --abort` 로 되돌리고 "머지 실패(충돌)" 로
       보고한 뒤 다음 후보로 간다. 이유: 충돌 상태로 남으면 체크아웃이 더러워져, 팀장이면 이후 모든
       기상이 전제 검사에서 멈추고 수동이면 사람이 그 상태를 치워야 한다. 사람이 그 자리에서 충돌을
       손으로 풀어 `git merge --abort` 대신 직접 `git commit` 으로 머지를 완성하는 경로도 있다 — 이
       경로에도 아래 트레일러 규칙이 그대로 적용된다. "자동 스윕이 아니다" 는 트레일러를 빠뜨릴
       이유가 되지 않는다.
-      충돌 파일 목록은 `--abort` **전에** 읽는다(뒤에는 비어 있다). 보고 줄은 `머지 실패(충돌) <파일,…>` 다.
-      임시 머지 워크트리에서는 두 명령 모두 `git -C "$W"` 로 부른다.
+      충돌 파일 목록은 `--abort` **전에** 읽는다(뒤에는 비어 있다). 보고 줄은 `머지 실패(충돌) <파일,…>` 다(스크립트가
+      푼 decisions.md 는 빠진다). 임시 머지 워크트리에서는 git 명령을 `git -C "$W"` 로, 스크립트를 `-C "$W"` 를 붙여 부른다.
       ```bash
-      git diff --name-only --diff-filter=U | paste -sd, -   # 충돌 파일 목록(쉼표로 이음)
+      .claude/skills/dflow-merge/scripts/decisions.sh merge-conflicts   # 공용 decisions.md 충돌만 푼다. DECISIONS_RESOLVED·DECISIONS_LEFT
+      git diff --name-only --diff-filter=U | paste -sd, -   # 남은 충돌 파일 목록(쉼표로 이음). 비었으면 아래 commit, 아니면 --abort
       git merge --abort
       ```
+      ```bash
+      git commit --no-edit --cleanup=strip   # 남은 충돌이 없을 때만. 머지 완성
+      ```
+   3-1. **결정 번호 매김**: 머지 커밋 뒤 `decisions.sh renumber --tsk <TSK> --order <order>` 를 돈다(「결정 번호 매김」).
+      `NO_TEMP_IDS` 면 커밋이 생기지 않는다. `COMMITTED <sha>` 면 번호 매김 커밋 하나가 머지 커밋 위에 생긴다(5단계
+      push 에 함께 실린다). `RENUMBER_DIRTY`·`RENUMBER_FAILED …` 는 머지를 막지 않는다 — 스크립트가 자기 변경을 되돌린
+      채 끝나므로 그대로 4단계로 가고 보고에 "결정 번호 매김 실패(<출력>)" 를 붙인다. 임시 ID 는 트리에 남고 다음 머지의
+      번호 매김이 트리 전체를 다시 훑어 매긴다. `UNION_SET <파일>` 이 나오면 보고에 붙인다.
    4. state.json 을 `phase=merged` 로 갱신해 기본 브랜치에 커밋한다(파일명 명시). `<후보 state.json 경로>` 는
       **1번 후보 식별이 이미 찾은 그 경로다**(로컬 후보는 스캔이 낸 `$f`, 원격 후보는 스캔이 낸 `$p` — 위 1번의
       여섯째 칸). 여기서 `dflow.sh taskdir` 를 다시 부르지 않는다. 이유: 서버 호출이 실패하거나 예상 밖의 빈
@@ -278,6 +291,9 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      W="$(git rev-parse --show-toplevel)/.claude/worktrees/dflow-merge"; [ -e "$W/.git" ] || { echo NO_MERGE_WT; exit 1; }
      ```
      `NO_MERGE_WT` 면 그 후보를 처리하지 않고 "머지 워크트리 없음" 으로 보고한 뒤 스윕을 멈춘다.
+   - `decisions.sh`(3·3-1단계)는 호출한 체크아웃 최상위에서 그 체크아웃의 스킬 경로로 부르고 `-C "$W"` 를 붙인다
+     (예: `.claude/skills/dflow-merge/scripts/decisions.sh renumber -C "$W" --tsk <TSK> --order <order>`). `<W>` 에는 스킬이
+     없을 수 있기 때문이다(gitignore 된 심링크로 배포한 리포).
    - 후보마다 위 1~5를 `<W>` 에서 한다. 달라지는 것은 셋뿐이다. 설정 블록과 같은 호출 안에서 이어 돌 때만
      가드 없이 `$W` 를 그대로 쓴다. 아래 `<W>`·`"$W"` 는 가드 줄이 구한 값이다.
      1. 1단계는 `git -C "$W" fetch origin && git -C "$W" switch --detach origin/<기본브랜치>` 다. `pull` 대신
@@ -303,6 +319,31 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    push 실패(훅) / push 실패 / 건너뜀(서버 <status>·조회 실패·다른 D'Flow·조상 미승인·기점 미반영·승인 뒤 변경·
    승인 뒤 변경 확인 불가·로컬 브랜치 삭제 건너뜀)을 표로. 반려·머지 실패(충돌)·push 실패(훅)는 id8 과 함께 따로
    적는다. 반려(머지됨)도 따로 적는다. 호출자(`/dflow-team` 팀장 등)가 이 목록으로 후속 처리를 한다.
+   머지된 작업에 3-1단계의 번호 매김 결과(`D-TSK-…→D-NNN`)가 있으면 그 줄에 붙이고, "결정 번호 매김 실패(<출력>)"·
+   `UNION_SET <파일>` 은 표 아래에 따로 적는다.
+
+## 결정 번호 매김
+
+대상 리포의 공용 결정 기록(`docs/<모듈>/decisions.md` 등)은 `## D-NNN (<UTC 타임스탬프>)` 블록을 추가만 하는 감사
+기록이다(형식은 dflow-wbs `decision-log.py`, `validate` 는 D-001 부터 끊김 없는 순번을 요구). agent 브랜치는 전역 번호를
+매기지 않고 Task 범위 임시 ID `D-<TSK>-<n>` 을 쓴다(dev-discipline 「공용 결정 기록(decisions.md)의 번호」). 번호는
+개발 브랜치에 들어가는 순서로만 정해지므로 머지하는 이 스킬이 매긴다. 도구는 `.claude/skills/dflow-merge/scripts/decisions.sh`
+하나이며, 머지 자리의 최상위에서 돈다(임시 머지 워크트리면 `-C "$W"`).
+
+- **충돌 풀기**(`merge-conflicts`, 4번 3단계·해소 머지 4번): 머지가 멈추면 충돌한 decisions.md 만 푼다. 결과는 개발
+  브랜치 쪽 파일 전체 뒤에, 머지 대상이 merge-base 에 없던 블록을 그 순서대로 붙인 것이다. 두 쪽이 모두 파일 끝에 블록을
+  더해 늘 충돌하던 모양이 이것으로 풀린다. 머지 대상이 기존 블록을 고쳤거나(추가만 하는 기록의 위반) 한쪽이 파일을
+  지웠으면 풀지 않고 `DECISIONS_LEFT` 로 둔다 — 그 파일은 다른 충돌과 같이 다룬다.
+- **번호 매김**(`renumber`, 4번 3-1단계·해소 머지 6번 뒤): 트리 전체에서 임시 ID 머리를 그 파일의 다음 전역 번호로
+  바꾸고(머리 순서대로), 바로 아래 `- **Temp ID**: <임시 ID>` 줄을 남기며, 추적 파일 전체의 같은 임시 ID 참조를 바꿔
+  커밋 하나(`chore(<TSK>): 결정 번호 매김 (…)`, 트레일러 `DFlow-Order`)로 남긴다. 임시 ID 가 없으면 아무것도 하지 않는다
+  (`NO_TEMP_IDS`). `Temp ID` 줄 덕분에 스택 후손이 선행의 임시 ID 를 적어 뒀어도 뒤 머지에서 찾아 바꾼다. 같은 임시 ID
+  머리가 둘 이상이면 그 ID 만 건너뛰고(`RENUMBER_DUP`) 나머지는 매긴다 — 개발 브랜치에 남은 잘못 하나가 뒤의 머지를 모두
+  막지 않게 한다. `decision-log.py` 의 형식·validate 는 바꾸지 않는다(`Temp ID` 는 선택 필드로 읽힌다).
+- **`merge=union` 을 걸지 않는다.** union 은 두 쪽 블록을 모두 남기지만, 블록끼리 같은 필드 줄(`- **Phase**: design`,
+  `- **Reversible**: yes`)을 공유하면 줄을 맞춰 합치면서 한 블록의 줄이 사라지고 두 머리가 붙는다(샌드박스 실측,
+  `tests/skills/dflow-merge-decisions.test.ts`). 충돌을 내게 두고 위 `merge-conflicts` 가 블록 단위로 푸는 편이 안전하다.
+  이미 걸려 있으면 `renumber` 가 `UNION_SET <파일>` 로 알린다. 대상 리포 `.gitattributes` 에서 그 줄을 빼라고 보고한다.
 
 ## 해소 머지(`--resolve`)
 
@@ -340,6 +381,8 @@ force push 금지와 `merge-base --is-ancestor <head_sha>` 검사에 모두 걸�
    git -c rerere.enabled=true merge --no-ff --no-commit <머지 대상>
    git diff --name-only --diff-filter=U        # 충돌 파일 목록. 비었으면 텍스트 충돌은 없다(files=0)
    ```
+   - 공용 결정 기록(`decisions.md`) 충돌은 먼저 `.claude/skills/dflow-merge/scripts/decisions.sh merge-conflicts` 로 푼다
+     (「결정 번호 매김」). 번호는 손으로 매기지 않는다. `DECISIONS_LEFT` 로 남은 파일은 아래 규약으로 푼다.
    - 충돌 파일마다 `dflow-team/references/resolve-prompt.md` 「해소 규약」 의 R1~R8 로 푼다. 그 규약의 「blocked 로
      멈추는 경우」 에 걸리면 머지를 워크트리에 멈춘 채 두고 `RESOLVE_BLOCKED <질문과 선택지 한 줄>` 로 끝난다
      (`--abort` 하지 않는다. 사람이 답하면 그 자리에서 이어 간다).
@@ -367,6 +410,9 @@ force push 금지와 `merge-base --is-ancestor <head_sha>` 검사에 모두 걸�
    승인 전 머지(`--on-report`)면 제목 괄호는 `(reported, 승인 전)` 이다. `<n>` 은 `--attempt` 값이다. 트레일러
    `DFlow-Order` 는 「트레일러 고정」 과 같은 이유로 빠뜨리지 않는다(행 G 증거 2). 게이트 뒤에 `resolution.md` 만 더
    stage 했으므로 게이트가 본 트리와 커밋된 트리는 그 파일 하나만 다르다.
+   커밋 뒤 「결정 번호 매김」 을 한다: `.claude/skills/dflow-merge/scripts/decisions.sh renumber --tsk <TSK> --order <order>`.
+   결과 처리는 4번 3-1단계와 같다(실패해도 막지 않는다). 번호 매김은 decisions.md 머리와 참조 문자열만 바꾸므로 게이트를
+   다시 돌지 않는다.
 7. **state.json**: 4단계 4번 그대로 `phase=merged`(승인 전이면 `unapproved: true` 도) 커밋을 만든다. 이 커밋과 머지
    커밋 사이에 게이트를 다시 돌지 않는다.
 8. **push**: `git push origin HEAD:<기본브랜치>`. 실패하면 먼저 `git reset --keep <기준 HEAD>` 로 되돌리고 모양으로
