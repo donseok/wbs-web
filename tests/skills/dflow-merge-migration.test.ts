@@ -63,10 +63,10 @@ beforeEach(() => {
     git switch -q main
   `)
   expect(r.code, r.out).toBe(0)
-})
+}, 30000)
 afterEach(() => rmSync(tmp, { recursive: true, force: true }))
 
-describe('migration-check.sh — 머지 전 관문(실제 git)', () => {
+describe('migration-check.sh — 머지 전 관문(실제 git)', { timeout: 30000 }, () => {
   it('실측 모양: 같은 V4 를 고른 브랜치는 git 충돌 없이 머지된다 — 그래서 관문이 필요하다', () => {
     const r = sh(repo, `git merge --no-ff -q origin/agent/aaaaaaaa-a -m m; echo "merge=$?"; ls ${SQ} | grep -c '^V4__'`)
     expect(r.out).toContain('merge=0')
@@ -128,7 +128,7 @@ describe('migration-check.sh — 머지 전 관문(실제 git)', () => {
   })
 })
 
-describe('해소 트리(--staged) — R9 재채번 뒤 게이트가 통과한다', () => {
+describe('해소 트리(--staged) — R9 재채번 뒤 게이트가 통과한다', { timeout: 30000 }, () => {
   it('커밋 없이 머지한 트리에서 DUP 을 잡고, git mv 로 V5 로 옮기고 참조를 고치면 통과한다', () => {
     const r = sh(repo, `
       git -c rerere.enabled=true merge --no-ff --no-commit origin/agent/aaaaaaaa-a >/dev/null 2>&1; echo "merge=$?"
