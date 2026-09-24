@@ -68,6 +68,7 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
    else
      echo docs/tasks
    fi
+   .claude/skills/dflow-team/scripts/docker-allow.sh '<id8>'   # DOCKER=allow|ban — 4번 해소 포인터에 옮긴다
    ```
 3. **워크트리**: 남아 있으면 먼저 backends.md 「고아 정리 규칙」 2-1번으로 정리를 시도한다. 그래도 있으면 띄우지 않고
    "해소 워크트리 남아 있음: <경로>" 로 보고한다. `team.conflict` 는 decision `human` 이다.
@@ -91,8 +92,8 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
    ```
    <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/resolve-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> ORDER=<order 전체 UUID> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<TASK_DIR> ATTEMPT=<n> ON_REPORT=<0|1> DOCKER=<allow|ban>
    ```
-   `DOCKER` 는 SKILL.md 「인자」 의 「도커 허용 태그」 대로 띄우기 직전에 `scripts/docker-allow.sh <id8>` 이 낸 값이다(개발
-   워커와 같다. 옛 포인터 값을 옮겨 쓰지 않는다).
+   `DOCKER` 는 SKILL.md 「인자」 의 「도커 허용 태그」 대로 2번 블록의 `.claude/skills/dflow-team/scripts/docker-allow.sh '<id8>'`
+   가 낸 값이다(개발 워커와 같다. 옛 포인터 값을 옮겨 쓰지 않는다).
    `MODEL` 은 이번 실행의 인자다(해소도 같은 모델). `ON_REPORT` 는 `AUTOMERGE_ON` 이면 `1` 이다.
 5. `team.spawn` 을 기록한다. 필드는 「5. 팀원 spawn」 6번과 같고 `spawn_kind` 는 `resolve` 다. 이 줄의 개수가 해소
    카운터이므로 `new` 로 적으면 상한이 동작하지 않는다. id8 은 진행 중으로 영구 제외에 넣는다.

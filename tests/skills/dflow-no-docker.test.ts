@@ -186,7 +186,8 @@ describe('/dflow-team 도커 허용 태그와 포인터', () => {
     expect(resume).toContain(".claude/skills/dflow-team/scripts/docker-allow.sh '<id8>'")
     expect(resume).toContain('`DOCKER` 는 4항 블록의 `docker-allow.sh` 출력이다')
     expect(MC).toMatch(/ON_REPORT=<0\|1> DOCKER=<allow\|ban>\n/)
-    expect(MC).toContain('`scripts/docker-allow.sh <id8>`')
+    const mcSpawn = between(MC, '## 2. 해소 spawn', '5. `team.spawn` 을 기록한다')
+    expect(mcSpawn).toMatch(/```bash\n[\s\S]*\.claude\/skills\/dflow-team\/scripts\/docker-allow\.sh '<id8>'[\s\S]*?```/)
   })
   it('help 는 태그·방언 검증·강제 금지를 안내한다', () => {
     expect(HELP).toContain('`docker` 태그')

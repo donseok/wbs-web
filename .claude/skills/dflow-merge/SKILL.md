@@ -357,7 +357,10 @@ load 52 까지 밀렸다. 같은 목적의 컨테이너는 한 곳에 모아 한
 - **판정은 커밋마다 한 번**: 상태는 `<git-common-dir>/dflow-dialect/<브랜치>.state` 에 남는다(`last_pass`·`last_fail`·
   `deferred`·`last_result`). 끝 커밋이 마지막 통과·실패 커밋과 같으면 돌리지 않는다(`DIALECT_SKIP`). 도커 슬롯이 차 있으면
   `DIALECT_BUSY`(exit 75)이고 기록하지 않는다 — 다음 스윕이 다시 시도한다. 같은 브랜치의 검증이 아직 돌고 있으면
-  `DIALECT_RUNNING` 이다.
+  `DIALECT_RUNNING` 이다. 명령이 exit 126·127·128 이상(실행 불가·명령 없음·시그널로 죽음 — 잘못된 JAVA_HOME, OOM kill
+  등)으로 끝나면 코드 판정이 아니므로 실패로 기록하지 않고 `DIALECT_ERROR exit=<n> <sha> notify=<0|1> log=<로그>` 로 낸다.
+  다음 스윕이 같은 커밋을 다시 시도한다(`baseline.sh` 가 같은 exit 를 저장하지 않는 것과 같은 규칙). 죽은 앞 호출이 남긴
+  임시 워크트리는 다음 호출이 치운다.
 - **실패**: `DIALECT_FAIL <sha> exit=<n> since=<직전 통과> tasks=<그 뒤 머지된 Task…> unverified=<…> log=<로그>`. tasks 는
   직전 통과 커밋(없으면 스윕 전 sha) 이후 개발 브랜치에 머지된 Task 다(머지 커밋 제목 `merge: <TSK> …`). 자동으로 되돌리거나
   Task 를 재오픈하지 않는다 — 보고만 한다.

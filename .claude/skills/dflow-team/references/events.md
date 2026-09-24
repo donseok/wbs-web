@@ -66,6 +66,9 @@
   `pending`, 팀장이 지시를 보낸 뒤 다시 기록할 때는 그 결정 요약(문자열, `pending` 아님)이다. id8 마다
   **마지막** `team.issue` 의 `decision` 이 `pending` 이면 아직 지시를 보내지 않은 이슈다 — 재구성이 이
   값으로 미답 이슈를 찾는다(SKILL.md 「팀장 상태」 「보조」).
+  id8 가 `dialect` 인 줄은 팀원 이슈가 아니라 방언 검증 기록이다(SKILL.md 「4. 승인 스윕」 의 방언 검증). `tsk`·`order` 는 `-`
+  이고 슬롯·팀원이 없으며, `decision` 은 처음부터 결정 요약(`사람 판단(자동 되돌리기·재오픈 없음)`)이라 `pending` 이 되지
+  않는다. 재구성은 이 줄로 지시를 보낼 팀원을 찾지 않는다.
 - `team.sweep`: 네 필드 모두 개수(숫자)다. `resolved` 는 직전 스윕 뒤 해소 머지가 조상 확인까지 통과한 수다.
 - `team.conflict`: `decision` 은 `queued`(해소 큐에 넣음)·`human`(사람 몫)·`cleared`(표시 해제) 중 하나, `files` 는 충돌 파일 목록(쉼표로 이음, 모르면 `-`)이다. id8 마다 마지막 `decision` 이 `cleared` 가 아니면 충돌 목록에 남는다(merge-conflict.md 「5」).
 

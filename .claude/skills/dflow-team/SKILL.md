@@ -1342,6 +1342,9 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 자동 머지
     팀장은 도커 런타임을 켜지 않는다.
   - `DIALECT_PASS`: 한 줄 보고한다. `unverified=` 가 `-` 가 아니면 "방언 검증 통과. 도커 금지로 확인하지 못한 항목이 있던
     Task: <unverified>" 를 붙여 사람이 대조하게 한다.
+  - `DIALECT_ERROR`: `notify=1` 이거나 `notify=` 가 없으면(설정·fetch 오류) "방언 검증을 돌리지 못함: <줄>" 로 알리고
+    issues.md 에 한 줄 남긴다. 실패로 기록되지 않았으므로 다음 스윕이 다시 시도한다. 명령 설정(`dialect_check`, PC 전용
+    값)을 고치는 것은 사람이 한다.
   - `DIALECT_BUSY`·`DIALECT_RUNNING`·`DIALECT_SKIP`·`DIALECT_NONE`: 보고하지 않는다. BUSY 는 다음 스윕이 다시 시도한다.
   - 방언 검증은 팀장 Bash 한 번으로 돈다(timeout 600000). 10분을 넘겨 하네스가 백그라운드로 옮기면 완료 알림으로 결과를
     받고, 컨텍스트 압축 등으로 놓쳤으면 `.claude/skills/dflow-merge/scripts/dialect-check.sh status --dev <기본브랜치>` 로

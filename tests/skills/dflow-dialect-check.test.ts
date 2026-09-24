@@ -190,6 +190,32 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     expect(out).toMatch(/^gradlew :api:mssqlMigrationTest --no-daemon --console=plain JAVA_HOME=\/opt\/jdk21 pwd=.+\/\.claude\/worktrees\/dflow-dialect-\d+\/src\/backend\/mdm$/m)
   })
 
+  it('명령 없음(127)·시그널로 죽음(137)은 실패로 기록하지 않고(DIALECT_ERROR) 다음 스윕이 같은 커밋을 다시 돌린다', () => {
+    const tip = mergeTask('TSK-08-01')
+    for (const [cmd, rc] of [['no-such-gradlew mssqlMigrationTest', 127], ['kill -9 $$', 137]] as const) {
+      setConfig(cmd)
+      const r = run()
+      expect(r.code, r.out + r.err).toBe(2)
+      expect(last(r.out)).toMatch(new RegExp(`^DIALECT_ERROR exit=${rc} ${tip.slice(0, 12)} notify=[01] log=.+/dflow-dialect/dev\\.log$`))
+    }
+    // 같은 커밋의 두 번째 오류는 알리지 않는다
+    expect(last(run().out)).toMatch(/notify=0 /)
+    // 명령을 고치면 같은 커밋을 돌린다(실패로 기록되지 않았으므로 SKIP 이 아니다)
+    setConfig(CMD.replaceAll('__M__', marks))
+    expect(last(run().out)).toMatch(new RegExp(`^DIALECT_PASS ${tip.slice(0, 12)} `))
+  })
+
+  it('죽은 앞 호출이 남긴 임시 워크트리를 치운다', () => {
+    setConfig(CMD.replaceAll('__M__', marks))
+    const dead = spawnSync('sh', ['-c', 'echo $$']).stdout.toString().trim()
+    const left = join(repo, '.claude/worktrees', `dflow-dialect-${dead}`)
+    expect(sh(repo, `git worktree add -q --detach '${left}' origin/dev`).code).toBe(0)
+    mergeTask('TSK-09-01')
+    expect(last(run().out)).toMatch(/^DIALECT_PASS /)
+    expect(existsSync(left)).toBe(false)
+    expect(sh(repo, 'git worktree list').out.trim().split('\n')).toHaveLength(1)
+  })
+
   it('같은 브랜치의 검증이 아직 돌고 있으면 두 번째 호출은 돌리지 않는다', () => {
     setConfig(CMD.replaceAll('__M__', marks))
     mergeTask('TSK-07-01')
@@ -221,6 +247,14 @@ describe('방언 검증 문서 계약', () => {
     expect(sweep).toContain("id8 는 `dialect`")
     expect(sweep).toContain('`pending` 으로 쓰지 않는다')
     expect(sweep).toContain('자동으로 되돌리거나 Task 를 재오픈하지 않는다')
+    expect(sweep).toContain('`DIALECT_ERROR`')
+    const events = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/events.md'), 'utf8')
+    expect(events).toContain('id8 가 `dialect` 인 줄은 팀원 이슈가 아니라 방언 검증 기록이다')
+  })
+  it('/dflow-merge 는 실행 불가·시그널 exit 를 실패로 기록하지 않는다고 적는다', () => {
+    const sec = MERGE.slice(MERGE.indexOf('## 방언 검증'))
+    expect(sec).toContain('exit 126·127·128 이상')
+    expect(sec).toContain('`DIALECT_ERROR exit=<n> <sha> notify=<0|1> log=<로그>`')
   })
   it('예시 설정에 dialect_check 가 있고, PC 전용 값은 .dflow.local 에 두라고 안내한다', () => {
     expect(EXAMPLE).toContain('# dialect_check=')

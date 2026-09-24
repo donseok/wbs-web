@@ -32,6 +32,8 @@
 #   DIALECT_PASS <sha> since=<sha|-> tasks=<TSK,…|-> unverified=<TSK,…|->                 exit 0
 #   DIALECT_FAIL <sha> exit=<n> since=<sha|-> tasks=<TSK,…|-> unverified=<TSK,…|-> log=<경로> exit 1
 #   DIALECT_ERROR <사유>                                                                  exit 2
+#   DIALECT_ERROR exit=<126|127|128+> <sha> notify=<0|1> log=<경로>   명령을 못 돌렸거나 시그널로 죽었다 — 판정으로
+#                                                            기록하지 않고 다음 스윕에 다시(notify=1 은 그 커밋의 첫 오류) exit 2
 # since 는 직전 통과 커밋(없으면 --sweep-base), tasks 는 그 뒤 개발 브랜치에 머지된 Task(머지 커밋 제목 `merge: <TSK> …`).
 set -u
 
@@ -88,6 +90,16 @@ if ! mkdir "$LK" 2>/dev/null; then
   rm -rf "$LK"; mkdir "$LK" 2>/dev/null || { echo "DIALECT_RUNNING $(short "$SHA") pid=?"; exit 0; }
 fi
 echo "pid=$$" > "$LK/owner"
+# 죽은 앞 호출이 남긴 임시 워크트리(dflow-dialect-<pid>, pid 가 없음)를 치운다. 살아 있는 pid 의 것은 다른 브랜치의
+# 검증일 수 있어 건드리지 않는다. 팀장의 고아 정리는 .dflow-agent 가 있는 워크트리만 보므로 이것을 줍지 않는다.
+for old in "$ROOT"/.claude/worktrees/dflow-dialect-*; do
+  [ -d "$old" ] || continue
+  op=${old##*-}
+  case "$op" in ''|*[!0-9]*) continue ;; esac
+  kill -0 "$op" 2>/dev/null && continue
+  git worktree remove --force "$old" >/dev/null 2>&1 || rm -rf "$old"
+done
+git worktree prune >/dev/null 2>&1
 W=''
 cleanup() {
   [ -n "$W" ] && { git worktree remove --force "$W" >/dev/null 2>&1 || rm -rf "$W"; git worktree prune >/dev/null 2>&1; }
@@ -152,17 +164,27 @@ if [ "$rc" -eq 75 ] && grep -qE '^HEAVY_(DOCKER_)?BUSY' "$LOG" 2>/dev/null; then
   echo "DIALECT_BUSY $(short "$SHA")"
   exit 75
 fi
+# 126·127·128 이상(실행 불가·명령 없음·시그널로 죽음 — 잘못된 JAVA_HOME·OOM kill 등)은 코드 판정이 아니다. 실패로
+# 기록하면 그 커밋이 영영 다시 돌지 않고 머지된 Task 가 누명을 쓴다. 기록하지 않고 다음 스윕이 다시 시도한다
+# (baseline.sh 가 같은 exit 를 저장하지 않는 것과 같은 규칙).
+if [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ] || [ "$rc" -ge 128 ]; then
+  n=1; [ "$(get errored)" = "$SHA" ] && n=0
+  put errored "$SHA"
+  tail -n 20 "$LOG" >&2
+  echo "DIALECT_ERROR exit=$rc $(short "$SHA") notify=$n log=$LOG"
+  exit 2
+fi
 
 S=$( [ -n "$SINCE" ] && short "$SINCE" || echo - )
 if [ "$rc" -eq 0 ]; then
   res="DIALECT_PASS $(short "$SHA") since=$S tasks=$TASKS unverified=$UNV"
-  put last_pass "$SHA"; put deferred ''; put last_result "$res"
+  put last_pass "$SHA"; put deferred ''; put errored ''; put last_result "$res"
   [ -z "$UNV_LINES" ] || printf '%s\n' "$UNV_LINES"
   echo "$res"
   exit 0
 fi
 res="DIALECT_FAIL $(short "$SHA") exit=$rc since=$S tasks=$TASKS unverified=$UNV log=$LOG"
-put last_fail "$SHA"; put deferred ''; put last_result "$res"
+put last_fail "$SHA"; put deferred ''; put errored ''; put last_result "$res"
 tail -n 20 "$LOG" >&2
 [ -z "$UNV_LINES" ] || printf '%s\n' "$UNV_LINES"
 echo "$res"
