@@ -62,7 +62,7 @@ beforeEach(() => {
     git switch -q main
   `)
   expect(r.code, r.out).toBe(0)
-})
+}, 30000)
 afterEach(() => rmSync(tmp, { recursive: true, force: true }))
 
 // /dflow-merge 3단계 그대로: 머지 → 충돌이면 decisions.md 만 스크립트로 풀고, 남은 충돌이 없으면 커밋 → 번호 매김
@@ -78,7 +78,7 @@ const mergeStep = (ref: string, tsk: string) => `
 const doc = () => readFileSync(join(repo, 'docs/mdm/decisions.md'), 'utf8')
 const validate = () => sh(repo, 'python3 "$DLOG" validate --target docs/mdm')
 
-describe('decisions.sh — 머지 때 번호 매김(실제 git)', () => {
+describe('decisions.sh — 머지 때 번호 매김(실제 git)', { timeout: 30000 }, () => {
   it('두 병렬 브랜치를 차례로 머지하면 decisions.md 충돌을 기계적으로 풀고 D-003·D-004·D-005 를 매긴다', () => {
     const a = sh(repo, mergeStep('origin/agent/aaaaaaaa-a', 'TSK-01-02'))
     expect(a.code, a.out).toBe(0)
@@ -145,6 +145,32 @@ describe('decisions.sh — 머지 때 번호 매김(실제 git)', () => {
     expect(doc().match(/^## D-TSK-09-09-1 /gm)?.length).toBe(2)
   })
 
+  it('.claude/ 아래 추적 파일(킷 복사형 리포의 스킬 문서·결정 기록 이름의 파일)은 건드리지 않는다', () => {
+    const r = sh(repo, `
+      mkdir -p .claude/skills/x && printf '예: D-TSK-01-02-1\\n' > .claude/skills/x/SKILL.md
+      printf '## D-TSK-01-02-9 (2026-09-24T00:00:00Z)\\n- **Phase**: design\\n' > .claude/skills/x/decisions.md
+      git add .claude && git commit -qm kit
+      ${mergeStep('origin/agent/aaaaaaaa-a', 'TSK-01-02')}
+      cat .claude/skills/x/SKILL.md .claude/skills/x/decisions.md
+    `)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('RENUMBERED D-TSK-01-02-1=D-003 docs/mdm/decisions.md')
+    expect(r.out).toContain('예: D-TSK-01-02-1\n## D-TSK-01-02-9 (2026-09-24T00:00:00Z)')
+    expect(r.out).not.toContain('D-TSK-01-02-9=')
+  })
+  it('스택 후손이 다른 병렬 브랜치 뒤에 머지돼 decisions.md 가 충돌해도 선행 블록을 다시 붙이지 않고 자기 블록만 더한다', () => {
+    const r = sh(repo, mergeStep('origin/agent/aaaaaaaa-a', 'TSK-01-02') + mergeStep('origin/agent/bbbbbbbb-b', 'TSK-02-03')
+      + mergeStep('origin/agent/cccccccc-c', 'TSK-03-01'))
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('RENUMBERED D-TSK-03-01-1=D-006 docs/mdm/decisions.md')
+    const d = doc()
+    expect(d.match(/^## /gm)?.length).toBe(6)            // D-001~D-006, 선행 A 블록이 중복되지 않는다
+    expect(d.match(/^- \*\*Temp ID\*\*: D-TSK-01-02-1$/gm)?.length).toBe(1)
+    expect(readFileSync(join(repo, 'docs/tasks/TSK-03-01/design.md'), 'utf8')).toBe('선행 결정 D-003 을 따른다. 내 결정 D-006\n')
+    const v = validate()
+    expect(v.code, v.out).toBe(0)
+    expect(v.out).toContain('"entry_count": 6')
+  })
   it('커밋이 실패하면(RENUMBER_FAILED) 자기가 고친 파일을 되돌려 트리를 깨끗이 남긴다 — 호출자가 머지를 이어 가도 섞이지 않는다', () => {
     const r = sh(repo, `
       git merge -q --no-ff origin/agent/aaaaaaaa-a -m ma

@@ -14,7 +14,7 @@
 #     출력: DECISIONS_RESOLVED <경로> · DECISIONS_LEFT <경로> <사유>(그대로 둔 것). 늘 exit 0(사용 오류 2).
 #   decisions.sh renumber [-C <dir>] [--tsk <TSK>] [--order <주문 UUID>]
 #     트리 전체에서 임시 ID 머리(`## D-TSK-…-<n> …`)를 그 파일의 다음 전역 번호로 바꾸고(바로 아래 `- **Temp ID**: <임시 ID>`
-#     줄을 남긴다), 추적 파일 전체의 같은 임시 ID 참조를 치환해 커밋 하나로 남긴다. 이미 번호가 매겨진 임시 ID(그 Temp ID
+#     줄을 남긴다), 추적 파일 전체(.claude/ 제외)의 같은 임시 ID 참조를 치환해 커밋 하나로 남긴다. 이미 번호가 매겨진 임시 ID(그 Temp ID
 #     줄)의 남은 참조도 치환한다(스택 후손이 선행의 임시 ID 를 적어 둔 경우).
 #     출력: RENUMBERED <임시 ID>=<D-NNN> <파일> … · REFS <파일 수> · COMMITTED <sha>(exit 0) · NO_TEMP_IDS(exit 0, 아무것도 안 함)
 #           RENUMBER_DUP <임시 ID>(경고. 그 ID 만 건너뛴다) · UNION_SET <파일>(경고. merge=union 은 블록을 섞는다)
@@ -100,7 +100,10 @@ git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null || { echo 
 
 git ls-files > "$tmp/all" || { echo "RENUMBER_FAILED ls-files"; exit 1; }
 : > "$tmp/dfiles"
-while IFS= read -r p; do is_decisions "$p" && [ -f "$p" ] && printf '%s\n' "$p" >> "$tmp/dfiles"; done < "$tmp/all"
+while IFS= read -r p; do
+  case "$p" in .claude/*) continue ;; esac   # 스킬 폴더는 결정 기록이 아니다(아래 참조 치환과 같은 제외)
+  is_decisions "$p" && [ -f "$p" ] && printf '%s\n' "$p" >> "$tmp/dfiles"
+done < "$tmp/all"
 
 # 1) 수집: NEW<TAB>파일<TAB>임시ID (머리 순서대로) · OLD<TAB>임시ID<TAB>D-NNN (이미 매긴 것의 Temp ID 줄) · MAX<TAB>파일<TAB>n
 : > "$tmp/scan"
@@ -160,7 +163,8 @@ if [ -s "$tmp/renames" ]; then
 fi
 
 if [ -s "$tmp/map" ]; then
-  git grep -l -I -E "$TEMP_RE" -- . > "$tmp/reffiles" 2>/dev/null || :
+  # .claude/ 는 치환하지 않는다 — 킷 복사형 리포에서 스킬 문서·이 스크립트의 예시 ID 가 실제 Task ID 와 겹치면 킷이 바뀐다
+  git grep -l -I -E "$TEMP_RE" -- . ':(exclude).claude' > "$tmp/reffiles" 2>/dev/null || :
   while IFS= read -r p; do
     [ -f "$p" ] || continue
     awk -v MAP="$tmp/map" '
