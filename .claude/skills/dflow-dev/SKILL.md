@@ -242,6 +242,19 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    `--worker` 면 여기서 의존성을 설치한 뒤 4번으로 간다(「--worker」 H).
    <!-- worker:end -->
 4. **게이트 기준선 기록**: dev-discipline 의 기준선 절차 실행, state.json 에 저장(`api_base` 가 아직 없으면 함께 기록한다. 상태 모델).
+   기준선 명령은 하나씩 캐시 스크립트로 감싸 돌린다(dev-discipline 「기준선 캐시」). 같은 기점·같은 명령을 다른 팀원이
+   이미 쟀으면 재지 않고 그 결과를 쓰고, 동시에 재는 중이면 기다렸다 쓴다.
+   ```bash
+   .claude/skills/dflow-dev/scripts/baseline.sh list --base <기점>   # 이 기점에서 이미 잰 명령. 같은 일을 재는 명령이 있으면 그 문자열·cwd 를 글자 그대로 쓴다
+   .claude/skills/dflow-dev/scripts/baseline.sh run --base <기점> --task-dir <TASKS>/<TSK> -- '<테스트 명령>' 2>&1 | tail -30
+   ```
+   `<기점>` 은 3번 `git switch -c` 에 준 기점이다. 새로 쟀으면(`BASELINE_MEASURED ... key=`) 출력에서 읽은 총수·실패
+   목록을 `baseline.sh note <key> --tests <총수> --failures <실패 수> [--failed-file <파일>]` 로 더한다. 재사용했으면
+   (`BASELINE_REUSED`) `BASELINE_SUMMARY` 의 수를 그대로 쓴다. state.json `baseline` 에는 명령마다 `"cmd"`·`"source"`
+   (`"measured"`|`"cache"`)·`"cache_key"`·`"measured_at"` 을 함께 적어 재사용 여부를 남긴다(`.issues` 가 아니다).
+   Phase 02~05 공통 프롬프트와 게이트로 옮기는 「기준선에서 실제로 돌린 명령 줄」 은 **`--` 뒤의 명령**이다 — 감싼
+   줄을 옮기면 게이트가 캐시된 기준선을 자기 결과로 받는다. 캐시를 끄려면 `DFLOW_BASELINE_CACHE=0`, 다시 재서 덮어쓰려면
+   `DFLOW_BASELINE_CACHE=refresh` 다.
 5. spec.md 읽기(필수) + 복잡도 판정(dev-discipline 의 점수표) → 설계 모델 결정, 한 줄 출력.
 
 ## Phase 02~05 — Design → Build → Verify → Refactor
