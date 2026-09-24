@@ -21,6 +21,23 @@ SKILL.md 「0. 환경 감지」 가 백엔드를 고른다. 워커 프롬프트�
 | 팀원 화면 | `capture-pane -p -t <pane>`(보고용), `-J -S -`(결과 줄 폴백) | `orca terminal read`(보고용) |
 | git 호출 | `command -v git` 절대경로 | 같다(두 백엔드 공통) |
 
+## 입장 제어
+
+**모든 spawn 의 첫 단계다**(두 백엔드 공통). 새 작업·재개·재투입·해소·차단기의 시험 spawn 모두 여기를 지난다. 판정
+기준과 알림 규칙의 정본은 SKILL.md 「5-3. 입장 제어」 이고, 집행은 이 블록 한 곳이다. 팀장 체크아웃에서 돈다.
+```bash
+CAP=$(.claude/skills/dflow-team/scripts/capacity.sh --state "$(git rev-parse --git-path dflow-team.capacity)"); echo "$CAP"
+case "$CAP" in CAPACITY_LOW*) echo SPAWN_DEFERRED_CAPACITY; exit 0 ;; esac
+```
+- `SPAWN_DEFERRED_CAPACITY` 가 나오면 **이번 기상에는 아무것도 띄우지 않는다.** 블록은 그 자리에서 끝나 워크트리·pane·
+  포인터를 하나도 만들지 않는다. 후보는 원래 줄(대기 큐·재개 목록·해소 큐·재시작 대기)에 그대로 두고 `team.spawn`·
+  `team.result` 를 쓰지 않는다. 한 후보가 막히면 같은 기상의 나머지 후보도 띄우지 않는다(자원은 후보마다 다르지 않다).
+- `CAPACITY_OK`·`CAPACITY_UNKNOWN` 이면 이어서 띄운다. 출력 줄 끝이 `notify=1` 이면 SKILL.md 「5-3」 의 한 줄 알림을 낸다.
+- tmux 의 spawn 블록(아래 「pane(tmux)」)은 이 두 줄로 시작하므로 따로 부르지 않는다. merge-conflict.md 「2」 의 해소
+  spawn 도 그 블록을 그대로 돌리므로 여기에 걸린다. 블록을 통째로 돌지 않는 자리에서는 이 블록을 먼저 따로 돈다:
+  Orca 의 `orca worktree create`(새 작업·해소) 앞, 재개(SKILL.md 「5-1」 0항)와 재투입(restart.md 「재투입」) 앞.
+  Orca 명령과 한 호출로 묶지 않는 이유: 이 줄이 결과 JSON 앞에 섞이면 `jq` 해석이 깨진다.
+
 ## pane(tmux)
 
 팀원은 팀장이 전용 tmux 소켓(`-L dflow`)의 pane 에 띄운 **대화형** claude 메인 에이전트다. Agent 도구
@@ -54,9 +71,12 @@ find_tmux() {
 **spawn**: 워크트리 준비는 팀장 체크아웃에서 한 번의 Bash 호출로 돌린다. `<모델 플래그>` 는 `MODEL` 이
 `opus`·`sonnet` 이면 `--model opus`·`--model sonnet`, `default` 면 빈 값이다. `<EFFORT>` 는 SKILL.md 「인자」
 가 정한 추론 강도다(기본 `high`). 팀장 세션의 `CLAUDE_EFFORT` 는 아래에서 벗기므로 팀원은 이 플래그가 없으면 그
-PC 의 `effortLevel` 설정을 따른다. PC 마다 값이 달라 기본값도 명시한다.
+PC 의 `effortLevel` 설정을 따른다. PC 마다 값이 달라 기본값도 명시한다. 첫 두 줄은 「입장 제어」 블록 그대로이며
+빼지 않는다. `SPAWN_DEFERRED_CAPACITY` 로 끝나면 워크트리도 pane 도 만들지 않은 것이다.
 
 ```bash
+CAP=$(.claude/skills/dflow-team/scripts/capacity.sh --state "$(git rev-parse --git-path dflow-team.capacity)"); echo "$CAP"
+case "$CAP" in CAPACITY_LOW*) echo SPAWN_DEFERRED_CAPACITY; exit 0 ;; esac
 TM=$(find_tmux)
 WT="<MAIN>/.claude/worktrees/dflow-<id8>"
 git fetch -q origin && git worktree prune && git worktree add --detach "$WT" origin/<기본브랜치> || echo SPAWN_FAILED_WORKTREE
@@ -287,7 +307,7 @@ Orca 안에서 띄운 팀장은 이 백엔드를 먼저 고른다(SKILL.md 「0.
 `orca terminal create`)은 실측 관문 전이라 쓰지 않는다(`references/restart.md` 「Orca」). Orca 팀원은 `.dflow-run` 을 쓰지 않아
 statusLine 덤프가 없다.
 
-**spawn**
+**spawn**: 먼저 「입장 제어」 블록을 따로 돈다. `SPAWN_DEFERRED_CAPACITY` 면 아래 명령을 부르지 않는다.
 ```bash
 orca worktree create --name dflow-<id8> --agent claude --no-parent \
   --base-branch origin/<기본브랜치> --prompt "<포인터 한 줄>" --json

@@ -170,8 +170,11 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
 
   // 당일 한정(자정 넘김 불가)은 5bf6e07d(여러 날 실행)로, 누락 시 사용법 출력은 87805910(질문)으로,
   // 300초 주기는 ab8ee46b(180초)로 바뀌었다.
-  it('인자: 기본 3·상한 6, 종료 시각이 유일한 필수, 180초 고정, 작업 빼기는 agent 태그', () => {
-    expect(s()).toContain('**기본 3, 하드 상한 6.**')
+  // 하드 상한 6 은 2026-09-24 에 PC 별 상한 min(6, K+2)(capacity.sh max)로 바뀌었다. 6 은 덮어도 넘지 못하는 천장으로 남는다.
+  it('인자: 기본 3·상한 min(6, K+2), 종료 시각이 유일한 필수, 180초 고정, 작업 빼기는 agent 태그', () => {
+    expect(s()).toContain('**기본 3, 인원 상한은 이 PC 의 `min(6, K+2)`.**')
+    expect(s()).toContain('.claude/skills/dflow-team/scripts/capacity.sh max')
+    expect(s()).toContain('`DFLOW_TEAM_MAX`(1~6)로 덮는다')
     expect(s()).toContain('**종료 시각은 유일한 필수 인자다.**')
     expect(s()).toContain('poll 조회 주기는 180초(3분)로 고정하고')
     expect(s()).toContain('`agent` 태그를 끈다')
@@ -306,7 +309,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)')
     expect(s()).toContain('( cd "$POLL_DIR" && DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0 \\')
     expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until \'<UNTIL>\' --interval 180 --recheck-cycles 10 \\')
-    expect(s()).toContain('[--exclude <id8,id8>] [--exclude-temp <id8,id8>] )')
+    expect(s()).toContain('--wait-cycles 40 [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] [--exclude-wait <id8,id8>] )')
   })
 
   it('poll 재기동 조건과 제외 목록: 영구 ∪ 슬롯 id8, 빈 목록은 플래그 생략, 대기 큐 제외 금지, exit 9·10 분기 없음', () => {
@@ -476,7 +479,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
 
   it('프로세스 리허설 반영: 압축 뒤 첫 기상은 절차 정본을 다시 읽고, 고아 스캔이 남긴 워크트리는 parked 로 표시한다', () => {
     expect(s()).toContain('**압축 뒤 첫 기상**')
-    expect(s()).toContain('「2. 기상과 감시」「3. 결과 처리」「6. blocked」「7. 마감」 과 `references/events.md`')
+    expect(s()).toContain('「2. 기상과 감시」「3. 결과 처리」「5-3. 입장 제어」「6. blocked」「7. 마감」 과 `references/events.md`')
     const i = s().indexOf('- **고아 스캔**')
     expect(i).toBeGreaterThan(-1)
     const scan = s().slice(i, i + 3000)

@@ -200,6 +200,10 @@ else echo "REINJECT_OK order=$o st=$st tries=$t"; fi
 사유 대응: `show-failed` → `서버 조회 실패`, `server <status>` → `서버 <status>`, `other-claim` → `다른 PC claim`,
 `live-pane` → `살아 있는 팀원`, `tries=` → `재시도 상한`. `live=unknown`(tmux 경로 없음)도 살아 있는 것으로 본다(fail-closed).
 
+**입장 제어**: `REINJECT_OK` 뒤, 5-1 의 무엇도 바꾸기 전에 backends.md 「입장 제어」 블록을 돈다(SKILL.md 「5-1」 0항과 같다).
+`SPAWN_DEFERRED_CAPACITY` 면 띄우지 않고 슬롯만 비운다. `team.lost` 를 새로 쓰지 않는다 — 이미 쓴 `next=restart` 줄이
+재시작 대기(`RESTART_DUE`)로 남아 다음 기상에 이 절을 다시 탄다. 재시도로 세지 않으며 「멈춤」 으로 보내지도 않는다.
+
 1. 1항의 손실 보고 한 줄은 「알림 한 줄」 의 재시작 줄로 바꾼다. 워크트리가 있으므로 "잃는 것" 은 늘 `없음` 이다.
 2. 3항: 있는 워크트리를 그대로 쓴다.
 3. 4항: 슬롯은 `.dflow-prompt` 의 `AGENT_ID` 번호다. 방금 거둬 비었으므로 대개 같은 번호이고, 이미 찼으면 발급
