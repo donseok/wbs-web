@@ -15,12 +15,12 @@ describe('resolve-prompt.md — 해소 워커 규칙', () => {
   it('포인터 키 표에 ORDER·TASK_DIR·ATTEMPT·ON_REPORT 가 있다', () => {
     for (const k of ['`ORDER`', '`TASK_DIR`', '`ATTEMPT`', '`ON_REPORT`', '`DEV_BRANCH`', '`AGENT_ID`']) expect(PROMPT).toContain(k)
   })
-  it('해소 규약 R1~R8, blocked 기준, 금지, 게이트, 결과 줄 표가 있다', () => {
-    for (const r of ['| R1 |', '| R2 |', '| R3 |', '| R4 |', '| R5 |', '| R6 |', '| R7 |', '| R8 |']) expect(PROMPT).toContain(r)
+  it('해소 규약 R1~R9, blocked 기준, 금지, 게이트, 결과 줄 표가 있다', () => {
+    for (const r of ['| R1 |', '| R2 |', '| R3 |', '| R4 |', '| R5 |', '| R6 |', '| R7 |', '| R8 |', '| R9 |']) expect(PROMPT).toContain(r)
     expect(PROMPT).toContain('## 해소 규약')
     expect(PROMPT).toContain('### blocked 로 멈추는 경우')
     expect(PROMPT).toContain('## 게이트')
-    expect(PROMPT).toContain('**기준선 대비 신규 실패 0 + 시험 총수가 max(개발 브랜치 총수, MERGE_HEAD 단독 총수) 이상**')
+    expect(PROMPT).toContain('**기준선 대비 신규 실패 0 + 시험 총수가 하한(개발 브랜치 총수 + (MERGE_HEAD 단독 총수 − merge-base\n총수) − 계획 삭제 수) 이상**')
     expect(PROMPT).toContain('## 금지')
     for (const s of ['| `resolved` |', '| `skipped` |', '| `blocked` |', '| `failed <사유>` |']) expect(PROMPT).toContain(s)
   })
@@ -43,28 +43,71 @@ describe('resolve-prompt.md — 해소 워커 규칙', () => {
   })
 })
 
-describe('resolve-prompt.md 「게이트」 판정 블록 — MERGE_HEAD 가 더한 시험을 지우면 떨어진다(2026-09-23 리뷰)', () => {
-  const gate = (dev: number, head: number, total: number, fail: number) => {
+describe('resolve-prompt.md 「게이트」 판정 블록 — 하한 = 개발 브랜치 + (MERGE_HEAD 단독 − merge-base) − 계획 삭제(2026-09-24)', () => {
+  type V = number | string
+  const gate = ({ dev, head, base, drop = 0, total, fail }: { dev: V, head: V, base: V, drop?: V, total: V, fail: V }) => {
     const sec = PROMPT.slice(PROMPT.indexOf('## 게이트'), PROMPT.indexOf('## 기록'))
     const m = sec.match(/```bash\n([\s\S]*?)```/)
     if (!m) throw new Error('게이트 블록을 찾지 못했다')
-    const script = m[1].replace("'<개발 브랜치 총수>'", String(dev)).replace("'<MERGE_HEAD 단독 총수>'", String(head))
-      .replace("'<머지 결과 총수>'", String(total)).replace("'<기준선 대비 신규 실패 수>'", String(fail))
+    const put = (s: string, k: string, v: V) => {
+      if (!s.includes(k)) throw new Error(`자리표시 없음: ${k}`)
+      return s.replace(k, `'${v}'`)
+    }
+    let script = put(m[1], "'<개발 브랜치 총수>'", dev)
+    script = put(script, "'<MERGE_HEAD 단독 총수>'", head)
+    script = put(script, "'<merge-base 총수>'", base)
+    script = put(script, "'<계획 삭제 수, 없으면 0>'", drop)
+    script = put(script, "'<머지 결과 총수>'", total)
+    script = put(script, "'<기준선 대비 신규 실패 수>'", fail)
     return spawnSync('sh', ['-c', script], { encoding: 'utf8' }).stdout.trim()
   }
-  it('결과 총수가 MERGE_HEAD 단독 총수보다 적으면 개발 브랜치 총수를 넘어도 실패', () => {
-    expect(gate(10, 12, 11, 0)).toBe('GATE_FAIL new=0 total=11 need=12')
+  it('회귀(dmes-standard 실측 모양): 개발 브랜치 1373 · 브랜치 687(merge-base 624, 63건 추가) — 브랜치 시험 63건이 사라지면 떨어진다', () => {
+    // 옛 식 max(개발 브랜치, MERGE_HEAD 단독) = 1373 은 결과 1373 을 통과시켰다
+    expect(1373 >= Math.max(1373, 687)).toBe(true)
+    expect(gate({ dev: 1373, head: 687, base: 624, total: 1373, fail: 0 })).toBe('GATE_FAIL new=0 total=1373 need=1436')
+    expect(gate({ dev: 1373, head: 687, base: 624, total: 1436, fail: 0 })).toBe('GATE_PASS need=1436 total=1436')
   })
-  it('두 기준선 중 큰 쪽 이상이고 신규 실패 0 이면 통과', () => {
-    expect(gate(10, 12, 12, 0)).toBe('GATE_PASS need=12 total=12')
-    expect(gate(15, 12, 15, 0)).toBe('GATE_PASS need=15 total=15')
+  it('결과 총수가 MERGE_HEAD 단독 총수보다 적으면 개발 브랜치 총수를 넘어도 실패(옛 계약 유지)', () => {
+    expect(gate({ dev: 10, head: 12, base: 10, total: 11, fail: 0 })).toBe('GATE_FAIL new=0 total=11 need=12')
+  })
+  it('개발 브랜치가 merge-base 뒤에 시험을 지웠으면 하한도 그만큼 낮다', () => {
+    // merge-base 10, 개발 브랜치가 2건 지워 8, 브랜치가 2건 더해 12 → 머지 결과 10 이 맞다
+    expect(gate({ dev: 8, head: 12, base: 10, total: 10, fail: 0 })).toBe('GATE_PASS need=10 total=10')
+  })
+  it('브랜치가 스스로 지운 시험은 (MERGE_HEAD − merge-base) 에 이미 빠져 있다', () => {
+    expect(gate({ dev: 20, head: 9, base: 10, total: 19, fail: 0 })).toBe('GATE_PASS need=19 total=19')
+  })
+  it('계획 삭제 수만큼 하한이 낮아진다', () => {
+    expect(gate({ dev: 100, head: 30, base: 20, drop: 3, total: 107, fail: 0 })).toBe('GATE_PASS need=107 total=107')
+    expect(gate({ dev: 100, head: 30, base: 20, drop: 0, total: 107, fail: 0 })).toBe('GATE_FAIL new=0 total=107 need=110')
   })
   it('신규 실패가 있으면 총수와 무관하게 실패', () => {
-    expect(gate(10, 12, 20, 1)).toBe('GATE_FAIL new=1 total=20 need=12')
+    expect(gate({ dev: 10, head: 12, base: 10, total: 20, fail: 1 })).toBe('GATE_FAIL new=1 total=20 need=12')
   })
-  it('기준선에 MERGE_HEAD 단독 총수를 재는 절차와 resolution.md 기록 줄이 있다', () => {
-    expect(PROMPT).toContain("git branch -r --list 'origin/agent/{ID8}-*'")
-    expect(PROMPT).toContain('`게이트: 개발 브랜치 <dev_total> · MERGE_HEAD 단독 <head_total> · 결과 <total>`')
+  it('fail-closed: 값이 비었거나 숫자가 아니면(자리표시 남음 포함) 통과시키지 않는다', () => {
+    expect(gate({ dev: 10, head: 12, base: '', total: 99, fail: 0 })).toBe('GATE_FAIL invalid base_total=')
+    expect(gate({ dev: 10, head: 12, base: '<merge-base 총수>', total: 99, fail: 0 })).toMatch(/^GATE_FAIL invalid base_total=/)
+    expect(gate({ dev: 10, head: 12, base: 10, drop: '-3', total: 99, fail: 0 })).toBe('GATE_FAIL invalid planned_drop=-3')
+    expect(gate({ dev: 10, head: 12, base: 10, total: 99, fail: 'x' })).toBe('GATE_FAIL invalid new_fail=x')
+  })
+  it('기준선 절이 MERGE_HEAD 단독과 merge-base 를 재고, 명령 치환 없이 merge-base 를 단독으로 부른다', () => {
+    const sec = PROMPT.slice(PROMPT.indexOf('## 3. 기준선'), PROMPT.indexOf('## 4. 해소 머지'))
+    expect(sec).toContain("git branch -r --list 'origin/agent/{ID8}-*'")
+    expect(sec).toContain("git merge-base '<BASE>' '<머지 대상>'")
+    expect(sec).toContain("git switch --detach '<MB>'")
+    expect(sec).toContain('**merge-base 총수**')
+    const block = sec.match(/```bash\n([\s\S]*?)```/)?.[1] ?? ''
+    expect(block).toContain('git merge-base')
+    expect(block).not.toMatch(/\$\(\s*git /)
+    expect(sec).toContain('스위트(또는 모듈·시험 파일)별로도')
+  })
+  it('통과 문구·resolution.md 기록 줄·결과 줄이 새 식을 말한다', () => {
+    expect(PROMPT).not.toContain('max(개발 브랜치 총수, MERGE_HEAD 단독 총수)')
+    expect(PROMPT).toContain('`게이트: 개발 브랜치 <dev_total> · MERGE_HEAD 단독 <head_total> · merge-base <base_total> · 계획 삭제 <planned_drop> · 하한 <need> · 결과 <total>`')
+    expect(PROMPT).toContain('tests=<통과/총수> need=<하한>')
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')).toContain('tests=<통과/총수> need=<하한>`')
+    // 계획 삭제는 이 브랜치가 이미 지운 시험을 넣지 않는다(이중 차감 방지)
+    expect(PROMPT).toContain('이 브랜치 커밋이 이미 지운 시험은 넣지 않는다')
   })
 })
 

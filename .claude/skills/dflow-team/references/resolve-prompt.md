@@ -67,15 +67,26 @@ done
 dev-discipline 「게이트 기준선」 대로 전체 시험을 한 번 돌려 기록한다. 이때의 `git rev-parse --short HEAD` 를
 `<BASE>` 로 함께 적는다. 게이트는 반드시 `<BASE>` 위에 만든 머지를 판정해야 한다. 이 총수가 **개발 브랜치 총수**다.
 
-이어서 해소 대상 agent 브랜치(`MERGE_HEAD` 가 될 커밋)를 **단독으로** 한 번 더 돌려 시험 총수만 적는다(**MERGE_HEAD
-단독 총수**). 실패 수는 보지 않는다. 이유: 게이트가 개발 브랜치 총수만 보면, 해소하며 이 브랜치가 더한 시험을 지워도
-총수가 기준선을 넘어 통과한다. 끝나면 `<BASE>` 로 돌아온다.
+이어서 두 커밋을 더 돌려 시험 **총수만** 적는다. 실패 수는 보지 않는다.
+- 해소 대상 agent 브랜치(`MERGE_HEAD` 가 될 커밋)를 단독으로 — **MERGE_HEAD 단독 총수**.
+- `<BASE>` 와 그 브랜치의 merge-base — **merge-base 총수**. 둘의 차(MERGE_HEAD 단독 − merge-base)가 이 브랜치가 더한
+  시험 수다.
+
+이유: 게이트 하한은 "개발 브랜치 총수 + 이 브랜치가 더한 시험 수" 다(「게이트」). 개발 브랜치 총수나 MERGE_HEAD 단독
+총수 하나만 보면, 병렬 워커가 많아 개발 브랜치가 브랜치보다 훨씬 커졌을 때 해소하며 이 브랜치의 시험을 지워도 총수가
+하한을 넘어 통과한다(2026-09-24 dmes-standard: 개발 브랜치 1373 · 브랜치 687 — 브랜치 시험 63건이 사라져도 통과).
+끝나면 `<BASE>` 로 돌아온다. git 출력은 명령을 단독으로 돌려 읽는다(「0」 — `$(git …)` 금지).
 ```bash
 git fetch origin
 git branch -r --list 'origin/agent/{ID8}-*'      # 한 줄이어야 한다. 그 이름이 <머지 대상>
-git switch --detach '<머지 대상>'                  # 여기서 전체 시험을 돌려 총수만 적는다
+git switch --detach '<머지 대상>'                  # 여기서 전체 시험을 돌려 총수만 적는다(MERGE_HEAD 단독 총수)
+git merge-base '<BASE>' '<머지 대상>'              # 출력한 sha 가 <MB>
+git switch --detach '<MB>'                         # 여기서 전체 시험을 돌려 총수만 적는다(merge-base 총수)
 git switch --detach '<BASE>'
 ```
+두 커밋의 lockfile 이 `<BASE>` 와 다르면 시험 전에 `.claude/skills/dflow-dev/scripts/deps.sh` 를 다시 돌리고, `<BASE>` 로
+돌아온 뒤에도 한 번 더 돌린다. 가능하면 총수를 **스위트(또는 모듈·시험 파일)별로도** 적어 둔다. 게이트는 전체 총수로
+판정하지만, 스위트별로 보면 어느 쪽 시험이 사라졌는지 바로 보인다(다른 스위트의 증가가 감소를 가리지 못한다).
 
 ## 4. 해소 머지
 
@@ -131,35 +142,68 @@ AskUserQuestion 을 쓰지 않는 것과 권한 거부 처리는 `worker-prompt.
 | R6 | lockfile | 개발 브랜치 판을 받고 패키지 관리자로 다시 만든다(`npm install --package-lock-only` 등). 이 브랜치가 더한 의존만 다시 반영한다 |
 | R7 | Task 폴더(`{TASKS}/<TSK>/*`) | 이 Task 폴더는 이 브랜치 판, 다른 Task 폴더는 개발 브랜치 판 |
 | R8 | 설명 문서·주석 | 양쪽 문장을 모두 살려 합친다 |
+| R9 | 마이그레이션 버전 중복·역순 도착(파일명이 곧 버전. `migration-check.sh --staged` 가 exit 1, 텍스트 충돌은 없을 수 있다) | **이 브랜치가 추가한 마이그레이션만** 그 폴더의 개발 브랜치 최대 버전 다음 번호로 옮긴다(`git mv`, 설명 부분은 그대로). 여럿이면 원래 순서대로 이어서 매긴다. 번호 모양은 그 폴더의 관례(`V5`·`V005`·`V1_2`)를 따른다. 다른 폴더에 같은 옛 버전으로 짝을 이룬 파일(방언별 폴더 sqlite·mssql 등)은 모두 같은 새 번호로 옮긴다. 옛 파일명·버전을 가리키는 참조(시험의 파일명 문자열·Flyway `target`·design.md 등)를 `git grep -n '<옛 파일명>'` 으로 찾아 함께 고친다. 개발 브랜치 쪽 파일은 건드리지 않는다. 끝나면 `migration-check.sh --staged` 가 exit 0 이어야 한다 |
+
+공용 결정 기록(`docs/<모듈>/decisions.md` 등, `## D-NNN (…)` 블록 기록)의 충돌은 위 규약보다 먼저
+`.claude/skills/dflow-merge/scripts/decisions.sh merge-conflicts` 로 푼다(R1 의 기계적 형태 — 양쪽 블록을 모두 남긴다).
+임시 ID(`D-<TSK>-<n>`)의 번호를 손으로 매기지 않는다 — `/dflow-merge` 「결정 번호 매김」 이 머지 커밋 뒤에 매긴다.
+스크립트가 `DECISIONS_LEFT` 로 남긴 파일(기존 블록 수정 등)만 R8 로 푼다.
 
 ### blocked 로 멈추는 경우
 
 - 양쪽 기능을 모두 살리는 해소가 없다(한쪽 동작을 바꿔야만 통과한다).
 - 다른 Task 의 공개 계약(API 모양·DB 스키마·이벤트 페이로드)을 바꿔야 한다.
-- 마이그레이션 파일이 충돌하거나 번호가 겹친다(적용 이력과 얽혀 번호를 다시 매길 수 없다).
+- 마이그레이션 파일 **내용**이 충돌한다(같은 파일을 양쪽이 고침), 또는 번호를 바꿔야 하는 마이그레이션이 이미 공용 DB
+  (운영·스테이징·공유 개발 DB)에 적용됐다고 보인다(적용 이력과 얽혀 번호를 다시 매길 수 없다). 이 브랜치가 새로 추가해
+  아직 개발 브랜치에 없는 마이그레이션의 번호 겹침·역순 도착은 멈추지 않고 R9 로 푼다.
 - 시험을 지우거나 `skip` 하거나 기대값을 느슨하게 해야만 통과한다. R2·R3 의 목록 정리는 예외다. 그것은 단정 대상을
   바로잡는 일이기 때문이다.
 - 이미 머지된 다른 Task 의 소유 파일을 R5 범위를 넘어 고쳐야 한다.
 
 ## 게이트
 
-dev-discipline 「게이트 기준선」 과 같은 판정이다. 기준선은 3번에서 `<BASE>` 로 잰 것이고, 판정 대상은 해소 머지
-커밋이다. **기준선 대비 신규 실패 0 + 시험 총수가 max(개발 브랜치 총수, MERGE_HEAD 단독 총수) 이상**이면 통과다.
-두 기준선 수와 머지 결과 총수는 `resolution.md` 의 그 시도 절에 함께 적는다. 판정은 아래 블록 그대로다(값만 채운다).
+dev-discipline 「게이트 기준선」 과 같은 판정이다. 기준선은 3번에서 `<BASE>` 로 잰 것이고, 판정 대상은 **커밋하기 전에
+stage 한 해소 머지 트리**다(`/dflow-merge` 「해소 머지」 5번). 순서는 **해소·stage → 게이트 → 기록 → 커밋** 이다(기록은
+아래 「기록」 절). **기준선 대비 신규 실패 0 + 시험 총수가 하한(개발 브랜치 총수 + (MERGE_HEAD 단독 총수 − merge-base
+총수) − 계획 삭제 수) 이상**이면 통과다. 뜻: 머지 결과에는 개발 브랜치의 시험 전부와 이 브랜치가 더한 시험 전부가 있어야
+한다. 이 브랜치가 스스로 지운 시험은 이미 (MERGE_HEAD 단독 − merge-base) 에 빠져 있다.
+
+**계획 삭제 수**(`planned_drop`, 기본 0)는 해소하면서 지우는 시험 가운데, 이 Task 나 상대 Task 의 design.md 가 삭제를
+**명시적으로** 계획한 것의 수다(예: R3 로 이 브랜치 방식을 걷어내며 그 방식의 시험이 개발 브랜치 쪽 시험과 겹쳐 하나로
+합쳐지는 경우). 이 브랜치 커밋이 이미 지운 시험은 넣지 않는다 — 하한에 이미 반영돼 두 번 빼게 된다. 0 이 아니면
+지운 시험마다 이름과 design.md 근거(파일·절)를 `resolution.md` 그 시도 절에 적는다. 근거를 적을 수 없는 삭제는 계획 삭제가
+아니다(「blocked 로 멈추는 경우」 의 시험 삭제다).
+
+기준선 수들과 머지 결과 총수·하한은 `resolution.md` 의 그 시도 절에 함께 적는다(「기록」). 판정은 아래 블록 그대로다(값만
+채운다). 값이 비었거나 숫자가 아니면(자리표시가 남은 경우 포함) 통과시키지 않는다.
 ```bash
-dev_total='<개발 브랜치 총수>'; head_total='<MERGE_HEAD 단독 총수>'; total='<머지 결과 총수>'; new_fail='<기준선 대비 신규 실패 수>'
-need=$(( dev_total > head_total ? dev_total : head_total ))
-if [ "$new_fail" -eq 0 ] && [ "$total" -ge "$need" ]; then echo "GATE_PASS need=$need total=$total"; else echo "GATE_FAIL new=$new_fail total=$total need=$need"; fi
+dev_total='<개발 브랜치 총수>'; head_total='<MERGE_HEAD 단독 총수>'; base_total='<merge-base 총수>'; planned_drop='<계획 삭제 수, 없으면 0>'
+total='<머지 결과 총수>'; new_fail='<기준선 대비 신규 실패 수>'
+num() { case "$2" in ''|*[!0-9]*) echo "GATE_FAIL invalid $1=$2"; return 1 ;; esac; }
+num dev_total "$dev_total" && num head_total "$head_total" && num base_total "$base_total" && num planned_drop "$planned_drop" \
+  && num total "$total" && num new_fail "$new_fail" && {
+  need=$(( dev_total + head_total - base_total - planned_drop ))
+  if [ "$new_fail" -eq 0 ] && [ "$total" -ge "$need" ]; then echo "GATE_PASS need=$need total=$total"; else echo "GATE_FAIL new=$new_fail total=$total need=$need"; fi
+}
 ```
-`GATE_FAIL` 이면 `/dflow-merge` 「해소 머지」 5번대로 머지를 버리고 `failed gate <신규 실패 수>` 다(총수 부족이면 `<n>` 은
-모자란 수다). 빌드·린트·타입 검사가 대상 리포 기준선
-명령에 들어 있으면 같이 본다. 기준 이동이나 push 경합으로 다시 머지했으면 기준선부터 다시 잰다.
+`GATE_FAIL` 이면 `/dflow-merge` 「해소 머지」 5번대로 커밋하지 않고 `git merge --abort` 로 머지를 버린 뒤(HEAD 는 `<BASE>`
+그대로다) `failed gate <신규 실패 수>` 다(총수 부족이면 `<n>` 은 모자란 수 `need − total` 이다). `GATE_FAIL invalid …` 는
+기준선을 다시 재서 채우고, 그래도 못 채우면 `failed gate invalid` 다. 시험과 별도로
+`.claude/skills/dflow-merge/scripts/migration-check.sh --staged` 가 exit 0 이어야 한다(R9 를 빠뜨리면 `failed gate migration`).
+빌드·린트·타입 검사가 대상 리포 기준선
+명령에 들어 있으면 같이 본다. 기준 이동이나 push 경합으로 다시 머지했으면 기준선부터 다시 잰다(merge-base 도 다시 구한다).
+
+총수는 전체로 판정하지만, 3번에서 스위트별 총수를 적어 뒀으면 스위트마다 "개발 브랜치 + (MERGE_HEAD 단독 − merge-base)"
+이상인지도 본다. 어느 스위트가 모자라면 전체가 통과해도 그 스위트의 사라진 시험을 찾아 되살리거나, 계획 삭제로 근거를
+적는다. 이유: 다른 스위트에서 시험이 늘면 전체 총수가 감소를 가린다.
 
 ## 기록
 
-- 해소한 파일마다 적용한 규약 번호와 판단을 `{TASK_DIR}/resolution.md` 의 `## 시도 {ATTEMPT}` 절에 덧붙이고(같은 절에
-  `게이트: 개발 브랜치 <dev_total> · MERGE_HEAD 단독 <head_total> · 결과 <total>` 한 줄), 머지
-  커밋에 함께 담는다. 머지 커밋 본문 둘째 문단에는 요약(충돌 파일 수·규약 번호)을 둔다.
+- 「게이트」 를 통과한 **뒤, 커밋하기 전에** 적는다. 해소한 파일마다 적용한 규약 번호와 판단을 `{TASK_DIR}/resolution.md`
+  의 `## 시도 {ATTEMPT}` 절에 덧붙이고(같은 절에
+  `게이트: 개발 브랜치 <dev_total> · MERGE_HEAD 단독 <head_total> · merge-base <base_total> · 계획 삭제 <planned_drop> · 하한 <need> · 결과 <total>`
+  한 줄, 계획 삭제가 있으면 그 시험 이름과 design.md 근거, 스위트별로 쟀으면 그 표), `resolution.md` 를 파일명으로 stage 해 머지 커밋에 함께 담는다. 머지 커밋 본문 둘째 문단에는 요약(충돌 파일
+  수·규약 번호)을 둔다. 게이트가 실패하면 커밋이 없으므로 이 기록도 남지 않는다(결과 줄 `failed gate <n>` 이 기록이다).
 - `worker-prompt.md` 에 「7-1」 절(`.issues`)이 있으면 그 형식을 따르고, phase 칸은 `resolve` 로 쓴다. 없으면 쓰지 않는다.
 
 ## 결과 줄
@@ -172,7 +216,7 @@ if [ "$new_fail" -eq 0 ] && [ "$total" -ge "$need" ]; then echo "GATE_PASS need=
 
 | status | 언제 | 사유 |
 |---|---|---|
-| `resolved` | 해소(또는 충돌 없이 머지)하고 게이트 통과·push 성공 | `base=<BASE> files=<충돌 파일 수> rules=<R번호,…|-> tests=<통과/총수>`. 충돌이 없었으면 `files=0 rules=-` |
+| `resolved` | 해소(또는 충돌 없이 머지)하고 게이트 통과·push 성공 | `base=<BASE> files=<충돌 파일 수> rules=<R번호,…|-> tests=<통과/총수> need=<하한>`. `총수` 는 머지 결과 총수, `하한` 은 「게이트」 의 `need` 다. 충돌이 없었으면 `files=0 rules=-` |
 | `skipped` | `/dflow-merge` 가 해소 전에 건너뜀(이미 머지됨·반려·승인 뒤 변경 등) | 그 보고 문구 |
 | `blocked` | 「blocked 로 멈추는 경우」 | 질문과 선택지 한 줄 |
 | `failed <사유>` | `gate <n>`·`push-race`·`push-hook`·`push-other <exit>`·`not-detached`·`deps …`·`permission …`·`rate-limit`·부트스트랩 실패 값 | 첫 낱말이 팀장이 구분하는 값 |
