@@ -205,7 +205,7 @@ AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각�
 | `needs-merge` | 재개 판정이 approved(`/dflow-dev` 「--worker」 C) | `approved` |
 | `blocked` | 6번 판단 규칙(되돌리기 어려운 결정만) | 질문과 선택지 |
 | `cancelled` | 사람이 D'Flow 에서 이 작업을 중단했다. `dflow.sh` 의 progress·heartbeat·done 이 exit 10 이거나, heartbeat 훅이 세션을 세웠다(`/dflow-dev` 상태 모델) | 멈춘 Phase 와 호출(예 `build progress exit 10`). 산출물은 로컬 커밋만 하고 **push 하지 않는다** |
-| `failed` | 그 밖의 중단(push 훅 거부, 게이트 실패, Verify 재시도 소진, 부트스트랩 실패, 권한 거부) | 자유 문구. 팀장이 구분하는 값은 첫 낱말로 쓴다: `rate-limit`(사용량 한도·rate limit 오류로 멈춤, 재시도 가능), `not-isolated`(격리 실패, 파일로는 쓰지 않는다), `no-worker-flag`(옛 `/dflow-dev`), `deps`(의존성 설치 실패), `permission`(권한 거부, 뒤에 거부된 명령의 첫 낱말들), `project`(claim 이 `PROJECT_MISMATCH` 로 거부됨. 주문이 이 리포에 바인딩된 D'Flow 프로젝트 밖이다), `not-assignee`(claim 이 `not_assignee` 로 거부됨. 다른 멤버에게 배정된 작업이다) |
+| `failed` | 그 밖의 중단(push 훅 거부, 게이트 실패, Build 게이트·Verify 재시도 소진, 부트스트랩 실패, 권한 거부) | 자유 문구. 팀장이 구분하는 값은 첫 낱말로 쓴다: `rate-limit`(사용량 한도·rate limit 오류로 멈춤, 재시도 가능), `not-isolated`(격리 실패, 파일로는 쓰지 않는다), `no-worker-flag`(옛 `/dflow-dev`), `deps`(의존성 설치 실패), `permission`(권한 거부, 뒤에 거부된 명령의 첫 낱말들), `project`(claim 이 `PROJECT_MISMATCH` 로 거부됨. 주문이 이 리포에 바인딩된 D'Flow 프로젝트 밖이다), `not-assignee`(claim 이 `not_assignee` 로 거부됨. 다른 멤버에게 배정된 작업이다) |
 
 - `<branch>` 는 agent 브랜치 이름이고, 브랜치를 만들기 전에 끝났으면 `-` 다.
 - `<head_sha>` 는 push 한 agent 브랜치 tip 의 짧은 sha(`git rev-parse --short HEAD`), `<done_exit>` 는
@@ -221,7 +221,7 @@ AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각�
 <phase>\t<분류>\t<내용 한 줄>
 ```
 
-- `<phase>` 는 `bootstrap`·`design`·`build`·`verify`·`refactor`·`done` 중 문제가 난 단계다.
+- `<phase>` 는 `bootstrap`·`design`·`build`·`verify`·`refactor`·`done` 중 문제가 난 단계다(무인 워커는 `refactor` 를 거치지 않는다 — dflow-dev 워커 표 행 I).
 - `<분류>` 는 다음 여섯 가지 중 하나다.
   - `tool-error`: 도구·명령·스크립트 오류. 오류 문구 요지와 어떻게 넘겼는지(재시도·다른 방법·포기)를 함께 적는다.
   - `gate-retry`: 테스트·린트·타입 검사 게이트 실패로 재시도한 것. 실패한 게이트와 원인을 적는다.

@@ -77,7 +77,7 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
    [ ! -e "$W" ] || echo "RESOLVE_WT_EXISTS $W"
    ```
    - **tmux**: backends.md 「pane(tmux)」 의 spawn 블록을 그대로 한 번의 Bash 호출로 돌린다. 워크트리 생성
-     (`git worktree add --detach "$WT" origin/<기본브랜치>`)도 그 블록이 한다. 바꾸는 것은 셋이다: 블록 첫머리의
+     (`git worktree add --detach "$WT" origin/<기본브랜치>`)도 그 블록이 한다. 바꾸는 것은 셋이다: 블록의(입장 제어 줄 다음)
      `WT="<MAIN>/.claude/worktrees/dflow-<id8>"` 를 `WT="<MAIN>/.claude/worktrees/dflow-<id8>-resolve"` 로 쓰고,
      `<포인터 한 줄>` 을 아래 4번의 해소 포인터로 쓰고, 이름표를 `w<slot> · 해소 <TSK> <id8>` 로 붙인다. 그 뒤의
      `.dflow-pane` 기록·**폴더 신뢰 확인 루프**는 같다.
