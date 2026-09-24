@@ -119,6 +119,12 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      j=$(.claude/skills/dflow-work/scripts/dflow.sh show <order 전체 UUID>); echo "show=$?"
      printf '%s' "$j" | jq -c '{status: .order.status, last: ([.reports[]? | select(.kind == "completion")] | last | {review_action, review_note, head_sha: .evidence.head_sha})}'
      ```
+   - **사전 검사 스크립트**: `scripts/sweep-check.sh` 가 이 1번 후보 식별(로컬·원격 스캔, 중복 제거, `api_base` 필터)을
+     서버 조회 없이 흉내 내 `SWEEP_CANDIDATES n=<N> <id8…>`·`SWEEP_NONE`·`SWEEP_UNKNOWN <사유>` 를 낸다. `/dflow-team`
+     팀장이 이 스킬을 부르기 전에 돌려 후보가 없으면 부르지 않는다(그 스킬 「4-0. 스윕을 부르는 규칙」). 이 스킬을 직접
+     부를 때는 쓰지 않아도 된다. 이 1번을 바꾸면 그 스크립트도 같이 고친다 — `tests/skills/dflow-sweep-check.test.ts` 가
+     위 두 블록과 스크립트의 후보를 같은 샌드박스에서 대조한다. 스크립트는 정본의 **상위 집합**이다(팀장 체크아웃이
+     뒤처져 있어도 `origin/<기본브랜치>` 트리의 승인 전 머지분을 본다). 덜 내면 머지가 누락되고, 더 내면 스윕 한 번이 는다.
 2. **판정: approved 만 진행**(`--on-report` 면 승인 대기도): 후보마다 아래 중 하나로 보고한다. 승인 대기나 데이터 없음으로 뭉개지 않는다.
    **approved 확인 전 머지 절대 금지** — 로컬 state 나 기억이 아니라 show 응답이 판정이다.
    예외는 `--on-report` 의 승인 대기 머지 하나뿐이며, 그 판정도 show 응답으로 한다.

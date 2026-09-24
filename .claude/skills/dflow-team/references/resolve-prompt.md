@@ -65,29 +65,73 @@ done
 
 ## 3. 기준선
 
-dev-discipline 「게이트 기준선」 대로 전체 시험을 한 번 돌려 기록한다. 이때의 `git rev-parse --short HEAD` 를
-`<BASE>` 로 함께 적는다. 게이트는 반드시 `<BASE>` 위에 만든 머지를 판정해야 한다. 이 총수가 **개발 브랜치 총수**다.
+게이트에는 세 커밋의 전체 시험 총수가 필요하다.
 
-이어서 두 커밋을 더 돌려 시험 **총수만** 적는다. 실패 수는 보지 않는다.
-- 해소 대상 agent 브랜치(`MERGE_HEAD` 가 될 커밋)를 단독으로 — **MERGE_HEAD 단독 총수**.
-- `<BASE>` 와 그 브랜치의 merge-base — **merge-base 총수**. 둘의 차(MERGE_HEAD 단독 − merge-base)가 이 브랜치가 더한
-  시험 수다.
+| 커밋 | 수 | 쓰는 것 |
+|---|---|---|
+| `<BASE>` — 지금 HEAD(「2」 가 detach 한 `origin/{DEV_BRANCH}` 끝). `git rev-parse --short HEAD` 로 적는다 | **개발 브랜치 총수** | 총수와 실패 목록(dev-discipline 「게이트 기준선」). 게이트는 반드시 `<BASE>` 위에 만든 머지를 판정한다 |
+| 해소 대상 agent 브랜치 tip(`MERGE_HEAD` 가 될 커밋) 단독 | **MERGE_HEAD 단독 총수** | 총수만 |
+| `<BASE>` 와 그 브랜치의 merge-base `<MB>` | **merge-base 총수** | 총수만. MERGE_HEAD 단독 − merge-base 가 이 브랜치가 더한 시험 수다 |
 
 이유: 게이트 하한은 "개발 브랜치 총수 + 이 브랜치가 더한 시험 수" 다(「게이트」). 개발 브랜치 총수나 MERGE_HEAD 단독
 총수 하나만 보면, 병렬 워커가 많아 개발 브랜치가 브랜치보다 훨씬 커졌을 때 해소하며 이 브랜치의 시험을 지워도 총수가
 하한을 넘어 통과한다(2026-09-24 dmes-standard: 개발 브랜치 1373 · 브랜치 687 — 브랜치 시험 63건이 사라져도 통과).
-끝나면 `<BASE>` 로 돌아온다. git 출력은 명령을 단독으로 돌려 읽는다(「0」 — `$(git …)` 금지).
-```bash
-git fetch origin
-git branch -r --list 'origin/agent/{ID8}-*'      # 한 줄이어야 한다. 그 이름이 <머지 대상>
-git switch --detach '<머지 대상>'                  # 여기서 전체 시험을 돌려 총수만 적는다(MERGE_HEAD 단독 총수)
-git merge-base '<BASE>' '<머지 대상>'              # 출력한 sha 가 <MB>
-git switch --detach '<MB>'                         # 여기서 전체 시험을 돌려 총수만 적는다(merge-base 총수)
-git switch --detach '<BASE>'
-```
-두 커밋의 lockfile 이 `<BASE>` 와 다르면 시험 전에 `.claude/skills/dflow-dev/scripts/deps.sh` 를 다시 돌리고, `<BASE>` 로
-돌아온 뒤에도 한 번 더 돌린다. 가능하면 총수를 **스위트(또는 모듈·시험 파일)별로도** 적어 둔다. 게이트는 전체 총수로
-판정하지만, 스위트별로 보면 어느 쪽 시험이 사라졌는지 바로 보인다(다른 스위트의 증가가 감소를 가리지 못한다).
+
+**세 수는 모두 기준선 캐시(`baseline.sh`, dev-discipline 「기준선 캐시」)나 이미 있는 기록에서 얻는다. 전체 시험을 맨손으로
+돌리지 않는다.** 이유: 2026-09-24 실측에서 해소 시도 한 번이 전체 시험을 4회(세 커밋 + 게이트) 돌렸다. `<MB>` 는 대개
+원래 워커의 브랜치 기점이라 그 워커가 기준선을 잰 커밋이고, `<BASE>` 는 같은 개발 브랜치 끝에서 뜬 다른 워커·해소 워커가
+이미 쟀을 수 있다. 재시도(같은 브랜치의 다음 시도)는 `MERGE_HEAD`·`<MB>` 가 앞 시도의 캐시로 나온다. 그래서 새로 도는
+전체 시험은 보통 첫 시도에 두세 번(게이트 포함), 재시도에 한두 번이다.
+
+1. **커밋과 명령을 정한다.** git 출력은 명령을 단독으로 돌려 읽는다(「0」 — `$(git …)` 금지).
+   ```bash
+   git fetch origin
+   git rev-parse --short HEAD                        # <BASE>
+   git branch -r --list 'origin/agent/{ID8}-*'      # 한 줄이어야 한다. 그 이름이 <머지 대상>
+   git merge-base '<BASE>' '<머지 대상>'              # 출력한 sha 가 <MB>
+   .claude/skills/dflow-dev/scripts/baseline.sh list --base '<MB>'   # 원래 워커가 <MB> 에서 잰 명령
+   ```
+   기준선 명령은 dev-discipline 「게이트 기준선」 의 전체 시험이다(「도커」 규칙으로 뺄 명령은 뺀다). `list` 에 같은 일을
+   재는 명령이 있으면 **그 문자열과 cwd 를 글자 그대로** 세 커밋 모두에 쓴다. 한 글자만 달라도 캐시 키가 갈리고, 세 총수를
+   더하고 빼므로 세 커밋은 같은 명령으로 재야 한다. 명령이 여럿이면 명령마다 따로 재고 합한다.
+2. **MERGE_HEAD 단독 총수는 원래 워커의 게이트 기록부터 본다.** 워커는 대개 `{TASK_DIR}/state.json` 에 게이트 결과를
+   남긴다(`refactor_gate` → `verify_gate` → `build_gate` 중 처음 있는 것, 명령마다 `tests`). 아래가 모두 참일 때만 그
+   총수를 그대로 쓴다.
+   ```bash
+   git show '<머지 대상>:{TASK_DIR}/state.json'       # 단독으로 돌려 게이트 기록 키를 읽는다(「0」)
+   git diff --name-only '<기록의 커밋>' '<머지 대상>' -- . ':(exclude){TASK_DIR}'   # 성공하고 출력이 비어야 한다
+   ```
+   - 기록에 명령마다 시험 총수가 숫자로 있고, 그 명령들이 1번의 기준선 명령과 같은 일을 잰다(도커로 뺀 명령도 같다).
+   - 기록에 그 게이트를 돈 커밋(`head` 등)이 있고, 그 커밋에서 머지 대상까지 이 Task 폴더 밖이 바뀌지 않았다(뒤에 붙은
+     것은 Phase 06 의 state.json 커밋뿐이다). 커밋이 없는 기록은 어느 트리를 잰 것인지 몰라 쓰지 않는다.
+   하나라도 아니면(기록이 없거나 커밋이 다르면) 3번대로 `baseline.sh` 로 잰다.
+3. **나머지는 커밋마다 detach 한 뒤 `baseline.sh` 로 잰다.** HEAD 가 `--base` 와 같고 작업 트리가 깨끗해야 캐시를 읽고 쓴다.
+   끝은 `<BASE>` 여야 한다(게이트가 그 위에서 머지한다).
+   ```bash
+   git switch --detach '<MB>'
+   .claude/skills/dflow-dev/scripts/baseline.sh run --base '<MB>' --task-dir '{TASK_DIR}' -- '<기준선 명령>' 2>&1 | tail -30   # merge-base 총수
+   git switch --detach '<머지 대상>'                  # 2번에서 게이트 기록을 썼으면 이 두 줄은 건너뛴다
+   .claude/skills/dflow-dev/scripts/baseline.sh run --base '<머지 대상>' --task-dir '{TASK_DIR}' -- '<기준선 명령>' 2>&1 | tail -30   # MERGE_HEAD 단독 총수
+   git switch --detach '<BASE>'
+   .claude/skills/dflow-dev/scripts/baseline.sh run --base '<BASE>' --task-dir '{TASK_DIR}' -- '<기준선 명령>' 2>&1 | tail -30   # 개발 브랜치 총수·실패 목록
+   ```
+   마지막 줄로 가른다.
+   - `BASELINE_REUSED …`: 다른 워커나 앞 시도가 잰 결과다. `BASELINE_SUMMARY tests=… failures=…`(와 `BASELINE_FAILED` 줄)의
+     수를 그대로 쓴다. `BASELINE_SUMMARY` 가 없으면(잰 쪽이 수를 더하지 않았다) 함께 나온 로그에서 세고 아래 `note` 로 더한다.
+   - `BASELINE_MEASURED … key=<key>`: 새로 쟀다. 출력에서 읽은 수를
+     `.claude/skills/dflow-dev/scripts/baseline.sh note <key> --tests <총수> --failures <실패 수> [--failed-file <파일>]` 로
+     더한다. 다음 해소 시도와 다른 워커가 같은 수를 받는다.
+   - `BASELINE_MEASURED … cache=off(<사유>)`: 쟀지만 캐시를 못 썼다. 수는 그대로 쓰고 **아무 파일도 지우지 않는다** —
+     미추적 파일은 「2」 의 스킬 링크나 팀장이 쓰는 `.dflow-prompt`·`.dflow-pane`·`.dflow-run` 일 수 있어, 지우면 해소 머지나
+     팀장의 생존 판정이 깨진다. 사유가 "작업 트리가 깨끗하지 않음" 이면 `git status --porcelain` 에 나온 경로를 `.issues`
+     (`env` 분류)에 적어 팀장이 공유 `info/exclude` 를 고치게 한다.
+   - `BASELINE_BUSY exit=75 …`: 실패가 아니다. 같은 명령을 다시 호출한다(「7」). 한 번의 Bash 호출로 오래 기다리지 않는다.
+   - 도커가 허용된 해소(`{DOCKER}` 가 `allow`)에서 도커를 쓰는 명령은 `--` 앞에 `--pool docker` 를 붙인다(「도커」).
+4. 두 커밋의 lockfile 이 `<BASE>` 와 다르면 그 커밋의 시험 전에 `.claude/skills/dflow-dev/scripts/deps.sh` 를 다시 돌리고,
+   `<BASE>` 로 돌아온 뒤에도 한 번 더 돌린다. 가능하면 총수를 **스위트(또는 모듈·시험 파일)별로도** 적어 둔다. 게이트는
+   전체 총수로 판정하지만, 스위트별로 보면 어느 쪽 시험이 사라졌는지 바로 보인다(다른 스위트의 증가가 감소를 가리지 못한다).
+5. 세 수의 출처를 `resolution.md` 그 시도 절에 한 줄로 남긴다(「기록」):
+   `기준선 출처: 개발 브랜치 <cache|measured> · MERGE_HEAD 단독 <gate-record|cache|measured> · merge-base <cache|measured>`.
 
 ## 4. 해소 머지
 
@@ -128,10 +172,13 @@ AskUserQuestion 을 쓰지 않는 것과 권한 거부 처리는 `worker-prompt.
 
 ## 7. 무거운 명령 줄 세우기
 
-3번 기준선의 두 번과 「게이트」 의 전체 시험은 PC 전역 세마포어로 감싼다(`.claude/skills/dflow-dev/scripts/heavy.sh <명령>`).
+3번 기준선의 세 측정(개발 브랜치·MERGE_HEAD 단독·merge-base)은 `baseline.sh` 가 안에서 PC 전역 세마포어(`heavy.sh`)로
+감싸 돌린다. **바깥에서 `heavy.sh` 로 다시 감싸지 않는다** — 감싸면 바깥이 쥔 슬롯을 안쪽 측정이 기다린다.
+`BASELINE_BUSY`(exit 75)로 끝나면 실패가 아니다. 같은 명령을 다시 호출한다.
+「게이트」 의 전체 시험(캐시를 쓰지 않는다)만 `.claude/skills/dflow-dev/scripts/heavy.sh <명령>` 으로 감싼다.
 `HEAVY_BUSY` 로 끝나면 실패가 아니다. 같은 명령을 다시 호출한다. 규칙 정본은 `dev-discipline.md` 「무거운 명령 줄 세우기」 다.
-도커가 허용된 해소(`{DOCKER}` 가 `allow`)에서 도커를 쓰는 명령은 `heavy.sh --pool docker <명령>` 으로 감싼다(`HEAVY_DOCKER_BUSY`
-도 다시 호출한다, 「도커」).
+도커가 허용된 해소(`{DOCKER}` 가 `allow`)에서 도커를 쓰는 명령은 게이트에서 `heavy.sh --pool docker <명령>` 으로 감싸고
+(`HEAVY_DOCKER_BUSY` 도 다시 호출한다), 기준선에서는 `baseline.sh run … --pool docker -- '<명령>'` 으로 잰다(「도커」).
 
 ## 해소 규약
 

@@ -134,7 +134,7 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
 
 | status | 슬롯 | 표시 | 그 밖 |
 |---|---|---|---|
-| `resolved` | 해제 | 먼저 조상을 확인한다(아래). 참이면 해제하고 `team.conflict`(decision `cleared`)를 남긴다. 거짓이면 표시를 두고 "해소 push 확인 불가: <id8>" 로 보고하며 `team.conflict`(decision `human`)를 남긴다 | 조상이 참이면 선행 계열 일시 제외를 풀고(「4. 승인 스윕」 의 일시 제외 해제), 다음 `team.sweep` 의 `resolved` 에 1을 더하고, **곧바로 승인 스윕**을 한다. 보고는 "해소됨: <TSK> <id8> (<사유>)" 다. 주문이 `approved` 였으면 "해소 내용은 승인 범위 밖 — 머지 커밋·resolution.md 확인" 을 붙인다 |
+| `resolved` | 해제 | 먼저 조상을 확인한다(아래). 참이면 해제하고 `team.conflict`(decision `cleared`)를 남긴다. 거짓이면 표시를 두고 "해소 push 확인 불가: <id8>" 로 보고하며 `team.conflict`(decision `human`)를 남긴다 | 조상이 참이면 선행 계열 일시 제외를 풀고(「4. 승인 스윕」 의 일시 제외 해제), 다음 `team.sweep` 의 `resolved` 에 1을 더하고, **곧바로 승인 스윕**을 한다(따로 한 번 더가 아니라 이 기상의 스윕 1회다 — SKILL.md 「4-0. 스윕을 부르는 규칙」. `sweep-check.sh` 가 `SWEEP_NONE` 이면 부르지 않는다. 해소 워커가 이미 머지했으므로 남은 후보가 없을 수 있다). 보고는 "해소됨: <TSK> <id8> (<사유>)" 다. 주문이 `approved` 였으면 "해소 내용은 승인 범위 밖 — 머지 커밋·resolution.md 확인" 을 붙인다 |
 | `skipped` | 해제 | `pred-reflected.sh '<TASKS>' '<TSK>' '<개발브랜치>'` 가 `REFLECTED` 면 해제하고 `team.conflict` `cleared` 를 남긴다. 아니면 note `해소 건너뜀: <사유>` | "해소 대상 아님: <id8> (<사유>)" 로 보고한다 |
 | `blocked` | 유지 | note `해소 결정 대기: <질문>` | SKILL.md 「6. blocked」 통지·답 매칭 그대로다. 통지 문구 앞에 "(해소)" 를 붙인다 |
 | `failed push-race`·`failed rate-limit`·`failed no-result` | 해제 | note `해소 대기(재시도 가능): <status> <n>/3` | 다음 스윕에서 충돌이 다시 나면 「1」 이 재시도를 판정한다 |
@@ -151,7 +151,8 @@ git fetch origin && git merge-base --is-ancestor '<결과 줄 head>' origin/<개
 
 ## 5. 사람 머지 감지
 
-스윕을 도는 기상마다 한다. 충돌 목록 중 해소 슬롯·해소 큐에 없는 id8 마다, 사람이 손으로 머지했는지 본다.
+스윕을 판정하는 기상마다 한다(SKILL.md 「4-0. 스윕을 부르는 규칙」 — `SWEEP_NONE` 이라 `/dflow-merge` 를 부르지 않은 기상도
+한다. 사람이 머지하면 agent 브랜치가 지워져 후보가 없기 때문이다). 충돌 목록 중 해소 슬롯·해소 큐에 없는 id8 마다, 사람이 손으로 머지했는지 본다.
 ```bash
 jq -rs --arg a '<신원>/<host>/lead' --arg r '<MAIN>' '[.[] | select(.agent == $a and .repo == $r and .event == "team.conflict")] | group_by(.id8) | map(last) | .[] | select(.decision != "cleared") | [.id8, .tsk, .order] | @tsv' ~/.dflow/events.jsonl 2>/dev/null
 ```
