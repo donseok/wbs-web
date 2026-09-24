@@ -163,3 +163,17 @@ describe('에이전트 보기 책상 카드의 WBS 바로가기(2026-09-24)', ()
     expect(a.textContent).toContain('WBS 에서 열기')
   })
 })
+
+describe('단계 태그와 말풍선은 자리를 나눠 쓴다(2026-09-24)', () => {
+  it('에이전트 보기 책상 — 단계는 명찰 줄의 칩으로 늘 보이고, 머리 위에는 단계 말풍선이 없다', () => {
+    act(() => root.render(<RosterBoard roster={assembleRoster(map([seat({ agent: 'hong/alpha/w1' })], [watcher('hong/alpha/lead', { slots: 1 })]))} nowMs={NOW} />))
+    const desk = host.querySelector('[data-roster-desk="w1"]') as HTMLElement
+    expect(desk.querySelector('[data-desk-phase] [data-phase-badge="build"]')).not.toBeNull()
+    expect(desk.querySelector('[data-phase-dot]')).toBeNull()
+  })
+  it('평면도 좌석 — 단계는 책상 머리 줄의 칩으로 늘 보이고, 머리 위에는 단계 말풍선이 없다', () => {
+    act(() => root.render(<SeatCard seat={seat()} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={() => {}} />))
+    expect(host.querySelector('[data-desk-phase] [data-phase-badge="build"]')).not.toBeNull()
+    expect(host.querySelector('[data-phase-dot]')).toBeNull()
+  })
+})

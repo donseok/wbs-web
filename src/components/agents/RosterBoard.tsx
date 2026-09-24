@@ -196,7 +196,10 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
             </span>
           </span>
           {/* 계정 명찰 줄 — 빈자리도 높이를 지켜 책상 줄이 맞는다. 모델 명찰(캐릭터 발밑)과는 다른 칸이다. */}
-          <span className="flex h-4 min-w-0 items-center">{owner && <OwnerTag owner={owner} />}</span>
+          <span className="flex h-4 min-w-0 items-center gap-1.5">
+            {owner && <OwnerTag owner={owner} />}
+            {desk.seat && <span className="ml-auto shrink-0" data-desk-phase=""><PhaseBadge seat={desk.seat} size="chip" /></span>}
+          </span>
           <span className="line-clamp-2 min-h-[2.5em] text-xs text-ink-muted">{deskLine(desk, host, nowMs, chatter)}</span>
           {desk.seat && <Progress pct={desk.seat.progress} color={tone.color} />}
           <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `신호 ${ageLabel(sig, nowMs)}` : ' '}</span>
@@ -230,9 +233,10 @@ function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number, chatter: b
     return away && <ChatBubble key={away} kind="empty" text={away} className="max-w-full" />
   }
   if (!desk.seat) return null
+  // 단계 태그는 계정 명찰 줄의 칩으로 늘 보인다 — 머리 위는 말풍선만 쓴다(2026-09-24 사용자 요청: 둘이 한 자리를
+  // 번갈아 써서 말풍선이 뜨면 단계가 사라졌다). 상태 레인 카드와 같은 배치다.
   const say = seatSpeech(desk.seat, nowMs, chatter)
-  if (say) return <ChatBubble key={say.text} {...say} className="max-w-full" />
-  return <span className="self-center"><PhaseBadge seat={desk.seat} /></span>
+  return say && <ChatBubble key={say.text} {...say} className="max-w-full" />
 }
 
 /**

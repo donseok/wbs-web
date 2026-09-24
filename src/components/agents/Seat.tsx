@@ -47,10 +47,10 @@ export function SeatMark({ state, anim }: { state: SeatState; anim?: AnimName })
   return <span className={css.mark} data-mark={state} title={STATE_LABEL[state]}><Icon /></span>
 }
 
-/** 캐릭터 머리 위 — 보고·한마디가 있으면 말풍선, 없으면 단계 말풍선(에이전트 보기와 같은 규칙). */
+/** 캐릭터 머리 위 — 보고·한마디 말풍선만. 단계 태그는 책상 머리 줄의 칩으로 늘 보인다(2026-09-24, 상태 레인과 같은 배치). */
 function SeatHead({ seat, nowMs }: { seat: Seat; nowMs: number }) {
   const say = seatSpeech(seat, nowMs, useOfficeChatter())
-  return say ? <ChatBubble key={say.text} {...say} className="block w-max max-w-[168px]" /> : <PhaseBadge seat={seat} />
+  return say && <ChatBubble key={say.text} {...say} className="block w-max max-w-[168px]" />
 }
 
 export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: {
@@ -76,6 +76,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
         >
           <span className={css.deskTop}>
             <span className={css.deskId}>{seat.code}</span>
+            <span data-desk-phase=""><PhaseBadge seat={seat} size="chip" /></span>
             {owner && <OwnerTag owner={owner} />}
             <DecisionChip count={seat.decisionCount} />
             <SeatMark state={seat.state} anim={seat.anim} />
