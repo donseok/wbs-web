@@ -36,6 +36,24 @@ describe('dflow-dev: Phase 서브에이전트 공통 프롬프트의 포그라�
     expect(doc).toContain('제1 제약')
   })
 
+  it('"끝나기를 기다린다"는 wait 가 아니라 kill -0/폴링으로 한다(다른 호출·서브에이전트의 PID 는 이 셸의 자식이 아니다)', () => {
+    const doc = devDiscipline()
+    expect(doc).toContain('이 호출의 자식이 아닌')
+    expect(doc).toContain('`kill -0 <PID>` 로 생존을')
+    const skill = dflowDev()
+    expect(skill).toContain('`kill -0 <PID>` 로 생존을\n   확인하며 짧은 간격으로 재확인하거나 로그·산출물 파일을 폴링')
+    expect(skill).toContain('`wait <PID>` 는 그 PID 가 이 Bash 호출의\n   자식일 때만 되므로')
+  })
+
+  it('Bash timeout 상한(600000ms)을 넘기지 않게 스윕을 나누고, 하네스의 자동 백그라운드 전환도 같은 규칙으로 다룬다', () => {
+    const doc = devDiscipline()
+    expect(doc).toContain('600000ms=10분')
+    expect(doc).toContain('하네스가 그 호출을\n   자동으로 백그라운드로 옮기며')
+    const skill = dflowDev()
+    expect(skill).toContain('Bash 의 timeout 은 최대 600000ms(10분)')
+    expect(skill).toContain("하네스가 시간 초과로 자동으로\n백그라운드로 옮긴 경우도 위 '백그라운드로 띄웠다면'과 똑같이 다룬다")
+  })
+
   it('공통 프롬프트 삽입 지점은 --worker 표지 블록(E) 바로 앞이 아니다(표지 블록 검사 보호)', () => {
     const skill = dflowDev()
     // 「커밋 규칙에는 ...」 문단이 여전히 표지 블록(E) 바로 앞의 마지막 문단이어야
@@ -91,7 +109,7 @@ describe('dflow-team: TICK 무응답 점검이 서브에이전트 종료 후 정
     expect(skill).toContain('하고 다음 `TICK` 을 기다리지 않는다 — **이 TICK 에서 곧바로**')
     expect(skill).toContain('send-keys -l --')
     expect(skill).toContain('orca terminal')
-    expect(skill).toContain('[팀장 지시] 서브에이전트 @<TSK>-<phase> 는 이미 끝났다(finished)')
+    expect(skill).toContain('[팀장 지시 <id8>] 서브에이전트 @<TSK>-<phase> 는 이미 끝났다(finished)')
     expect(skill).toContain('"사람 확인 필요"로 올린다')
   })
 
@@ -101,5 +119,17 @@ describe('dflow-team: TICK 무응답 점검이 서브에이전트 종료 후 정
     expect(skill).toContain('"두 `TICK` 연속 무변화" 조건이 깨지므로')
     expect(skill).toContain('`cause=no-response`, (나) 2회째)도 걸리지')
     expect(skill).toContain('기존 자동 정리·자동\n  재시작이 그대로 이어받는다(이 절이 그것을 막지 않는다)')
+  })
+
+  it('적용 대상은 restart.md 판정 1~5번(측정 실패·중단·점유 변동·표식 불일치·rate-limit)에 걸리지 않은 슬롯뿐이다', () => {
+    const skill = dflowTeam()
+    expect(skill).toContain('적용\n  대상은 `references/restart.md` 「판정」 의 1~5번(측정 실패·중단·점유 변동·표식 불일치·rate-limit)에 걸리지')
+    expect(skill).toContain('취소되거나 한도에 걸린 슬롯에 이 지시를 주입하지\n  않는다')
+  })
+
+  it('restart.md 판정 표 9번(무응답 1회) 칸이 이 SKILL.md 절로 되돌아가는 포인터를 갖는다(top-down 표를 그대로 읽는 리더가 놓치지 않게)', () => {
+    const restart = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/restart.md'), 'utf8')
+    expect(restart).toContain('| 9 | (나) 1회째 | 무응답 1회 |')
+    expect(restart).toContain('「서브에이전트 종료 후 정지 패턴」 의 화면 조건에 맞으면 보고 대신 그 절대로 곧바로 지시를 주입한다')
   })
 })
