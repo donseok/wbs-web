@@ -256,6 +256,107 @@ EOF
   })
 })
 
+// 도커 전용 슬롯(2026-09-24 도커 규칙 개정): 도커를 쓰는 명령은 PC 전역 도커 슬롯(기본 1개)과 일반 슬롯을 함께 잡는다.
+// 교착 불변식: 도커 슬롯을 쥔 쪽은 아무것도 기다리지 않는다(도커는 마지막에 한 번에, 못 잡으면 곧바로 돌려준다).
+describe('heavy.sh --pool docker — 도커 전용 슬롯', { timeout: 30000 }, () => {
+  const docker = (i = 1) => join(dir, `docker-${i}`)
+  const slot = (i = 1) => join(dir, `slot-${i}`)
+
+  it('도커 슬롯과 일반 슬롯을 함께 잡고, 끝나면 둘 다 푼다. 안쪽 호출은 기다리지 않는다', () => {
+    const r = run(['--pool', 'docker', 'sh', '-c',
+      `echo "g=$DFLOW_HEAVY_HELD d=$DFLOW_HEAVY_DOCKER_HELD"; bash '${HEAVY}' --pool docker echo inner-d; bash '${HEAVY}' echo inner-g; exit 4`],
+    { DFLOW_HEAVY_WAIT: '0' })
+    expect(r.code).toBe(4)
+    expect(r.out).toContain('HEAVY_DOCKER_SLOT docker-1 docker=1 + slot-1 k=1')
+    expect(r.out).toContain(`g=${slot()} d=${docker()}`)
+    expect(r.out).toContain('inner-d')
+    expect(r.out).toContain('inner-g')
+    expect(existsSync(docker())).toBe(false)
+    expect(existsSync(slot())).toBe(false)
+  })
+
+  it('도커 슬롯은 PC 에 하나다 — 일반 슬롯이 남아도 두 번째 도커 명령은 기다리다 HEAVY_DOCKER_BUSY(exit 75)', async () => {
+    const e = { DFLOW_HEAVY_SLOTS: '2' }
+    const a = start(['--pool', 'docker', 'sleep', '3'], e)
+    await until(() => existsSync(join(docker(), 'owner')))
+    expect(readFileSync(join(docker(), 'owner'), 'utf8')).toContain('cmd=[docker] sleep 3')
+    const marker = join(tmp, 'ran')
+    const r = run(['--pool', 'docker', 'sh', '-c', `touch '${marker}'`], { ...e, DFLOW_HEAVY_WAIT: '1' })
+    expect(r.code).toBe(75)
+    const busy = r.err.split('\n').filter((l) => l.startsWith('HEAVY_DOCKER_BUSY'))
+    expect(busy).toHaveLength(1)
+    expect(busy[0]).toMatch(/^HEAVY_DOCKER_BUSY k=2 docker=1 wait=1s 도커: \[docker-1 pid=\d+ \d+분 run\] \[docker\] sleep 3 일반: /)
+    expect(existsSync(marker)).toBe(false)
+    // 일반 명령은 남은 일반 슬롯에서 돈다
+    const g = run(['echo', 'general-ok'], { ...e, DFLOW_HEAVY_WAIT: '0' })
+    expect(g.code).toBe(0)
+    expect(g.out).toContain('general-ok')
+    a.p.kill('SIGTERM')
+    await a.done
+    expect(existsSync(docker())).toBe(false)
+  })
+
+  it('도커 명령도 일반 슬롯 수(K)에 든다 — 일반 슬롯이 차 있으면 도커 슬롯을 쥔 채 기다리지 않는다', async () => {
+    const a = start(['sleep', '2'])
+    await until(() => existsSync(join(slot(), 'owner')))
+    const b = start(['--pool', 'docker', 'echo', 'B-ran'], { DFLOW_HEAVY_WAIT: '15' })
+    await until(() => b.out().includes('HEAVY_DOCKER_WAIT'))
+    // B 가 기다리는 동안 도커 슬롯을 쥐고 있지 않으므로, 일반 슬롯을 이미 쥔 쪽(감싼 실행 안)은 도커 슬롯을 곧바로 얻는다
+    const c = run(['--pool', 'docker', 'echo', 'C-ran'], { DFLOW_HEAVY_HELD: slot(), DFLOW_HEAVY_WAIT: '3' })
+    expect(c.code).toBe(0)
+    expect(c.out).toContain('C-ran')
+    expect(b.out()).not.toContain('B-ran')
+    const rb = await b.done
+    await a.done
+    expect(rb.code).toBe(0)
+    expect(rb.out).toContain('B-ran')
+  })
+
+  it('교착 없음: A 가 일반 슬롯을 쥐고(acquire) B 가 도커를 기다려도, A 의 도커 명령은 곧바로 돌고 A 가 풀면 B 가 돈다', async () => {
+    const A = { DFLOW_HEAVY_OWNER: String(process.pid) }
+    expect(run(['acquire', 'e2e-A'], A).code).toBe(0)
+    const b = start(['--pool', 'docker', 'echo', 'B-ran'], { DFLOW_HEAVY_OWNER: '1', DFLOW_HEAVY_WAIT: '15' })
+    await until(() => b.out().includes('HEAVY_DOCKER_WAIT'))
+    const t0 = Date.now()
+    const ra = run(['--pool', 'docker', 'echo', 'A-ran'], { ...A, DFLOW_HEAVY_WAIT: '5' })
+    expect(ra.code).toBe(0)
+    expect(ra.out).toContain('HEAVY_REUSE slot-1')
+    expect(ra.out).toContain('HEAVY_DOCKER_SLOT docker-1 docker=1')
+    expect(ra.out).not.toContain('+ slot-')
+    expect(ra.out).toContain('A-ran')
+    expect(Date.now() - t0).toBeLessThan(4000)
+    expect(b.out()).not.toContain('B-ran')
+    expect(run(['release'], A).out).toContain('HEAVY_RELEASED slot-1')
+    const rb = await b.done
+    expect(rb.code).toBe(0)
+    expect(rb.out).toContain('B-ran')
+  })
+
+  it('감싼 실행 안의 acquire 는 그 실행의 슬롯을 쓰고 두 번째 슬롯을 기다리지 않는다', () => {
+    const r = run(['sh', '-c', `bash '${HEAVY}' acquire srv`], { DFLOW_HEAVY_WAIT: '0' })
+    expect(r.code).toBe(0)
+    expect(r.out).toContain('HEAVY_ACQUIRED slot-1 (감싼 실행의 슬롯) k=1')
+  })
+
+  it('죽은 소유자의 도커 슬롯은 회수한다', () => {
+    const dead = spawnSync('sh', ['-c', 'echo $$']).stdout.toString().trim()
+    mkdirSync(docker(), { recursive: true })
+    writeFileSync(join(docker(), 'owner'), `pid=${dead}\nkind=run\nstart=1\npstart=-\ncmd=[docker] ./gradlew mssqlMigrationTest\n`)
+    const r = run(['--pool', 'docker', 'echo', 'after'], { DFLOW_HEAVY_WAIT: '2' })
+    expect(r.code).toBe(0)
+    expect(r.out).toContain(`HEAVY_RECLAIM docker-1 pid=${dead} kind=run`)
+    expect(r.out).toContain('after')
+  })
+
+  it('status 는 도커 슬롯을 따로 한 줄에 보이고, 도커 풀은 명령 실행만 받는다', () => {
+    const s = run(['status'])
+    expect(s.out.split('\n')[0]).toMatch(/^HEAVY_STATUS k=1 ram=\d+GB /)
+    expect(s.out).toContain('HEAVY_DOCKER docker=1 (비어 있음)')
+    for (const a of [['acquire', 'x'], ['release'], ['status'], []]) expect(run(['--pool', 'docker', ...a]).code).toBe(2)
+    expect(run(['--pool', 'bogus', 'true']).code).toBe(2)
+  })
+})
+
 describe('dev-discipline 「무거운 명령 줄 세우기」 정본', () => {
   const sec = DISC.slice(DISC.indexOf('## 무거운 명령 줄 세우기'))
   it('절이 있고 HEAVY_BUSY 재호출·E2E 서버 acquire/release·서버 종료를 적는다', () => {

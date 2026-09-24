@@ -273,3 +273,35 @@ describe('baseline.sh — 대기 상한과 PC 전역 슬롯(2026-09-24 통합)',
     expect(runs()).toBe(1)
   }, 30_000)
 })
+
+describe('baseline.sh --pool docker — 도커가 허용된 워커의 기준선(2026-09-24 도커 규칙 개정)', () => {
+  it('측정을 PC 전역 도커 슬롯 안에서 돌린다(캐시를 쓰든 안 쓰든)', () => {
+    const env = { DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_DIR: join(tmp, 'heavy') }
+    const cmd = `echo "held=$DFLOW_HEAVY_DOCKER_HELD" >> ${tmp}/held; echo run >> ${tmp}/counter; exit 0`
+    const r = run(repo, env, cmd, '--task-dir docs/tasks/TSK-01-01 --pool docker')
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toMatch(/BASELINE_MEASURED exit=0 key=/)
+    const r2 = run(repo, { ...env, DFLOW_BASELINE_CACHE: '0' }, cmd, '--pool docker')
+    expect(r2.out).toContain('BASELINE_MEASURED exit=0 cache=off(DFLOW_BASELINE_CACHE=0)')
+    const held = readFileSync(join(tmp, 'held'), 'utf8').trim().split('\n')
+    expect(held).toEqual([`held=${join(tmp, 'heavy', 'docker-1')}`, `held=${join(tmp, 'heavy', 'docker-1')}`])
+    expect(existsSync(join(tmp, 'heavy', 'docker-1'))).toBe(false)
+  }, 30_000)
+  it('도커 슬롯이 차 있으면 저장하지 않고 BASELINE_BUSY(exit 75)로 끝난다', () => {
+    const env = { DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_DIR: join(tmp, 'heavy'), DFLOW_HEAVY_WAIT: '0' }
+    mkdirSync(join(tmp, 'heavy', 'docker-1'), { recursive: true })
+    writeFileSync(join(tmp, 'heavy', 'docker-1', 'owner'), `pid=${process.pid}\nkind=run\nstart=1\npstart=-\ncmd=other\n`)
+    const r = run(repo, env, CMD, '--task-dir docs/tasks/TSK-01-01 --pool docker')
+    expect(r.code, r.out).toBe(75)
+    expect(r.out).toContain('BASELINE_BUSY exit=75')
+    expect(runs()).toBe(0)
+    expect(jsons()).toEqual([])
+    const r2 = run(repo, { ...env, DFLOW_BASELINE_CACHE: '0' }, CMD, '--pool docker')
+    expect(r2.code, r2.out).toBe(75)
+    expect(r2.out).toContain('BASELINE_BUSY exit=75')
+    expect(runs()).toBe(0)
+  }, 30_000)
+  it('모르는 풀은 사용법 오류다', () => {
+    expect(run(repo, {}, CMD, '--pool bogus').code).toBe(2)
+  })
+})
