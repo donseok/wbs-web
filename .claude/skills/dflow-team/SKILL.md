@@ -173,6 +173,14 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   사람이 전원 설정으로 막는다.
 - 인원은 동시 팀원 슬롯 수다. **기본 3, 하드 상한 6.** 6 을 넘기면 6 으로 자르고 그 사실을 한 줄 알린다.
   슬롯마다 독립 메인 에이전트가 떠서 비용과 사용량 한도 소모가 빠르게 늘기 때문이다.
+- **도커 금지 인원 기준: 인원이 4명 이상이면 팀원의 도커 실행을 금지한다.** 이 기준값을 정하는 곳은 이 줄
+  하나다. 6 으로 자른 뒤의 인원으로 판정해 `<NO_DOCKER>` 를 `1`(기준 이상) 또는 `0` 으로 정하고, 모든 포인터(새 작업·
+  재개·재시작·해소)에 `NO_DOCKER=<NO_DOCKER>` 로 싣는다(「5. 팀원 spawn」 4번). 압축 뒤에는 `team.start` 의 `slots` 로
+  다시 구한다. 켜졌으면 시작 보고에 "도커 금지: 켜짐(인원 <N>명)" 을 한 줄 적는다. 워커가 무엇을 빼고 어떻게 보고하는지는
+  dev-discipline.md 「도커 사용 규칙」 이 정본이다. 인원과 무관하게 켜는 스위치는 `.dflow`·`.dflow.local` 의
+  `no_docker=1` 이며 워커가 스스로 읽는다. 이유: 2026-09-24 dmes-standard 에서 팀원 6명이 Testcontainers(MSSQL)를
+  동시에 돌려 RAM 16GB 장비가 스왑 17GB·load 52 까지 밀렸다. 이 기준은 팀장 하나 단위라, 한 PC 에서 팀장 둘이 3명씩
+  돌리면 걸리지 않는다. 그때는 설정 키를 쓴다.
 - 모델은 선택이다(`opus`|`sonnet`). 없으면 포인터에 `MODEL=default` 를 넘겨 기본 모델을 쓴다. 값은 팀원이
   `/dflow-dev --model` 로 넘기고, tmux 백엔드는 팀원을 띄우는 `.dflow-run` 의 `claude --model` 에도 붙인다.
 - **추론 강도(effort)는 기본 `high` 다**(2026-09-23 사용자 지시). 사람이 `effort xhigh`·`추론 강도 max` 처럼 요청할 때만
@@ -1336,8 +1344,10 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
 4. 포인터 **한 줄**을 만든다. 백엔드에는 워커 프롬프트 전문이 아니라 이 포인터를 넘기고, 워커가
    `references/worker-prompt.md` 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다.
    ```
-   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<작업 폴더>
+   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<작업 폴더> NO_DOCKER=<NO_DOCKER>
    ```
+   - `NO_DOCKER` 는 「인자」 의 도커 금지 인원 기준으로 정한 `0`|`1` 이다. 재개(「5-1」)·재시작(restart.md 재투입)은
+     이 형식으로 포인터를 다시 쓰고 해소(「5-2」)는 merge-conflict.md 의 해소 포인터에 실으므로, 같은 값이 모두에 간다.
    - `DEV_BRANCH` 는 전제 검사의 `base` 다. 워커가 detach 된 옛 커밋에서 다른 값을 읽지 않도록 팀장이 넘긴다.
    - `TASK_DIR` 은 3번이 출력한 값이다. 워커는 이 값을 다시 해석하지 않는다 — detach 된 옛 커밋에는
      `.dflow.local` 의 `project_map` 이 없거나 지금과 달라, 워커가 스스로 구하면 팀장이 구한 값과 다른

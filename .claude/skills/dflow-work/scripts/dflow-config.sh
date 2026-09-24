@@ -2,6 +2,7 @@
 # dflow-config.sh — D'Flow 에이전트 설정 해석. source 해서 쓴다(단독 실행하지 않는다).
 # .dflow(프로젝트 공통, 커밋)·.dflow.local(개인, gitignore)을 읽어 DFLOW_* env 로 export 한다.
 # 우선순위: 이미 export 된 env > 파일 > 레거시 .env. 설정 파일은 source 하지 않는다 — 값을 실행하지 않는다.
+# 두 파일이 모두 받는 키(범위 both, 예 no_docker)는 env > .dflow.local > .dflow 다 — PC 설정이 리포 공통 값을 덮는다.
 # 실패하면 사유 코드 한 줄을 stderr 에 내고 return 2. 값은 메시지에 넣지 않는다(토큰이 섞일 수 있다).
 
 _dfc_env() {
@@ -9,6 +10,7 @@ _dfc_env() {
     api_base) echo DFLOW_API_BASE ;; project_id) echo DFLOW_PROJECT_ID ;; release_branch) echo DFLOW_RELEASE_BRANCH ;;
     pats) echo DFLOW_PATS ;; pat) echo DFLOW_PAT ;; as) echo DFLOW_AS ;; dev_branch) echo DFLOW_DEV_BRANCH ;;
     automerge) echo DFLOW_AUTOMERGE ;; project_map) echo DFLOW_PROJECT_MAP ;;
+    no_docker) echo DFLOW_NO_DOCKER ;;
     *) return 1 ;;
   esac
 }
@@ -16,6 +18,7 @@ _dfc_scope() {
   case "$1" in
     api_base|project_id|release_branch) echo common ;;
     pats|pat|as|dev_branch|automerge|project_map) echo personal ;;
+    no_docker) echo both ;;
     *) echo unknown ;;
   esac
 }
@@ -37,7 +40,7 @@ _dfc_apply() {
     _dfc_k=${_dfc_l%%=*}; _dfc_v=${_dfc_l#*=}
     _dfc_s=$(_dfc_scope "$_dfc_k")
     if [ "$_dfc_s" = unknown ]; then echo "UNKNOWN_KEY $2: $_dfc_k (무시)" >&2; continue; fi
-    if [ "$_dfc_s" != "$1" ]; then
+    if [ "$_dfc_s" != both ] && [ "$_dfc_s" != "$1" ]; then
       if [ "$1" = common ]; then
         echo "PERSONAL_KEY_IN_DFLOW $_dfc_k 는 개인 설정이다. .dflow.local 로 옮겨라" >&2; _dfc_rc=2
       else
@@ -76,11 +79,13 @@ dflow_config_load() {
 
   if [ -n "$DFLOW_CONFIG_DOT" ] && [ -n "$DFLOW_CONFIG_LOCAL" ]; then
     DFLOW_CONFIG_MODE=new
-    _dfc_apply common "$DFLOW_CONFIG_DOT" <<EOF || return 2
-$(printf '%s\n' "$_dfc_dot" | _dfc_parse)
-EOF
+    # .dflow.local 을 먼저 적용한다. _dfc_apply 는 비어 있는 변수만 채우므로(먼저 쓴 쪽이 이긴다) 두 파일이 모두
+    # 받는 키(both)는 PC 설정이 이긴다. 범위가 한쪽뿐인 키는 다른 파일에서 걸러지므로 순서가 값에 영향을 주지 않는다.
     _dfc_apply personal .dflow.local <<EOF || return 2
 $(printf '%s\n' "$_dfc_local" | _dfc_parse)
+EOF
+    _dfc_apply common "$DFLOW_CONFIG_DOT" <<EOF || return 2
+$(printf '%s\n' "$_dfc_dot" | _dfc_parse)
 EOF
     [ -n "${DFLOW_DEV_BRANCH:-}" ] || {
       echo "NO_DEV_BRANCH .dflow.local 에 dev_branch=<내 개발 브랜치> 를 적어라(운영 브랜치에서 직접 개발하면 그 이름을 적는다)" >&2

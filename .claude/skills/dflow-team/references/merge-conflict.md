@@ -89,8 +89,9 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
      (`resolve-prompt.md` 「2」). create 뒤 같은 포인터를 `.dflow-prompt` 에도 쓴다.
 4. **포인터 한 줄**:
    ```
-   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/resolve-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> ORDER=<order 전체 UUID> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<TASK_DIR> ATTEMPT=<n> ON_REPORT=<0|1>
+   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/resolve-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> ORDER=<order 전체 UUID> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<TASK_DIR> ATTEMPT=<n> ON_REPORT=<0|1> NO_DOCKER=<NO_DOCKER>
    ```
+   `NO_DOCKER` 는 SKILL.md 「인자」 의 도커 금지 인원 기준으로 정한 값이다(개발 워커와 같다).
    `MODEL` 은 이번 실행의 인자다(해소도 같은 모델). `ON_REPORT` 는 `AUTOMERGE_ON` 이면 `1` 이다.
 5. `team.spawn` 을 기록한다. 필드는 「5. 팀원 spawn」 6번과 같고 `spawn_kind` 는 `resolve` 다. 이 줄의 개수가 해소
    카운터이므로 `new` 로 적으면 상한이 동작하지 않는다. id8 은 진행 중으로 영구 제외에 넣는다.

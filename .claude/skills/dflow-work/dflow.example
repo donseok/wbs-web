@@ -10,3 +10,8 @@ project_id=
 
 # 운영 브랜치 — 개발 브랜치를 승격해서만 들어간다. 비우면 원격 기본 브랜치(origin/HEAD).
 release_branch=main
+
+# 1 이면 이 리포의 D'Flow 워커가 도커를 쓰지 않는다(docker·Testcontainers 검증을 게이트에서 빼고 보고한다).
+# 모든 PC 에 적용된다. PC 하나만 켜거나 끄려면 .dflow.local 에 적는다(.dflow.local 이 이긴다).
+# 규칙 정본: .claude/skills/dflow-dev/references/dev-discipline.md 「도커 사용 규칙」.
+# no_docker=1

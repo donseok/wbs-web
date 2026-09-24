@@ -33,6 +33,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 - Build/Verify/Refactor 게이트: **오케스트레이터가 테스트 명령을 직접 실행**하고 exit code 와
   출력을 기준선과 차분 비교한다(신규 실패 0 + 테스트 총수 미감소). 서브에이전트가 "통과했다"고
   말해도 직접 실행 결과가 판정이다.
+- 도커: 기준선 전에 도커 금지 모드를 판정하고, 켜져 있으면 기준선·게이트·Phase 프롬프트에서 도커·Testcontainers 명령을
+  뺀다. 도커 런타임은 언제나 켜지 않는다. 판정·제외·기록·프롬프트 문구의 정본은 dev-discipline.md 「도커 사용 규칙」.
 
 ## 상태 모델
 
@@ -427,6 +429,9 @@ origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10
   자기가 띄운 프로세스만 거둔다(2026-09-24 dmes-standard 사고: 팀원이 `./be-run.sh --mdm` 을 돌리자
   `pgrep -f be-run.sh` 가 메인 체크아웃의 서버를 찾아 TERM 했고 `gradlew --stop` 이 전역 Gradle 데몬까지
   세웠다).
+- **도커 금지 모드(워커)**: 워커는 팀장 포인터의 `NO_DOCKER` 값을 알고 있다(worker-prompt.md 변수표). 기준선 전에
+  그 값과 `dflow.sh config no_docker` 로 금지 모드를 판정하고 출처를 기준선 기록에 남긴다. 판정·제외·기록의 정본은
+  dev-discipline.md 「도커 사용 규칙」 이며, 도커 런타임을 켜지 않는 규칙은 금지 모드와 무관하게 늘 지킨다.
 
 - 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다.
 - `.result` 형식과 status 뜻은 `.claude/skills/dflow-team/references/worker-prompt.md` 가 정본이다. 끝날 때

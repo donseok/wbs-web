@@ -17,6 +17,7 @@
 | `{MODEL_FLAG}` | `MODEL` | `opus` 면 `--model opus`, `sonnet` 이면 `--model sonnet`, `default` 면 빈 값 |
 | `{DEV_BRANCH}` | `DEV_BRANCH` | 개발 브랜치 이름(`origin/` 없음). 팀장이 `dflow.sh branch dev` 로 해석해 넘긴다 |
 | `{TASK_DIR}` | `TASK_DIR` | 이 작업의 작업 폴더(`<TASKS>/<TSK>`). 팀장이 `dflow.sh taskdir <order>` 로 구해 넘긴다 |
+| `{NO_DOCKER}` | `NO_DOCKER` | `1` 이면 도커 금지 모드(팀장이 인원 기준으로 넘긴다). 키가 없거나 `0` 이면 설정 키로만 판정한다(「10」) |
 
 `<기본브랜치>` 는 팀장이 넘긴 `{DEV_BRANCH}` 다. 워커는 이 값을 다시 해석하지 않는다. detach 된 옛 커밋에는
 `.dflow` 가 없어 다른 값이 나올 수 있기 때문이다. `DEV_BRANCH` 인자가 비어 있으면 `.result` 에
@@ -274,3 +275,11 @@ AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각�
   멈췄고, 팀장은 사람에게만 전달해 약 10분 동안 교착이 생겼다. 팀장이 "계속 진행, push·done 하라"고
   지시하자 곧바로 `done` 으로 끝났다. 팀장 쪽 처리 절차는 `.claude/skills/dflow-team/SKILL.md`
   「2-4. 팀원 이슈 보고 처리」 가 정본이다.
+
+## 10. 도커 사용 규칙
+
+정본은 `.claude/skills/dflow-dev/references/dev-discipline.md` 「도커 사용 규칙」 이다 — 규칙 본문 수정은 그 파일에서만
+한다. 요지: `{NO_DOCKER}` 가 `1` 이거나 `dflow.sh config no_docker` 가 `1` 이면 금지 모드이고, 기준선·게이트·Verify 에서
+docker·Testcontainers 를 쓰는 명령을 빼고 판정하며 `도커 금지로 생략: <명령>` 을 design.md 와 `done` 요약에 남긴다.
+어느 쪽이 켰는지를 기준선 기록에 적는다. 금지 모드가 아니어도 꺼진 도커 런타임을 켜지 않는다(`orb start`·
+`open -a Docker`·`open -a OrbStack`·`colima start` 등). 꺼져 있어 필요한 검증을 못 하면 「9」 로 보고한다.
