@@ -370,10 +370,11 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).not.toMatch(/terminal read[^\n]*\| cksum/)
   })
 
-  it('무응답은 보고만 하고 슬롯을 유지하며, 자동 정리는 두 TICK 연속일 때만 한다', () => {
+  it('무응답은 보고만 하고 슬롯을 유지하며, 자동 정리는 두 TICK 연속일 때만 하고 두 백엔드가 같다', () => {
     expect(s()).toContain('"무응답" 으로 보고만 하고 슬롯을 유지한다')
     expect(s()).toContain('**두 TICK 연속으로** 생존 증거가 없을 때만')
-    expect(s()).toContain('orca worktree rm --worktree path:<경로>')
+    // 2026-09-24부터 Orca 도 orca terminal close 로 팀원을 실제로 멈춘다(예전에는 워크트리 삭제뿐이었다)
+    expect(s()).toContain('Orca 는 `orca terminal close\n  --terminal <handle> --tab --json` 으로 팀원을 멈추고 슬롯을 해제하며')
   })
 
   // 프로세스 팀원의 회수·parked·ANSWER 재spawn 은 스펙 2026-09-16 §9(e9da5a11)로 없어졌다.
@@ -411,8 +412,10 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).not.toContain('isolation: "worktree"` 는 **필수**')
     expect(s()).toContain('`team.spawn` 에 `slot`·`tsk`·`order`·`id8`·`worktree`·`handle`')
     expect(s()).toContain('`tmux:<pane_id>`')
-    expect(s()).toContain('--base-branch origin/<기본브랜치> --prompt "<포인터 한 줄>" --json')
-    expect(s()).toContain('`--worktree path:<result.worktree.path>`')
+    // 2026-09-24부터 Orca 도 같은 준비 블록(chmod +x 줄까지)을 쓴 뒤 orca terminal create 로 잇는다
+    expect(s()).toContain('orca terminal create --worktree "path:$WT"')
+    expect(s()).toContain('--command ./.dflow-run --json')
+    expect(s()).toContain('`--worktree "path:$WT"` 선택자를 쓴다')
   })
 
   it('마감: 대기 상한 TICK 두 번, 마지막 스윕, 살아 있는 팀원 워크트리 보존, agent 브랜치 남김, team.stop, 소유 판정으로 잠금 해제, 잠금 상실 마감', () => {

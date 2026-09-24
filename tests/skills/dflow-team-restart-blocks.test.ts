@@ -224,12 +224,17 @@ describe('restart.md 계약', () => {
     expect(s).toMatch(/6항[^\n]*직전[^\n]*「중단 표식 정리」/)
     expect(s).toContain('`spawn_kind=resume`')
   })
-  it('Orca 는 관문 전이라 재투입하지 않고 team.lost 를 기록하지 않으며, orca terminal 명령은 실행 블록에 없다', () => {
+  // 2026-09-24 리허설(Orca 1.4.210, Claude Code 2.1.281)로 관문 셋을 통과해 Orca 도 tmux 와 같은 방식으로
+  // 재투입한다. "관문 전" 갈래(team.lost 를 기록하지 않는 옛 동작)는 리허설 이전 판본을 위해 남긴다.
+  it('Orca 는 관문 통과 이후 tmux 와 같이 재투입하고 team.lost 를 기록하며, 관문 전 갈래는 폴백으로 남는다', () => {
     const s = section(R(), '## Orca')
-    expect(s).toMatch(/team\.lost` 는 기록하지 않는다/)
+    expect(s).toMatch(/관문 셋을 2026-09-24 리허설[\s\S]*통과했다/)
+    expect(s).toContain('Orca 도 이제 tmux 와 같은 방식으로 재투입한다')
+    expect(s).toMatch(/탭 닫기[\s\S]*`\.dflow-run` 새로 쓰기[\s\S]*orca terminal create/)
+    expect(s).toContain('`team.lost` 기록도 tmux 와 같게 한다')
+    // 관문 전 폴백: 여전히 team.lost 를 기록하지 않는 옛 동작을 조건부로 남긴다
+    expect(s).toMatch(/\*\*관문 전에는\*\*[\s\S]*`team\.lost` 는 기록하지 않는다/)
     expect(s).toContain('/dflow-team <종료시각> --resume <id8>')
-    const bash = [...R().matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n')
-    expect(bash).not.toMatch(/orca terminal (create|close)/)
   })
   it('LEASE_LOST·LOCK_LOST·STALE·마감 중에는 판정하지 않는다', () => {
     const s = section(R(), '## 마감·lease·잠금')
@@ -256,24 +261,56 @@ esac
   return f
 }
 
+// 2026-09-24: TM 이 비면(Orca) orca terminal close 로 거둔다. 응답 JSON 이 있으면 REAPED 이고 .dflow-pane 을 비운다
+// (배경: ptyKilled:false 로 답해도 claude 프로세스는 실제로 끝난다 — 성공 판정은 "JSON 이 비지 않았다" 뿐이다).
+function fakeOrca(closeOutput: string | null): string {
+  const bin = join(tmp, `bin-orca-${Math.random().toString(36).slice(2)}`); mkdirSync(bin, { recursive: true })
+  const f = join(bin, 'orca')
+  writeFileSync(f, closeOutput === null
+    ? '#!/bin/sh\nexit 1\n'
+    : `#!/bin/sh\nprintf '%s\\n' '${closeOutput}'\n`)
+  chmodSync(f, 0o755)
+  return bin
+}
+
 describe('거두기 확인(리뷰 Important 1)', () => {
-  function reap(tm: string): { out: string; agent: string | null } {
-    const w = join(tmp, 'wt'); mkdirSync(w, { recursive: true })
+  function reap(tm: string, opts: { pane?: string; orcaBin?: string } = {}): { out: string; agent: string | null; pane: string | null } {
+    const w = join(tmp, `wt-${Math.random().toString(36).slice(2)}`); mkdirSync(w, { recursive: true })
+    const pane = opts.pane ?? '%7'
     const code = block('## 재시작 후보를 띄울지')
-      .replace("TM='<진짜 tmux 절대경로>'", `TM='${tm}'`).replace("w='<워크트리>'", `w='${w}'`)
-      .replace("pane='<pane id>'", "pane='%7'").replace("'<신원>/<host>/parked'", "'me/h/parked'")
-    const out = sh(code).stdout.trim()
+      .replace("TM='<진짜 tmux 절대경로 또는 빈 값>'", `TM='${tm}'`).replace("w='<워크트리>'", `w='${w}'`)
+      .replace("pane='<pane id 또는 Orca 핸들>'", `pane='${pane}'`).replaceAll("'<신원>/<host>/parked'", "'me/h/parked'")
+    const env = { PATH: `${opts.orcaBin ?? ''}${opts.orcaBin ? ':' : ''}${process.env.PATH ?? ''}`, HOME: home, NODE_ENV: process.env.NODE_ENV }
+    const out = spawnSync('sh', ['-c', code], { encoding: 'utf8', env }).stdout.trim()
     const f = join(w, '.dflow-agent')
-    return { out, agent: existsSync(f) ? readFileSync(f, 'utf8').trim() : null }
+    const pf = join(w, '.dflow-pane')
+    return { out, agent: existsSync(f) ? readFileSync(f, 'utf8').trim() : null, pane: existsSync(pf) ? readFileSync(pf, 'utf8') : null }
   }
-  it('kill 뒤 pane 이 사라졌으면 REAPED 와 parked', () => {
-    expect(reap(fakeTmux(new Set()))).toEqual({ out: 'REAPED %7', agent: 'me/h/parked' })
+  it('kill 뒤 pane 이 사라졌으면 REAPED 와 parked (tmux)', () => {
+    const r = reap(fakeTmux(new Set()))
+    expect(r.out).toBe('REAPED %7')
+    expect(r.agent).toBe('me/h/parked')
   })
-  it('kill 뒤에도 pane 이 살아 있으면 REAP_FAILED 이고 parked 로 바꾸지 않는다', () => {
-    expect(reap(fakeTmux(new Set(['%7'])))).toEqual({ out: 'REAP_FAILED %7', agent: null })
+  it('kill 뒤에도 pane 이 살아 있으면 REAP_FAILED 이고 parked 로 바꾸지 않는다 (tmux)', () => {
+    const r = reap(fakeTmux(new Set(['%7'])))
+    expect(r.out).toBe('REAP_FAILED %7')
+    expect(r.agent).toBeNull()
   })
-  it('tmux 경로가 비면 REAP_NO_TMUX', () => {
-    expect(reap('').out).toBe('REAP_NO_TMUX')
+  it('TM 이 비고 orca terminal close 가 JSON 을 돌려주면 REAPED 이고 .dflow-pane 을 비운다 (Orca)', () => {
+    const r = reap('', { pane: 'h1', orcaBin: fakeOrca('{"ok":true}') })
+    expect(r.out).toBe('REAPED h1')
+    expect(r.agent).toBe('me/h/parked')
+    expect(r.pane).toBe('') // 재투입 전 확인이 살아 있는 것으로 오판하지 않게 비워 둔다
+  })
+  it('TM 이 비고 orca terminal close 가 실패(빈 응답)하면 REAP_FAILED 이고 parked 로 바꾸지 않는다 (Orca)', () => {
+    const r = reap('', { pane: 'h1', orcaBin: fakeOrca(null) })
+    expect(r.out).toBe('REAP_FAILED h1')
+    expect(r.agent).toBeNull()
+  })
+  it('TM 이 비고 핸들이 - 면 REAP_NO_HANDLE (Orca, 핸들 없음)', () => {
+    const r = reap('', { pane: '-' })
+    expect(r.out).toBe('REAP_NO_HANDLE')
+    expect(r.agent).toBeNull()
   })
   it('실패하면 기록·재투입 없이 멈춤으로 보낸다고 적는다', () => {
     expect(section(R(), '## 재시작 후보를 띄울지')).toMatch(/`REAP_FAILED`[^\n]*\n?[^\n]*`team\.lost` 를 쓰지 않고 재투입하지 않으며/)

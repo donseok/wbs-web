@@ -13,7 +13,8 @@
 - 재시도는 고아 재개와 같은 카운터를 쓴다(상한 3, SKILL.md 「팀장 상태」 고아 스캔 2번). 손실은 `team.result`
   가 아니라 `team.lost` 로 적는다. `team.result` 는 카운터를 0 으로 되돌린다.
 - 재투입은 「5-1. 재개 spawn」 그대로다. 같은 워크트리, 같은 슬롯 번호, claim 하지 않음.
-- Orca 는 실측 관문 전이라 재투입하지 않는다(「Orca」).
+- Orca 도 tmux 와 같은 방식으로 재투입한다(「Orca」, 2026-09-24 실측 관문 통과 — 예전에는 "관문 전" 이라
+  재투입하지 않았다).
 - 화면(tmux `capture-pane`, Orca `orca terminal read`)은 생존 판정에 쓰지 않는다. 결과 줄 폴백과, 켜 두었을 때의
   한도 문구 판정에만 쓴다.
 
@@ -102,13 +103,16 @@ fi
 
 ## 한도 판정
 
-출처는 tmux 팀원의 statusLine 덤프 `~/.dflow/limits/<id8>.json` 이다(backends.md 「pane(tmux)」 의 `.dflow-run`
-설정이 쓴다. 워크트리 밖이라 `git status` 를 더럽히지 않는다). 어느 창이든 `used_percentage >= 100` 이고 해제
-시각이 미래면 한도이며, 해제 시각은 그런 창의 `resets_at` 중 가장 늦은 것이다. `restart_at` = 해제 시각 + 600초.
-유예 10분을 두는 이유: Claude Code 가 한도 해제 뒤 스스로 이어 가면 그 사이에 워커가 돈다.
+출처는 팀원의 statusLine 덤프 `~/.dflow/limits/<id8>.json` 이다(backends.md 「팀원 워크트리 준비」 의 `.dflow-run`
+설정이 쓴다. 워크트리 밖이라 `git status` 를 더럽히지 않는다). **두 백엔드 모두** 이 덤프를 남긴다(2026-09-24부터
+— Orca 도 `.dflow-run` 을 쓰게 되면서 예전의 "Orca 는 덤프가 없다" 전제가 없어졌다). 어느 창이든
+`used_percentage >= 100` 이고 해제 시각이 미래면 한도이며, 해제 시각은 그런 창의 `resets_at` 중 가장 늦은
+것이다. `restart_at` = 해제 시각 + 600초. 유예 10분을 두는 이유: Claude Code 가 한도 해제 뒤 스스로 이어 가면
+그 사이에 워커가 돈다.
 화면 문구 판정(`LIMIT_SCREEN_RE`)은 **꺼져 있다.** 실제 한도 화면 문장과 시각 형식을 캡처로 확인하는 실측(스펙
 §14-1) 전에는 채우지 않는다. 켜면 문구가 보일 때 `restart_at` = 감지 + 3600초(시각을 읽지 않는 폴백)다.
-Orca 팀원은 `.dflow-run` 을 쓰지 않아 덤프가 없으므로 늘 `LIMIT_NONE` 이다.
+덤프 파일이 없거나 깨진 팀원(예: 아주 옛 팀원 워크트리, 또는 `DFLOW_WORKER_PLUGINS=keep` 등으로 설정이 안
+만들어진 경우)은 늘 `LIMIT_NONE` 이다.
 ```bash
 id8='<id8>'; pane='<pane id 또는 ->'; TM='<진짜 tmux 절대경로 또는 빈 값>'
 LIMIT_SCREEN_RE=''   # 끔. 실측(스펙 §14-1) 전에는 채우지 않는다
@@ -140,21 +144,38 @@ esac
 | 그 밖 | `restart` | 같은 기상 안에서 「재투입」 |
 
 차례(세 갈래 공통):
-1. **거두기**를 먼저 한다. tmux 는 아래 블록이다. `REAPED <pane>` 이 나와야 다음으로 간다.
+1. **거두기**를 먼저 한다. `TM` 이 있으면 tmux, 없으면(빈 값) Orca 다(팀 시작 때 정해진 백엔드는 세션 내내
+   바뀌지 않으므로 이 값으로 가른다). `REAPED <pane|handle>` 이 나와야 다음으로 간다.
    ```bash
-   TM='<진짜 tmux 절대경로>'; w='<워크트리>'; pane='<pane id>'
-   [ -n "$TM" ] || { echo REAP_NO_TMUX; exit; }
-   "$TM" -L dflow kill-pane -t "$pane" 2>/dev/null || :
-   if [ "$("$TM" -L dflow display-message -p -t "$pane" '#{pane_id}' 2>/dev/null)" = "$pane" ]; then
-     echo "REAP_FAILED $pane"
+   TM='<진짜 tmux 절대경로 또는 빈 값>'; w='<워크트리>'; pane='<pane id 또는 Orca 핸들>'
+   if [ -n "$TM" ]; then
+     "$TM" -L dflow kill-pane -t "$pane" 2>/dev/null || :
+     if [ "$("$TM" -L dflow display-message -p -t "$pane" '#{pane_id}' 2>/dev/null)" = "$pane" ]; then
+       echo "REAP_FAILED $pane"
+     else
+       "$TM" -L dflow select-layout -t dflow tiled 2>/dev/null || :
+       printf '%s\n' '<신원>/<host>/parked' > "$w/.dflow-agent" && echo "REAPED $pane"
+     fi
+   elif [ -z "$pane" ] || [ "$pane" = - ]; then
+     echo REAP_NO_HANDLE
    else
-     "$TM" -L dflow select-layout -t dflow tiled 2>/dev/null || :
-     printf '%s\n' '<신원>/<host>/parked' > "$w/.dflow-agent" && echo "REAPED $pane"
+     R=$(orca terminal close --terminal "$pane" --tab --json 2>/dev/null)
+     if [ -n "$R" ]; then
+       : > "$w/.dflow-pane"
+       printf '%s\n' '<신원>/<host>/parked' > "$w/.dflow-agent" && echo "REAPED $pane"
+     else
+       echo "REAP_FAILED $pane"
+     fi
    fi
    ```
-   `REAPED` 는 kill 뒤 그 pane 을 다시 찾지 못했을 때만 나온다(pane 이 실제로 없어졌다는 확인). 종료 코드가 아니라
-   출력한 pane id 로 가르는 이유: tmux 3.7 은 없는 pane id 에도 `display-message` 를 0 으로 끝내고 빈 값을 낸다(실측). `REAP_FAILED`(pane 이
-   아직 있다)나 `REAP_NO_TMUX`(tmux 경로 없음)면 `team.lost` 를 쓰지 않고 재투입하지 않으며 「멈춤」(사유 `거두기 실패`)
+   tmux 갈래에서 `REAPED` 는 kill 뒤 그 pane 을 다시 찾지 못했을 때만 나온다(pane 이 실제로 없어졌다는 확인).
+   종료 코드가 아니라 출력한 pane id 로 가르는 이유: tmux 3.7 은 없는 pane id 에도 `display-message` 를 0 으로
+   끝내고 빈 값을 낸다(실측). Orca 갈래에서는 `orca terminal close` 가 JSON 을 돌려주면(2026-09-24 배경:
+   `ptyKilled:false` 로 답해도 claude 프로세스는 실제로 끝난다) `REAPED` 로 본다 — **`.dflow-pane` 을 비운다.**
+   이유: 「재투입」 의 재투입 전 확인이 `.dflow-pane` 의 값(핸들)이 남아 있으면 `live=unknown`(Orca 는 `$TM` 이
+   없어 이 갈래로 온다)으로 fail-closed 되어 재투입을 막는데, 비워 두면 `p` 가 빈 값이 되어 그 검사를 그대로
+   통과한다(스크립트를 고치지 않고 이 효과를 얻는다). `REAP_FAILED`(pane 이 아직 있다, 또는 Orca 응답이 비었다)나
+   `REAP_NO_HANDLE`(Orca 인데 핸들이 `-`)이면 `team.lost` 를 쓰지 않고 재투입하지 않으며 「멈춤」(사유 `거두기 실패`)
    으로 보고한다. 이유: 살아 있는 팀원 옆에 같은 작업을 겹쳐 띄우면 한 워크트리를 두 세션이 고친다.
 2. 그 다음 `team.lost` 를 기록한다(events.md 조각. `slot` 은 그 슬롯 번호, `worktree` 는 워크트리 절대경로).
    거두기를 기록보다 먼저 하는 이유: 기록 뒤 거두기 전에 컨텍스트가 끊기면 다음 기상이 `RESTART_DUE` 로 보고
@@ -272,13 +293,21 @@ esac
 
 ## Orca
 
-Orca 는 **재투입하지 않는다**(실측 관문 전). 관문은 셋이다: `orca terminal close --terminal <핸들>` 이 팀원 claude 를
-실제로 끝내는가, `orca terminal create --worktree path:<워크트리> --command './.dflow-run' --json` 으로 띄운 세션이
-권한 확인 생략 모드로 돌고 포인터가 첫 입력으로 들어가며 폴더 신뢰 확인을 넘기는가, 새 탭의 핸들을 JSON 으로
-받는가. 셋을 확인하기 전에는 이 명령들을 실행 절차에 쓰지 않는다.
-관문 전 Orca 는 「판정」 의 1~4번과 9번까지만 하고, (나) 2회째 무응답이면 SKILL.md 「3. 결과 처리」 의 Orca 무응답
-처리를 그대로 한 뒤 한 줄을 더한다: `<TSK> <id8> 재시작하려면 그 탭을 닫고 /dflow-team <종료시각> --resume <id8>`.
-**`team.lost` 는 기록하지 않는다.** 관문 전 동작은 현행과 같아야 하기 때문이다.
+**관문 셋을 2026-09-24 리허설(Orca 1.4.210, Claude Code 2.1.281)로 통과했다**: `orca terminal close --terminal
+<핸들> --tab --json` 이 팀원 claude 를 실제로 끝낸다(`ptyKilled:false` 로 답해도 `lsof` 로는 끝나 있었다),
+`orca terminal create --worktree path:<워크트리> --command ./.dflow-run --json` 으로 띄운 세션이 권한 확인
+생략 모드로 돌고 포인터가 첫 입력으로 들어가며(리허설 워크트리가 이미 신뢐된 리포 아래라 폴더 신뢐 확인
+화면 자체는 뜨지 않았다) 새 탭의 핸들을 `.result.terminal.handle` 로 JSON 에 준다. 이 관문을 통과했으므로
+**Orca 도 이제 tmux 와 같은 방식으로 재투입한다**: 탭 닫기(위 「재시작 후보를 띄울지」 「거두기」)→
+`.dflow-run` 새로 쓰기 → `orca terminal create`(SKILL.md 「5-1. 재개 spawn」 7항, backends.md 「pane(Orca)」).
+`team.lost` 기록도 tmux 와 같게 한다(「판정」·「재시작 후보를 띄울지」 그대로). 「판정」 의 6번(`dead_status=127`)은
+Orca 에는 적용되지 않는다 — `pane_dead_status` 는 tmux 전용 값이므로 Orca 슬롯은 그 조건에 걸리지 않고 7번
+(pane 죽음, Orca 는 탭 죽음)으로 간다.
+
+**관문 전에는**(이 리허설 이전 판본, 또는 위 셋 중 하나라도 다시 깨진 것이 확인되면) 이 절 전체를 쓰지 않고
+「판정」 의 1~4번과 9번까지만 하며, (나) 2회째 무응답이면 SKILL.md 「3. 결과 처리」 의 Orca 무응답 처리를
+그대로 한 뒤 한 줄을 더한다: `<TSK> <id8> 재시작하려면 그 탭을 닫고 /dflow-team <종료시각> --resume <id8>`.
+`team.lost` 는 기록하지 않는다.
 
 ## 마감·lease·잠금
 

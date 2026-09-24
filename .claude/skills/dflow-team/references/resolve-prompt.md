@@ -51,8 +51,9 @@ done
 
 - `worker-prompt.md` 「2」 그대로 `.dflow-agent` 에 `{AGENT_ID}` 를 쓴다. 팀장 재구성이 이 파일로 슬롯을 흡수한다.
 - `worker-prompt.md` 「3」 그대로 링크·doctor·`me`·기점 이동(`git fetch origin && git switch --detach origin/{DEV_BRANCH}`)을
-  한다. 실패 값(`no-skill`·`doctor-<exit>`·`auth`·`detach`)도 같다. 그 절의 `--worker` 플래그 확인 줄은 건너뛴다. 마지막
-  기점 이동이 Orca 가 만든 브랜치 워크트리도 detach 한다.
+  한다. 실패 값(`no-skill`·`doctor-<exit>`·`auth`·`detach`)도 같다. 그 절의 `--worker` 플래그 확인 줄은 건너뛴다.
+  (2026-09-24 이전에는 Orca 가 만든 브랜치 워크트리를 이 기점 이동이 detach 했으나, 이제 두 백엔드 모두 팀장이
+  `git worktree add --detach` 로 이미 detached 상태를 만들어 두므로 이 기점 이동은 그대로 detached 를 유지한다.)
 - 스킬 폴더가 실제 폴더로 있으면 해소에 쓰는 두 스킬도 링크한다.
   ```bash
   if [ -d .claude/skills ] && [ ! -L .claude/skills ]; then

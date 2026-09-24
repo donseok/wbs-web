@@ -11,8 +11,9 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
   충돌을 다시 내기 때문이다.
 - **충돌 목록**: 표시를 풀어야 할 id8 이다. `team.conflict` 이벤트로 남기며, id8 마다 마지막 `decision` 이 `cleared` 가
   아닌 것이다(「5」 의 jq).
-- **해소 슬롯**: 워크트리 이름이 `-resolve` 로 끝나는 슬롯이다(tmux `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`, Orca
-  `<MAIN>/dflow-<id8>-resolve`). `spawn_kind` 로 가르지 않는 이유: 팀장을 다시 띄우면 「1. 시작」 5번이 살아 있는 슬롯을
+- **해소 슬롯**: 워크트리 이름이 `-resolve` 로 끝나는 슬롯이다(`<MAIN>/.claude/worktrees/dflow-<id8>-resolve`,
+  두 백엔드 공통 — 2026-09-24부터. 옛 방식 Orca 워크트리는 `<MAIN>/dflow-<id8>-resolve`). `spawn_kind` 로 가르지
+  않는 이유: 팀장을 다시 띄우면 「1. 시작」 5번이 살아 있는 슬롯을
   `spawn_kind: readopt` 로 다시 적어 `resolve` 가 사라진다. 그 줄은 `orig_kind` 에 원래 종류를 싣지만(events.md), 옛 줄에는
   없으므로 판별의 정본은 워크트리 이름이다. 이 판별을 해소 결과 처리(「4」)·차단기(「6」)·동시 해소 상한이 모두 쓴다.
 - **동시 해소 상한**은 `max(1, ⌊인원/2⌋)` 이다. 세는 대상은 위 판별(워크트리 접미사 `-resolve`)로 고른 해소 슬롯이며, 답을 기다리는 `blocked` 해소 워커도 센다. 넘치는 것은 해소 큐에 남긴다.
@@ -76,18 +77,19 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
    W='<MAIN>/.claude/worktrees/dflow-<id8>-resolve'
    [ ! -e "$W" ] || echo "RESOLVE_WT_EXISTS $W"
    ```
-   - **tmux**: backends.md 「pane(tmux)」 의 spawn 블록을 그대로 한 번의 Bash 호출로 돌린다. 워크트리 생성
-     (`git worktree add --detach "$WT" origin/<기본브랜치>`)도 그 블록이 한다. 바꾸는 것은 셋이다: 블록의(입장 제어 줄 다음)
-     `WT="<MAIN>/.claude/worktrees/dflow-<id8>"` 를 `WT="<MAIN>/.claude/worktrees/dflow-<id8>-resolve"` 로 쓰고,
-     `<포인터 한 줄>` 을 아래 4번의 해소 포인터로 쓰고, 이름표를 `w<slot> · 해소 <TSK> <id8>` 로 붙인다. 그 뒤의
-     `.dflow-pane` 기록·**폴더 신뢰 확인 루프**는 같다.
-   - **Orca**:
-     ```
-     orca worktree create --name dflow-<id8>-resolve --agent claude --no-parent \
-       --base-branch origin/<개발브랜치> --prompt "<포인터 한 줄>" --json
-     ```
-     Orca 는 브랜치 워크트리를 만든다. 해소 워커가 부트스트랩 끝에서 `origin/<개발브랜치>` 로 detach 한다
-     (`resolve-prompt.md` 「2」). create 뒤 같은 포인터를 `.dflow-prompt` 에도 쓴다.
+   - **tmux**: backends.md 「pane(tmux)」 의 스폰 블록(「팀원 워크트리 준비」)을 그대로 한 번의 Bash 호출로 돌린다.
+     워크트리 생성(`git worktree add --detach "$WT" origin/<기본브랜치>`)도 그 블록이 한다. 바꾸는 것은 셋이다:
+     블록의(입장 제어 줄 다음) `WT="<MAIN>/.claude/worktrees/dflow-<id8>"` 를
+     `WT="<MAIN>/.claude/worktrees/dflow-<id8>-resolve"` 로 쓰고, `<포인터 한 줄>` 을 아래 4번의 해소 포인터로 쓰고,
+     이름표를 `w<slot> · 해소 <TSK> <id8>` 로 붙인다. 그 뒤의 `.dflow-pane` 기록·**폴더 신뢐 확인 루프**는 같다.
+   - **Orca**(2026-09-24부터 — 옛 방식은 `orca worktree create --name dflow-<id8>-resolve --agent claude
+     --no-parent --base-branch origin/<개발브랜치> --prompt "<포인터 한 줄>" --json` 으로 브랜치 워크트리를 만들고
+     해소 워커가 부트스트랩 끝에서 `origin/<개발브랜치>` 로 detach 했다): tmux 와 같은 블록을 같은 `WT`
+     치환(`-resolve` 접미)으로 그대로 돈 뒤(입장 제어 두 줄 포함이므로 따로 부르지 않는다), `chmod +x
+     "$WT/.dflow-run"` 줄 뒤를 backends.md 「pane(Orca)」 대로 `orca terminal create --worktree "path:$WT"
+     --title 'w<slot> · 해소 <TSK> <id8>' --command ./.dflow-run --json` 으로 잇는다. 결과 핸들을 `$WT/.dflow-pane`
+     에 쓰고 **폴더 신뢐 확인 루프**를 돈다(backends.md 「pane(Orca)」와 같다). 준비 블록이 이미 포인터를
+     `$WT/.dflow-prompt` 에 썼으므로 따로 쓰지 않는다.
 4. **포인터 한 줄**:
    ```
    <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/resolve-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> ORDER=<order 전체 UUID> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<TASK_DIR> ATTEMPT=<n> ON_REPORT=<0|1> DOCKER=<allow|ban>

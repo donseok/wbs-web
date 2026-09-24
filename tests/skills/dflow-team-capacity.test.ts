@@ -269,7 +269,9 @@ describe('팀장 SKILL.md 의 입장 제어', () => {
     expect(B).toContain('## 입장 제어')
     // tmux spawn 블록은 입장 제어 두 줄로 시작하고 그 뒤에 tmux 를 찾는다
     expect(B).toContain('```bash\n' + gate + 'TM=$(find_tmux)\nWT="<MAIN>/.claude/worktrees/dflow-<id8>"')
-    expect(B).toMatch(/\*\*spawn\*\*: 먼저 「입장 제어」 블록을 따로 돈다/)
+    // 2026-09-24부터 Orca 도 이 블록(입장 제어 두 줄 포함)을 chmod +x 줄까지 그대로 쓰므로 따로 돌지 않는다
+    expect(B).toContain('두 백엔드 공통)은 이 두 줄로 시작하므로 따로 부르지 않는다')
+    expect(B).toMatch(/`chmod \+x\n"\$WT\/\.dflow-run"` 줄까지 두 백엔드가 글자 그대로 같다/)
     expect(R.slice(R.indexOf('## 재투입'))).toMatch(/\*\*입장 제어\*\*: `REINJECT_OK` 뒤[^\n]*backends\.md 「입장 제어」/)
     const five = TEAM.slice(TEAM.indexOf('## 5. 팀원 spawn'), TEAM.indexOf('### 5-1. 재개 spawn'))
     expect(five).toContain('**입장 제어는 spawn 블록이 집행한다**')

@@ -48,12 +48,13 @@ describe('dflow-team 자동 재시작 흐름', () => {
     expect(s).toMatch(/\| `failed no-result`\(pane 이 죽었는데 결과 줄 없음\) \|[^\n]*127 이 아닌 죽음은[^\n]*restart\.md/)
     expect(s).toMatch(/\| `failed rate-limit` \|[^\n]*자동 재시작·보류 대상이 아니다/)
   })
-  it('차단기와 무응답: team.lost 를 세고, tmux 무응답은 자동 재시작이 대신하며 Orca 는 관문 전 그대로', () => {
+  it('차단기와 무응답: team.lost 를 세고, 자동 재시작은 2026-09-24부터 두 백엔드 공통이다', () => {
     const s = section('## 3. 결과 처리', '## 4. 승인 스윕')
     expect(s).toContain('`team.lost`(모든 `cause`)도 실패 1건으로 센다')
     expect(s).toContain('**자동 재시작**')
-    expect(s).toMatch(/tmux 갈래는[^\n]*`references\/restart\.md`/)
-    expect(s).toMatch(/Orca 는 관문 전이라/)
+    expect(s).toMatch(/위 자동 정리는[^\n]*`references\/restart\.md`/)
+    expect(s).toMatch(/2026-09-24부터 두 백엔드 공통/)
+    expect(s).toMatch(/Orca 가 "관문 전" 이라 이 절 대신/)
     // 기존 문구 유지
     expect(s).toContain('"무응답" 으로 보고만 하고 슬롯을 유지한다')
     expect(s).toContain('**두 TICK 연속으로** 생존 증거가 없을 때만')

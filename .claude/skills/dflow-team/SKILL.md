@@ -206,14 +206,15 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   스왑 17GB·load 52 까지 밀렸고, 오전에 넣은 인원 기준(4명 이상 금지)은 3명 이하에서 같은 목적의 컨테이너가 워커마다 뜨는
   것을 막지 못했다.
 - 모델은 선택이다(`opus`|`sonnet`). 없으면 포인터에 `MODEL=default` 를 넘겨 기본 모델을 쓴다. 값은 팀원이
-  `/dflow-dev --model` 로 넘기고, tmux 백엔드는 팀원을 띄우는 `.dflow-run` 의 `claude --model` 에도 붙인다.
+  `/dflow-dev --model` 로 넘기고, 두 백엔드 모두 팀원을 띄우는 `.dflow-run` 의 `claude --model` 에도 붙인다
+  (2026-09-24부터 — Orca 도 `.dflow-run` 을 쓰므로 tmux 와 같다).
 - **추론 강도(effort)는 기본 `high` 다**(2026-09-23 사용자 지시). 사람이 `effort xhigh`·`추론 강도 max` 처럼 요청할 때만
   바꾼다. 값은 `low`|`medium`|`high`|`xhigh`|`max` 중 하나이고, 그 밖의 값이면 한 줄 알리고 `high` 를 쓴다. 정한 값을
-  `<EFFORT>` 로 기억한다. tmux 백엔드는 `.dflow-run` 의 `claude` 호출에 `--effort <EFFORT>` 를 붙인다(backends.md).
-  기본값을 명시하는 이유: `.dflow-run` 이 팀장 세션의 `CLAUDE_EFFORT` 를 벗기므로, 플래그가 없으면 팀원은 PC 마다
-  다른 `effortLevel` 설정을 따른다. Orca 백엔드는 `orca worktree create --agent claude` 에 플래그를 넘길 길이 없어
-  그 PC 의 `~/.claude/settings.json` `effortLevel` 을 따른다. Orca 로 돌리면서 기본값이 아닌 값을 요청받았으면 그
-  사실을 한 줄 알린다. 묻지 않는다(모델과 같은 이유).
+  `<EFFORT>` 로 기억한다. 두 백엔드 모두 `.dflow-run` 의 `claude` 호출에 `--effort <EFFORT>` 를 붙인다(backends.md
+  「팀원 워크트리 준비」). 기본값을 명시하는 이유: `.dflow-run` 이 팀장 세션의 `CLAUDE_EFFORT` 를 벗기므로, 플래그가
+  없으면 팀원은 PC 마다 다른 `effortLevel` 설정을 따른다. (2026-09-24 이전에는 Orca 가 `orca worktree create
+  --agent claude` 에 플래그를 넘길 길이 없어 그 PC 의 `effortLevel` 을 따른다고 적었으나, Orca 도 `.dflow-run` 을
+  쓰게 되면서 이 제약은 없어졌다.) 묻지 않는다(모델과 같은 이유).
 - **재개 인자 `--resume <id8>[ <id8>…]`** 는 선택이다. 자연어로 "443b8ffe 재개" 라고 써도 같게 해석한다. 이 인자가
   없어도 이 PC 에 남아 있는 중단된 팀원 워크트리는 자동으로 이어받는다(「팀장 상태」 고아 스캔의 "재개 가능"
   분류). `--resume` 은 자동 판정이 닿지 않는 자리, 곧 **워크트리가 이 PC 에 없거나 다른 PC 가 claim 한 작업**을
@@ -318,7 +319,8 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 - `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다. 아직 브랜치를 만들지 않은 Phase 01
   의 팀원도 이것으로 id8 을 안다.
 - `spawn_kind` 가 `resolve` 인 `team.spawn` 도 같게 잇는다. 해소 워커다(「5-2. 해소 spawn」). 워크트리는
-  `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`(Orca 는 `<MAIN>/dflow-<id8>-resolve`)이고 detached 라 브랜치가 없다.
+  `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`(두 백엔드 공통 — 2026-09-24부터. 옛 방식 Orca 워크트리는
+  `<MAIN>/dflow-<id8>-resolve`)이고 detached 라 브랜치가 없다.
   **해소 워커 판별은 워크트리 이름 접미사 `-resolve` 로 한다**(4번 재기록이 `spawn_kind` 를 `readopt` 로 덮으므로,
   `spawn_kind` 만 보면 팀장을 다시 띄운 뒤 해소 워커를 잃는다. `merge-conflict.md` 「0」). 결과는 `references/merge-conflict.md`
   「4. 해소 결과 처리」 표로 처리한다. 고아 스캔에서는 backends.md 「고아 정리 규칙」 2-1번으로 가르며 "재개 가능" 으로
@@ -557,7 +559,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    TM=
    if [ "${TERM_PROGRAM-}" = Orca ] || [ -n "${ORCA_WORKTREE_ID-}" ]; then
      BACKEND=orca
-     { orca worktree create --help | grep -q -- '--agent' && orca worktree create --help | grep -q -- '--prompt'; } || bad ORCA_OLD
+     { orca terminal create --help | grep -q -- '--worktree' && orca terminal create --help | grep -q -- '--command'; } || bad ORCA_OLD
+     command -v claude >/dev/null 2>&1 || bad NO_CLAUDE_CLI
    elif TM=$(find_tmux); then
      BACKEND=tmux
      command -v claude >/dev/null 2>&1 || bad NO_CLAUDE_CLI
@@ -706,10 +709,12 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      거부하며, 이는 안전한 쪽으로 기운 것이다.
    - `mkdir -p ~/.dflow`: 이벤트 기록이 디렉터리 부재로 조용히 실패하지 않게 한다.
    - 공유 `info/exclude` 에 워커 부산물 패턴을 없을 때만 넣는다. 커밋하지 않는 로컬 설정이며 링크드
-     워크트리가 모두 공유한다. `**/.claude/worktrees/` 는 tmux 팀원 워크트리(`dflow-<id8>`), `/dflow-*/` 는 Orca 팀원 워크트리다
-     (`orca worktree create --name dflow-<id8>` 은 `.claude/worktrees/` 가 아니라 리포 루트 바로 아래에 만든다 —
-     2026-09-19 mdm-dict-v2 실측. 빼면 재기동 때 `DIRTY` 에 걸린다), `.vitest/` 는 워커가 vitest 를 돌리면 남기는 결과
-     파일(`.vitest/json/output.json`)이다(빼면 done 뒤 워크트리가 깨끗하지 않아 「고아 정리 규칙」 과 `orca worktree rm` 이
+     워크트리가 모두 공유한다. `**/.claude/worktrees/` 는 두 백엔드의 팀원 워크트리다(`dflow-<id8>` —
+     2026-09-24부터 Orca 도 `git worktree add` 로 이 자리에 만든다). `/dflow-*/` 는 **옛 방식**(`orca worktree
+     create --name dflow-<id8>`)이 `.claude/worktrees/` 가 아니라 리포 루트 바로 아래에 만든 Orca 팀원 워크트리를
+     가린다(2026-09-19 mdm-dict-v2 실측. 빼면 재기동 때 `DIRTY` 에 걸린다) — 새 방식에는 해당하지 않지만, 전환기에
+     남은 옛 워크트리를 위해 패턴을 남긴다. `.vitest/` 는 워커가 vitest 를 돌리면 남기는 결과
+     파일(`.vitest/json/output.json`)이다(빼면 done 뒤 워크트리가 깨끗하지 않아 「고아 정리 규칙」 과 정리 명령이
      실패한다. 2026-09-19 mdm-dict-v2 실측), `/.dflow-agent`·
      `**/tasks/*/.result`·`**/tasks/*/.issues`·`**/tasks/*/decisions.json` 은 워커가 쓰는 미추적 파일(decisions.json 은
      `done --decisions` 의 전송용으로, 커밋하지 않는다. 어느 `<TASKS>` 아래든 잡도록
@@ -734,10 +739,11 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    - `LEGACY_REPORTED` 검사와 이 블록 전체는 bash 와 zsh 모두에서 돈다. state.json 은 glob 대신 `find` 로 찾고,
      결과를 변수로 받아 루프 밖에서 `bad` 를 부른다. 이유: zsh 는 매치 없는 glob 에서 블록 전체를 `FAIL` 줄 없이
      죽이고, bash 는 파이프 안의 `while` 을 서브셸에서 돌려 그 안에서 바꾼 `fail` 이 밖으로 나오지 않는다.
-   - `ORCA_OLD`: pane(Orca)이면 `orca worktree create` 가 `--agent`·`--prompt` 를 지원해야 한다. tmux 를 찾지
-     못한 Orca 환경에서만 이 갈래로 온다.
-   - `NO_CLAUDE_CLI`: tmux 백엔드는 팀원을 `.dflow-run` 의 `exec claude` 로 띄우므로 `claude` 가 PATH 에 있어야
-     한다. 없으면 pane 이 즉시 죽고 종료 코드 127 만 남아, 무엇이 없어서 죽었는지 화면에 남지 않는다.
+   - `ORCA_OLD`: pane(Orca)이면 `orca terminal create` 가 `--worktree`·`--command` 를 지원해야 한다(2026-09-24부터
+     — `git worktree add` + `orca terminal create` 조합을 쓰므로 이 확인으로 바꿨다. 옛 확인은 `orca worktree
+     create` 의 `--agent`·`--prompt` 였다). tmux 를 찾지 못한 Orca 환경에서만 이 갈래로 온다.
+   - `NO_CLAUDE_CLI`: 두 백엔드 모두 팀원을 `.dflow-run` 의 `exec claude` 로 띄우므로 `claude` 가 PATH 에 있어야
+     한다. 없으면 pane(Orca 는 탭)이 즉시 죽고 종료 코드 127 만 남아, 무엇이 없어서 죽었는지 화면에 남지 않는다.
    - `NO_TMUX`: tmux 도 Orca 도 없으면 시작하지 않는다. 팀원을 대화형으로 띄울 수단이 없기 때문이다. 안내에
      설치 명령을 적는다(macOS `brew install tmux`, Debian·Ubuntu `apt install tmux`, Windows 는 MSYS2 또는
      WSL). 종전의 비대화형 프로세스 백엔드(`nohup claude -p`)는 2026-09-16 에 없앴다. 사람이 권한 확인에
@@ -1269,7 +1275,7 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
 
 | status | 슬롯 | 제외 | 워크트리 | 그 밖 |
 |---|---|---|---|---|
-| `done` | 해제 | 없음 | 「고아 정리 규칙」 2번(미커밋 변경 없음, HEAD 가 `origin/<agent 브랜치>` 와 같음)을 맞추면 그 자리에서 정리한다. 아니면 3번대로 경로와 미커밋 목록을 보고하고 남기며 `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼다 | 자동 머지(`AUTOMERGE_ON`)면 **먼저 승인 스윕을 곧바로 한다**(「4. 승인 스윕」 — 따로 한 번 더 돌지 않고, 이 기상의 스윕 1회(「4-0」)를 spawn 보다 먼저 한다는 뜻이다). 그 다음 대기 큐가 있으면 그 슬롯에 spawn 한다. 비어 있으면 poll 재기동 조건(「2-1」)을 따른다. 스윕을 먼저 하는 이유: 방금 끝난 작업이 기본 브랜치에 들어가야 그 후속이 착수할 수 있다 |
+| `done` | 해제 | 없음 | 「고아 정리 규칙」 2번(미커밋 변경 없음, HEAD 가 `origin/<agent 브랜치>` 와 같거나 그 머지가 이미 기본 브랜치의 조상임)을 맞추면 그 자리에서 정리한다. 아니면 3번대로 경로와 미커밋 목록을 보고하고 남기며 `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼다 | 자동 머지(`AUTOMERGE_ON`)면 **먼저 승인 스윕을 곧바로 한다**(「4. 승인 스윕」 — 따로 한 번 더 돌지 않고, 이 기상의 스윕 1회(「4-0」)를 spawn 보다 먼저 한다는 뜻이다). 그 다음 대기 큐가 있으면 그 슬롯에 spawn 한다. 비어 있으면 poll 재기동 조건(「2-1」)을 따른다. 스윕을 먼저 하는 이유: 방금 끝난 작업이 기본 브랜치에 들어가야 그 후속이 착수할 수 있다 |
 | `needs-merge` | 해제 | 없음 | `done` 과 같다 | 승인 스윕을 곧바로 한다. 이 기상의 스윕 1회이며, 워커가 approved 를 확인한 머지 대상이 있으므로 사전 검사 없이 부른다(「4-0」 의 예외) |
 | `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙, 아니면 `done` 과 같다 | 사유 보고 |
 | `blocked` | 유지 | 진행 중으로 영구 제외에 남긴다 | 그대로 둔다(두 백엔드 공통). 팀원이 pane 이나 탭에서 답을 기다린다 | 통지(「6. blocked」) |
@@ -1291,9 +1297,12 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
   남기면 같은 세션에서 승인된 작업의 로컬 agent 브랜치 삭제가 실패한다. 정리 명령은 backends.md 의 백엔드별
   「정리」 와 「고아 정리 규칙」 이며, 워크트리를 지웠으면 그 규칙 5번의 생성 브랜치 정리까지 한다.
 - **회수**: tmux 백엔드에서는 결과 줄을 처리한 뒤 pane 을 `kill-pane -t <pane>` 으로 거두고
-  `select-layout -t dflow tiled` 를 다시 돈다(backends.md 「생존·화면·답·회수」). **`blocked` 는 예외로 두어
+  `select-layout -t dflow tiled` 를 다시 돈다(backends.md 「생존·화면·답·회수」). Orca 는 결과 줄을 처리한 뒤
+  `orca terminal close --terminal <handle> --tab --json` 으로 탭을 닫는다(핸들이 `-` 면 건너뛴다. 2026-09-24부터
+  — 예전에는 Orca 팀원을 회수하지 않았다). 순서는 결과 처리 → 탭 닫기 → 워크트리 정리다. 응답의 `ptyKilled:false`
+  는 실패가 아니다 — claude 프로세스는 실제로 끝난다(2026-09-24 실측, `lsof` 확인). **`blocked` 는 예외로 두어
   거두지 않는다.** 그 팀원은 답을 기다리며 계속 살아야 하기 때문이다. 워커는 `.result` 를 쓰고 곧 끝나므로
-  보통 `remain-on-exit` 가 남긴 죽은 pane 이며, 그것도 `kill-pane` 으로 치운다. Orca 팀원은 회수하지 않는다.
+  보통 `remain-on-exit` 가 남긴 죽은 pane 이며, 그것도 `kill-pane` 으로 치운다.
 - **차단기**: 결과가 도착한 순서로 `failed`(`no-result`·`rate-limit` 포함, `not-assignee`·해소 워커의 내용 실패(`references/merge-conflict.md` 「6. 차단기」) 제외)가 연속 2건이면 새 spawn 을 멈추고
   보고한다. `failed` 가 아닌 결과가 오면 연속 수를 0 으로 되돌린다. 걸린 동안에는 다음 `TICK` 마다 1건만 시험
   spawn 하고(대기 큐 맨 앞에서, 큐가 비었으면 poll 을 한 번 띄워 얻는다), 그 결과가 `failed` 가 아니면 차단기를
@@ -1302,18 +1311,18 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
   재시작 대기가 새 작업보다 먼저다.
 - **중단**: 워커는 `dflow.sh` exit 10 을 받으면 `.result` 에 `cancelled` 를 쓰지만, heartbeat 훅이 먼저 세션을 세우면
   결과 줄 없이 멈춘다. 그래서 결과 줄이 없는 진행 슬롯이라도 생존 증거 2번의 `show` 가 `status=cancelled` 면 결과 줄
-  `cancelled`(hash `-`)를 받은 것과 똑같이 처리한다 — 무응답 판정을 기다리지 않는다. tmux 는 `kill-pane` 으로 거두되
-  워크트리는 지우지 않는다. 이유: 주문이 종착 상태라 더 올 결과가 없고, 멈춘 세션이 슬롯을 계속 잡으면 대기 큐가 선다.
+  `cancelled`(hash `-`)를 받은 것과 똑같이 처리한다 — 무응답 판정을 기다리지 않는다. tmux 는 `kill-pane` 으로,
+  Orca 는 `orca terminal close --terminal <handle> --tab --json` 으로 거두되 워크트리는 지우지 않는다. 이유:
+  주문이 종착 상태라 더 올 결과가 없고, 멈춘 세션이 슬롯을 계속 잡으면 대기 큐가 선다.
 - **무응답**: 결과도 알림도 없는 진행 슬롯의 생존 증거가 한 `TICK` 동안 변하지 않으면 "무응답" 으로 보고만 하고 슬롯을 유지한다.
   생존 증거에 `show` 의 `last_heartbeat_at`·`heartbeat_phase` 를 넣는다. 워커가 Phase 마다 보내는 값이라 브랜치
   tip 시각보다 촘촘하다. `stale` 은 쓰지 않는다. 그 값은 `claimed_at` 으로부터 24시간이 지났는지일 뿐이라,
   두 시간 전에 죽은 워커에도 `false` 가 온다(2026-09-18 실측).
   느린 팀원을 죽이면 미커밋분을 잃고, 권한 확인에 걸려 멈춘 팀원은 사람이 보면 풀리기 때문이다. 자동 정리는
-  **두 TICK 연속으로** 생존 증거가 없을 때만 한다. tmux 는 `kill-pane` 으로 팀원을 멈추고 슬롯을 해제하며,
-  워크트리는 고아 정리 규칙을 따른다. Orca 는 팀원 프로세스를 멈출 수단이 워크트리 삭제뿐이므로, 깨끗하고
-  push 된 경우에만 `orca worktree rm --worktree path:<경로>` 로 정리하고 슬롯을 해제한다. 그렇지
-  않으면 슬롯을 계속 잡고 "사람 확인 필요" 로 보고한다. 자동 정리한 작업은 영구 제외에 넣고 **"멈춤" 표**에 넣는다
-  (사유 `무응답`).
+  **두 TICK 연속으로** 생존 증거가 없을 때만 한다. tmux 는 `kill-pane` 으로, Orca 는 `orca terminal close
+  --terminal <handle> --tab --json` 으로 팀원을 멈추고 슬롯을 해제하며(2026-09-24부터 두 백엔드가 같다 — 예전에는
+  Orca 가 프로세스를 멈출 수단이 워크트리 삭제뿐이라 깨끗하고 push 된 경우에만 정리했다), 워크트리는 고아 정리
+  규칙을 따른다. 자동 정리한 작업은 영구 제외에 넣고 **"멈춤" 표**에 넣는다(사유 `무응답`).
 - **서브에이전트 종료 후 정지 패턴(2026-09-24, dmes-standard TSK-03-01)**: 위 "무응답" 판정 시점(생존 증거
   무변화 **1 회째** — 두 `TICK` 을 기다리지 않는다)에 화면(tmux `capture-pane`)을 이 판정에만 쓴다. **적용
   대상은 `references/restart.md` 「판정」 의 1~5번(측정 실패·중단·점유 변동·표식 불일치·rate-limit)에 걸리지
@@ -1337,18 +1346,20 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
   (같은 문구를 무한 재주입하지 않는다) — 그 이후로도 두 `TICK` 무변화 조건이 유지되면 기존 자동 정리·자동
   재시작이 그대로 이어받는다(이 절이 그것을 막지 않는다).
 - **대기 중인 팀원 판정(2026-09-24, doc-level — 별도 판정 스크립트는 아직 없다)**: `last_heartbeat_at` 은
-  갱신되는데 커밋 시각·미커밋 변경 목록·`heartbeat_phase` 가 두 `TICK` 연속으로 그대로이고, tmux 화면
-  마지막 줄이 입력 대기 프롬프트(`❯`)로 끝나면 이 팀원은 죽은 것이 아니라 **입력을 기다리며 서 있는
-  것이다** — SendMessage 이슈 보고 뒤 지시를 기다리는 경우가 전형적이다(「2-4. 팀원 이슈 보고 처리」).
-  이때는 위 무응답 자동 정리(`kill-pane`)를 하지 않고 **"대기 중인 팀원"** 으로 보고만 하며 슬롯을
+  갱신되는데 커밋 시각·미커밋 변경 목록·`heartbeat_phase` 가 두 `TICK` 연속으로 그대로이고, 화면(tmux
+  `capture-pane`, Orca `orca terminal read --terminal <handle>`) 마지막 줄이 입력 대기 프롬프트(`❯`)로
+  끝나면 이 팀원은 죽은 것이 아니라 **입력을 기다리며 서 있는 것이다** — SendMessage 이슈 보고 뒤 지시를
+  기다리는 경우가 전형적이다(「2-4. 팀원 이슈 보고 처리」). 이때는 위 무응답 자동 정리(tmux `kill-pane`,
+  Orca `orca terminal close`)를 하지 않고 **"대기 중인 팀원"** 으로 보고만 하며 슬롯을
   유지한다 — heartbeat 가 살아 있는 프로세스를 죽이면 미답 이슈와 미커밋 산출물을 함께 잃는다. 화면은
   다른 곳과 같이 생존 증거로 쓰지 않고 이 판정에만 쓴다(backends.md 「화면은 생존 증거로 쓰지 않는다」와
   같은 원칙). Orca 는 터미널 핸들이 없으면(`-`) 화면을 읽을 수 없으므로 이 판정을 건너뛰고 위 무응답
   규칙만 적용한다.
-- **자동 재시작**: 위 자동 정리의 tmux 갈래는 `references/restart.md` 「판정」 이 대신한다. 두 TICK 연속 무변화(또는 결과
-  없는 pane 죽음)면 원인을 가려, 재시작 후보는 워크트리를 지우지 않고 pane 만 거둔 뒤 `team.lost` 를 기록하고 같은 기상
-  안에 「5-1. 재개 spawn」 으로 다시 띄운다(재시도 상한 3 은 고아 재개와 공유). 영구 제외는 `team.lost` 가 대신한다.
-  Orca 는 관문 전이라 위 자동 정리를 그대로 하고 `references/restart.md` 「Orca」 의 한 줄을 더한다.
+- **자동 재시작**: 위 자동 정리는 `references/restart.md` 「판정」 이 대신한다(2026-09-24부터 두 백엔드 공통 — 예전에는
+  Orca 가 "관문 전" 이라 이 절 대신 위 자동 정리를 그대로 쓰고 재시작하지 않았다). 두 TICK 연속 무변화(또는 결과
+  없는 pane·탭 죽음)면 원인을 가려, 재시작 후보는 워크트리를 지우지 않고 pane(Orca 는 탭)만 거둔 뒤 `team.lost` 를
+  기록하고 같은 기상 안에 「5-1. 재개 spawn」 으로 다시 띄운다(재시도 상한 3 은 고아 재개와 공유). 영구 제외는
+  `team.lost` 가 대신한다.
 
 ## 4. 승인 스윕
 
@@ -1534,17 +1545,21 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
      「pane(tmux)」). pane id 를 `<워크트리>/.dflow-pane` 에 쓰고, `allow-set-title off` 를 걸고 `select-pane -T` 로 그 pane 에 `w<slot> · <TSK> <id8> · <작업 이름>` 이름표를 붙인다(순서와 테두리 표시 설정은 backends.md. 옵션을 먼저 걸지 않으면 claude 가 제목을 자기 진행 표시로 덮는다). **이어서 폴더 신뢰 확인 루프를 반드시 돈다.**
      그 확인을 넘기지 않으면 팀원이 첫 화면에서 멈춘 채 살아 있어 한 슬롯이 통째로 놀게 된다. 기점은
      `origin/<기본브랜치>` 로 명시하고, 스택 기점은 `/dflow-dev` Phase 01 2번이 claim 전에 맞춘다.
-   - **pane(Orca)**: 먼저 backends.md 「입장 제어」 블록을 따로 돈다(`SPAWN_DEFERRED_CAPACITY` 면 아래를 부르지 않는다).
+   - **pane(Orca)**: backends.md 「pane(tmux)」 스폰 블록의 처음(입장 제어 두 줄 포함)부터 `chmod +x
+     "$WT/.dflow-run"` 줄까지 **그대로, 한 번의 Bash 호출 안에서** 돈 뒤, 그 이어(tmux 의 `has-session` 대신)
+     아래로 잇는다(backends.md 「pane(Orca)」).
+     ```bash
+     R=$(orca terminal create --worktree "path:$WT" --title 'w<slot> · <TSK> <id8> · <작업 이름>' --command ./.dflow-run --json)
+     H=$(printf '%s' "$R" | jq -r '.result.terminal.handle // .result.agentTerminalHandle // "-"')
+     printf '%s\n' "$H" > "$WT/.dflow-pane"
      ```
-     orca worktree create --name dflow-<id8> --agent claude --no-parent \
-       --base-branch origin/<기본브랜치> --prompt "<포인터 한 줄>" --json
-     ```
-     기점은 agent 브랜치가 결국 머지될 `origin/<기본브랜치>` 로 명시한다. 생략하면 리포 기본 base 로 가는데,
-     리포 기본 base 설정이 기본 브랜치와 다를 수 있기 때문이다. 결과 JSON 의 `result.worktree.path` 와
-     `result.agentTerminalHandle` 을 슬롯 표에 저장한다. 핸들이 없으면(옛 런타임) 화면 읽기 없이 git·서버
-     증거만 쓴다. **create 뒤에 같은 포인터를 `<워크트리>/.dflow-prompt` 에도 쓴다**(backends.md). 재개가 슬롯
-     번호를 그 파일에서 되찾기 때문이다. 이후 이 워크트리를 가리킬 때는 `--worktree path:<result.worktree.path>`
-     선택자를 쓴다.
+     `WT` 는 tmux 와 같은 자리 `<MAIN>/.claude/worktrees/dflow-<id8>` 다(2026-09-24부터 — 옛 리포 루트 위치는
+     쓰지 않는다). 기점은 agent 브랜치가 결국 머지될 `origin/<기본브랜치>` 로 명시한다(준비 블록의 `git worktree
+     add`). 결과 JSON 의 `result.terminal.handle`(옛 런타임은 `result.agentTerminalHandle`)을 슬롯 표와
+     `$WT/.dflow-pane` 에 저장한다. 핸들이 없으면 화면 읽기 없이 git·서버 증거만 쓴다. **이어서 폴더 신뢐 확인
+     루프를 반드시 돈다**(backends.md 「pane(Orca)」 「폴더 신뢐 확인」) — `I trust this folder` 가 보이면 키를
+     보내지 않고 "사람 확인 필요"로 보고한다. 준비 블록이 이미 포인터를 `$WT/.dflow-prompt` 에 썼으므로 따로
+     쓰지 않는다. 이후 이 워크트리를 가리킬 때는 `--worktree "path:$WT"` 선택자를 쓴다.
 
    팀원을 Agent 도구 서브에이전트로 띄우지 않는다. 서브에이전트는 턴이 끝나면 멈춰 Phase 손자를 기다리지
    못한다.
@@ -1649,9 +1664,11 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
    `<4항에서 출력된 작업 폴더>`, `DOCKER` 는 4항 블록의 `docker-allow.sh` 출력이다. 옛 파일을 그대로 두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의
    `AGENT_ID` 와 어긋나 팀원이 남의 좌석으로 heartbeat 를 보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
 7. **띄운다.** 먼저 `references/restart.md` 「중단 표식 정리」 블록을 돈다(`st` 는 재개 판정이 받은 show 의 `status`,
-   곧 `claimed`). `CANCEL_MARK_RM_FAILED` 면 띄우지 않고 「멈춤」 표(사유 `중단 표식 삭제 실패`)에 넣는다. 백엔드별 명령은 5번 5항과 같다(입장 제어 줄과 `git worktree add` 줄은 빼고 쓴다. 입장 제어는 0항에서 했다). tmux 는 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
-   워크트리에는 없고, 남아 있던 것은 옛 모델 인자를 달고 있다) pane id 를 `.dflow-pane` 에 덮어쓴다. **폴더 신뢰 확인 루프를 반드시 돈다.** 넘기면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가
-   통째로 논다. Orca 는 포인터를 `--prompt` 로 넘겨 기존 워크트리에 탭을 다시 연다.
+   곧 `claimed`). `CANCEL_MARK_RM_FAILED` 면 띄우지 않고 「멈춤」 표(사유 `중단 표식 삭제 실패`)에 넣는다. 백엔드별 명령은 5번 5항과 같다(입장 제어 줄과 `git worktree add` 줄은 빼고 쓴다. 입장 제어는 0항에서 했다). 두 백엔드 모두 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
+   워크트리에는 없고, 남아 있던 것은 옛 모델 인자를 달고 있다) 핸들을 `.dflow-pane` 에 덮어쓴다. **폴더 신뢐 확인 루프를 반드시 돈다.** 넘기면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가
+   통째로 논다. tmux 는 pane id 를, Orca 는 `orca terminal create --worktree "path:$WT" --command ./.dflow-run
+   --json` 이 낸 `result.terminal.handle` 을 쓴다(backends.md 「pane(Orca)」 — 2026-09-24부터. 옛 방식은 포인터를
+   `--prompt` 로 넘겨 기존 워크트리에 탭을 다시 열었다).
 8. **옛 `.result` 를 지운다**(`rm -f <워크트리>/<4항에서 출력된 작업 폴더>/.result`). 이유: `failed…` 로 끝난 워크트리를
    `--resume` 으로 이어받으면 옛 결과 줄이 그대로 남아 있는데, 재개한 팀원이 결과를 쓰기 전에 pane 이 한 번
    흔들리면 `PANE_DEAD` 폴백이 그 옛 줄을 읽어 방금 띄운 작업을 다시 실패로 판정한다. 해시가 같아 중복
@@ -1669,9 +1686,9 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
 `<MAIN>/.claude/worktrees/dflow-<id8>-resolve` 이고, 포인터는 `references/resolve-prompt.md` 를 가리키며, `team.spawn` 의
 `spawn_kind` 는 `resolve` 다. 재개 다음·대기 큐보다 먼저 띄우고, 동시에는 `max(1, ⌊인원/2⌋)` 까지다(인원은 「인자」 의
 인원 상한으로 자른 뒤의 값이다. 16GB PC 의 기본 상한 4 면 해소는 2개까지). claim 하지 않는다.
-tmux·Orca 띄우기, 신뢰 확인 루프, 이름표(`w<slot> · 해소 <TSK> <id8>`)는 5번과 같다. 입장 제어도 같다: tmux 는
-merge-conflict.md 가 backends.md 의 spawn 블록을 그대로 돌리므로 그 첫 단계가 집행하고, Orca 는 `orca worktree create`
-앞에 backends.md 「입장 제어」 블록을 따로 돈다. `SPAWN_DEFERRED_CAPACITY` 면 해소 큐에 그대로 두고 merge-conflict.md
+tmux·Orca 띄우기, 신뢰 확인 루프, 이름표(`w<slot> · 해소 <TSK> <id8>`)는 5번과 같다. 입장 제어도 같다: 두 백엔드
+모두 merge-conflict.md 가 backends.md 의 공용 스폰 블록(「팀원 워크트리 준비」, `chmod +x` 줄까지)을 그대로 돌리므로
+그 첫 단계가 집행한다(2026-09-24부터 — Orca 도 이 블록을 쓰므로 따로 돌 필요가 없어졌다). `SPAWN_DEFERRED_CAPACITY` 면 해소 큐에 그대로 두고 merge-conflict.md
 「2」 의 5~7번(`team.spawn`·표시 note·감시 루프 항목)을 하지 않는다. 띄우지 않았으므로 해소 시도로 세지 않는다 —
 `team.spawn`(`resolve`) 줄 수가 해소 카운터이고 그 id8 을 진행 중(영구 제외)으로 만들기 때문이다. 절차 정본은
 `references/merge-conflict.md` 「2. 해소 spawn」 이고 결과 처리는 같은 문서 「4」 다.
@@ -1685,11 +1702,11 @@ average 52, 스왑 18GB 중 17GB 까지 올라 PC 전체가 멈추다시피 했�
 (`dev-discipline.md` 「무거운 명령 줄 세우기」)가 따로 묶는다.
 
 **집행은 spawn 블록 한 곳이다.** backends.md 「입장 제어」 블록이 아래 명령을 부르고, 막히면 `SPAWN_DEFERRED_CAPACITY`
-를 내고 끝난다. tmux spawn 블록은 그 두 줄로 시작하므로 새 작업(「5」)과 해소(「5-2」, merge-conflict.md 가 같은 블록을
-돈다)는 블록을 돌기만 하면 걸린다. 블록을 통째로 돌지 않는 자리 — Orca 의 `orca worktree create` 앞, 재개·재투입
-(「5-1」 0항, restart.md 「재투입」) — 는 「입장 제어」 블록을 첫 단계로 따로 돈다. 이유: 전에는 이 절 한 줄과
-"「5-1」·「5-2」 도 같다" 로만 이어져, 해소 spawn(merge-conflict.md)·재투입(restart.md)·backends.md 의 spawn 블록 어디에도
-호출이 없었다.
+를 내고 끝난다. 새 작업(「5」)·해소(「5-2」, merge-conflict.md 가 같은 블록을 돈다)의 spawn 블록(backends.md
+「팀원 워크트리 준비」)은 두 백엔드 모두 그 두 줄로 시작하므로 블록을 돌기만 하면 걸린다(2026-09-24부터 — Orca 도
+이 블록을 쓰게 되면서 따로 돌 필요가 없어졌다). 블록을 통째로 돌지 않는 자리 — 재개·재투입(「5-1」 0항, restart.md
+「재투입」) — 는 「입장 제어」 블록을 첫 단계로 따로 돈다. 이유: 그 둘은 워크트리를 새로 만들지 않고 있는 것을
+이어 쓴다.
 ```bash
 .claude/skills/dflow-team/scripts/capacity.sh --state "$(git rev-parse --git-path dflow-team.capacity)"; echo "rc=$?"
 ```
@@ -1725,7 +1742,8 @@ PushNotification 도구가 있으면(지연 로드면 ToolSearch 로 불러) 질
 **tmux**: "결정 필요 <id8>: <질문>. `TMUX= tmux -L dflow attach` 로 붙어 그 pane 에서 직접 답하거나, 이 세션에
 `<id8> <답>` 으로 답하라" 고 알린다.
 
-**Orca**: "결정 필요 <id8>: <질문>. Orca 의 `dflow-<id8>` 탭에서 답하라" 고 알린다.
+**Orca**: "결정 필요 <id8>: <질문>. Orca 의 `w<slot> · <TSK> <id8> · <작업 이름>` 탭에서 답하라" 고 알린다
+(2026-09-24부터 탭 제목이 이 형식이다 — 옛 이름 `dflow-<id8>` 은 `orca worktree create` 시절의 워크트리 이름이었다).
 
 **답 매칭(tmux)**
 - 답은 `<id8> <답>` 형식으로 받는다. 이유: 여러 팀원의 질문이 동시에 쌓일 수 있다.
@@ -1773,9 +1791,11 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    워크트리는 사람이 이어받는 수밖에 없으므로, 이어받는 방법이 그 자리에 있어야 한다. 재시작 대기와 rate-limit 대기는
    `references/restart.md` 「마감·lease·잠금」 대로 사유와 재시작 명령을 적는다(마감 중에는 재시작하지 않는다).
 4. 남은 팀원 워크트리 중 살아 있는 팀원(「팀장 상태」 정의)이 없는 것만 백엔드별로 정리한다. tmux 는
-   워크트리가 아직 있을 때만 `git worktree remove --force <경로>`, Orca 는
-   `orca worktree rm --worktree path:<경로>` 다. 두 경우 모두 backends.md 「고아 정리 규칙」 을 따라, 깨끗하고
-   HEAD 가 `origin/<agent 브랜치>` 와 같을 때만 지우고(생성 브랜치 정리 포함) 나머지는 경로를 보고한다.
+   워크트리가 아직 있을 때만 `git worktree remove --force <경로>`, Orca 는 backends.md 「pane(Orca)」 「정리」의
+   전환 규칙(경로가 `orca worktree list --json` 에 있으면 `orca worktree rm --worktree path:<경로>`, 없으면
+   `git worktree remove --force <경로>`)을 따른다. 두 경우 모두 backends.md 「고아 정리 규칙」 을 따라, 깨끗하고
+   HEAD 가 `origin/<agent 브랜치>` 와 같거나 그 머지가 이미 기본 브랜치의 조상일 때만 지우고(생성 브랜치 정리
+   포함) 나머지는 경로를 보고한다.
    **살아 있는 팀원의 워크트리는 조건과 무관하게 지우지 않는다.** 경로(tmux 는 pane id 도)만 보고에 남긴다.
    이유: 팀원은 팀장이 끝나도 계속 돈다. `blocked` 팀원은 pane 이나 탭에서 답을 기다린다. 깨끗하고 push 된
    순간에 지우면 돌고 있는 팀원의 cwd 가 사라진다. 살아남은 tmux 팀원은 다음 팀장의 재구성이 `.dflow-pane` 과
