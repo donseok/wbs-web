@@ -9,7 +9,7 @@ description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕
 
 <!-- worker:begin -->
 > `--worker` 는 `/dflow-team` 팀장 전용 플래그다(사람이 직접 쓰지 않는다). 있으면 아래 「--worker 팀원 모드」
-> 절의 여덟 행(A~H)만 달라지고, 없으면 이 문서 절차 그대로다.
+> 절의 아홉 행(A~I)만 달라지고, 없으면 이 문서 절차 그대로다.
 <!-- worker:end -->
 
 > **위치 선언**: 이 스킬은 자율 러너 설계(wbs-web 리포 docs/superpowers/specs, 킷에는 미동봉)의
@@ -33,6 +33,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 - Build/Verify/Refactor 게이트: **오케스트레이터가 테스트 명령을 직접 실행**하고 exit code 와
   출력을 기준선과 차분 비교한다(신규 실패 0 + 테스트 총수 미감소). 서브에이전트가 "통과했다"고
   말해도 직접 실행 결과가 판정이다.
+  전체 스위트는 **Build 게이트에서 한 번** 돈다. Verify·Refactor 게이트는 그 Phase 가 코드를 바꿨을 때만 다시 돌고,
+  아니면 Build 게이트 결과를 그대로 쓴다(아래 「Phase 종료마다」 1번). 게이트 명령은 `heavy.sh` 로 감싼다.
 - 도커: 기준선 전에 도커 금지 모드를 판정하고, 켜져 있으면 기준선·게이트·Phase 프롬프트에서 도커·Testcontainers 명령을
   뺀다. 금지 모드가 아니면 도커를 쓰는 명령은 PC 전역 도커 슬롯(`heavy.sh --pool docker`)에서만 돌린다. 도커 런타임은
   언제나 켜지 않는다. 판정·제외·슬롯·기록·프롬프트 문구의 정본은 dev-discipline.md 「도커 사용 규칙」.
@@ -284,7 +286,7 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 
 **띄우기 직전에 state.json 의 `model` 을 그 서브에이전트의 모델로 쓴다** — Agent 도구에 넘기는 값 그대로
 (`opus`·`sonnet`·`haiku`, 전체 id 를 넘겼으면 그 id). 커밋은 하지 않는다(다음 Phase 산출물 커밋에 같이 실린다).
-Verify 재시도로 sonnet 승격하면 다시 쓴다. 훅이 60초 안에 새 값을 실어 보내 명찰이 바뀐다 — 빠뜨리면
+재시도를 새 에이전트로 띄워 모델이 바뀌면 다시 쓴다. 훅이 60초 안에 새 값을 실어 보내 명찰이 바뀐다 — 빠뜨리면
 좌석표가 이전 Phase 의 모델을 계속 보인다. 서브에이전트 없이 오케스트레이터가 직접 하는 단계(Phase 01·06)는
 `model` 을 지우지 않는다(마지막 Phase 의 값이 남는 것이 "누가 일했나"에 가깝다).
 
@@ -305,6 +307,10 @@ design.md·소스·테스트·state.json 은 이 Phase 담당인 당신 혼자 �
 명령 줄을 글자 그대로 옮긴다.** 돌려 보지 않은 도구 경로를 추측해 적지 않는다. 2026-09-24 dmes-standard
 TSK-02-02 에서 오케스트레이터가 안내한 `src/frontend/node_modules/.bin/tsc` 가 없어 서브에이전트가
 `m-mdm/node_modules/.bin/tsc` 를 스스로 찾아야 했다.
+Build 의 관련 테스트·변이 검증처럼 **범위를 좁힌 명령도 그 기준선 명령 줄에서 만든다** — cwd·러너 실행 파일·도커 제외
+인자(`-x mssqlMigrationTest` 등)는 그대로 두고 좁히는 인자(vitest `related <파일…> --run`·`--bail=1`, jest
+`--findRelatedTests`·`--bail`, Gradle `:<모듈>:test`·`--tests <클래스>`·`--fail-fast`)만 더한다. 오케스트레이터가 이 꼴을
+프롬프트에 적어 준다. 적어 주지 않으면 서브에이전트가 전체 스위트를 다시 돌리거나 도구 경로를 추측한다.
 
 공통 프롬프트에는 **포그라운드 실행 규칙**도 넣는다(dev-discipline.md 「포그라운드 실행(백그라운드 게이트
 금지)」). 문구: "게이트·변이 검증 스윕·테스트를 run_in_background 로 띄우지
@@ -316,6 +322,18 @@ TSK-02-02 에서 오케스트레이터가 안내한 `src/frontend/node_modules/.
 백그라운드 프로세스도 사라져 알림이 끝내 오지 않았다. 오케스트레이터(워커 세션)가 이를 "완료 알림을 기다리는
 중"으로 오판해 약 47분간 커밋도 heartbeat 도 없이 입력 대기로 멈췄고, 팀장이 TICK 무응답 점검에서 찾아
 [팀장 지시] 로 깨웠다.
+
+공통 프롬프트에는 **무거운 명령 규칙**도 한 줄 넣는다(dev-discipline.md 「무거운 명령 줄 세우기」). 문구: "전체 스위트·빌드·
+E2E·변이 검증·모든 gradlew/mvn 호출(단일 테스트 포함)·의존성 설치는 `.claude/skills/dflow-dev/scripts/heavy.sh` 로 감싸
+돌리고, `HEAVY_BUSY`·`DEPS_BUSY`(exit 75)면 실패로 보지 말고 같은 명령을 다시 부른다. 감싸지 않아도 되는 것은 JS 러너의
+단일 테스트 파일과 린트뿐이다." Gradle 은 테스트 하나도 JVM 2~3개·약 2.3GB 를 쓴다. 점검에서 `heavy.sh` 밖의 Gradle
+실행 때문에 PC 에 JVM 이 최대 10개까지 동시에 떴다.
+
+공통 프롬프트에는 **토큰 규칙**도 넣는다(dev-discipline.md 「공통 금지」). 문구: "이미 있는 파일은 Write 로 다시 쓰지 말고
+Edit 로 고친다. 하네스가 잘라 저장한 긴 출력은 Read 로 통째로 읽지 말고 tail·grep 으로 필요한 부분만 본다. 읽기 전용 조사
+서브에이전트를 띄울 때는 Agent 호출에 model(sonnet 또는 haiku)을 적는다. dev-discipline.md 는 전체를 읽지 말고 이
+프롬프트가 인용한 절만 읽는다(절 제목으로 grep 해 그 범위만)." 그래서 오케스트레이터는 Phase 마다 필요한 절 이름을
+인용한다 — 예 Build 는 「Phase 03 — Build」·「무거운 명령 줄 세우기」·「포그라운드 실행(백그라운드 게이트 금지)」.
 
 커밋 규칙에는 **모든 커밋에 `--trailer "DFlow-Order: <주문 UUID>"` 를 붙이는 것**이 포함된다(state.json 의
 `order`, dev-discipline.md 「Phase 경계 커밋」) — Design·Build·Verify·Refactor·Phase 06 마감 커밋 전부,
@@ -333,6 +351,13 @@ TSK-02-02 에서 Design 이 불변 규칙에 "초안 결함은 `.issues` 에 적
 
 Phase 종료마다 오케스트레이터가:
 1. 게이트 집행(위 원칙 — 직접 실행).
+   - **Build 게이트**: 전체 스위트를 `heavy.sh` 로 감싸 한 번 돈다. 결과(HEAD sha·명령 줄·통과/실패 수·신규 실패 목록)를
+     state.json 의 `build_gate` 에 적고 Verify 프롬프트에 그대로 넣는다 — Verify 는 전체 스위트를 다시 돌리지 않는다.
+   - **Verify·Refactor 게이트**: 먼저 `git diff --name-only <Build 게이트 sha>..HEAD` 를 본다. 바뀐 파일이 Task 문서
+     (`<TASKS>/<TSK>/` 아래)와 `*.md` 뿐이면 전체 스위트를 다시 돌리지 않고 Build 게이트 결과를 그대로 쓴다. 코드가
+     바뀌었으면 전체 스위트를 돈다. Refactor 가 커밋을 남기지 않았으면 Refactor 게이트는 없다.
+   - **Verify 의 감사 확인**: design.md 「변이 검증 기록」 표가 「불변 규칙」 을 모두 덮는지와, 화면 작업이면 E2E 결과가
+     보고에 있는지 본다. 없으면 실패다.
 2. 통과 → Phase 산출물 커밋 확인(없으면 여기서 커밋: 파일명 명시) → state.json 전진 → 서버 보고:
    Design `progress 25 "설계 완료"` / Build `progress 60 "구현 완료"` / Verify `progress 85 "검증 완료"`.
 3. **Phase 에이전트 회수** — 게이트 판정(통과·실패 무관, 재시도할 게 아니면)이 끝나는 즉시
@@ -345,8 +370,12 @@ Phase 종료마다 오케스트레이터가:
    `ListAgents` 목록에서 즉시 소멸. "완료 후 idle 로 세션을 붙들고 있다"는 진단과 일치한다. 종료 후에도 pane 이 남으면 그건 하네스에
    보고할 건이지 이 스킬이 우회할 대상이 아니다 — 없는 API 를 지어내지 않는다.
 4. 실패 → **즉시 중단**: `"{TSK} {Phase} 실패 — {사유}. phase 유지, 재실행 시 같은 Phase 재개."`
-   Verify 만 1회 재시도(sonnet 승격, 수정은 Build 규율로 — dev-discipline 참조).
+   Build 게이트와 Verify 만 1회 재시도한다(수정은 Build 규율로 — dev-discipline 참조). **Build 게이트가 실패하면 곧바로
+   failed 로 끝내지 않고** 같은 Build 서브에이전트에 실패 목록(신규 실패 테스트 이름과 출력 꼬리)을 넘겨 고치게 한 뒤
+   Build 게이트를 다시 돈다. Verify 가 실패해도 같은 Verify 서브에이전트에 실패 사유를 넘긴다. 두 번째 실패는 중단한다.
    재시도할 때는 회수를 미루고 같은 에이전트에 SendMessage 로 이어 붙인다(컨텍스트 재구축 낭비 방지).
+   SendMessage 가 안 되면(이미 회수됐거나 도구가 없다) 같은 Phase·같은 모델의 새 에이전트를 실패 목록과 함께 띄운다.
+   `HEAVY_BUSY`·`BASELINE_BUSY`·`DEPS_BUSY`(exit 75)는 실패가 아니라 재시도에 세지 않는다.
 5. **서브에이전트가 끝났는데(finished) 이 오케스트레이터가 게이트를 아직 직접 돌리지 않았다면** — 보고에
    게이트 결과가 없거나 "백그라운드 완료를 기다린다"고만 했다면, 그 알림을 기다리지 않는다. 프로세스
    (`pgrep` 등)와 산출물(커밋·파일)을 직접 확인한다. 그 프로세스가 아직 돌고 있으면 알림을 기다리지 말고
@@ -360,6 +389,8 @@ Phase 종료마다 오케스트레이터가:
    오지 않았다. 오케스트레이터가 47분간 입력 대기로 멈췄다가 팀장의 TICK 무응답 점검에서 발견됐다.
 
 Refactor 는 supervised 에서 기본 실행, 실패 시 Refactor 커밋만 되돌린다.
+Refactor 가 커밋을 남기지 않았으면 Refactor 게이트를 돌리지 않는다. 무인 실행에서는 Refactor 를 실행하지 않는다
+(dev-discipline 「Phase 05」).
 
 ## Phase 06 — 마감 (오케스트레이터 본인)
 
@@ -403,7 +434,8 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 | E | Phase 02~05 공통 프롬프트 | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로를 글자 그대로 적어 호출한다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다" 한 줄을 덧붙인다. 오케스트레이터 자신도 같은 규칙을 따른다. 손자 서브에이전트까지 rtk 격리 가드 차단을 피하게 하기 위해서다 |
 | F | Phase 01 2번 claim exit 4 재시도 | `git fetch origin` 뒤 기점을 다시 정해 1회 재시도하고, 그래도 4 면 중단·보고한다(merge 없음) | 같다. 그래도 4 면 `.result` 에 `skipped` 를 쓴다 |
 | G | Phase 01 2번 `head_sha` 없는 선행의 갈래 1·2 | 갈래 1(미승인·stage 미달)은 로컬 선행 산출물이 있으면 스택하고, 갈래 2(`stage >= im`·`order_approved:false`, 완료 보고 뒤 승인 대기)는 한 줄 남기고 진행한다 | **스택하지 않는다.** 갈래 1(`reached` 가 거짓)은 `skipped 선행 미승인` 으로 끝내고 팀장이 일시 제외한다. 갈래 2(`reached` 가 참인데 `head_sha` 가 없음)는 아래 **기본 브랜치 반영 확인**을 거쳐, 반영이 확인되면 `origin/<기본브랜치>` 기점으로 **스택 없이 진행**하고 그 사실을 한 줄 남긴다. 확인되지 않으면 `skipped 선행 승인 대기` 로 끝낸다. 이유: 종전에는 갈래 2 도 `skipped` 였으나, 그 근거였던 「`head_sha` 가 없으면 선행 코드도 없다」 가 참이 아니다. 승인 전에 기본 브랜치로 머지하는 운영에서는 선행 산출물이 `origin/<기본브랜치>` 에 이미 있고, 그때 워커만 멈추면 그 선행에 걸린 후속 전부가 승인 버튼 하나를 기다리며 영영 착수하지 못한다(2026-09-17 mdm-dict 실측: 기능 12건이 한 선행에 함께 막혔다). 수동 경로는 같은 갈래에서 이미 「한 줄 남기고 진행」 이므로, 이 변경은 새 정책이 아니라 워커에만 있던 이탈을 없애는 것이다. 워커의 스택은 `head_sha` 가 있는 선행(행 B)에만 한다. `waived:true` 간선은 이 행의 대상이 아니다 — Phase 01 2번의 강제 진행 갈래로 간다(기본 브랜치 반영 확인 없음) |
-| H | Phase 01 3번의 브랜치 생성 또는 재개 판정으로 agent 브랜치에 들어온 직후 | 설치하지 않는다. 사람의 체크아웃에는 의존성이 이미 있다 | 생성 또는 재개로 agent 브랜치에 들어온 직후, 4번 기준선과 Phase 02~05 게이트 전에 아래 블록으로 설치한다. `blocked` 답을 받아 재spawn 된 워커처럼 재개 판정으로 기존 agent 브랜치에 들어온 경우도 같다. 재개는 브랜치를 새로 만들지 않아 3번을 지나지 않는데, 새 격리 워크트리에는 `node_modules` 가 없기 때문이다. lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만 설치하며, lockfile 이 없으면 설치하지 않는다. 설치가 실패하면 `.result` 에 `failed deps <실패한 명령과 exit>` 를 쓰고 끝낸다. 이유: 새 워크트리에는 `node_modules` 가 없어 기준선 명령이 127 로 끝나고, 스택이면 선행 작업이 lockfile 을 바꿨을 수 있어 브랜치 기점의 lockfile 로 설치해야 한다. 고정되지 않은 설치는 기준선을 재현하지 못하고 새 lockfile 을 산출물에 섞는다 |
+| H | Phase 01 3번의 브랜치 생성 또는 재개 판정으로 agent 브랜치에 들어온 직후 | 설치하지 않는다. 사람의 체크아웃에는 의존성이 이미 있다 | 생성 또는 재개로 agent 브랜치에 들어온 직후, 4번 기준선과 Phase 02~05 게이트 전에 아래 블록으로 설치한다. `blocked` 답을 받아 재spawn 된 워커처럼 재개 판정으로 기존 agent 브랜치에 들어온 경우도 같다. 재개는 브랜치를 새로 만들지 않아 3번을 지나지 않는데, 새 격리 워크트리에는 `node_modules` 가 없기 때문이다. lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만 설치하며, lockfile 이 없으면 설치하지 않는다. 설치가 실패하면 `.result` 에 `failed deps <실패한 명령과 exit>` 를 쓰고 끝낸다. `DEPS_BUSY <폴더>`(exit 75)는 실패가 아니다 — heavy 슬롯이 없어 설치를 미룬 것이므로 잠시 뒤 같은 명령을 다시 부른다(이어서 설치한다). 이유: 새 워크트리에는 `node_modules` 가 없어 기준선 명령이 127 로 끝나고, 스택이면 선행 작업이 lockfile 을 바꿨을 수 있어 브랜치 기점의 lockfile 로 설치해야 한다. 고정되지 않은 설치는 기준선을 재현하지 못하고 새 lockfile 을 산출물에 섞는다 |
+| I | Phase 05 Refactor | supervised 에서 기본 실행한다(커밋이 없으면 Refactor 게이트 생략) | **실행하지 않는다.** Verify 게이트 통과 뒤 곧바로 Phase 06 으로 간다. Refactor 서브에이전트를 띄우지 않고 state.json 의 `phase` 도 `refactor` 로 쓰지 않는다. 이유: 무인 실행은 검증 수단이 테스트뿐이라 동작을 바꾸지 않는 손질의 이득이 작고, 전체 스위트를 두 번(서브에이전트·게이트) 더 돌린다 — dev-discipline.md 「Phase 05」 의 "무인 모드에서는 실행하지 않는다" |
 
 행 G 의 **기본 브랜치 반영 확인**: 선행 산출물이 `origin/<기본브랜치>` 에 실재하는지를 git 으로만 확인한다.
 `<선행TSK>` 는 그 `depends_evidence` 원소의 `external_ref` 에서 마지막 `/` 뒤다(예 `dict/TSK-02-01` → `TSK-02-01`).
@@ -458,7 +490,7 @@ origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10
 
 행 H 의 설치 블록:
 ```bash
-.claude/skills/dflow-dev/scripts/deps.sh   # 0 이 아니면 .result 에 failed deps <DEPS_FAILED 줄의 명령과 exit>
+.claude/skills/dflow-dev/scripts/deps.sh   # 75(DEPS_BUSY)면 잠시 뒤 다시 부른다. 그 밖에 0 이 아니면 .result 에 failed deps <DEPS_FAILED 줄의 명령과 exit>
 ```
 - `DEPS_GRADLE_JAR_MISSING <폴더>` 줄은 실패가 아니라 경고다. 그 폴더의 `gradlew` 는 wrapper jar 가 없어 돌지 않는다.
   그 폴더의 Gradle 작업이 이번 작업에 필요하면 jar 를 커밋하거나 `.gitignore` 를 고치지 말고 팀장에게 이슈로 보고한다
@@ -516,8 +548,9 @@ origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10
 - 새로 만드는 "사람에게 묻기" 지점은 없다. dflow-dev 의 판단 실패는 이미 전부 "중단·보고"(push 훅
   거부, Verify 재시도 소진, 빨간 기준선)라서 워커에서는 `.result` 의 `failed <사유>` 로 떨어진다. 설계
   재량 분기는 판단 규칙이 받으며, 대부분은 골라서 진행하고 기록한다. `blocked` 는 되돌리기 어려운 결정뿐이다.
-- 인자 파싱과 위 여덟 행만 워커용으로 갈린다(행 F 는 수동과 같고 결과 표기만 다르다). 게이트·Phase
-  정의·커밋 규칙·모델 배정(dev-discipline.md)은 워커에서도 같다.
+- 인자 파싱과 위 아홉 행만 워커용으로 갈린다(행 F 는 수동과 같고 결과 표기만 다르다). 게이트·Phase
+  정의·커밋 규칙·모델 배정(dev-discipline.md)은 워커에서도 같다. 행 I 의 Refactor 생략도 dev-discipline.md 가 정한
+  무인 모드 규칙을 따르는 것이다.
 <!-- worker:end -->
 
 ## --only 옵션
