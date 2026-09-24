@@ -59,7 +59,22 @@ slots() {
 
 K=$(slots)
 now() { date +%s; }
-pstart() { ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//;s/ *$//'; }
+# 시작 시각은 로캘을 고정해 읽는다. 세션마다 LANG·LC_TIME 이 달라도 같은 문자열이 나와야 살아 있는 소유자를
+# PID 재사용으로 오판하지 않는다. Git Bash 의 ps 는 -o 를 모르므로 빈 값(= 확인 생략)이 된다.
+pstart() { LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//;s/ *$//'; }
+# PID 생존 확인. Windows(Git Bash/MSYS)는 CLAUDE_PID 가 네이티브 Windows PID 라 kill -0 이 못 알아본다 —
+# 살아 있는 hold 를 죽은 것으로 보고 회수하지 않도록 `ps -W` 의 WINPID 열에서 한 번 더 찾는다(dflow-lease.sh 와 같은 방식).
+alive() {
+  kill -0 "$1" 2>/dev/null && return 0
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+      ps -W 2>/dev/null | awk -v pid="$1" '
+        NR==1 { for (i=1;i<=NF;i++) if ($i=="WINPID") c=i; next }
+        c && $c==pid { found=1 }
+        END { exit !found }' ;;
+    *) return 1 ;;
+  esac
+}
 field() { sed -n "s/^$2=//p" "$1/owner" 2>/dev/null | head -n 1; }
 owner_pid() { echo "${DFLOW_HEAVY_OWNER:-${CLAUDE_PID:-$PPID}}"; }
 
@@ -74,7 +89,7 @@ stale() {
   fi
   pid=$(field "$d" pid); kind=$(field "$d" kind); st=$(field "$d" start)
   case "$pid" in ''|*[!0-9]*) return 0 ;; esac
-  kill -0 "$pid" 2>/dev/null || return 0
+  alive "$pid" || return 0
   ps0=$(field "$d" pstart)
   if [ -n "$ps0" ] && [ "$ps0" != "-" ]; then
     ps1=$(pstart "$pid")
@@ -216,10 +231,14 @@ cmd_acquire() {
 }
 
 cmd_release() {
-  local o d n=0
+  local o list
   o=$(owner_pid)
-  for d in $(held_by "$o"); do rm -rf "$d" && { echo "HEAVY_RELEASED $(basename "$d") owner=$o" >&2; n=$((n + 1)); }; done
-  [ "$n" -gt 0 ] || echo "HEAVY_RELEASED none owner=$o" >&2
+  list=$(held_by "$o")
+  [ -n "$list" ] || { echo "HEAVY_RELEASED none owner=$o" >&2; exit 0; }
+  # 경로에 공백이 있을 수 있다(Windows 사용자 폴더) — 줄 단위로 읽는다
+  printf '%s\n' "$list" | while IFS= read -r d; do
+    rm -rf "$d" && echo "HEAVY_RELEASED $(basename "$d") owner=$o" >&2
+  done
   exit 0
 }
 

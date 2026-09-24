@@ -208,6 +208,38 @@ describe('heavy.sh — PC 전역 무거운 명령 세마포어', { timeout: 3000
     expect(r.out).toContain('HEAVY_RECLAIM slot-1')
   })
 
+  it('Windows 흉내: kill -0 이 실패해도 ps -W 의 WINPID 로 살아 있으면 hold 를 회수하지 않고, 목록에 없으면 회수한다', () => {
+    const bin = join(tmp, 'bin')
+    mkdirSync(bin, { recursive: true })
+    writeFileSync(join(bin, 'uname'), `#!/bin/sh\nprintf 'MINGW64_NT-10.0\\n'\n`, { mode: 0o755 })
+    // Git Bash 의 ps 는 -o 를 모른다. -W 일 때만 표를 낸다
+    writeFileSync(join(bin, 'ps'), `#!/bin/sh
+[ "$1" = -W ] || exit 1
+cat <<'EOF'
+      PID    PPID    PGID   WINPID   TTY        UID    STIME COMMAND
+    12345   67890   12345   424242  ?        1000  10:00:00 /usr/bin/bash
+EOF
+`, { mode: 0o755 })
+    const win = { PATH: `${bin}:${process.env.PATH}` }
+    expect(run(['acquire', 'srv'], { ...win, DFLOW_HEAVY_OWNER: '424242' }).code).toBe(0)
+    expect(owner()).toContain('pstart=-')
+    const busy = run(['echo', 'x'], { ...win, DFLOW_HEAVY_OWNER: '1', DFLOW_HEAVY_WAIT: '0' })
+    expect(busy.code).toBe(75)
+    expect(busy.out).not.toContain('HEAVY_RECLAIM')
+    writeFileSync(join(dir, 'slot-1', 'owner'), owner().replace('pid=424242', 'pid=999999'))
+    const r = run(['echo', 'x'], { ...win, DFLOW_HEAVY_OWNER: '1', DFLOW_HEAVY_WAIT: '2' })
+    expect(r.code).toBe(0)
+    expect(r.out).toContain('HEAVY_RECLAIM slot-1 pid=999999 kind=hold')
+  })
+
+  it('슬롯 폴더 경로에 공백이 있어도 release 가 푼다', () => {
+    const sp = { DFLOW_HEAVY_DIR: join(tmp, 'First Last', 'locks'), DFLOW_HEAVY_OWNER: String(process.pid) }
+    expect(run(['acquire', 'srv'], sp).code).toBe(0)
+    expect(existsSync(join(tmp, 'First Last', 'locks', 'slot-1'))).toBe(true)
+    expect(run(['release'], sp).out).toContain('HEAVY_RELEASED slot-1')
+    expect(existsSync(join(tmp, 'First Last', 'locks', 'slot-1'))).toBe(false)
+  })
+
   it('K 기본값은 max(1, floor(RAM_GB/8)) 이고 DFLOW_HEAVY_SLOTS 로 덮는다', () => {
     const gb = Math.round(totalmem() / 2 ** 30)
     const k = Math.max(1, Math.floor(gb / 8))
