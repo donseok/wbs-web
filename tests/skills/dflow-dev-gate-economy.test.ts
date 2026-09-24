@@ -69,6 +69,7 @@ describe('heavy.sh 적용 범위: Gradle·Maven 은 단일 테스트도 감싼�
     expect(heavy).toContain('**10분(600000ms)을 넘기지 않는다**')
     expect(heavy).toContain('`DFLOW_HEAVY_WAIT` 를 줄여')
     expect(heavy).toContain('240초 + 측정 시간이면 된다')
+    expect(heavy).toContain('`DFLOW_BASELINE_WAIT` 를 줄인다')
     expect(DISC).toContain('한 호출의 총 대기는 240초 + 측정 시간 이하다')
     expect(heavy).not.toContain('합친 것보다 넉넉히 준다')
   })
@@ -110,6 +111,15 @@ describe('변이 검증은 Build 한 곳, Verify 는 감사', () => {
     expect(verify).toContain('`git diff --name-only <Build 게이트 sha>..HEAD`')
     expect(SKILL).toContain('`git diff --name-only <Build 게이트 sha>..HEAD`')
     expect(SKILL).toContain('state.json 의 `build_gate`')
+  })
+  it('research/docs 특례 작업은 기록 표 대신 문서 검증 체크리스트를 쓴다(Build·Verify·오케스트레이터 감사 셋 다)', () => {
+    expect(build).toContain('research/docs 특례 작업(「research/docs 작업 특례」)은 변이할 코드가 없으므로')
+    expect(verify).toContain('research/docs 특례\n   작업은 표 대신 문서 검증 체크리스트를 순회한다')
+    expect(SKILL).toContain('research/docs 특례 작업(dev-discipline 「research/docs 작업 특례」)은 표 대신')
+  })
+  it('재실행 생략은 커밋 밖에 남은 파일(되돌리지 못한 변이)이 없을 때만이다', () => {
+    expect(verify).toContain('`git status --porcelain` 도 Task 문서 밖에서 비어 있으면')
+    expect(SKILL).toContain('`git status --porcelain` 도 Task 문서 밖에서 비어 있으면')
   })
   it('예상 효과 표가 추정임을 밝힌다', () => {
     const eff = between(DISC, '## 전체 스위트 실행 횟수', '## 모델 배정')

@@ -354,10 +354,12 @@ Phase 종료마다 오케스트레이터가:
    - **Build 게이트**: 전체 스위트를 `heavy.sh` 로 감싸 한 번 돈다. 결과(HEAD sha·명령 줄·통과/실패 수·신규 실패 목록)를
      state.json 의 `build_gate` 에 적고 Verify 프롬프트에 그대로 넣는다 — Verify 는 전체 스위트를 다시 돌리지 않는다.
    - **Verify·Refactor 게이트**: 먼저 `git diff --name-only <Build 게이트 sha>..HEAD` 를 본다. 바뀐 파일이 Task 문서
-     (`<TASKS>/<TSK>/` 아래)와 `*.md` 뿐이면 전체 스위트를 다시 돌리지 않고 Build 게이트 결과를 그대로 쓴다. 코드가
-     바뀌었으면 전체 스위트를 돈다. Refactor 가 커밋을 남기지 않았으면 Refactor 게이트는 없다.
+     (`<TASKS>/<TSK>/` 아래)와 `*.md` 뿐이고 `git status --porcelain` 도 Task 문서 밖에서 비어 있으면 전체 스위트를 다시
+     돌리지 않고 Build 게이트 결과를 그대로 쓴다. 커밋 밖에 남은 파일(되돌리지 못한 변이 등)은 Phase 06 이 커밋에 섞으므로
+     재실행 생략의 근거가 못 된다. 코드가 바뀌었으면 전체 스위트를 돈다. Refactor 가 커밋을 남기지 않았으면 Refactor 게이트는 없다.
    - **Verify 의 감사 확인**: design.md 「변이 검증 기록」 표가 「불변 규칙」 을 모두 덮는지와, 화면 작업이면 E2E 결과가
-     보고에 있는지 본다. 없으면 실패다.
+     보고에 있는지 본다. 없으면 실패다. research/docs 특례 작업(dev-discipline 「research/docs 작업 특례」)은 표 대신
+     문서 검증 체크리스트 순회를 본다.
 2. 통과 → Phase 산출물 커밋 확인(없으면 여기서 커밋: 파일명 명시) → state.json 전진 → 서버 보고:
    Design `progress 25 "설계 완료"` / Build `progress 60 "구현 완료"` / Verify `progress 85 "검증 완료"`.
 3. **Phase 에이전트 회수** — 게이트 판정(통과·실패 무관, 재시도할 게 아니면)이 끝나는 즉시
