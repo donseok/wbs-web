@@ -415,8 +415,27 @@ origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10
   lockfile 이 없으면 설치하지 않는다). npm 은 한 가지가 더 있다. lockfile·`node -v`·플랫폼으로 만든 키가 같은
   설치본이 리포 공용 캐시(`<git-common-dir>/dflow-deps/<키>`)에 있으면 `npm ci` 대신 그것을 복제한다. macOS 는
   `cp -Rc`(APFS 복제), Linux 는 `cp -R --reflink=auto` 이며, 복제가 실패하면 지우고 `npm ci` 로 간다.
-- 캐시는 이 스크립트의 `npm ci` 가 성공한 결과로만 채운다. 사람 체크아웃의 `node_modules` 는 쓰지 않는다. 이유:
-  사람이 lockfile 이 바뀐 커밋을 받고 설치를 안 했을 수 있어, lockfile 이 같아도 설치본이 맞는다는 보장이 없다.
+  pnpm 은 공용 캐시 대신 메인 체크아웃을 복제한다(아래).
+- 메인 체크아웃에서 gitignore 된 심링크를 워크트리에 걸 때 `node_modules` 자체가 심링크인 것은 걸지 않는다. 링크째
+  걸리면 워커의 설치가 사람 체크아웃에 쓴다.
+- 캐시는 이 스크립트의 `npm ci` 가 성공한 결과로만 채운다. npm 은 사람 체크아웃의 `node_modules` 를 쓰지 않는다. 이유:
+  사람이 lockfile 이 바뀐 커밋을 받고 설치를 안 했을 수 있어, lockfile 이 같아도 설치본이 맞는다는 보장이 없고,
+  `npm ci` 는 `node_modules` 를 지우고 시작하므로 무엇을 깔아 두든 바로잡는 데 쓰이지 않는다.
+- pnpm(`pnpm-lock.yaml`)은 반대로 메인 체크아웃의 같은 폴더 설치본을 출발점으로 쓴다. 워크스페이스 루트의
+  `node_modules` 와 워크스페이스 패키지들의 `node_modules` 를 같은 상대 경로로 복제하고, 복제본 안의 모든
+  `node_modules/.bin`(`.pnpm` 안 포함)과 도구 캐시를 지운 뒤, 워크스페이스 루트에서
+  `pnpm install --frozen-lockfile --prefer-offline --config.confirmModulesPurge=false` 를 한 번 돌린다(`DEPS_SYNCED`).
+  사람 쪽 설치본이 어긋나 있어도 되는 이유: pnpm 은 기존 설치를 lockfile 과 대조해 다른 것만 바로잡으므로, 이 install
+  뒤에는 워커 기점(스택이면 선행 브랜치)의 lockfile 대로다. `.bin` 을 지우는 이유는 셈의 `NODE_PATH` 에 메인의 절대경로가
+  박혀 있고 install 이 `.pnpm` 안 셈은 다시 쓰지 않기 때문이다. `confirmModulesPurge=false` 가 없으면 store 가 다를 때
+  pnpm 이 확인 프롬프트에서 영원히 멈춘다(stdin 이 없어도 실패하지 않는다). 메인의 `node_modules` 가 없거나
+  심링크거나, 복제나 그 뒤 install 이 실패하면 복제본을 모두 지우고 새로 설치한다(`DEPS_SYNC_FAILED`·`DEPS_CLONE_FAILED`
+  뒤 `DEPS_INSTALLED pnpm`). 자기 lockfile 을 가진 하위 프로젝트는 워크스페이스 패키지로 보지 않고 따로 설치한다.
+  `DFLOW_DEPS_MAIN_CLONE=0` 이면 메인 복제를 건너뛰고 새로 설치한다. 파일이 아주 많은 `node_modules` 는 `cp -Rc` 가
+  파일마다 복제해 전역 store 에서 새로 링크하는 것보다 느릴 수 있다. 2026-09-24 dmes-standard `src/frontend`(루트
+  `node_modules` 파일 7.9만 개 + 워크스페이스 9개) 실측: 복제 경로 134초·53초(그중 `cp -Rc` 113초·48초, 뒤 install 은
+  3~16초로 어긋난 6개만 바로잡음) 대 새 설치(`--prefer-offline`, store 가 따뜻함) 53초·26초.
+- yarn 은 종전대로 새로 설치한다(복제 방식을 실측하지 못했다).
 - 복제는 `postinstall` 을 다시 돌리지 않는다. Playwright 브라우저처럼 `postinstall` 이 받는 것은 사용자 전역
   캐시(macOS `~/Library/Caches/ms-playwright`)에 있어 첫 `npm ci` 가 받아 두면 그대로 쓴다. 이 점을 "고치려고"
   복제 뒤에 `npm rebuild` 를 넣지 않는다.

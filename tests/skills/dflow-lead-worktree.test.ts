@@ -334,9 +334,13 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
   }
   const npmCalls = () => (existsSync(join(tmp, 'npm.log')) ? readFileSync(join(tmp, 'npm.log'), 'utf8').trim().split('\n').length : 0)
 
-  it('문서: 행 H 는 deps.sh 를 부르고, 사람 체크아웃의 node_modules 를 쓰지 않는 이유를 적는다', () => {
+  it('문서: 행 H 는 deps.sh 를 부르고, npm 은 사람 체크아웃을 쓰지 않고 pnpm 은 복제 뒤 lockfile 로 바로잡는 이유를 적는다', () => {
     expect(DEV).toContain('.claude/skills/dflow-dev/scripts/deps.sh')
-    expect(DEV).toContain('사람 체크아웃의 `node_modules` 는 쓰지 않는다')
+    expect(DEV).toContain('npm 은 사람 체크아웃의 `node_modules` 를 쓰지 않는다')
+    expect(DEV).toContain('pnpm 은 기존 설치를 lockfile 과 대조해 다른 것만 바로잡으므로')
+    const deps = readFileSync(DEPS, 'utf8')
+    expect(deps).toContain('npm 은 사람 체크아웃의 node_modules 를 쓰지 않는다')
+    expect(deps).toContain('--config.confirmModulesPurge=false')
   })
 
   it('첫 팀원은 npm ci 하고 캐시를 채우며, 다음 팀원은 npm 없이 복제한다', () => {
@@ -449,6 +453,208 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     expect(r.out).not.toContain('nested')
     expect(pnpmLog()).toBe('')
   })
+})
+
+describe('pnpm: 메인 체크아웃의 설치본을 복제하고 워커 lockfile 로 바로잡는다(2026-09-24 과제 G)', () => {
+  // 메인(primary)의 src/frontend 가 pnpm 워크스페이스 루트이고 packages/a 가 워크스페이스 패키지다.
+  const commitWorkspace = (lock = 'lockfileVersion: 9.0\n') => {
+    mkdirSync(join(primary, 'src/frontend/packages/a'), { recursive: true })
+    writeFileSync(join(primary, 'src/frontend/package.json'), '{"name":"fe","private":true}\n')
+    writeFileSync(join(primary, 'src/frontend/pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
+    writeFileSync(join(primary, 'src/frontend/pnpm-lock.yaml'), lock)
+    writeFileSync(join(primary, 'src/frontend/packages/a/package.json'), '{"name":"a","private":true}\n')
+    const r = sh(primary, `printf 'node_modules\\n' >> .gitignore
+      git add .gitignore src && git commit -qm fe && git push -q origin main`)
+    expect(r.code, r.out).toBe(0)
+  }
+  const worker = (name: string) => {
+    const w = join(primary, '.claude/worktrees', name)
+    const r = sh(primary, `
+      mkdir -p .claude/worktrees
+      grep -qxF '**/.claude/worktrees/' .git/info/exclude || echo '**/.claude/worktrees/' >> .git/info/exclude
+      git worktree add -q --detach "${w}" main`)
+    expect(r.code, r.out).toBe(0)
+    return w
+  }
+  // 메인에 사람이 설치해 둔 것처럼 node_modules 를 만든다(셈·도구 캐시·.pnpm 안 셈 포함)
+  const mainInstall = () => {
+    const fe = join(primary, 'src/frontend')
+    for (const d of ['node_modules/.bin', 'node_modules/.pnpm/p@1/node_modules/p/node_modules/.bin', 'node_modules/.cache', 'packages/a/node_modules/.bin'])
+      mkdirSync(join(fe, d), { recursive: true })
+    writeFileSync(join(fe, 'node_modules/.main-marker'), 'MAIN')
+    writeFileSync(join(fe, 'node_modules/.bin/x'), `NODE_PATH=${fe}/node_modules/.pnpm`)
+    writeFileSync(join(fe, 'node_modules/.pnpm/p@1/node_modules/p/node_modules/.bin/p'), 'shim')
+    writeFileSync(join(fe, 'node_modules/.cache/c'), 'abs')
+    writeFileSync(join(fe, 'packages/a/node_modules/.pkg-marker'), 'A')
+  }
+  // 가짜 pnpm: 불릴 때의 상태를 기록한다. FAKE_PNPM_FAIL_CLONED 면 복제본 위에서 불릴 때만 실패한다
+  const fakePnpm = () => {
+    const bin = join(tmp, 'bin-pnpm')
+    mkdirSync(bin, { recursive: true })
+    writeFileSync(join(bin, 'pnpm'), `#!/bin/sh
+st=""
+for f in node_modules/.main-marker node_modules/.bin node_modules/.pnpm/p@1/node_modules/p/node_modules/.bin node_modules/.cache packages/a/node_modules packages/a/node_modules/.bin; do
+  [ -e "$f" ] && st="$st $f"
+done
+{ echo "ARGS $*"; echo "CWD $(pwd)"; echo "HAS$st"; } >> "${tmp}/pnpm.log"
+[ -n "\${FAKE_PNPM_FAIL_CLONED:-}" ] && [ -e node_modules/.main-marker ] && exit 7
+mkdir -p node_modules && echo v1 > node_modules/marker
+`)
+    chmodSync(join(bin, 'pnpm'), 0o755)
+    return bin
+  }
+  const calls = () => (existsSync(join(tmp, 'pnpm.log')) ? readFileSync(join(tmp, 'pnpm.log'), 'utf8').split('ARGS ').slice(1) : [])
+
+  it('메인 설치본을 복제하고 모든 .bin·도구 캐시를 지운 뒤 워크스페이스 루트에서 한 번만 frozen install 한다', () => {
+    commitWorkspace()
+    mainInstall()
+    const w = worker('dflow-a1a1a1a1')
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}` })
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
+    const c = calls()
+    expect(c.length).toBe(1)
+    expect(c[0]).toContain('install --frozen-lockfile --prefer-offline --config.confirmModulesPurge=false')
+    expect(c[0]).toContain(`CWD ${join(w, 'src/frontend')}`)
+    // 복제본(메인 표식·패키지 node_modules)은 있고, 셈(.pnpm 안 포함)·도구 캐시는 install 전에 지워졌다
+    expect(c[0]).toContain('node_modules/.main-marker')
+    expect(c[0]).toContain('packages/a/node_modules')
+    expect(c[0]).not.toContain('node_modules/.bin')
+    expect(c[0]).not.toContain('node_modules/.cache')
+    expect(readFileSync(join(w, 'src/frontend/packages/a/node_modules/.pkg-marker'), 'utf8')).toBe('A')
+    // 메인은 그대로다
+    expect(existsSync(join(primary, 'src/frontend/node_modules/.bin/x'))).toBe(true)
+    expect(existsSync(join(primary, 'src/frontend/node_modules/.cache/c'))).toBe(true)
+  })
+
+  it('복제 뒤 install 이 실패하면 복제본을 모두 지우고 새로 설치한다', () => {
+    commitWorkspace()
+    mainInstall()
+    const w = worker('dflow-b2b2b2b2')
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, FAKE_PNPM_FAIL_CLONED: '1' })
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_SYNC_FAILED pnpm install exit 7')
+    expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
+    const c = calls()
+    expect(c.length).toBe(2)
+    expect(c[1]).toMatch(/HAS\n/) // 두 번째 호출 때는 복제본이 하나도 없다(루트·패키지 모두)
+    expect(existsSync(join(w, 'src/frontend/node_modules/.main-marker'))).toBe(false)
+  })
+
+  it('DFLOW_DEPS_MAIN_CLONE=0 이면 메인 설치본이 있어도 복제하지 않고 새로 설치한다', () => {
+    commitWorkspace()
+    mainInstall()
+    const w = worker('dflow-c9c9c9c9')
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '0' })
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).not.toContain('DEPS_SYNC')
+    expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
+    expect(calls()[0]).not.toContain('.main-marker')
+  })
+
+  it('메인의 node_modules 가 심링크거나 없으면 복제하지 않고 새로 설치한다', () => {
+    commitWorkspace()
+    const real = join(tmp, 'elsewhere-nm')
+    mkdirSync(real, { recursive: true })
+    writeFileSync(join(real, '.main-marker'), 'LINKED')
+    sh(primary, `ln -s '${real}' src/frontend/node_modules`)
+    const w = worker('dflow-c3c3c3c3')
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}` })
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).not.toContain('DEPS_SYNC')
+    expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
+    expect(calls()[0]).not.toContain('.main-marker')
+    expect(lstatSync(join(w, 'src/frontend/node_modules')).isSymbolicLink()).toBe(false)
+  })
+
+  it('자기 lockfile 이 있는 하위 프로젝트는 워크스페이스 패키지로 복제하지 않고 따로 설치한다', () => {
+    commitWorkspace()
+    mainInstall()
+    mkdirSync(join(primary, 'src/frontend/x/node_modules'), { recursive: true })
+    writeFileSync(join(primary, 'src/frontend/x/package.json'), '{}\n')
+    writeFileSync(join(primary, 'src/frontend/x/pnpm-lock.yaml'), 'lockfileVersion: 9.0\n')
+    writeFileSync(join(primary, 'src/frontend/x/node_modules/.main-marker'), 'X')
+    expect(sh(primary, 'git add src && git commit -qm x && git push -q origin main').code).toBe(0)
+    const w = worker('dflow-d4d4d4d4')
+    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}` })
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
+    expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend/x')
+    expect(r.out).not.toContain('DEPS_SKIP node_modules 있음 src/frontend/x')
+    expect(calls().length).toBe(2)
+  })
+
+  // ---- 실제 pnpm(이 PC 에 있을 때만). 네트워크 없이 file: 로컬 패키지만 쓴다 ----
+  const hasPnpm = spawnSync('pnpm', ['--version'], { encoding: 'utf8' }).status === 0
+  const psh = (cwd: string, script: string, env: Record<string, string> = {}) => {
+    // 퍼지 확인 프롬프트 회귀는 실패가 아니라 무한 대기로 나타난다 — timeout 으로 실패시킨다
+    const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', timeout: 90_000, env: { ...GIT_ENV, CI: '', ...env } })
+    return { code: r.status, out: (r.stdout || '') + (r.stderr || '') + (r.error ? String(r.error) : '') }
+  }
+  const realWorkspace = (store: string) => {
+    const r = psh(primary, `set -e
+      mkdir -p vendor/tool/bin src/frontend/packages/a
+      printf '{"name":"tool","version":"1.0.0","bin":{"tool":"bin/tool.js"},"main":"index.js"}\\n' > vendor/tool/package.json
+      printf '#!/usr/bin/env node\\nconsole.log("TOOL_OK")\\n' > vendor/tool/bin/tool.js
+      printf 'module.exports = "tool"\\n' > vendor/tool/index.js
+      mkdir -p vendor/tool2
+      printf '{"name":"tool2","version":"1.0.0","main":"index.js"}\\n' > vendor/tool2/package.json
+      printf 'module.exports = "tool2"\\n' > vendor/tool2/index.js
+      printf '{"name":"fe","private":true,"devDependencies":{"tool":"file:../../vendor/tool"}}\\n' > src/frontend/package.json
+      printf 'packages:\\n  - "packages/*"\\n' > src/frontend/pnpm-workspace.yaml
+      printf '{"name":"a","private":true,"dependencies":{"tool":"file:../../../../vendor/tool"}}\\n' > src/frontend/packages/a/package.json
+      printf 'node_modules\\n' >> .gitignore
+      cd src/frontend && pnpm install --prefer-offline >/dev/null && cd ../..
+      git add .gitignore vendor src && git commit -qm fe && git push -q origin main`, { npm_config_store_dir: store })
+    expect(r.code, r.out).toBe(0)
+  }
+  // 워커 쪽 파일 중 메인의 설치 경로를 품은 것. 워커는 메인 아래(.claude/worktrees)에 있으므로 메인 루트가 아니라
+  // 메인의 src/frontend/ 까지 붙여 찾는다(루트만 찾으면 워커 자기 경로도 걸린다).
+  const leaks = (w: string) => psh(w, `grep -rl '${primary}/src/frontend/' src/frontend/node_modules src/frontend/packages/a/node_modules 2>/dev/null || true`).out.trim()
+
+  it.skipIf(!hasPnpm)('실제 pnpm: 복제본의 .pnpm 상대 링크가 풀리고, 셈이 워커 경로로 다시 만들어진다', () => {
+    const store = join(tmp, 'store')
+    realWorkspace(store)
+    // 전제: 메인 설치본의 셈에는 메인 경로가 박혀 있다
+    expect(psh(primary, `grep -rl '${primary}/src/frontend/' src/frontend/node_modules | head -1`).out.trim()).not.toBe('')
+    const w = worker('dflow-e5e5e5e5')
+    const r = psh(w, `bash '${DEPS}'`, { npm_config_store_dir: store })
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
+    const fe = join(w, 'src/frontend')
+    expect(lstatSync(join(fe, 'node_modules/tool')).isSymbolicLink()).toBe(true)
+    expect(realpathSync(join(fe, 'node_modules/tool')).startsWith(join(fe, 'node_modules/.pnpm/'))).toBe(true)
+    expect(realpathSync(join(fe, 'packages/a/node_modules/tool')).startsWith(join(fe, 'node_modules/.pnpm/'))).toBe(true)
+    expect(psh(fe, './node_modules/.bin/tool').out).toContain('TOOL_OK')
+    expect(leaks(w)).toBe('')
+  }, 120_000)
+
+  it.skipIf(!hasPnpm)('실제 pnpm: 메인 설치본이 워커 lockfile 과 어긋나 있어도 install 이 lockfile 대로 바로잡는다', () => {
+    const store = join(tmp, 'store')
+    realWorkspace(store)
+    // 워커 기점에서 packages/a 가 tool2 를 새로 쓴다. 메인 설치본은 옛 lockfile 그대로 둔다(사람이 설치를 안 한 상태)
+    const r0 = psh(primary, `set -e
+      printf '{"name":"a","private":true,"dependencies":{"tool":"file:../../../../vendor/tool","tool2":"file:../../../../vendor/tool2"}}\\n' > src/frontend/packages/a/package.json
+      cd src/frontend && pnpm install --lockfile-only --prefer-offline >/dev/null && cd ../..
+      git add src && git commit -qm tool2 && git push -q origin main`, { npm_config_store_dir: store })
+    expect(r0.code, r0.out).toBe(0)
+    expect(existsSync(join(primary, 'src/frontend/packages/a/node_modules/tool2'))).toBe(false)
+    const w = worker('dflow-f6f6f6f6')
+    const r = psh(w, `bash '${DEPS}'`, { npm_config_store_dir: store })
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_SYNCED')
+    expect(psh(join(w, 'src/frontend/packages/a'), `node -e 'console.log(require("tool2"))'`).out).toContain('tool2')
+  }, 120_000)
+
+  it.skipIf(!hasPnpm)('실제 pnpm: store 가 달라도 확인 프롬프트에 멈추지 않고 끝난다', () => {
+    realWorkspace(join(tmp, 'store'))
+    const w = worker('dflow-a7a7a7a7')
+    const r = psh(w, `bash '${DEPS}'`, { npm_config_store_dir: join(tmp, 'other-store') })
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_SYNCED')
+    expect(psh(join(w, 'src/frontend'), './node_modules/.bin/tool').out).toContain('TOOL_OK')
+    expect(leaks(w)).toBe('')
+  }, 120_000)
 })
 
 describe('gradle-wrapper.jar 복구: 메인 체크아웃에서 복사한다(요청 3)', () => {
