@@ -345,7 +345,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
   머리가 둘 이상이면 그 ID 만 건너뛰고(`RENUMBER_DUP`) 나머지는 매긴다 — 개발 브랜치에 남은 잘못 하나가 뒤의 머지를 모두
   막지 않게 한다. `decision-log.py` 의 형식·validate 는 바꾸지 않는다(`Temp ID` 는 선택 필드로 읽힌다).
 - **`merge=union` 을 걸지 않는다.** union 은 두 쪽 블록을 모두 남기지만, 블록끼리 같은 필드 줄(`- **Phase**: design`,
-  `- **Reversible**: yes`)을 공유하면 줄을 맞춰 합치면서 한 블록의 줄이 사라지고 두 머리가 붙는다(샌드박스 실측,
+  `- **Reversible**: yes`)을 공유하면 줄을 맞춰 합치면서 한 블록의 줄이 사라지고 두 머리가 붙는다(샌드박스 실측, wbs-web 리포
   `tests/skills/dflow-merge-decisions.test.ts`). 충돌을 내게 두고 위 `merge-conflicts` 가 블록 단위로 푸는 편이 안전하다.
   이미 걸려 있으면 `renumber` 가 `UNION_SET <파일>` 로 알린다. 대상 리포 `.gitattributes` 에서 그 줄을 빼라고 보고한다.
 
