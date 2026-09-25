@@ -108,3 +108,27 @@ describe('규율 요약·근거·팀장 주입 문구', () => {
     expect(TEAM_RATIONALE).toContain('(구현 단위가 남았으면 다음 단위·묶음을 띄워라)')
   })
 })
+
+// 2026-09-26 리뷰 반영 — 재개·공유 자원·마지막 단위 검사·인계 순서
+describe('묶음 보강(리뷰 반영)', () => {
+  const S = flat(SKILL)
+  it('병렬 단위는 보고를 단위 보고 파일에도 쓰고, 재개는 그 파일로 묶음 커밋을 이어 한다', () => {
+    expect(flat(BUILD)).toContain('`{TASK_DIR}/unit-report-<단위>.md` 에도 쓴다(git 에는 쓰지 않는다)')
+    expect(flat(PROMPT)).toContain('자기 단위 보고 파일(unit-report-<단위>.md)만 쓰고')
+    expect(S).toContain('done 트레일러가 없는 묶음 단위에 단위 보고 파일이 있으면 다시 띄우지 않고 그 파일로 위 1~5 를 한다')
+    expect(S).toContain('보고 파일이 없는데 그 단위 범위에 커밋되지 않은 변경이 있으면 Build 실패로 멈춘다')
+    expect(S).toContain('커밋이 끝나면 단위 보고 파일')
+  })
+  it('의존성 추가·코드 생성·공용 설정을 바꾸는 단위는 묶지 않는다', () => {
+    expect(flat(DESIGN)).toContain('공유 자원을 바꾸는 단위는 어느 묶음에도 넣지 않는다(혼자 한 묶음)')
+  })
+  it('마지막 단위가 혼자 마지막 묶음이 아니면 순차로 돈다', () => {
+    expect(S).toContain('마지막 단위가 혼자 마지막 묶음인지 본다 — 아니면(phase-design.md 「구현 단위」 위반) `묶음` 열을 무시하고 순차로 돈다')
+  })
+  it('둘 이상 인계하면 차례로 이어 띄운다', () => {
+    expect(S).toContain('둘 이상이 인계했으면 표 순서대로 하나씩 차례로 이어 띄운다')
+  })
+  it('순차 절차의 커밋 확인 문장이 병렬 예외를 가리킨다', () => {
+    expect(S).toContain('그 단위 커밋이 있는지 확인한다(병렬 묶음의 단위는 아래 「묶음」')
+  })
+})
