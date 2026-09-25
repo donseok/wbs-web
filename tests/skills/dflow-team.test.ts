@@ -78,7 +78,7 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     // 다시 해석하지 않는다(dflow-config-docs.test.ts 가 이 계약을 단정한다).
     expect(p()).toContain('`<기본브랜치>` 는 팀장이 넘긴 `{DEV_BRANCH}` 다')
     expect(p()).not.toContain('symbolic-ref --short refs/remotes/origin/HEAD')
-    expect(p()).toContain("grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || echo NO_WORKER_FLAG")
+    expect(p()).toContain("grep -qE '^<!-- dflow-caps: worker |--worker' .claude/skills/dflow-dev/SKILL.md || echo NO_WORKER_FLAG")
   })
 
   it('인증은 doctor 종료 코드가 아니라 me 로 판정하고, 의존성은 설치하지 않는다(/dflow-dev 행 H 가 한다)', () => {
@@ -231,11 +231,12 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('tracked=$(git ls-files .claude/skills/dflow-dev | head -n 1)')
     expect(s()).toContain("sp='/.claude/skills/dflow-*'")
     expect(s()).toContain('파일명을 명시해 먼저 커밋하라')
-    expect(s()).toContain("grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md")
-    expect(s()).toContain("grep -q 'origin/agent/\\*' .claude/skills/dflow-merge/SKILL.md")
-    // 킷 복사형은 팀원이 쓰는 origin/<기본브랜치> 의 스킬도 본다
-    expect(s()).toContain('git show "origin/$base:.claude/skills/dflow-dev/SKILL.md" 2>/dev/null | grep -q -- \'--worker\'')
-    expect(s()).toContain('git show "origin/$base:.claude/skills/dflow-merge/SKILL.md" 2>/dev/null | grep -q \'origin/agent/\\*\'')
+    // 기능 판정은 본문 문구가 아니라 표식 줄로 한다 — 문서를 압축·개정하다 문구가 빠져도 운영 워커가 멈추지 않게
+    expect(s()).toContain("grep -q '^<!-- dflow-caps: worker ' .claude/skills/dflow-dev/SKILL.md || bad OLD_DFLOW_DEV")
+    expect(s()).toContain("grep -q '^<!-- dflow-caps: remote-candidates ' .claude/skills/dflow-merge/SKILL.md || bad OLD_DFLOW_MERGE")
+    // 킷 복사형은 팀원이 쓰는 origin/<기본브랜치> 의 스킬도 본다. 표식 이전 킷(옛 문구)도 인정한다
+    expect(s()).toContain('git show "origin/$base:.claude/skills/dflow-dev/SKILL.md" 2>/dev/null | grep -qE \'^<!-- dflow-caps: worker |--worker\'')
+    expect(s()).toContain('git show "origin/$base:.claude/skills/dflow-merge/SKILL.md" 2>/dev/null | grep -qE \'^<!-- dflow-caps: remote-candidates |origin/agent/\\*\'')
     expect(s()).toContain('KIT_NOT_PUSHED')
   })
 

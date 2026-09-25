@@ -505,8 +505,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    cur=$(git branch --show-current)   # detached HEAD 면 빈 값
    [ -n "$base" ] && [ -n "$cur" ] && [ "$cur" != "$base" ] && bad "NOT_DEFAULT_BRANCH $base 또는 detached HEAD 여야 한다"
    for s in dflow-dev dflow-work dflow-poll dflow-merge dflow-team; do [ -e ".claude/skills/$s/SKILL.md" ] || bad "NO_SKILL $s"; done
-   grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || bad OLD_DFLOW_DEV
-   grep -q 'origin/agent/\*' .claude/skills/dflow-merge/SKILL.md || bad OLD_DFLOW_MERGE
+   grep -q '^<!-- dflow-caps: worker ' .claude/skills/dflow-dev/SKILL.md || bad OLD_DFLOW_DEV
+   grep -q '^<!-- dflow-caps: remote-candidates ' .claude/skills/dflow-merge/SKILL.md || bad OLD_DFLOW_MERGE
    .claude/skills/dflow-work/scripts/dflow.sh config --source >/dev/null || bad "CONFIG .dflow·.dflow.local 을 확인하라(위 사유 코드)"
    [ -n "$(.claude/skills/dflow-work/scripts/dflow.sh config projects)" ] || bad "NO_PROJECT .dflow 의 project_id 또는 .dflow.local 의 project_map 을 넣어라"
    .claude/skills/dflow-work/scripts/dflow.sh doctor   # 진단 출력용. 종료 코드로 판정하지 않는다
@@ -531,8 +531,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    fi
    if [ -n "$tracked" ] && [ -n "$base" ]; then
      if git fetch -q origin; then
-       git show "origin/$base:.claude/skills/dflow-dev/SKILL.md" 2>/dev/null | grep -q -- '--worker' || bad "KIT_NOT_PUSHED dflow-dev"
-       git show "origin/$base:.claude/skills/dflow-merge/SKILL.md" 2>/dev/null | grep -q 'origin/agent/\*' || bad "KIT_NOT_PUSHED dflow-merge"
+       git show "origin/$base:.claude/skills/dflow-dev/SKILL.md" 2>/dev/null | grep -qE '^<!-- dflow-caps: worker |--worker' || bad "KIT_NOT_PUSHED dflow-dev"
+       git show "origin/$base:.claude/skills/dflow-merge/SKILL.md" 2>/dev/null | grep -qE '^<!-- dflow-caps: remote-candidates |origin/agent/\*' || bad "KIT_NOT_PUSHED dflow-merge"
      else
        bad "KIT_NOT_PUSHED fetch 실패"
      fi
@@ -695,7 +695,9 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      같은 신원으로 일을 나눠 돌리고 싶으면 팀장 하나에 인원과 WP 범위를 주면 된다. 두 팀장이 동시에 시작하는
      아주 짧은 틈은 막지 못한다.
    - `OLD_DFLOW_DEV`·`OLD_DFLOW_MERGE`: 수정된 기존 스킬이 적용되지 않았다. 옛 `/dflow-dev` 면 팀원이 기본
-     브랜치 switch 에서 죽고, 옛 `/dflow-merge` 면 스윕이 팀원 작업을 영영 보지 못한다.
+     브랜치 switch 에서 죽고, 옛 `/dflow-merge` 면 스윕이 팀원 작업을 영영 보지 못한다. 판정은 각 SKILL.md 의
+     `<!-- dflow-caps: … -->` 표식 줄로 한다(본문 문구를 grep 하면 문서를 고칠 때 소리 없이 깨진다).
+     `KIT_NOT_PUSHED` 는 표식 도입 전에 push 된 킷도 받도록 옛 문구(`--worker`·`origin/agent/*`)를 함께 인정한다.
    - `AUTH`: 인증은 `dflow.sh me` 의 성공(`user_email` 이 나옴)으로 판정한다. doctor 는 진단 출력용이며 종료
      코드로 판정하지 않는다. 이유: doctor 는 토큰 인증이 실패해도 그 줄만 출력하고 0 으로 끝난다. 출력한
      `user_email` 로 `DFLOW_PATS` 첫 토큰이 이 신원의 PAT 인지 보여 주고, 그 값으로 `<신원>` 슬러그를,

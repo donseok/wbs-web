@@ -111,10 +111,10 @@ git fetch origin && git switch --detach origin/<기본브랜치>
   직후, 기준선과 Phase 02~05 게이트 전에 설치하고 실패하면 `failed deps` 로 끝낸다(「--worker」 H). 이유: 스택이면 기점이 선행 agent 브랜치라 선행
   작업이 lockfile 을 바꿨을 수 있고, 설치할 lockfile 은 그 기점의 것이어야 한다.
 - 이 절에서 끝난 실패(`no-skill`·`doctor-<exit>`·`auth`·`detach`)는 브랜치를 만들기 전이므로 branch 칸이 `-` 다.
-- `/dflow-dev` SKILL.md 에 `--worker` 가 없으면(옛 버전) 실행하지 않고 `.result` 에
+- `/dflow-dev` SKILL.md 에 `--worker` 지원 표식(`<!-- dflow-caps: worker … -->`, 표식 이전 킷은 `--worker` 문구)이 없으면(옛 버전) 실행하지 않고 `.result` 에
   `{TSK} {ID8} - - - failed no-worker-flag` 를 쓰고 끝낸다. 옛 버전은 기본 브랜치 switch 에서 죽기 때문이다.
   ```bash
-  grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || echo NO_WORKER_FLAG
+  grep -qE '^<!-- dflow-caps: worker |--worker' .claude/skills/dflow-dev/SKILL.md || echo NO_WORKER_FLAG
   ```
 - dflow.sh 를 부를 때마다 접두를 붙이지 않는다. dflow.sh 가 환경에 PAT 가 없으면
   워크트리 루트의 `.dflow`·`.dflow.local`(레거시 `.env`, 모두 부트스트랩의 링크)을 스스로 읽는다. 격리 가드가
