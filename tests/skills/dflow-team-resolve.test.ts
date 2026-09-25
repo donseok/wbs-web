@@ -38,6 +38,26 @@ describe('resolve-prompt.md — 해소 워커 규칙', () => {
     expect(PROMPT).toContain('`worker-prompt.md` 「3」')
     expect(PROMPT.indexOf('failed dirty-dev-state')).toBeLessThan(PROMPT.indexOf('`worker-prompt.md` 「2」'))
   })
+  // 2026-09-25: 해소 워커가 worker-prompt.md 전체(15K자)를 cat 하던 것을 쓰는 절만 sed 로 읽게 줄였다
+  it('worker-prompt.md 를 통째로 읽지 않고 「0」「1」·「2」「3」·「7-1」 을 쓰는 자리에서 절 범위로 읽는다', () => {
+    expect(PROMPT).not.toMatch(/cat [^\n]*worker-prompt\.md/)
+    const WP = join(ROOT, '.claude/skills/dflow-team/references/worker-prompt.md')
+    const cmds = [...PROMPT.matchAll(/sed -n '([^']+)' \{MAIN_CHECKOUT\}\/\.claude\/skills\/dflow-team\/references\/worker-prompt\.md/g)].map((m) => m[1])
+    expect(cmds).toHaveLength(3)
+    const got = cmds.map((c) => execFileSync('sed', ['-n', c, WP], { encoding: 'utf8' }))
+    expect(got[0]).toMatch(/^## 0\. git 호출 규칙/)
+    expect(got[0]).toContain('## 1. 격리 확인')
+    expect(got[0]).not.toContain('## 2. 좌석 식별')
+    expect(got[1]).toMatch(/^## 2\. 좌석 식별/)
+    expect(got[1]).toContain('## 3. 워크트리 부트스트랩')
+    expect(got[1]).not.toContain('## 4. 실행')
+    expect(got[2]).toMatch(/^## 7-1\. 문제 기록/)
+    expect(got[2]).not.toContain('## 8.')
+  })
+  it('해소 머지 절차는 dflow-merge 의 references/resolve.md 「해소 머지」 를 가리킨다', () => {
+    expect(PROMPT).toContain('`.claude/skills/dflow-merge/references/resolve.md` 「해소 머지」')
+    expect(PROMPT).not.toContain('`/dflow-merge` 「해소 머지」')
+  })
   it('H(워커 자동 재시작)의 대상이 아니라고 적는다', () => {
     expect(PROMPT).toContain('워커 자동 재시작(H)의 대상이 아니다')
   })
@@ -105,7 +125,7 @@ describe('resolve-prompt.md 「게이트」 판정 블록 — 하한 = 개발 �
     expect(PROMPT).not.toContain('max(개발 브랜치 총수, MERGE_HEAD 단독 총수)')
     expect(PROMPT).toContain('`게이트: 개발 브랜치 <dev_total> · MERGE_HEAD 단독 <head_total> · merge-base <base_total> · 계획 삭제 <planned_drop> · 하한 <need> · 결과 <total>`')
     expect(PROMPT).toContain('tests=<통과/총수> need=<하한>')
-    expect(readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')).toContain('tests=<통과/총수> need=<하한>`')
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/resolve.md'), 'utf8')).toContain('tests=<통과/총수> need=<하한>`')
     // 계획 삭제는 이 브랜치가 이미 지운 시험을 넣지 않는다(이중 차감 방지)
     expect(PROMPT).toContain('이 브랜치 커밋이 이미 지운 시험은 넣지 않는다')
   })
@@ -204,7 +224,7 @@ describe('heartbeat 훅 — 개발 브랜치의 state.json 이 merged·reported 
 
 describe('리뷰 minor(2026-09-23) — 결과 줄 전체 sha, blocked RUNNING 의 전제', () => {
   it('결과 줄 head 는 전체 sha 이고 팀장 조상 확인도 전체 sha 로 한다', () => {
-    const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+    const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/resolve.md'), 'utf8')
     const mc = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')
     expect(PROMPT).toContain('`head` 칸에 push 한 머지 커밋의 **전체 sha**')
     expect(merge).toContain('`RESOLVE_PUSHED <머지 커밋 전체 sha> base=')

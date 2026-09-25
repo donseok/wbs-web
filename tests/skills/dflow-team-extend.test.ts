@@ -8,10 +8,14 @@ const ROOT = process.cwd()
 const team = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 const events = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/events.md'), 'utf8')
 const prompt = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/worker-prompt.md'), 'utf8')
+// 2026-09-25: 실행 중 연장 절차는 references/extend.md 로 옮겼다(연장을 말할 때만 읽는다)
+const extend = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/extend.md'), 'utf8')
 
 describe('실행 중 연장', () => {
   it('연장은 team.extend 로 기록하고 team.start 를 새로 쓰지 않는다', () => {
-    expect(team).toContain('`team.extend`(until, until_label)를 기록한다')
+    expect(extend).toContain('`team.extend`(until, until_label)를 기록한다')
+    expect(extend).toContain('**`team.start` 를 새로 쓰지 않는다.**')
+    expect(team).toContain('`references/extend.md` 대로 한다(`team.extend` 기록')
     expect(team).toContain('**`team.start` 를 새로 쓰지 않는다.**')
     expect(events).toContain('| `team.extend` | 「인자」 실행 중 연장 | `until`, `until_label` |')
     expect(events).toContain('"team.extend":["until","until_label"]')
@@ -21,7 +25,7 @@ describe('실행 중 연장', () => {
   })
   it('옛 poll 의 exit 8 은 연장된 시각과 대조해 무시하고, 마감 중 연장은 마감을 취소한다', () => {
     expect(team).toContain('먼저 지금 시각이 현재 `<UNTIL>`(연장 반영) 전인지 본다')
-    expect(team).toContain('**마감 중에 연장하면 마감을 취소한다.**')
+    expect(extend).toContain('**마감 중에 연장하면 마감을 취소한다.**')
   })
 })
 

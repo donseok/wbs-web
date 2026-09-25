@@ -29,8 +29,12 @@
 
 ## 0. git 호출 규칙·격리 확인
 
-`worker-prompt.md` 「0」·「1」 을 그대로 따른다. 파일은 `cat {MAIN_CHECKOUT}/.claude/skills/dflow-team/references/worker-prompt.md`
-로 읽어 그 절만 적용한다. 격리에 실패하면 아무 파일도 쓰지 않고 마지막 응답으로 `{TSK} {ID8} - - - failed not-isolated`
+`worker-prompt.md` 「0」·「1」 을 그대로 따른다. 파일 전체가 아니라 그 두 절만 읽는다(이 문서가 쓰는 worker-prompt.md 의
+절은 「0」~「3」·「7-1」 뿐이며 절마다 그 자리에서 읽는다).
+```bash
+sed -n '/^## 0\. git 호출 규칙/,/^## 2\. 좌석 식별/{/^## 2\. 좌석 식별/!p;}' {MAIN_CHECKOUT}/.claude/skills/dflow-team/references/worker-prompt.md
+```
+격리에 실패하면 아무 파일도 쓰지 않고 마지막 응답으로 `{TSK} {ID8} - - - failed not-isolated`
 한 줄만 출력하고 끝낸다.
 
 ## 1. 개발 브랜치 state 검사 (좌석 식별 전)
@@ -49,11 +53,14 @@ done
 
 ## 2. 좌석 식별·부트스트랩
 
+`worker-prompt.md` 「2」·「3」 을 아래로 읽고 그 절대로 한다.
+```bash
+sed -n '/^## 2\. 좌석 식별/,/^## 4\. 실행/{/^## 4\. 실행/!p;}' {MAIN_CHECKOUT}/.claude/skills/dflow-team/references/worker-prompt.md
+```
 - `worker-prompt.md` 「2」 그대로 `.dflow-agent` 에 `{AGENT_ID}` 를 쓴다. 팀장 재구성이 이 파일로 슬롯을 흡수한다.
 - `worker-prompt.md` 「3」 그대로 링크·doctor·`me`·기점 이동(`git fetch origin && git switch --detach origin/{DEV_BRANCH}`)을
-  한다. 실패 값(`no-skill`·`doctor-<exit>`·`auth`·`detach`)도 같다. 그 절의 `--worker` 플래그 확인 줄은 건너뛴다.
-  (2026-09-24 이전에는 Orca 가 만든 브랜치 워크트리를 이 기점 이동이 detach 했으나, 이제 두 백엔드 모두 팀장이
-  `git worktree add --detach` 로 이미 detached 상태를 만들어 두므로 이 기점 이동은 그대로 detached 를 유지한다.)
+  한다. 실패 값(`no-skill`·`doctor-<exit>`·`auth`·`detach`)도 같다. 그 절의 `--worker` 플래그 확인 줄은 건너뛴다
+  (팀장이 이미 detached 로 만들어 두었으므로 기점 이동도 detached 를 유지한다).
 - 스킬 폴더가 실제 폴더로 있으면 해소에 쓰는 두 스킬도 링크한다.
   ```bash
   if [ -d .claude/skills ] && [ ! -L .claude/skills ]; then
@@ -74,15 +81,12 @@ done
 | 해소 대상 agent 브랜치 tip(`MERGE_HEAD` 가 될 커밋) 단독 | **MERGE_HEAD 단독 총수** | 총수만 |
 | `<BASE>` 와 그 브랜치의 merge-base `<MB>` | **merge-base 총수** | 총수만. MERGE_HEAD 단독 − merge-base 가 이 브랜치가 더한 시험 수다 |
 
-이유: 게이트 하한은 "개발 브랜치 총수 + 이 브랜치가 더한 시험 수" 다(「게이트」). 개발 브랜치 총수나 MERGE_HEAD 단독
-총수 하나만 보면, 병렬 워커가 많아 개발 브랜치가 브랜치보다 훨씬 커졌을 때 해소하며 이 브랜치의 시험을 지워도 총수가
-하한을 넘어 통과한다(2026-09-24 dmes-standard: 개발 브랜치 1373 · 브랜치 687 — 브랜치 시험 63건이 사라져도 통과).
+게이트 하한은 "개발 브랜치 총수 + 이 브랜치가 더한 시험 수" 다(「게이트」. 한 총수만 보면 해소하며 이 브랜치의 시험을
+지워도 통과한다).
 
 **세 수는 모두 기준선 캐시(`baseline.sh`, dev-discipline 「기준선 캐시」)나 이미 있는 기록에서 얻는다. 전체 시험을 맨손으로
-돌리지 않는다.** 이유: 2026-09-24 실측에서 해소 시도 한 번이 전체 시험을 4회(세 커밋 + 게이트) 돌렸다. `<MB>` 는 대개
-원래 워커의 브랜치 기점이라 그 워커가 기준선을 잰 커밋이고, `<BASE>` 는 같은 개발 브랜치 끝에서 뜬 다른 워커·해소 워커가
-이미 쟀을 수 있다. 재시도(같은 브랜치의 다음 시도)는 `MERGE_HEAD`·`<MB>` 가 앞 시도의 캐시로 나온다. 그래서 새로 도는
-전체 시험은 보통 첫 시도에 두세 번(게이트 포함), 재시도에 한두 번이다.
+돌리지 않는다.** `<MB>` 는 대개 원래 워커가 기준선을 잰 커밋이고, `<BASE>` 는 다른 워커가 이미 쟀을 수 있으며, 재시도는
+앞 시도의 캐시를 쓴다.
 
 1. **커밋과 명령을 정한다.** git 출력은 명령을 단독으로 돌려 읽는다(「0」 — `$(git …)` 금지).
    ```bash
@@ -137,9 +141,9 @@ done
 ## 4. 해소 머지
 
 Skill 도구로 `/dflow-merge --resolve {ID8} --attempt {ATTEMPT}` 를 실행한다. `{ON_REPORT}` 가 `1` 이면 `--on-report` 를
-붙인다. Skill 도구가 `dflow-merge` 를 모르면 `.claude/skills/dflow-merge/SKILL.md` 를 Read 해 그 절차를 따른다.
-충돌은 아래 「해소 규약」 으로, 게이트는 아래 「게이트」 로 판정한다(`/dflow-merge` 「해소 머지(`--resolve`)」 가 이
-두 절을 부른다). 해소 기록은 `{TASK_DIR}/resolution.md` 에 쓴다.
+붙인다. Skill 도구가 `dflow-merge` 를 모르면 `.claude/skills/dflow-merge/SKILL.md` 와 `.claude/skills/dflow-merge/references/resolve.md` 를 Read 해 그 절차를 따른다.
+충돌은 아래 「해소 규약」 으로, 게이트는 아래 「게이트」 로 판정한다(`/dflow-merge` 의 해소 머지 절차 — 정본은
+`.claude/skills/dflow-merge/references/resolve.md` 「해소 머지」 — 가 이 두 절을 부른다). 해소 기록은 `{TASK_DIR}/resolution.md` 에 쓴다.
 
 마지막 출력 줄로 가른다.
 
@@ -165,10 +169,11 @@ claim·progress·done·heartbeat 를 하지 않는다. 조회는 `show {ID8}` �
 
 ## 6. 판단·권한·중단
 
-AskUserQuestion 을 쓰지 않는 것과 권한 거부 처리는 `worker-prompt.md` 「6」 을 따른다. 권한 거부는
-`failed permission <거부된 명령의 첫 낱말들>` 이다. 해소 워커는 서버를 부르지 않으므로 중단(exit 10)은 사실상 오지 않는다.
+AskUserQuestion 도구를 갖고 있어도 쓰지 않는다(`worker-prompt.md` 「6」 과 같다. 그 절의 blocked 직전 heartbeat 는 「5」 대로
+보내지 않으므로 그 절은 읽지 않는다). 권한 거부를 만나면 다른 방법으로 우회하지 않고
+`failed permission <거부된 명령의 첫 낱말들>` 로 끝낸다. 해소 워커는 서버를 부르지 않으므로 중단(exit 10)은 사실상 오지 않는다.
 `blocked` 는 아래 「blocked 로 멈추는 경우」 에만 쓴다. 멈출 때는 결과 줄을 쓰고, 질문을 화면에 출력한 채 세션을 멈춘다.
-답을 받으면 같은 워크트리에서 멈춘 머지를 이어 푼다(`/dflow-merge` 「해소 머지」 4번의 해소부터). 끝나면 `.result` 를 새
+답을 받으면 같은 워크트리에서 멈춘 머지를 이어 푼다(`dflow-merge/references/resolve.md` 「해소 머지」 4번의 해소부터). 끝나면 `.result` 를 새
 결과로 덮어쓴다.
 
 ## 7. 무거운 명령 줄 세우기
@@ -219,7 +224,7 @@ AskUserQuestion 을 쓰지 않는 것과 권한 거부 처리는 `worker-prompt.
 ## 게이트
 
 dev-discipline 「게이트 기준선」 과 같은 판정이다. 기준선은 3번에서 `<BASE>` 로 잰 것이고, 판정 대상은 **커밋하기 전에
-stage 한 해소 머지 트리**다(`/dflow-merge` 「해소 머지」 5번). 순서는 **해소·stage → 게이트 → 기록 → 커밋** 이다(기록은
+stage 한 해소 머지 트리**다(`dflow-merge/references/resolve.md` 「해소 머지」 5번). 순서는 **해소·stage → 게이트 → 기록 → 커밋** 이다(기록은
 아래 「기록」 절). **기준선 대비 신규 실패 0 + 시험 총수가 하한(개발 브랜치 총수 + (MERGE_HEAD 단독 총수 − merge-base
 총수) − 계획 삭제 수) 이상**이면 통과다. 뜻: 머지 결과에는 개발 브랜치의 시험 전부와 이 브랜치가 더한 시험 전부가 있어야
 한다. 이 브랜치가 스스로 지운 시험은 이미 (MERGE_HEAD 단독 − merge-base) 에 빠져 있다.
@@ -242,7 +247,7 @@ num dev_total "$dev_total" && num head_total "$head_total" && num base_total "$b
   if [ "$new_fail" -eq 0 ] && [ "$total" -ge "$need" ]; then echo "GATE_PASS need=$need total=$total"; else echo "GATE_FAIL new=$new_fail total=$total need=$need"; fi
 }
 ```
-`GATE_FAIL` 이면 `/dflow-merge` 「해소 머지」 5번대로 커밋하지 않고 `git merge --abort` 로 머지를 버린 뒤(HEAD 는 `<BASE>`
+`GATE_FAIL` 이면 `dflow-merge/references/resolve.md` 「해소 머지」 5번대로 커밋하지 않고 `git merge --abort` 로 머지를 버린 뒤(HEAD 는 `<BASE>`
 그대로다) `failed gate <신규 실패 수>` 다(총수 부족이면 `<n>` 은 모자란 수 `need − total` 이다). `GATE_FAIL invalid …` 는
 기준선을 다시 재서 채우고, 그래도 못 채우면 `failed gate invalid` 다. 시험과 별도로
 `.claude/skills/dflow-merge/scripts/migration-check.sh --staged` 가 exit 0 이어야 한다(R9 를 빠뜨리면 `failed gate migration`).
@@ -251,7 +256,7 @@ num dev_total "$dev_total" && num head_total "$head_total" && num base_total "$b
 
 총수는 전체로 판정하지만, 3번에서 스위트별 총수를 적어 뒀으면 스위트마다 "개발 브랜치 + (MERGE_HEAD 단독 − merge-base)"
 이상인지도 본다. 어느 스위트가 모자라면 전체가 통과해도 그 스위트의 사라진 시험을 찾아 되살리거나, 계획 삭제로 근거를
-적는다. 이유: 다른 스위트에서 시험이 늘면 전체 총수가 감소를 가린다.
+적는다(다른 스위트에서 늘어난 시험이 감소를 가린다).
 
 ## 기록
 
@@ -260,7 +265,8 @@ num dev_total "$dev_total" && num head_total "$head_total" && num base_total "$b
   `게이트: 개발 브랜치 <dev_total> · MERGE_HEAD 단독 <head_total> · merge-base <base_total> · 계획 삭제 <planned_drop> · 하한 <need> · 결과 <total>`
   한 줄, 계획 삭제가 있으면 그 시험 이름과 design.md 근거, 스위트별로 쟀으면 그 표), `resolution.md` 를 파일명으로 stage 해 머지 커밋에 함께 담는다. 머지 커밋 본문 둘째 문단에는 요약(충돌 파일
   수·규약 번호)을 둔다. 게이트가 실패하면 커밋이 없으므로 이 기록도 남지 않는다(결과 줄 `failed gate <n>` 이 기록이다).
-- `worker-prompt.md` 에 「7-1」 절(`.issues`)이 있으면 그 형식을 따르고, phase 칸은 `resolve` 로 쓴다. 없으면 쓰지 않는다.
+- 겪은 문제는 `worker-prompt.md` 「7-1」 절(`.issues`)의 형식으로 적고, phase 칸은 `resolve` 로 쓴다. 그 절이 없으면 쓰지 않는다.
+  그 절만 읽는다: `sed -n '/^## 7-1\. 문제 기록/,/^## 8\. /{/^## 8\. /!p;}' {MAIN_CHECKOUT}/.claude/skills/dflow-team/references/worker-prompt.md`
 
 ## 결과 줄
 

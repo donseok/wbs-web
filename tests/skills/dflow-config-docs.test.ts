@@ -38,6 +38,7 @@ describe('dflow-team 문서', () => {
     expect(BACKENDS).toMatch(/\\\.dflow\\\.local/)
   })
   it('키 저장은 새 방식이면 .dflow.local 의 as', () => {
-    expect(TEAM).toContain(`printf '\\nas=%s\\n' '<prefix>' >> .dflow.local`)
+    // 2026-09-25: 키 판정 상세는 dflow-team references/args.md 로 옮겼다(키를 저장할 때만 읽는다)
+    expect(read('.claude/skills/dflow-team/references/args.md')).toContain(`printf '\\nas=%s\\n' '<prefix>' >> .dflow.local`)
   })
 })

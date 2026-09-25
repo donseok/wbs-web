@@ -9,7 +9,7 @@ import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
-const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-worktree.md'), 'utf8')
 const DEV = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
 const LEAD_WT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-worktree.sh')
 const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.sh')
@@ -338,10 +338,13 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
   const npmCalls = () => (existsSync(join(tmp, 'npm.log')) ? readFileSync(join(tmp, 'npm.log'), 'utf8').trim().split('\n').length : 0)
 
   it('문서: 행 H 는 deps.sh 를 부르고, npm 은 사람 체크아웃을 쓰지 않고 pnpm 은 복제 뒤 lockfile 로 바로잡는 이유를 적는다', () => {
-    expect(DEV).toContain('.claude/skills/dflow-dev/scripts/deps.sh')
-    expect(DEV).toContain('npm 은 사람 체크아웃의 `node_modules` 를 쓰지 않는다')
-    expect(DEV).toContain('pnpm 은 기존 설치를 lockfile 과 대조해 다른 것만 바로잡으므로')
+    // 행 H 는 dflow-dev/references/worker-mode.md 로, 설치 세부의 이유는 deps.sh 머리 주석(정본)으로 옮겼다
+    const worker = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
+    expect(DEV).toContain('references/worker-mode.md')
+    expect(worker).toContain('.claude/skills/dflow-dev/scripts/deps.sh')
+    expect(worker).toContain('`scripts/deps.sh` 머리 주석이 정본이다')
     const deps = readFileSync(DEPS, 'utf8')
+    expect(deps).toContain('pnpm 은 기존 node_modules 를 lockfile 과 대조해 다른 것만')
     expect(deps).toContain('npm 은 사람 체크아웃의 node_modules 를 쓰지 않는다')
     expect(deps).toContain('--config.confirmModulesPurge=false')
   })
