@@ -6,7 +6,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
-const dev = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
+// 「--worker」 행 A~I 는 references/worker-mode.md 로 옮겼다(SKILL.md 에는 그 파일을 가리키는 머리 절만 있다)
+const dev = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8') + '\n' + readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
+// 판정 이력(실측 사례)은 실행체 머리 주석으로 옮겼다
+const predScript = readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/pred-reflected.sh'), 'utf8')
 const discipline = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
 
@@ -31,15 +34,16 @@ describe('행 G 기본 브랜치 반영 확인: head_sha 조상 확인을 첫 �
 
   it('공백 경고(2026-09-17)와 자동 머지의 unapproved 설명을 그대로 남긴다', () => {
     expect(dev).toContain('트레일러 패턴(증거 2)의 콜론 뒤 **공백을 반드시 넣고 따옴표로 감싼다.**')
-    expect(dev).toContain('(2026-09-17 실측: 공백 없는 패턴 0 건, 공백 있는 패턴 2 건).')
+    expect(predScript).toContain('2026-09-17 실측에서 공백 없는 패턴 0 건, 공백 있는 패턴 2 건이었다')
     expect(dev).toContain('팀장의 자동 머지(`automerge=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가')
     expect(dev).toContain('`unapproved` 는 이 판정에서 보지 않는다.')
   })
 
   it('넓히는 근거로 2026-09-22 mdm-dict-v2 실측(선행 4건 머지·트레일러 0건·후속 3건 막힘)을 남긴다', () => {
-    expect(dev).toContain('2026-09-22 mdm-dict-v2 실측')
-    expect(dev).toContain('TSK-03-07·03-09·03-11·03-12')
-    expect(dev).toContain('TSK-03-10·03-13·04-01')
+    expect(predScript).toContain('2026-09-22 mdm-dict-v2 실측')
+    expect(predScript).toContain('TSK-03-07·03-09·03-11·03-12')
+    expect(predScript).toContain('TSK-03-10·03-13·04-01')
+    expect(dev).toContain('판정 이력(실측 사례)은 `scripts/pred-reflected.sh` 머리 주석에 있다')
   })
   it('워커는 반영 확인을 공용 스크립트 한 줄로 실행한다(팀장 사전 필터와 같은 판정, 2026-09-23)', () => {
     expect(dev).toContain('.claude/skills/dflow-dev/scripts/pred-reflected.sh <TASKS> <선행TSK> <기본브랜치>')
@@ -49,9 +53,12 @@ describe('행 G 기본 브랜치 반영 확인: head_sha 조상 확인을 첫 �
 })
 
 describe('커밋 규칙: 모든 커밋에 DFlow-Order 트레일러를 붙인다', () => {
-  it('dev-discipline.md 가 Design·Build·Verify·Refactor·Phase 06 전부에 트레일러 부착을 못 박는다', () => {
-    expect(discipline).toContain('모든 커밋에 `--trailer "DFlow-Order: <주문 UUID>"` 를 붙인다')
-    expect(discipline).toContain('워커·수동 경로 모두 예외 없다')
+  it('Phase 서브에이전트 커밋(phase-prompt.md 공통 규칙 1)과 SKILL 커밋 규칙이 전부에 트레일러 부착을 못 박는다', () => {
+    // Phase 규율은 dev-discipline.md 에서 Phase 파일·프롬프트 템플릿으로 옮겼다
+    const prompt = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/phase-prompt.md'), 'utf8')
+    expect(prompt).toContain('모든 커밋에 `--trailer "DFlow-Order: {ORDER}"` 를 붙인다')
+    expect(dev).toContain('워커·수동 경로 모두 예외 없다')
+    expect(discipline).toContain('`phase-prompt.md`')
   })
 
   it('/dflow-dev SKILL.md 공통 프롬프트 절이 트레일러 규칙을 가리킨다', () => {
