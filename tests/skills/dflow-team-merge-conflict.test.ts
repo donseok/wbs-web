@@ -19,7 +19,9 @@ describe('SKILL.md — 포인터 절과 바뀐 문구', () => {
     expect(TEAM).toContain('### 4-1. 머지 충돌 해소')
     expect(TEAM).toContain('### 5-2. 해소 spawn')
     expect(TEAM).toContain('cat .claude/skills/dflow-team/references/merge-conflict.md')
-    expect(TEAM).toContain('`references/merge-conflict.md`, `references/backends.md` 의')
+    // 2026-09-25: 압축 뒤에는 재독 세트 밖 문서를 그 절차를 처음 탈 때 읽는다(merge-conflict.md 머리에도 적었다)
+    expect(TEAM).toContain('`references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')).toContain('컨텍스트 압축 뒤에도 그때 다시 읽는다')
   })
   it('최종 판정 목록 두 곳에 resolved 가 있다', () => {
     expect(TEAM.split('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`)').length - 1).toBe(2)
@@ -39,12 +41,14 @@ describe('SKILL.md — 포인터 절과 바뀐 문구', () => {
   it('금지: heartbeat·--resolve 예외, 재spawn 예외는 다섯', () => {
     expect(TEAM).toContain('머지 충돌 표시 heartbeat(`merge_conflict` 설정·해제')
     expect(TEAM).toContain('해소 워커의 `/dflow-merge --resolve` 가 개발 브랜치에 한 건을 머지·push 한다')
-    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외는 다섯이다(')
+    // 2026-09-25: 「금지」 는 「5」 끝의 정본(다섯 예외)을 가리키기만 한다(중복 제거)
+    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 다섯뿐이다.')
     expect(TEAM).toContain('같은 작업을 다시 띄우는 것은 다섯뿐이다(')
   })
   it('team.sweep 은 resolved 를 함께 센다, 마감은 표시를 지우지 않는다', () => {
     expect(TEAM).toContain('`team.sweep`(merged, waiting, rejected, resolved 개수)을 기록한다.')
-    expect(TEAM).toContain('마감은 남은 `merge_conflict` 표시를 지우지 않는다')
+    // 「7. 마감」 절차는 references/closing.md 로 옮겼다
+    expect(read('.claude/skills/dflow-team/references/closing.md')).toContain('마감은 남은 `merge_conflict` 표시를 지우지 않는다')
   })
   it('해소 워크트리는 부트스트랩 실패 정리 대상이 아니다(branch 칸이 늘 -)', () => {
     expect(TEAM).toContain('(해소 워크트리 `dflow-<id8>-resolve` 는 예외 — 「고아 정리 규칙」 2-1번)')

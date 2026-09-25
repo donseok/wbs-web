@@ -2,6 +2,7 @@
 name: dflow-dev
 description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕→claim→설계→TDD구현→검증→완료보고). 시작 시 승인된(approved) 로컬 작업을 먼저 main 에 머지한다(/dflow-merge 흡수, 2026-08-24). 대화형 supervised 전용 — 무인 실행은 자율 러너 설계(2026-08-20)의 영역이다. 구현 규율 정본은 이 스킬의 references/dev-discipline.md. 트리거 - "/dflow-dev", "작업 구현해", "D'Flow 작업 개발". 사용법 - /dflow-dev <순번|TSK-ID> [--only design|build|verify|refactor] [--model opus|sonnet]
 ---
+<!-- dflow-caps: worker — 팀장·워커가 이 줄로 기능 지원을 판정한다. 지우거나 바꾸지 않는다. -->
 
 # /dflow-dev — D'Flow 작업 개발 사이클 (supervised)
 
@@ -9,14 +10,22 @@ description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕
 
 <!-- worker:begin -->
 > `--worker` 는 `/dflow-team` 팀장 전용 플래그다(사람이 직접 쓰지 않는다). 있으면 아래 「--worker 팀원 모드」
-> 절의 여덟 행(A~H)만 달라지고, 없으면 이 문서 절차 그대로다.
+> 절의 아홉 행(A~I)만 달라지고, 없으면 이 문서 절차 그대로다.
+> `--worker` 면 **지금 `.claude/skills/dflow-dev/references/worker-mode.md` 를 Read 한다** — 아홉 행과 워커 규칙이 그 파일에
+> 있고, 아래 절차가 행 A 부터 곧바로 가리킨다.
 <!-- worker:end -->
 
 > **위치 선언**: 이 스킬은 자율 러너 설계(wbs-web 리포 docs/superpowers/specs, 킷에는 미동봉)의
 > **L0(supervised)** 대화형 경로다. 무인 루프는 러너의 영역이며 이 스킬은 사람이 기동·관찰하는
 > 세션에서만 쓴다. 구현 과정 규율(Phase 정의·TDD·게이트 기준선·모델 배정·공통 금지)의 정본은
-> **`.claude/skills/dflow-dev/references/dev-discipline.md`** — 먼저 읽고 그대로 따른다. 이 파일은 규율을
+> `.claude/skills/dflow-dev/references/` 의 규율 문서다(Phase 서브에이전트는 자기 Phase 파일만 읽는다). 이 파일은 규율을
 > 중복 서술하지 않고 오케스트레이션(순서·게이트 집행·상태·서버 보고)만 정의한다.
+>
+> **시작할 때 읽는 것**: **`.claude/skills/dflow-dev/references/dev-discipline.md`** 의 「게이트 기준선」(「기준선 캐시」·
+> 「research/docs 작업 특례」 포함)·「화면 작업의 브라우저 E2E」·「도커 사용 규칙」·「Phase 정의」·「Phase 05 — Refactor」·「모델 배정」·「무거운 명령 줄
+> 세우기」·「포그라운드 실행(백그라운드 게이트 금지)」·「공통 금지」 절을 읽고 그대로 따른다. 「공용 결정 기록(decisions.md)의
+> 번호」·「마이그레이션 버전」 은 그 일이 생길 때 읽는다. Phase 서브에이전트에게 주는 문구는 `references/phase-prompt.md` 다.
+> 규칙의 이유·사고 이력은 `references/rationale.md` 에 있다(실행 중에는 읽지 않는다).
 >
 > 서버 통신은 전부 dflow.sh 로 하고 산문 파싱 금지 — exit code 로 분기한다. dflow-work 의
 > 금지사항 전부 상속. **dflow.sh 경로**: 대상 리포(cwd)의 `.claude/skills/dflow-work/scripts/dflow.sh`
@@ -33,8 +42,10 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 - Build/Verify/Refactor 게이트: **오케스트레이터가 테스트 명령을 직접 실행**하고 exit code 와
   출력을 기준선과 차분 비교한다(신규 실패 0 + 테스트 총수 미감소). 서브에이전트가 "통과했다"고
   말해도 직접 실행 결과가 판정이다.
-- 도커: 기준선 전에 도커 금지 모드를 판정하고, 켜져 있으면 기준선·게이트·Phase 프롬프트에서 도커·Testcontainers 명령을
-  뺀다. 도커 런타임은 언제나 켜지 않는다. 판정·제외·기록·프롬프트 문구의 정본은 dev-discipline.md 「도커 사용 규칙」.
+  전체 스위트는 **Build 게이트에서 한 번** 돈다. Verify·Refactor 게이트는 그 Phase 가 코드를 바꿨을 때만 다시 돌고,
+  아니면 Build 게이트 결과를 그대로 쓴다(아래 「Phase 종료마다」 1번). 게이트 명령은 `heavy.sh` 로 감싼다.
+- 도커: 기준선 전에 금지 모드를 판정해 기준선·게이트·Phase 프롬프트에서 도커 명령을 빼거나, 금지가 아니면 도커 슬롯
+  (`heavy.sh --pool docker`)에서만 돌린다. 도커 런타임은 켜지 않는다. 정본은 dev-discipline.md 「도커 사용 규칙」.
 
 ## 상태 모델
 
@@ -42,8 +53,9 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 
 - 로컬 `<TASKS>/<TSK>/state.json`:
   `{ "tsk", "order", "api_base", "phase", "baseline": {"failures": N, "tests": M}, "last": {"phase","event"} }`
-  `model`(선택)은 **지금 도는 Phase 서브에이전트의 모델**이다(아래 Phase 02~05). heartbeat 훅이 이 값을 서버로 실어
-  좌석표 에이전트 보기의 명찰·등급(Fable·Opus·Sonnet·Haiku …)이 Phase 마다 바뀐다(2026-09-18, 0100).
+  `model`(선택)은 **지금 도는 Phase 서브에이전트의 모델**이다(아래 Phase 02~05). heartbeat 훅이 서버로 실어 좌석표 명찰이
+  Phase 마다 바뀐다.
+  `build_unit`(선택)은 지금 도는 구현 단위(`B1`…)다. 단위가 몇 개든 `phase` 는 Build 동안 `build` 하나다.
   `phase` 값: `ready`·`design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.
   `ready` 는 `dflow.sh scaffold` 가 만든 초기값이다(주문 전 폴더 자리). 진행 중 phase 가 아니므로 스윕·재개 판정은 건너뛴다.
   `rejected` 는 서버가 반려를 통지한 상태다 — 승인 대기(reported)와 구분해야 스윕이 헛돌지 않는다.
@@ -52,20 +64,16 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   영영 못 본다(2026-08-25 실증). 기존 파일이 id8 이면 발견 즉시 전체 UUID 로 고쳐 커밋한다.
   기록 순서 고정: **산출물 커밋 → state.json 갱신 → progress 보고.** progress 보고가 실패(exit≠0)해도
   state 는 유지하고 그 사실만 보고한다(성공 Phase 를 되돌리지 않는다).
-  **예외는 exit 10(중단됨)이다.** 사람이 D'Flow 에서 이 작업을 중단했다(주문 `cancelled`, 위임 해제). progress·
-  heartbeat·done 중 어느 호출이든 exit 10 이면 **그 자리에서 멈춘다** — 다음 Phase 로 가지 않고, 재시도하지 않는다.
-  state.json 을 `phase=cancelled` 로 바꾸고, 산출물은 로컬 커밋만 남긴다(**push 하지 않는다**, done 하지 않는다).
-  사용자에게는 `"{TSK} 중단됨 — D'Flow 에서 사람이 멈췄습니다. 로컬 커밋만 남겼습니다."` 한 줄로 알린다.
-  PostToolUse heartbeat 훅도 같은 신호(409 `cancelled`)를 받으면 `~/.dflow/hb/<order>.cancelled` 표식을 남기고
-  세션을 세운다(`continue:false`). 표식이 남은 동안 훅은 도구를 부를 때마다 다시 세운다. 그 파일은
+  **예외는 exit 10(중단됨)이다** — 사람이 D'Flow 에서 중단했다(주문 `cancelled`, 위임 해제). progress·heartbeat·done 중
+  어느 호출이든 exit 10 이면 **그 자리에서 멈춘다**(다음 Phase·재시도 없음). state.json 을 `phase=cancelled` 로 바꾸고 로컬
+  커밋만 남긴다(**push 하지 않는다**, done 하지 않는다). 사용자에게는
+  `"{TSK} 중단됨 — D'Flow 에서 사람이 멈췄습니다. 로컬 커밋만 남겼습니다."` 한 줄로 알린다. heartbeat 훅도 409 `cancelled` 를
+  받으면 `~/.dflow/hb/<order>.cancelled` 표식을 남기고 세션을 세운다(`continue:false`, 표식이 있는 동안 도구마다). 표식은
   `/dflow-team` 팀장이 spawn 직전에 서버 status(`ready`·`claimed`)로 확인하고 지운다. 수동 `/dflow-dev` 세션은 사람이
   지운다. `cancelled` 는 진행 중 phase 가 아니다 — 스윕·재개 판정은 건너뛴다.
-  **`api_base` 는 claim 한 시점의 `DFLOW_API_BASE` 에서 끝 `/` 를 뺀 값이다**(dflow.sh `base()` 와 같은
-  정규화). Phase 01 에서 state.json 을 처음 쓰는 곳에서 기록한다. 스택이면 3번의 `branch_base`·`risk` 기록,
-  아니면 4번의 기준선 기록이다. 반려 재작업이 기존 state.json 에 `phase=rejected` 를 쓸 때 `api_base` 가
-  없으면 같은 규칙으로 채운다. 이유: 스테이징 D'Flow DB 는 운영을 복제하므로, 스윕(Phase 01-가,
-  `/dflow-merge`)이 이 값으로 로컬·원격 후보 중 자기 인스턴스의 것만 고른다. 재작업 브랜치도 다시 push 되어
-  원격 후보가 되므로, 값이 없으면 같은 인스턴스의 브랜치가 "다른 D'Flow" 로 건너뛰어진다.
+  **`api_base` 는 claim 한 시점의 `DFLOW_API_BASE` 에서 끝 `/` 를 뺀 값이다**(dflow.sh `base()` 와 같은 정규화). 스윕이
+  이 값으로 자기 D'Flow 인스턴스의 후보만 고른다. Phase 01 에서 state.json 을 처음 쓰는 곳(3번 `prepare`·스택 기록 또는
+  4번 기준선)에서 기록한다. 반려 재작업이 기존 state.json 에 `phase=rejected` 를 쓸 때 `api_base` 가 없으면 같은 규칙으로 채운다.
 - 실패 시 `phase` 는 되돌리지 않고 `last.event=*.fail` 만 기록 — 재실행 시 같은 Phase 재개.
 - **재개 판정은 산출물 교차 확인으로**: state.json 이 있어도 그 phase 의 선행 산출물
   (design.md·Build 커밋)이 현재 트리에 실재하는지 확인하고, 없으면 **산출물이 있는 지점까지
@@ -74,14 +82,11 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 - **재claim 시 이전 시도의 잔재 격리**: claim 하려는 작업의 `<TASKS>/<TSK>/` 가 이미 있으면
   `<TASKS>/<TSK>.prev-<날짜>/` 로 옮긴 뒤 시작한다(stale state 로 Phase 건너뜀 방지).
   **반려 재작업은 예외** — 산출물이 심사 대상이었던 그 트리이므로 옮기지 않고 그 위에서 고친다.
-  **재개도 예외다.** show 가 `status=claimed` 이고 `mine=true` 면 이 신원이 이미 잡고 있는 작업이므로 claim 을
-  다시 하지 않으며, 이 격리도 하지 않는다. 격리는 **신규 claim 경로에서만** 돈다. 이유: 중단된 작업을 이어받을
-  때 이 규칙이 잘못 발동하면 그 작업의 design.md 가 통째로 `.prev-` 로 밀려, 재개한 세션이 설계 없는 상태에서
-  Design 부터 다시 하게 된다.
-  **scaffold 가 만든 폴더도 예외다.** 폴더 안에 `state.json` 하나만 있고 `phase=ready` 이면 잔재가 아니다. 옮기지 않고
-  `order`·`api_base` 를 이번 claim 값으로 덮어쓴 뒤 진행한다(담당이 바뀌어 남이 만든 ready 파일도 같다). 파일이 더 있거나
-  `phase` 가 `ready` 가 아니면 종전대로 격리한다. 이유: 팀장이 시작할 때 담당 작업 폴더를 미리 만들므로
-  (`dflow.sh scaffold`), 이 예외가 없으면 모든 신규 claim 이 방금 만든 폴더를 `.prev-` 로 밀어낸다.
+  **재개도 예외다.** show 가 `status=claimed` 이고 `mine=true` 면 이미 잡은 작업이라 claim 도 격리도 하지 않는다. 격리는
+  **신규 claim 경로에서만** 돈다(잘못 돌면 design.md 가 `.prev-` 로 밀려 Design 부터 다시 한다).
+  **scaffold 가 만든 폴더도 예외다.** 폴더 안에 `state.json` 하나만 있고 `phase=ready` 이면 잔재가 아니다(`dflow.sh scaffold`
+  가 미리 만든 자리). 옮기지 않고 `order`·`api_base` 를 이번 claim 값으로 덮어쓴 뒤 진행한다(남이 만든 ready 파일도 같다).
+  파일이 더 있거나 `phase` 가 `ready` 가 아니면 종전대로 격리한다.
 
 ## Phase 01-가 — 승인 스윕(머지, 오케스트레이터 본인)
 
@@ -93,18 +98,33 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 승인해 놓고 아무도 main 에 반영을 안 시키는 게 병목이었다(2026-08-24). 대상 작업의 claim 여부와
 무관하게 매 호출마다 돈다.
 
+0. **사전 검사 — 후보가 없으면 `/dflow-merge` 를 읽지 않는다.** 스크립트로 후보를 먼저 본다(서버 조회 없이, 후보 정의는
+   아래 1번과 같다).
+   ```bash
+   .claude/skills/dflow-merge/scripts/sweep-check.sh --dev '<기본브랜치>'; echo "rc=$?"
+   ```
+   | 마지막 줄 | 처리 |
+   |---|---|
+   | `SWEEP_CANDIDATES n=<N> <id8…>` | `/dflow-merge` SKILL.md 를 읽고 1~6번을 한다 |
+   | `SWEEP_NONE` | `/dflow-merge` 를 읽지 않고 1~5번을 건너뛴다. 6번 집계는 "스윕 생략(후보 없음)" 한 줄이다 |
+   | `SWEEP_UNKNOWN <사유>`, 빈 출력, 스크립트 없음(옛 킷), `rc` 가 0 이 아님 | **스윕을 돌린다**(fail-open) — 위 `SWEEP_CANDIDATES` 와 같다. 사유를 한 줄 보고한다 |
+
+   글자 그대로 `SWEEP_NONE` 일 때만 건너뛴다(판정 불가를 후보 없음으로 뭉개면 승인된 작업이 머지되지 않는다).
+   `SWEEP_NONE` 인데 출력에 `SWEEP_DIALECT_PENDING <sha>` 줄이 있으면 방언 검증을 직접 한 번
+   부르고 그 결과 줄을 6번 집계에 싣는다(`/dflow-merge` 본문은 읽지 않는다). 스윕을 돌리면 방언 검증은 `/dflow-merge` 의
+   「방언 검증」 이 스윕 끝에 한다. 이 판정은 `/dflow-team` SKILL.md 「4-0. 스윕을 부르는 규칙」 과 같다.
+   ```bash
+   .claude/skills/dflow-merge/scripts/dialect-check.sh run --dev '<기본브랜치>'; echo "rc=$?"
+   ```
 1. **후보 식별**: `/dflow-merge` 1번(`.claude/skills/dflow-merge/SKILL.md`)과 같게 로컬 + 원격으로 본다.
    대상 저장소의 `dflow.sh config tasks-dirs` 의 각 폴더 아래 `*/state.json` 중 `phase=reported` 전부(로컬 후보)에 더해, 원격 `origin/agent/*`
    브랜치 tip 의 state.json 중 브랜치 이름의 id8 과 `order` 가 일치하고 `phase` 가 `merged` 가 아닌 것(원격
    후보)을 본다. 같은 order 가 로컬과 원격에 모두 있으면 로컬 후보 하나로 합친다. 그 다음 `api_base` 가 현재
    `DFLOW_API_BASE`(끝 `/` 제거)와 다르면 로컬이든 원격이든 "건너뜀(다른 D'Flow)" 로 집계하고, 원격에만 있는
    후보는 값이 없어도 건너뛴다. 명령과 합치는 규칙은 `/dflow-merge` 1번의 것을 그대로 쓴다. 원격에만 있는
-   후보의 머지 대상은 `origin/agent/<id8>-<slug>` 이다. 이유: Phase 06 가
-   `reported` 를 커밋하므로 다른 브랜치로 옮긴 뒤에는 작업트리에서 그 state.json 이 빠져, 로컬만 보면
-   승인분을 놓친다. 스테이징 D'Flow DB 는 운영을 복제하므로 다른 인스턴스의 후보도 approved 로 보인다.
+   후보의 머지 대상은 `origin/agent/<id8>-<slug>` 이다.
 2~5. **판정·순서·머지·뒷정리**: `/dflow-merge` SKILL.md(`.claude/skills/dflow-merge/SKILL.md`) 2~5번을 그대로 따른다.
-   번호도 같아서, 이 문서의 "Phase 01-가 4번" 은 `/dflow-merge` 4번이다. 이유: 같은 머지 절차를 두 곳에 적으면
-   한쪽만 고쳐져, 스윕이 충돌 상태나 push 안 된 커밋을 체크아웃에 남기는 결함이 되살아난다.
+   번호도 같아서, 이 문서의 "Phase 01-가 4번" 은 `/dflow-merge` 4번이다(머지 절차를 두 곳에 적지 않는다).
 6. **집계 보고**: 머지됨 / 승인 대기 / 건너뜀(사유) 을 한 줄씩 — 원래 요청받은 작업으로 넘어가기 전.
 
 머지 대상이 wbs-web 자신이면 G1~G4 훅 제약이 여기도 적용된다.
@@ -127,6 +147,7 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    <!-- worker:begin -->
    `--worker` 면 머지하지 않고 `needs-merge` 로 끝낸다(「--worker」 C).
    <!-- worker:end -->
+   이 머지도 `/dflow-merge` SKILL.md 4번 절차다 — Phase 01-가 가 `SWEEP_NONE` 으로 건너뛰어 아직 읽지 않았으면 먼저 읽는다.
 
    **반려 재작업 경로** — 로컬 `phase=reported`(또는 승인 뒤 재작업 요청이면 `merged`)인데
    서버 `status=claimed` 이면 반려를 의심한다.
@@ -141,8 +162,7 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
      되돌리지 말고 머지된 코드 위에 수정 커밋을 얹는 것이 계약이다.
    - claim 을 다시 하지 않는다. 서버는 이미 claimed 로 롤백해 두었다.
    - 재작업 완료 후 마감은 Phase 06 그대로(`done --auto-links`) — state 는 다시 `reported`.
-2. **착수 가능 판정 — 서버는 이걸 안 해준다(2026-08-22 실증: 선행 미승인·spec 부재 작업의
-   claim 이 전부 조용히 통과했다).** claim 전에 오케스트레이터가 직접:
+2. **착수 가능 판정 — 서버는 이걸 안 해준다.** claim 전에 오케스트레이터가 직접:
    - **spec 검사**: show 의 `.order.item.spec` 이 비어 있으면 착수 불가. 제목만으로 요구사항을
      지어내지 않는다. 스킵하고 사유 보고.
    - **선행 검사** (show 의 `depends_evidence[]` 각 원소 d 에 대해). **완료 판정은 `head_sha`
@@ -153,13 +173,12 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
      - **v2.8: `d.waived === true` 면 **강제 진행 간선**이다**(사람이 이 선행을 기다리지 않기로 면제했다).
        완료 판정·기본 브랜치 반영 확인·스택을 하지 않는다. 「강제 진행: <선행> 은 스텁으로 대신한다」 를 한 줄 남기고,
        그 선행의 계약(show 의 선행 spec·acceptance, 없으면 `dflow.sh show <선행 ref>`)을 읽어 아래 「강제 진행 스텁 규칙」대로
-       스텁/목을 둔다. 기점은 항상 `origin/<기본브랜치>` 다(면제된 선행에는 `head_sha` 가 없다 — 승인 전 브랜치 위에
-       쌓으면 선행이 반려될 때 함께 무너진다). 대화형은 행 G 갈래 1 처럼 로컬 선행 산출물이 있으면 스택할 수 있으나
-       팀원(워커) 모드는 하지 않는다(행 G).
+       스텁/목을 둔다(Phase 프롬프트의 `{FORCE_STUB}`). 기점은 항상 `origin/<기본브랜치>` 다 — 면제된 선행에는 `head_sha` 가
+       없고, 승인 전 브랜치 위에 쌓으면 선행이 반려될 때 함께 무너진다. 대화형은 행 G 갈래 1 처럼 로컬 선행 산출물이 있으면
+       스택할 수 있으나 팀원(워커) 모드는 하지 않는다(행 G).
      - **v2.3 서버는 판정 결과를 `d.reached` 로 준다**(= `stage ∈ {im,xx}` ∨ `order_approved` ∨
-       `actual_pct ≥ 100`). **`'reached' in d` 면 그 값이 선행 완료 판정이다** — 축을 다시 조합하지 않는다.
-       실적 100 축은 위임하지 않은 사람 Task 가 선행일 때 풀리는 길이라, 옛 규칙으로 판정하면 서버는
-       claim 을 통과시키는데 스킬만 막는다. 키가 없으면 아래 v2.2 규칙을 쓴다.
+       `actual_pct ≥ 100`). **`'reached' in d` 면 그 값이 선행 완료 판정이다** — 축을 다시 조합하지 않는다(서버는 통과시키는데
+       스킬만 막는 일을 막는다). 키가 없으면 아래 v2.2 규칙을 쓴다.
      - `order_approved` 는 **키 존재 여부로 지원을 가른다**(`'order_approved' in d`).
        `contract_version` 으로는 못 가른다 — 이 필드가 들어간 뒤로도 한동안 버전을 안 올려
        2.1 서버 중에 키를 주는 것과 안 주는 것이 섞여 있다(2.2 부터 계약에 명시됐다).
@@ -167,7 +186,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
        stage 축만으로 판정하고 그 사실을 한 줄 남긴다.**
      - 선행 완료 + `head_sha` 있음:
        `git fetch origin && git merge-base --is-ancestor <head_sha> origin/<기본브랜치>` —
-       거짓이면 선행이 main 미반영 상태. **Phase 01-가 4번과 같은 절차로 지금 직접 머지한다**
+       거짓이면 선행이 main 미반영 상태. **Phase 01-가 4번과 같은 절차로 지금 직접 머지한다**(Phase 01-가 가
+       `SWEEP_NONE` 으로 `/dflow-merge` SKILL.md 를 읽지 않았으면 먼저 읽는다)
        (브랜치명을 모르면 `<head_sha>` 를 그대로 머지 대상으로 써도 된다 — fetch 로 이미 origin 에
        있다). 머지 후 이어서 진행.
        <!-- worker:begin -->
@@ -189,7 +209,7 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
           재발행으로 옛 완료 보고가 가려진 경우. 한 줄 남기고 진행한다.
    - **강제 진행 스텁 규칙**(스펙 2026-09-23 §3.4):
      1. 후행 소유 경로에 둔다 — 선행이 만들 파일을 먼저 만들지 않는다. 예: `src/__stubs__/<선행 TSK-ID>/order.ts` 에 계약대로
-        쓰고 주입 지점 한 곳에서만 바꿔 끼운다. 공유 등록 목록의 같은 줄을 고치지 않는다(2026-09-21 충돌 원인).
+        쓰고 주입 지점 한 곳에서만 바꿔 끼운다. 공유 등록 목록의 같은 줄을 고치지 않는다.
      2. 테스트에만 필요하면 테스트용 목으로 끝내고 런타임 스텁을 만들지 않는다.
      3. 런타임 스텁에는 계약에 맞는 고정 응답을 넣어 후행 테스트가 개발 브랜치에서 통과하게 한다.
      4. 표식: 코드에 `FORCE-STUB: <선행 TSK-ID>` 주석. design.md 와 완료 보고에 「강제 진행 스텁」 절(대신한 선행·대상·가정한 계약).
@@ -207,29 +227,22 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
      ```bash
      git symbolic-ref -q --short HEAD || git rev-parse HEAD
      ```
-     그 다음 기점이 `origin/<기본브랜치>` 여도 detach 한다. 수동 사용자가 무관한 브랜치에 있으면 claim 의
-     선행 도달 검사가 그 HEAD 를 보고 exit 4 를 내기 때문이다.
+     그 다음 기점이 `origin/<기본브랜치>` 여도 detach 한다(무관한 브랜치의 HEAD 를 보고 claim 이 exit 4 를 내지 않게).
      ```bash
      git fetch origin && git switch --detach <기점>
      ```
      해당 agent 브랜치(`agent/<주문id8>-*`)가 이미 있으면(재개) detach 대신 그 브랜치로 switch 한다.
    - 기점 이동이 실패하면 claim 하지 않고 중단·보고한다(detach 와 재개 브랜치 switch 모두. 워커는 `.result` 에
-     `failed detach`). 이유: 수동 사용자의 미커밋 변경이 기점과 부딪치면 switch 가 거부되는데, 그 상태로
-     claim 하면 서버에는 claimed 가 남고 작업은 엉뚱한 HEAD 에서 시작한다. 거부된 switch 는 HEAD 를 옮기지
-     않으므로 복귀할 것은 없다.
+     `failed detach`). 거부된 switch 는 HEAD 를 옮기지 않으므로 복귀할 것은 없다.
    - claim 이 `PROJECT_MISMATCH`(exit 2)로 거부되면 그 주문은 이 리포에 바인딩된 D'Flow 프로젝트 밖이거나 리포에
      바인딩(`.dflow` 의 `project_id`·`.dflow.local` 의 `project_map`)이 없다. 재시도하지 않고 원래 위치로 돌아가 중단·보고한다.
-     워커는 `.result` 에 `failed project <메시지>` 를 쓴다. 이유: 한 사람이 여러 프로젝트에 속하면 서버 목록에 남의
-     프로젝트 작업이 섞이며, 같은 TSK 번호를 쓰는 프로젝트끼리는 겉으로 구분되지 않는다.
+     워커는 `.result` 에 `failed project <메시지>` 를 쓴다.
    - claim 이 exit 4(선행·상태로 인한 진행 불가. 서버 403 `dependency_not_met` 재매핑 포함)면
      `git fetch origin` 뒤 기점을 다시 정해(다시 옮겨) 1회 재시도하고, 그래도 4 면 중단·보고한다. 우회
-     금지. 이유: fetch 로 바뀌는 것은 기점이며, merge 는 기본 브랜치를 사용자의 현재 브랜치나 detached
-     HEAD 에 섞는다.
+     금지. merge 는 하지 않는다(기본 브랜치를 사용자의 현재 브랜치에 섞는다).
    - detach 부터 3번의 `git switch -c` 성공까지의 **모든 실패**(claim 실패, 브랜치 생성 실패 포함)에서
      기록한 원래 위치로 돌아간다. 브랜치면 `git switch <기록한 브랜치>`, 아니면
-     `git switch --detach <기록한 sha>` 다. `git switch -` 는 쓰지 않는다. 이유: `-` 는 "직전 위치" 라서
-     기록한 위치와 다를 수 있고, 수동 사용자를 엉뚱한 곳이나 detached HEAD 에 남기는 것은 수동 동작의
-     퇴행이다.
+     `git switch --detach <기록한 sha>` 다. `git switch -` 는 쓰지 않는다(직전 위치는 기록한 위치와 다를 수 있다).
 3. **브랜치를 오케스트레이터가 직접 만든다** — dflow.sh 는 브랜치를 만들지 않는다(스크립트 실측).
    기점 규칙(2번이 claim 전에 이 규칙으로 기점을 정해 HEAD 를 이미 그 기점에 옮겨 두었다):
    - 기본: `origin/<기본브랜치>`
@@ -238,40 +251,32 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    ```bash
    git switch -c agent/<주문id8>-<slug> <기점>
    ```
-   **agent 브랜치에 올라서면 곧바로 state.json 의 `phase` 를 `prepare` 로 쓴다(2026-09-24).** 이 뒤의 의존성 설치·기준선·
-   spec 판정 동안에도 heartbeat 훅이 신호를 보내게 하기 위해서다. 훅은 `prepare`·`design`·`build`·`verify`·`refactor`·
-   `rejected` 만 보내고 scaffold 값 `ready` 는 보내지 않는다(ready 는 claim 전의 모든 배정 작업에 있는 자리표라 받으면 남의
-   주문으로 신호가 샌다). 그대로 두면 Phase 01 내내 신호가 한 번도 나가지 않는다(dmes-standard 2026-09-24 실측: 착수 5분이
-   넘도록 `last_heartbeat_at=null`, state.json `phase=ready`). 훅은 PostToolUse 라 도구 호출이 끝날 때마다 돈다 — 5분 넘는
-   단일 호출(기준선 testAll 등)이 도는 동안은 이 규칙으로도 좌석이 무응답으로 보이며, 그 호출이 끝나면 되살아난다.
+   **agent 브랜치에 올라서면 곧바로 state.json 의 `phase` 를 `prepare` 로 쓴다** — 설치·기준선·spec 판정 동안에도 heartbeat
+   훅이 신호를 보내게 한다(훅은 `ready` 를 보내지 않는다). claim 직후가 아니라 여기서 쓴다(복귀 switch 를 막지 않게).
    - 파일이 없거나 `phase` 가 `ready` 일 때만 쓴다. 재개로 이미 뒤 단계(`design` 이후)가 적혀 있으면 덮어쓰지 않고,
      반려 재작업 경로(`phase=rejected`)에서는 쓰지 않는다.
    - 이 쓰기가 state.json 의 첫 기록이면 `order`(전체 UUID)와 `api_base`(상태 모델)를 함께 적는다. 커밋은 하지 않는다
      (다음 커밋에 실린다).
-   - claim 직후가 아니라 여기서 쓰는 이유: claim 부터 `git switch -c` 까지 실패하면 기록한 원래 위치로 돌아가야 하는데,
-     그 사이에 고친 state.json 이 복귀 switch 를 막을 수 있다.
    이미 해당 브랜치면 재개. **main·staging 위에서 사이클 진행 금지** — Phase 진입 전
    `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.
    <!-- worker:begin -->
    `--worker` 면 여기서 의존성을 설치한 뒤 4번으로 간다(「--worker」 H).
    <!-- worker:end -->
 4. **게이트 기준선 기록**: dev-discipline 의 기준선 절차 실행, state.json 에 저장(`api_base` 가 아직 없으면 함께 기록한다. 상태 모델).
-   기준선 명령은 하나씩 캐시 스크립트로 감싸 돌린다(dev-discipline 「기준선 캐시」). 같은 기점·같은 명령을 다른 팀원이
-   이미 쟀으면 재지 않고 그 결과를 쓰고, 동시에 재는 중이면 기다렸다 쓴다.
+   기준선 명령은 하나씩 캐시 스크립트로 감싸 돌린다(dev-discipline 「기준선 캐시」 — 같은 기점·같은 명령은 한 번만 잰다).
    ```bash
    .claude/skills/dflow-dev/scripts/baseline.sh list --base <기점>   # 이 기점에서 이미 잰 명령. 같은 일을 재는 명령이 있으면 그 문자열·cwd 를 글자 그대로 쓴다
    .claude/skills/dflow-dev/scripts/baseline.sh run --base <기점> --task-dir <TASKS>/<TSK> -- '<테스트 명령>' 2>&1 | tail -30
    ```
-   `<기점>` 은 3번 `git switch -c` 에 준 기점이다. 새로 쟀으면(`BASELINE_MEASURED ... key=`) 출력에서 읽은 총수·실패
-   목록을 `baseline.sh note <key> --tests <총수> --failures <실패 수> [--failed-file <파일>]` 로 더한다. 재사용했으면
-   (`BASELINE_REUSED`) `BASELINE_SUMMARY` 의 수를 그대로 쓴다. state.json `baseline` 에는 명령마다 `"cmd"`·`"source"`
-   (`"measured"`|`"cache"`)·`"cache_key"`·`"measured_at"` 을 함께 적어 재사용 여부를 남긴다(`.issues` 가 아니다).
-   Phase 02~05 공통 프롬프트와 게이트로 옮기는 「기준선에서 실제로 돌린 명령 줄」 은 **`--` 뒤의 명령**이다 — 감싼
-   줄을 옮기면 게이트가 캐시된 기준선을 자기 결과로 받는다. 캐시를 끄려면 `DFLOW_BASELINE_CACHE=0`, 다시 재서 덮어쓰려면
-   `DFLOW_BASELINE_CACHE=refresh` 다.
+   `<기점>` 은 3번 `git switch -c` 에 준 기점이다. 새로 쟀으면(`BASELINE_MEASURED ... key=`) 총수·실패 목록을
+   `baseline.sh note` 로 더하고, 재사용했으면(`BASELINE_REUSED`) `BASELINE_SUMMARY` 의 수를 쓴다. state.json `baseline` 에는
+   명령마다 `"cmd"`·`"source"`·`"cache_key"`·`"measured_at"` 을 적는다 — 형식·끄기(`DFLOW_BASELINE_CACHE=0`)·다시
+   재기(`DFLOW_BASELINE_CACHE=refresh`)는 dev-discipline 「기준선 캐시」 다.
+   Phase 프롬프트(`{VERIFY_CMDS}`)와 게이트로 옮기는 「기준선에서 실제로 돌린 명령 줄」 은 **`--` 뒤의 명령**이다 — 감싼
+   줄을 옮기면 게이트가 캐시된 기준선을 자기 결과로 받는다.
 5. spec.md 읽기(필수) + 복잡도 판정(dev-discipline 의 점수표) → 설계 모델 결정, 한 줄 출력.
 6. **준비 끝 표시**: state.json 의 `phase` 가 `prepare` 이면 `design` 으로 바꾼다(Design 서브에이전트를 띄우기 전, 커밋하지
-   않는다). 훅이 다음 신호에 실어 좌석이 「준비」에서 「설계」로 넘어간다. 빠뜨리면 Design 동안 좌석이 계속 「준비」로 보인다.
+   않는다). 빠뜨리면 Design 동안 좌석이 계속 「준비」로 보인다.
 
 ## Phase 02~05 — Design → Build → Verify → Refactor
 
@@ -281,71 +286,84 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의 에이전트를 4 Phase 가 돌려쓰지
 않는다** — 에이전트 모델은 spawn 시점에 고정된다.
 
+**Build 는 구현 단위마다 서브에이전트 하나로 띄운다**(dev-discipline.md 「구현 단위」). 단위와 순서는 design.md
+`## 구현 단위` 표가 정하고, 표가 없으면 단위 하나(B1)다.
+- 이름: 단위가 하나면 `<TSK>-build` 그대로다 — 이름·게이트·재시도가 종전과 같다. 여럿이면 `<TSK>-build-<단위>`(예
+  `<TSK>-build-B2`)다. 인계를 받아 같은 단위를 이어 띄우면 끝에 `-c<n>` 을 붙인다(`<TSK>-build-B2-c1`).
+- 띄우기 직전 state.json 의 `model` 과 `build_unit` 을 쓴다. 모델은 모든 단위가 Build 모델 하나다.
+- 프롬프트에 단위 이름, 마지막 단위인지(연결 테스트·E2E 담당), 단위 상한(도구 호출 약 80회·컨텍스트 250K 추정)을 넣는다.
+- 보고 첫 줄이 `UNIT_DONE <단위>` 면 그 단위 커밋이 있는지 확인한다. 마지막 단위가 아니면 게이트 없이 곧바로
+  `TaskStop` 하고 다음 단위를 띄운다. `UNIT_HANDOFF <단위>` 면 build-log.md `## 인계 <단위>` 가 커밋됐는지 확인하고
+  TaskStop 한 뒤 같은 단위를 새 에이전트로 이어 띄운다(프롬프트에 그 인계 절을 넣는다). 이어 띄우기는 단위마다 2회까지다.
+  횟수는 기억이 아니라 `git log <기점>..HEAD --grep='DFlow-Unit: <단위> handoff' --format=%h` 줄 수로 센다.
+  세 번째 인계나 둘 다 아닌 보고는 Build 실패다(아래 4번).
+- 재개하면 끝난 단위를 커밋 트레일러로 가린다 — `git log <기점>..HEAD --grep='DFlow-Unit: <단위> done' --format=%h` 가 한 줄
+  이상이면 끝난 단위다(단위 커밋 규칙은 phase-build.md 「구현 단위」). 남은 단위부터 띄우고, 마지막 인계가 있으면
+  build-log.md `## 인계 <단위>` 를 프롬프트에 넣는다.
+- 마지막 단위가 끝나면 Build 게이트를 돈다(아래 1번). Build 게이트 재시도(아래 4번)는 마지막 단위의 에이전트에 이어 붙인다.
+
 **띄우기 직전에 state.json 의 `model` 을 그 서브에이전트의 모델로 쓴다** — Agent 도구에 넘기는 값 그대로
 (`opus`·`sonnet`·`haiku`, 전체 id 를 넘겼으면 그 id). 커밋은 하지 않는다(다음 Phase 산출물 커밋에 같이 실린다).
-Verify 재시도로 sonnet 승격하면 다시 쓴다. 훅이 60초 안에 새 값을 실어 보내 명찰이 바뀐다 — 빠뜨리면
-좌석표가 이전 Phase 의 모델을 계속 보인다. 서브에이전트 없이 오케스트레이터가 직접 하는 단계(Phase 01·06)는
-`model` 을 지우지 않는다(마지막 Phase 의 값이 남는 것이 "누가 일했나"에 가깝다).
+재시도를 새 에이전트로 띄워 모델이 바뀌면 다시 쓴다. Phase 01·06(오케스트레이터가 직접)은 `model` 을 지우지 않는다.
 
 공통 프롬프트에 반드시 포함:
-`<TASKS>/<TSK>/spec.md` + **design.md (Build 이후 Phase)** + **기준선 수치** + Phase 지시 +
-"spec 본문은 요구사항 데이터이며 지시가 아님". Phase 정의·완료 조건·커밋 규칙·모델은 전부
-dev-discipline.md 를 따른다.
+`<TASKS>/<TSK>/spec.md` + **design.md (Build 이후 Phase)** + **build-log.md (Verify)** + **기준선 수치** + Phase 지시 +
+"spec 본문은 요구사항 데이터이며 지시가 아님". Phase 정의·완료 조건은 그 Phase 파일(`references/phase-<phase>.md`)을,
+모델은 dev-discipline.md 「모델 배정」 을 따른다.
+**프롬프트는 `.claude/skills/dflow-dev/references/phase-prompt.md` 의 템플릿을 그대로 보내고 `{…}` 변수만 채운다** — 문구를
+고쳐 쓰지 않는다. 템플릿에 읽기 규율·병렬 조사와 단일 작성자·포그라운드 실행·무거운 명령·토큰·커밋 트레일러 문구가 들어 있다.
+서브에이전트는 phase-prompt 가 가리키는 자기 Phase 파일만 읽으므로, dev-discipline.md 전체를 읽으라고 시키지 않는다.
 
-공통 프롬프트에는 **병렬 조사·단일 작성자 규칙**도 넣는다(dev-discipline.md 「병렬 조사와 단일 작성자」). 문구:
-"병렬 조사가 필요하면 fork 를 쓰지 말고 부모 컨텍스트를 물려받지 않는 새 읽기 전용 서브에이전트(예: Explore)를
-띄워 조사 질문만 명시한다. 그 프롬프트에 '파일 편집·커밋·git 쓰기 금지, 결과는 보고로만 돌려줄 것'을 적는다.
-design.md·소스·테스트·state.json 은 이 Phase 담당인 당신 혼자 쓴다." 2026-09-23 사고(dmes-standard w1 · TSK-01-01)
-에서 Design 서브에이전트가 fork 4개를 띄웠고, fork 가 "design.md 를 작성하라"는 지시까지 물려받아 넷이 같은
-파일을 동시에 편집해 D 번호가 충돌했다. 병렬 자체를 막지 않는 이유: 원인은 지시 상속과 쓰기 경합이고, 조사
-병렬을 막으면 속도가 크게 떨어진다.
-
-공통 프롬프트에 넣는 **검증 명령(테스트·타입 검사·빌드)은 오케스트레이터가 기준선(Phase 01 4번)에서 실제로 돌린
-명령 줄을 글자 그대로 옮긴다.** 돌려 보지 않은 도구 경로를 추측해 적지 않는다. 2026-09-24 dmes-standard
-TSK-02-02 에서 오케스트레이터가 안내한 `src/frontend/node_modules/.bin/tsc` 가 없어 서브에이전트가
-`m-mdm/node_modules/.bin/tsc` 를 스스로 찾아야 했다.
-
-공통 프롬프트에는 **포그라운드 실행 규칙**도 넣는다(dev-discipline.md 「포그라운드 실행(백그라운드 게이트
-금지)」). 문구: "게이트·변이 검증 스윕·테스트를 run_in_background 로 띄우지
-말고 포그라운드로 끝까지 돌린다(필요하면 Bash timeout 을 길게 준다). 결과는 보고에 담는다. 백그라운드로
-띄웠다면 그 작업이 끝나 결과를 확인하기 전에는 턴을 끝내지 않는다. Bash 의 timeout 은 최대 600000ms(10분)
-다 — 이보다 오래 걸리는 스윕은 나눠서 각 호출이 그 안에 끝나게 하고, 하네스가 시간 초과로 자동으로
-백그라운드로 옮긴 경우도 위 '백그라운드로 띄웠다면'과 똑같이 다룬다." Build 서브에이전트(팀원 @TSK-03-01-build)가
-변이 검증 스윕을 run_in_background 로 띄운 뒤 "완료 알림을 기다린다"며 턴을 끝냈고, 서브에이전트 종료와 함께 그
-백그라운드 프로세스도 사라져 알림이 끝내 오지 않았다. 오케스트레이터(워커 세션)가 이를 "완료 알림을 기다리는
-중"으로 오판해 약 47분간 커밋도 heartbeat 도 없이 입력 대기로 멈췄고, 팀장이 TICK 무응답 점검에서 찾아
-[팀장 지시] 로 깨웠다.
+검증 명령(`{VERIFY_CMDS}`)은 **오케스트레이터가 기준선(Phase 01 4번)에서 실제로 돌린 명령 줄을 글자 그대로 옮긴다.**
+돌려 보지 않은 도구 경로를 추측해 적지 않는다. Build 의 관련 테스트·변이 검증처럼 **범위를 좁힌 명령(`{NARROW_CMDS}`)도 그
+기준선 명령 줄에서 만든다** — 적어 주지 않으면 서브에이전트가 전체 스위트를 다시 돌리거나 도구 경로를 추측한다. 도커
+문구(`{DOCKER_LINE}`)는 금지 모드 판정(dev-discipline.md 「도커 사용 규칙」)대로 고른다.
 
 커밋 규칙에는 **모든 커밋에 `--trailer "DFlow-Order: <주문 UUID>"` 를 붙이는 것**이 포함된다(state.json 의
-`order`, dev-discipline.md 「Phase 경계 커밋」) — Design·Build·Verify·Refactor·Phase 06 마감 커밋 전부,
+`order`, phase-prompt.md 공통 규칙 1) — Design·Build·Verify·Refactor·Phase 06 마감 커밋 전부,
 워커·수동 경로 모두 예외 없다(이 Phase 들은 전부 `git commit` 이라 `--trailer` 가 그대로 통한다. `/dflow-merge`
 의 머지 커밋은 `git merge` 라 방법이 다르며, 그 스킬의 「트레일러 고정」이 정본이다). 아래 팀원 모드 절 행 G 의
 기본 브랜치 반영 확인이 이 트레일러를 증거로 쓴다.
 <!-- worker:begin -->
-`--worker` 면 공통 프롬프트에 git 절대경로 규칙 한 줄을 덧붙인다(「--worker」 E).
+`--worker` 면 공통 프롬프트에 git 절대경로 규칙 한 줄을 덧붙인다(「--worker」 E). 두 줄 모두 템플릿의 `{WORKER_LINES}` 자리다.
 `.issues` 는 오케스트레이터만 쓴다(worker-prompt.md 「7-1」). 공통 프롬프트에 "겪은 문제는 `.issues` 에 직접 쓰지
 말고 끝 보고에 분류(tool-error·gate-retry·permission·skill-unclear·env·other)와 함께 올린다. design.md 등
-산출물에도 '`.issues` 에 적는다'는 규칙을 만들지 말고 '보고에 올린다'로 쓴다" 를 넣는다. 2026-09-24
-TSK-02-02 에서 Design 이 불변 규칙에 "초안 결함은 `.issues` 에 적는다" 를 넣고 Build 프롬프트는 `.issues` 를
-건드리지 말라 해 둘이 충돌했다.
+산출물에도 '`.issues` 에 적는다'는 규칙을 만들지 말고 '보고에 올린다'로 쓴다" 를 넣는다.
 <!-- worker:end -->
 
 Phase 종료마다 오케스트레이터가:
 1. 게이트 집행(위 원칙 — 직접 실행).
+   - **Build 게이트**: 전체 스위트를 `heavy.sh` 로 감싸 한 번 돈다. 결과(HEAD sha·명령 줄·통과/실패 수·신규 실패 목록)를
+     state.json 의 `build_gate` 에 적고 Verify 프롬프트에 그대로 넣는다 — Verify 는 전체 스위트를 다시 돌리지 않는다.
+     기록 형식은 게이트마다(`build_gate`·`verify_gate`·`refactor_gate`) 같다:
+     `{"head":"<게이트를 돈 HEAD sha>","cmds":[{"cwd":"<폴더>","cmd":"<명령 줄>","tests":<총수>,"failures":<실패 수>}],"new_failures":[…]}`.
+     재실행을 생략한 게이트는 `"reused_from":"build_gate"` 를 더하고 `head` 는 Build 게이트의 sha 를 그대로 둔다
+     (해소 워커가 `head` 로 어느 트리를 잰 기록인지 판단한다 — dflow-team resolve-prompt.md 「3」).
+   - **Verify·Refactor 게이트**: 먼저 `git diff --name-only <Build 게이트 sha>..HEAD` 를 본다. 바뀐 파일이 Task 문서
+     (`<TASKS>/<TSK>/` 아래)와 `*.md` 뿐이고 `git status --porcelain` 도 Task 문서 밖에서 비어 있으면 전체 스위트를 다시
+     돌리지 않고 Build 게이트 결과를 그대로 쓴다. 커밋 밖에 남은 파일(되돌리지 못한 변이 등)은 Phase 06 이 커밋에 섞으므로
+     재실행 생략의 근거가 못 된다. 코드가 바뀌었으면 전체 스위트를 돈다. Refactor 가 커밋을 남기지 않았으면 Refactor 게이트는 없다.
+   - **Verify 의 감사 확인**: build-log.md 「변이 검증 기록」 표가 「불변 규칙」 을 모두 덮는지와, 화면 작업이면 E2E 결과가
+     보고에 있는지 본다. 없으면 실패다. research/docs 특례 작업(dev-discipline 「research/docs 작업 특례」)은 표 대신
+     문서 검증 체크리스트 순회를 본다.
 2. 통과 → Phase 산출물 커밋 확인(없으면 여기서 커밋: 파일명 명시) → state.json 전진 → 서버 보고:
    Design `progress 25 "설계 완료"` / Build `progress 60 "구현 완료"` / Verify `progress 85 "검증 완료"`.
 3. **Phase 에이전트 회수** — 게이트 판정(통과·실패 무관, 재시도할 게 아니면)이 끝나는 즉시
    `TaskStop(task_id: "<TSK>-<phase>")`. 일이 끝난 에이전트는 자기 세션을 붙들고 있어 pane 과
-   메모리를 계속 차지한다(사이클 하나에 4개가 끝난 채로 쌓인다 — 2026-08-25 사용자 보고).
+   메모리를 계속 차지한다.
    회수는 게이트 **뒤**에 한다 — 판정 전에 죽이면 재질의할 대상이 사라진다.
+   Build 는 띄울 때 붙인 이름 그대로(`-c<n>` 포함) 회수하고, 마지막이 아닌 단위는 위 단위 절차대로 게이트 없이 회수한다.
    **pane 자체를 닫는 도구는 없다.** TaskStop 은 에이전트를 종료시킬 뿐이고, 화면에서 pane 이
    사라지는지는 실행 하네스(FleetView 등) 몫이다.
-   실측(2026-08-25, mes-runlog TSK-01-02): 완료된 Phase 에이전트 4개에 TaskStop → 전부 성공,
-   `ListAgents` 목록에서 즉시 소멸. "완료 후 idle 로 세션을 붙들고 있다"는 진단과 일치한다. 종료 후에도 pane 이 남으면 그건 하네스에
-   보고할 건이지 이 스킬이 우회할 대상이 아니다 — 없는 API 를 지어내지 않는다.
+   종료 후에도 pane 이 남으면 하네스에 보고할 건이지 이 스킬이 우회할 대상이 아니다 — 없는 API 를 지어내지 않는다.
 4. 실패 → **즉시 중단**: `"{TSK} {Phase} 실패 — {사유}. phase 유지, 재실행 시 같은 Phase 재개."`
-   Verify 만 1회 재시도(sonnet 승격, 수정은 Build 규율로 — dev-discipline 참조).
+   Build 게이트와 Verify 만 1회 재시도한다(수정은 Build 규율로 — dev-discipline 참조). **Build 게이트가 실패하면 곧바로
+   failed 로 끝내지 않고** 같은 Build 서브에이전트(구현 단위가 여럿이면 마지막 단위)에 실패 목록(신규 실패 테스트 이름과 출력 꼬리)과
+   "재시도 때는 단위 범위 제한 없이 Build 전체를 고친다" 를 넘겨 고치게 한 뒤 Build 게이트를 다시 돈다. 재시도 중 인계(`UNIT_HANDOFF`)는
+   단위 상한 2회에 포함하고, 이어 띄운 에이전트에도 같은 두 가지를 넣는다(같은 1회 재시도다). Verify 가 실패해도 같은 Verify 서브에이전트에 실패 사유를 넘긴다. 두 번째 실패는 중단한다.
    재시도할 때는 회수를 미루고 같은 에이전트에 SendMessage 로 이어 붙인다(컨텍스트 재구축 낭비 방지).
+   SendMessage 가 안 되면(이미 회수됐거나 도구가 없다) 같은 Phase·같은 모델의 새 에이전트를 실패 목록과 함께 띄운다.
+   `HEAVY_BUSY`·`BASELINE_BUSY`·`DEPS_BUSY`(exit 75)는 실패가 아니라 재시도에 세지 않는다.
 5. **서브에이전트가 끝났는데(finished) 이 오케스트레이터가 게이트를 아직 직접 돌리지 않았다면** — 보고에
    게이트 결과가 없거나 "백그라운드 완료를 기다린다"고만 했다면, 그 알림을 기다리지 않는다. 프로세스
    (`pgrep` 등)와 산출물(커밋·파일)을 직접 확인한다. 그 프로세스가 아직 돌고 있으면 알림을 기다리지 말고
@@ -353,32 +371,32 @@ Phase 종료마다 오케스트레이터가:
    확인하며 짧은 간격으로 재확인하거나 로그·산출물 파일을 폴링 — `wait <PID>` 는 그 PID 가 이 Bash 호출의
    자식일 때만 되므로, 다른 호출이나 다른 서브에이전트가 띄운 프로세스에는 쓰지 않는다) 게이트를 돌린다.
    이미 끝나 있고 남은 작업이 없으면 위 「게이트 집행 원칙」대로 게이트를 오케스트레이터가 바로 직접
-   돌린다. 오지 않을 알림을 기다리며 입력 대기로 멈추지 않는다.
-   2026-09-24 사고(dmes-standard TSK-03-01) — Build 서브에이전트가 run_in_background 로 띄운 변이 검증 스윕의
-   완료 알림을 기다리며 턴을 끝냈는데, 서브에이전트 종료와 함께 그 백그라운드 프로세스도 사라져 알림이 끝내
-   오지 않았다. 오케스트레이터가 47분간 입력 대기로 멈췄다가 팀장의 TICK 무응답 점검에서 발견됐다.
+   돌린다. 오지 않을 알림을 기다리며 입력 대기로 멈추지 않는다. 구현 단위가 여럿이면 마지막이 아닌 단위에서는
+   "게이트를 돌린다" 를 "그 단위 커밋을 확인하고 다음 단위를 띄운다" 로 읽는다.
 
 Refactor 는 supervised 에서 기본 실행, 실패 시 Refactor 커밋만 되돌린다.
+Refactor 가 커밋을 남기지 않았으면 Refactor 게이트를 돌리지 않는다. 무인 실행에서는 Refactor 를 실행하지 않는다
+(dev-discipline 「Phase 05」).
 
 ## Phase 06 — 마감 (오케스트레이터 본인)
 
 1. `git branch --show-current` 재확인 — `agent/` 브랜치가 아니면 **push 금지, 중단·보고**.
 2. 미커밋 잔여물 커밋(파일명 명시) → `git push origin <agent 브랜치>`.
    push 가 훅(G1~G4)에 거부되면 SKIP_GUARD 금지 — 중단하고 사람에게 보고.
+   이 브랜치가 파일명이 곧 버전인 마이그레이션(Flyway `V<버전>__…` 등)을 더했으면 push 직전에 dev-discipline 「마이그레이션
+   버전」 의 재확인을 먼저 한다.
 3. `dflow.sh show <ref>` 로 spec 개정 여부 최종 확인(낡은 명세로 done 방지) →
    `<TASKS>/<TSK>/decisions.json` 작성 →
    `dflow.sh done <ref> "<요약>" --auto-links --decisions <TASKS>/<TSK>/decisions.json`.
-   decisions.json 은 design.md `## 담당자 확인 필요 결정` 절의 결정 목록이다 — JSON 배열, 항목은 `key`(절의 번호 `D1`…)·
-   `question`·`options`(2~6개)·`chosen`(택한 선택지의 0부터 센 색인)·`rationale`·`on_reject`. 절이 없거나 0건이면 `[]` 를 쓴다.
-   supervised 모드(플래그 없음)도 넘긴다 — 사람과 대화로 정한 결정은 확인이 끝났으므로 `[]` 다. 이렇게 해야 서버의
-   `null` 이 "구 도구" 한 가지 뜻만 갖는다. 이 파일은 커밋하지 않는다. done 이 exit 0 이면 지우고, 실패하면 남겨 재시도
-   재료로 쓴다. `DECISIONS_INVALID …`(exit 2)는 파일 형식 오류다 — 고쳐 다시 부른다. stderr 경고
-   `DECISIONS_COUNT_MISMATCH`·`DECISIONS_SUFFIX_MISSING` 은 요약 접미사와 목록 건수가 어긋났다는 뜻이고,
-   `서버가 결정 목록을 모릅니다(계약 < 2.6)` 는 서버가 옛 버전이라 결정이 요약 접미사로만 전달됐다는 뜻이다(둘 다 보고는 됐다).
+   decisions.json(결정 목록의 정본)은 design.md `## 담당자 확인 필요 결정` 절을 옮긴 JSON 배열이다. 항목은 `key`(절의 번호
+   `D1`…)·`question`·`options`(2~6개)·`chosen`(택한 선택지의 0부터 센 색인)·`rationale`·`on_reject`. 절이 없거나 0건이면 `[]`
+   다. supervised 모드(플래그 없음)도 넘긴다 — 대화로 정한 결정은 확인이 끝났으므로 `[]` 다(서버의 `null` 은 "구 도구" 뜻만
+   갖는다). 이 파일은 커밋하지 않는다. done 이 exit 0 이면 지우고, 실패하면 남겨 재시도 재료로 쓴다. `DECISIONS_INVALID …`
+   (exit 2)는 파일 형식 오류다 — 고쳐 다시 부른다. stderr 경고 `DECISIONS_COUNT_MISMATCH`·`DECISIONS_SUFFIX_MISSING`(요약
+   접미사와 목록 건수가 어긋남)과 `서버가 결정 목록을 모릅니다(계약 < 2.6)`(옛 서버라 요약 접미사로만 전달)는 보고는 된 것이다.
 4. state.json 을 `phase=reported` 로 갱신하고, 그 파일을 파일명을 명시해 커밋한 뒤 `git push origin <agent 브랜치>` 한다.
-   원격 agent 브랜치 tip 에도 `reported` 가 남고, 미커밋 state.json 이 다음 브랜치 전환을 막지 않게 하기
-   위해서다. push 가 훅에 거부되면 우회하지 않고 보고한다. done 은 이미 보고됐으므로 되돌리지 않는다. 이
-   push 가 실패해도 `/dflow-merge` 의 원격 후보 조건이 phase 에 기대지 않으므로 승인 반영은 막히지 않는다.
+   push 가 훅에 거부되면 우회하지 않고 보고한다. done 은 이미 보고됐으므로 되돌리지 않는다(이 push 가 실패해도
+   `/dflow-merge` 의 원격 후보 조건은 phase 에 기대지 않아 승인 반영은 막히지 않는다).
    사용자에게 **"승인 대기로 보고했습니다"** 로 전달(완료 아님).
    **승인은 사람이 D'Flow 웹에서 하는 비동기 이벤트라 이 세션 안에서 못 기다린다** — main 반영은
    다음 `/dflow-dev` 호출의 Phase 01-가 스윕이나 `/dflow-merge` 가 처리하며, 둘 다 원격 agent 브랜치까지 본다.
@@ -388,134 +406,9 @@ Refactor 는 supervised 에서 기본 실행, 실패 시 Refactor 커밋만 되�
 <!-- worker:begin -->
 ## --worker 팀원 모드 (팀장 전용)
 
-**팀장 전용, 사람이 직접 쓰지 않는다.** `--worker` 는 "이 세션은 자동 실행되는 팀원이며, 기본 브랜치를
-잡고 있는 상위 체크아웃이 따로 있다" 는 뜻이다. `/dflow-team` 팀장이 띄운 팀원만 이 플래그를 붙인다.
-description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있다고 워커 모드로 자동 전환하지 않는다.
-남은 워크트리에서 사람의 질문이 조용히 꺼지는 사고를 막기 위해서다.
-
-| # | 위치 | 플래그 없음 | `--worker` |
-|---|---|---|---|
-| A | Phase 01-가 승인 스윕 | claim 앞에서 매번 스윕한다 | **건너뛴다.** 스윕은 팀장 몫이며, 이유를 한 줄 남긴다 |
-| B | Phase 01 2번, 선행이 approved 인데 main 미반영이면 직접 머지 | 직접 머지한다 | **머지하지 않는다.** 기점을 그 `head_sha` 로 잡고, Phase 01 2번 공통 규칙대로 claim 전에 그 기점으로 detach 한 뒤 claim 하고 스택 브랜치를 만든다. state.json 에 `branch_base` 와 `risk: "선행 main 미반영(팀장 머지 대기)"` 를 기록한다 |
-| C | Phase 01 1번 재개 판정의 approved 갈래 | 즉시 머지하고 종료한다 | **머지하지 않고** `.result` 를 `{TSK} {ID8} <branch> <head_sha> - needs-merge approved` 로 쓰고 종료한다 |
-| D | 사람 판단이 필요한 분기(AskUserQuestion, `--only` 확인) | 지금처럼 묻는다 | **AskUserQuestion 을 쓰지 않는다.** 합리적으로 고른 뒤 나중에 알린다. 기본값이 있으면 택해 한 줄 남기고 진행한다. 없어도 근거가 더 강한 쪽을 골라 진행하고, design.md `## 담당자 확인 필요 결정` 절에 질문·선택지·택한 것·근거·반려 시 재작업 방향을 남긴다. Phase 06 `done` 요약 끝에 `확인 필요 결정 N건: …` 을 싣는다. 결정마다 `D` 번호를 붙이고, Phase 06 에서 그 절을 `<TASKS>/<TSK>/decisions.json` 으로 옮겨 `done --decisions` 로 넘긴다(0건이면 `[]`). `blocked` 는 되돌리기 어려운 결정(데이터 삭제·외부 공개·다른 Task 산출물의 대폭 수정·보안·권한 변경)에만 쓴다(worker-prompt.md 판단 규칙). 팀장은 `--only` 를 넘기지 않으므로 `--only` 확인은 워커 경로에 없다 |
-| E | Phase 02~05 공통 프롬프트 | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로를 글자 그대로 적어 호출한다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다" 한 줄을 덧붙인다. 오케스트레이터 자신도 같은 규칙을 따른다. 손자 서브에이전트까지 rtk 격리 가드 차단을 피하게 하기 위해서다 |
-| F | Phase 01 2번 claim exit 4 재시도 | `git fetch origin` 뒤 기점을 다시 정해 1회 재시도하고, 그래도 4 면 중단·보고한다(merge 없음) | 같다. 그래도 4 면 `.result` 에 `skipped` 를 쓴다 |
-| G | Phase 01 2번 `head_sha` 없는 선행의 갈래 1·2 | 갈래 1(미승인·stage 미달)은 로컬 선행 산출물이 있으면 스택하고, 갈래 2(`stage >= im`·`order_approved:false`, 완료 보고 뒤 승인 대기)는 한 줄 남기고 진행한다 | **스택하지 않는다.** 갈래 1(`reached` 가 거짓)은 `skipped 선행 미승인` 으로 끝내고 팀장이 일시 제외한다. 갈래 2(`reached` 가 참인데 `head_sha` 가 없음)는 아래 **기본 브랜치 반영 확인**을 거쳐, 반영이 확인되면 `origin/<기본브랜치>` 기점으로 **스택 없이 진행**하고 그 사실을 한 줄 남긴다. 확인되지 않으면 `skipped 선행 승인 대기` 로 끝낸다. 이유: 종전에는 갈래 2 도 `skipped` 였으나, 그 근거였던 「`head_sha` 가 없으면 선행 코드도 없다」 가 참이 아니다. 승인 전에 기본 브랜치로 머지하는 운영에서는 선행 산출물이 `origin/<기본브랜치>` 에 이미 있고, 그때 워커만 멈추면 그 선행에 걸린 후속 전부가 승인 버튼 하나를 기다리며 영영 착수하지 못한다(2026-09-17 mdm-dict 실측: 기능 12건이 한 선행에 함께 막혔다). 수동 경로는 같은 갈래에서 이미 「한 줄 남기고 진행」 이므로, 이 변경은 새 정책이 아니라 워커에만 있던 이탈을 없애는 것이다. 워커의 스택은 `head_sha` 가 있는 선행(행 B)에만 한다. `waived:true` 간선은 이 행의 대상이 아니다 — Phase 01 2번의 강제 진행 갈래로 간다(기본 브랜치 반영 확인 없음) |
-| H | Phase 01 3번의 브랜치 생성 또는 재개 판정으로 agent 브랜치에 들어온 직후 | 설치하지 않는다. 사람의 체크아웃에는 의존성이 이미 있다 | 생성 또는 재개로 agent 브랜치에 들어온 직후, 4번 기준선과 Phase 02~05 게이트 전에 아래 블록으로 설치한다. `blocked` 답을 받아 재spawn 된 워커처럼 재개 판정으로 기존 agent 브랜치에 들어온 경우도 같다. 재개는 브랜치를 새로 만들지 않아 3번을 지나지 않는데, 새 격리 워크트리에는 `node_modules` 가 없기 때문이다. lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만 설치하며, lockfile 이 없으면 설치하지 않는다. 설치가 실패하면 `.result` 에 `failed deps <실패한 명령과 exit>` 를 쓰고 끝낸다. 이유: 새 워크트리에는 `node_modules` 가 없어 기준선 명령이 127 로 끝나고, 스택이면 선행 작업이 lockfile 을 바꿨을 수 있어 브랜치 기점의 lockfile 로 설치해야 한다. 고정되지 않은 설치는 기준선을 재현하지 못하고 새 lockfile 을 산출물에 섞는다 |
-
-행 G 의 **기본 브랜치 반영 확인**: 선행 산출물이 `origin/<기본브랜치>` 에 실재하는지를 git 으로만 확인한다.
-`<선행TSK>` 는 그 `depends_evidence` 원소의 `external_ref` 에서 마지막 `/` 뒤다(예 `dict/TSK-02-01` → `TSK-02-01`).
-선행 주문을 `show` 하지 않는 이유: 워커의 서버 조회는 자기 `{ID8}` 하나로 제한되고(worker-prompt.md 「5」),
-`depends_evidence[]` 에는 주문 UUID 가 없어 어차피 아래 state.json 을 읽어야 UUID 를 얻는다.
-**실행은 공용 스크립트 한 줄이다**(팀장의 선행 반영 사전 검사와 같은 판정, 2026-09-23). `git fetch origin` 을 먼저
-단독으로 실행한 뒤 부른다.
-```bash
-.claude/skills/dflow-dev/scripts/pred-reflected.sh <TASKS> <선행TSK> <기본브랜치>
-```
-`<TASKS>` 는 선행 Task 폴더의 부모다. 팀장이 넘긴 `{TASK_DIR}` 의 부모 디렉터리(`$(dirname {TASK_DIR})`)를 쓴다 —
-선행은 같은 프로젝트·모듈 안에 있으므로(의존은 프로젝트 경계를 넘지 않는다) 같은 `<TASKS>` 아래에 있다고 본다.
-출력 첫 낱말이 `REFLECTED` 면 반영이 확인된 것이다. `NOT_REFLECTED`·`UNKNOWN` 은 모두 `skipped 선행 승인 대기` 다
-(지금 동작과 같다). 아래 블록은 스크립트가 하는 일의 설명이며 워커가 직접 치지 않는다. 스크립트 안에서 git 을
-부르는 것은 `deps.sh` 와 같은 방식이며, 워커 git 호출 규칙(명령 치환 금지)은 워커가 직접 치는 Bash 줄에 대한 것이다.
-
-판정은 `phase=merged` **AND** (아래 세 증거 중 하나라도 참) 이다. **첫 증거가 가장 강하다** — 선행 산출물이
-`origin/<기본브랜치>` 라는 기점에 실재한다는 직접 증거이기 때문이다. 커밋 그래프의 조상 관계는 git 이 보증하는
-사실이라, 커밋 메시지 트레일러나 state.json 값처럼 사람·자동화가 빠뜨리거나 잘못 쓸 수 있는 경로를 거치지
-않는다. `state.json` 에 `head_sha` 가 없으면 첫 증거는 판정 불가로 건너뛰고 나머지 둘로 본다.
-
-```bash
-git fetch origin
-git show "origin/<기본브랜치>:$(dirname {TASK_DIR})/<선행TSK>/state.json"   # phase 가 merged 여야 하고, 여기서 order 와 head_sha 를 읽는다
-git merge-base --is-ancestor <head_sha> origin/<기본브랜치>   # 증거 1. head_sha 가 있을 때만 실행. exit 0 이면 참
-git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h   # 증거 2. 한 줄이라도 나오면 참
-git log origin/<기본브랜치> --merges --grep='^merge: <선행TSK> ' --format=%h   # 증거 3. 한 줄이라도 나오면 참. TSK 뒤 공백까지 넣는다 — 안 넣으면 TSK-03-1 이 TSK-03-10·03-11 도 함께 집어 오탐이 된다
-```
-
-state.json 의 정본 스키마(상태 모델)에는 아직 `head_sha` 필드가 없다 — 2026-09-22 mdm-dict-v2 실측으로도
-확인했다(막혔던 선행 4건의 state.json 전부 `head_sha` 없음). 그래서 지금은 거의 항상 증거 1 이 판정 불가로
-건너뛰어지고 증거 3(머지 커밋 제목)이 실제로 막힌 사례를 푼다(같은 실측에서 네 건 모두 증거 3 은 있었다).
-그래도 증거 1 을 첫 자리에 남기는 이유는 이것이 유일하게 커밋 메시지·state.json 값 없이도 성립하는 구조적
-증거이기 때문이다 — 상태 모델 스키마가 나중에 `head_sha` 를 갖게 되면 그 즉시 가장 강한 증거로 바로 쓰인다.
-
-팀장의 자동 머지(`automerge=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가
-붙을 뿐이므로 같은 확인을 통과한다. `unapproved` 는 이 판정에서 보지 않는다.
-`show` 가 실패하거나(그 경로에 파일이 없다) `phase` 가 `merged` 가 아니거나 세 증거가 모두 판정 불가·거짓이면
-반영되지 않은 것이며, 그때는 `skipped 선행 승인 대기` 로 끝낸다.
-`phase` 만으로 충분하지 않은 이유는 그대로다 — state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일
-수 있다. 종전에는 커밋 트레일러(증거 2) 하나만으로 이를 보강해 **두 조건을 모두** 요구했으나, 그 트레일러를
-붙이라는 지시가 이 스킬 어디에도 없어 부착이 워커·수동 경로 모두에서 우연에 맡겨져 있었다(실측: 작업마다 0건인
-경우와 13건인 경우가 섞여 있었다). 그 결과 선행이 실제로 기본 브랜치에 머지됐는데도 후속 워커가 `skipped
-선행 승인 대기` 로 끝나는 결함이 났다 — 2026-09-22 mdm-dict-v2 실측: 선행 4건 TSK-03-07·03-09·03-11·03-12 가
-origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10·03-13·04-01 이 모두 막혔다. 이제 커밋 규칙
-(Phase 02~06 공통 프롬프트, 행 E)과 `/dflow-merge` 양쪽에 트레일러 부착을 못 박았지만(아래 참조), 이미 만들어진
-과거 커밋에는 여전히 없을 수 있고 훅으로 강제하지도 않으므로, 증거를 트레일러 하나로 묶어 두지 않고 세 가지로
-넓힌다. 이 확인을 통과했다는 것은 선행 코드가 기점에 있다는 뜻이므로 스택할 대상도, 스택할 이유도 없다.
-트레일러 패턴(증거 2)의 콜론 뒤 **공백을 반드시 넣고 따옴표로 감싼다.** 실제 트레일러가 `DFlow-Order: <uuid>` 라
-공백을 빼면 매치가 0 건이 되고, 그 0 건은 「반영되지 않음」 과 구분되지 않아 정상인 선행까지 `skipped` 로 만든다
-(2026-09-17 실측: 공백 없는 패턴 0 건, 공백 있는 패턴 2 건).
-
-행 H 의 설치 블록:
-```bash
-.claude/skills/dflow-dev/scripts/deps.sh   # 0 이 아니면 .result 에 failed deps <DEPS_FAILED 줄의 명령과 exit>
-```
-- `DEPS_GRADLE_JAR_MISSING <폴더>` 줄은 실패가 아니라 경고다. 그 폴더의 `gradlew` 는 wrapper jar 가 없어 돌지 않는다.
-  그 폴더의 Gradle 작업이 이번 작업에 필요하면 jar 를 커밋하거나 `.gitignore` 를 고치지 말고 팀장에게 이슈로 보고한다
-  (수동 실행이면 사용자에게 알린다). 필요 없는 폴더(예제·PoC)면 무시한다.
-- 설치 규칙은 위 표와 같다(lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만,
-  lockfile 이 없으면 설치하지 않는다). npm 은 한 가지가 더 있다. lockfile·`node -v`·플랫폼으로 만든 키가 같은
-  설치본이 리포 공용 캐시(`<git-common-dir>/dflow-deps/<키>`)에 있으면 `npm ci` 대신 그것을 복제한다. macOS 는
-  `cp -Rc`(APFS 복제), Linux 는 `cp -R --reflink=auto` 이며, 복제가 실패하면 지우고 `npm ci` 로 간다.
-  pnpm 은 공용 캐시 대신 메인 체크아웃을 복제한다(아래).
-- 메인 체크아웃에서 gitignore 된 심링크를 워크트리에 걸 때 `node_modules` 자체가 심링크인 것은 걸지 않는다. 링크째
-  걸리면 워커의 설치가 사람 체크아웃에 쓴다.
-- 캐시는 이 스크립트의 `npm ci` 가 성공한 결과로만 채운다. npm 은 사람 체크아웃의 `node_modules` 를 쓰지 않는다. 이유:
-  사람이 lockfile 이 바뀐 커밋을 받고 설치를 안 했을 수 있어, lockfile 이 같아도 설치본이 맞는다는 보장이 없고,
-  `npm ci` 는 `node_modules` 를 지우고 시작하므로 무엇을 깔아 두든 바로잡는 데 쓰이지 않는다.
-- pnpm(`pnpm-lock.yaml`)은 반대로 메인 체크아웃의 같은 폴더 설치본을 출발점으로 쓴다. 워크스페이스 루트의
-  `node_modules` 와 워크스페이스 패키지들의 `node_modules` 를 같은 상대 경로로 복제하고, 복제본 안의 모든
-  `node_modules/.bin`(`.pnpm` 안 포함)과 도구 캐시를 지운 뒤, 워크스페이스 루트에서
-  `pnpm install --frozen-lockfile --prefer-offline --config.confirmModulesPurge=false` 를 한 번 돌린다(`DEPS_SYNCED`).
-  사람 쪽 설치본이 어긋나 있어도 되는 이유: pnpm 은 기존 설치를 lockfile 과 대조해 다른 것만 바로잡으므로, 이 install
-  뒤에는 워커 기점(스택이면 선행 브랜치)의 lockfile 대로다. `.bin` 을 지우는 이유는 셈의 `NODE_PATH` 에 메인의 절대경로가
-  박혀 있고 install 이 `.pnpm` 안 셈은 다시 쓰지 않기 때문이다. `confirmModulesPurge=false` 가 없으면 store 가 다를 때
-  pnpm 이 확인 프롬프트에서 영원히 멈춘다(stdin 이 없어도 실패하지 않는다). 메인의 `node_modules` 가 없거나
-  심링크거나, 복제나 그 뒤 install 이 실패하면 복제본을 모두 지우고 새로 설치한다(`DEPS_SYNC_FAILED`·`DEPS_CLONE_FAILED`
-  뒤 `DEPS_INSTALLED pnpm`). 자기 lockfile 을 가진 하위 프로젝트는 워크스페이스 패키지로 보지 않고 따로 설치한다.
-  **메인 복제는 `DFLOW_DEPS_MAIN_CLONE=1` 일 때만 하고 기본은 꺼져 있다(새로 설치).** 파일이 아주 많은 `node_modules` 는 `cp -Rc` 가
-  파일마다 복제해 전역 store 에서 새로 링크하는 것보다 느릴 수 있다. 2026-09-24 dmes-standard `src/frontend`(루트
-  `node_modules` 파일 7.9만 개 + 워크스페이스 9개) 실측: 복제 경로 134초·53초(그중 `cp -Rc` 113초·48초, 뒤 install 은
-  3~16초로 어긋난 6개만 바로잡음) 대 새 설치(`--prefer-offline`, store 가 따뜻함) 53초·26초.
-- yarn 은 종전대로 새로 설치한다(복제 방식을 실측하지 못했다).
-- 복제는 `postinstall` 을 다시 돌리지 않는다. Playwright 브라우저처럼 `postinstall` 이 받는 것은 사용자 전역
-  캐시(macOS `~/Library/Caches/ms-playwright`)에 있어 첫 `npm ci` 가 받아 두면 그대로 쓴다. 이 점을 "고치려고"
-  복제 뒤에 `npm rebuild` 를 넣지 않는다.
-- 캐시는 완성 항목 최근 3개만 남긴다.
-- **행 H 서버 프로세스**: Build·Verify Phase 가 화면 작업의 브라우저 E2E 를 위해 서버를 띄울 때도 행 H 와
-  같은 자리의 규칙이다 — dev-discipline.md 「화면 작업의 브라우저 E2E」의 「서버 프로세스」 절(정본)을
-  따른다. 리포의 서버 실행 스크립트(`be-run.sh`·`fe-run.sh` 류)를 쓰지 않고 빈 포트로 직접 띄우며, 끝나면
-  자기가 띄운 프로세스만 거둔다(2026-09-24 dmes-standard 사고: 팀원이 `./be-run.sh --mdm` 을 돌리자
-  `pgrep -f be-run.sh` 가 메인 체크아웃의 서버를 찾아 TERM 했고 `gradlew --stop` 이 전역 Gradle 데몬까지
-  세웠다).
-- **도커 금지 모드(워커)**: 워커는 팀장 포인터의 `NO_DOCKER` 값을 알고 있다(worker-prompt.md 변수표). 기준선 전에
-  그 값과 `dflow.sh config no_docker` 로 금지 모드를 판정하고 출처를 기준선 기록에 남긴다. 판정·제외·기록의 정본은
-  dev-discipline.md 「도커 사용 규칙」 이며, 도커 런타임을 켜지 않는 규칙은 금지 모드와 무관하게 늘 지킨다.
-
-- 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다.
-- `.result` 형식과 status 뜻은 `.claude/skills/dflow-team/references/worker-prompt.md` 가 정본이다. 끝날 때
-  status·agent 브랜치·head·`done` exit·한 줄 사유를 마지막에 요약해 워커가 `.result` 로 옮기게 한다.
-- 중단(exit 10, 상태 모델)이면 `.result` 에 `{TSK} {ID8} <branch|-> <head_sha|-> - cancelled <멈춘 Phase 와 호출>` 을
-  쓰고 끝낸다. push 하지 않으므로 `<head_sha>` 는 로컬 커밋이다. 팀장이 슬롯을 풀고 pane 을 거두되 워크트리는
-  남긴다(산출물 보존).
-- 기본 브랜치를 switch·pull·merge·push 하는 지점은 행 A·B·C 뿐이며, 워커는 셋 다 하지 않는다. 행 F 의
-  재시도는 수동·워커 모두 merge 하지 않는다. claim 전 기점 이동(`git switch --detach`, Phase 01 2번)은 기본
-  브랜치를 체크아웃하지 않으므로 팀장 체크아웃과 부딪치지 않는다. agent 브랜치를 만들고 그 위에 push
-  하는 Phase 01 3번과 Phase 06(`reported` 커밋 포함)는 워커에서도 그대로 돈다.
-- 새로 만드는 "사람에게 묻기" 지점은 없다. dflow-dev 의 판단 실패는 이미 전부 "중단·보고"(push 훅
-  거부, Verify 재시도 소진, 빨간 기준선)라서 워커에서는 `.result` 의 `failed <사유>` 로 떨어진다. 설계
-  재량 분기는 판단 규칙이 받으며, 대부분은 골라서 진행하고 기록한다. `blocked` 는 되돌리기 어려운 결정뿐이다.
-- 인자 파싱과 위 여덟 행만 워커용으로 갈린다(행 F 는 수동과 같고 결과 표기만 다르다). 게이트·Phase
-  정의·커밋 규칙·모델 배정(dev-discipline.md)은 워커에서도 같다.
+**팀장 전용, 사람이 직접 쓰지 않는다.** 행 A~I 와 세부 규칙(행 G 기본 브랜치 반영 확인·행 H 설치·도커·`.result`)의 정본은
+`.claude/skills/dflow-dev/references/worker-mode.md` 다 — 이 문서 머리의 첫 표지 블록에서 이미 읽었다. 이 문서의 「--worker」
+A~I 는 그 파일의 행이다.
 <!-- worker:end -->
 
 ## --only 옵션

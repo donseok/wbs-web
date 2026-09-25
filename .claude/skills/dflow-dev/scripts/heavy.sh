@@ -10,7 +10,21 @@
 #   heavy.sh acquire <이름>   세션이 슬롯 하나를 붙잡는다(E2E 서버를 띄우기 직전). 소유자는 이 세션(아래 OWNER).
 #                             같은 세션의 이후 `heavy.sh <명령>` 은 이 슬롯을 다시 쓴다(두 번째 슬롯을 기다리지 않는다).
 #   heavy.sh release          이 세션이 붙잡은 슬롯을 푼다(서버를 끈 직후).
-#   heavy.sh status           K 와 슬롯 현황.
+#   heavy.sh status           stdout 에 정확히 한 줄 `HEAVY_STATUS slots=<K> held=<N> waiting=<M>` 을 내고 exit 0.
+#                             held = 살아 있는 일반 슬롯 보유 수, waiting = 일반 슬롯을 기다리는 heavy.sh 수(아래 대기 표식).
+#                             이 줄은 기계가 읽는다(dflow-team capacity.sh) — 형식을 바꾸지 않는다. 사람이 볼 세부(ram·dir·
+#                             보유 명령, 도커 슬롯의 `HEAVY_DOCKER docker=<n> held=<n> waiting=<n> <보유>` 줄)는 stderr 로 낸다.
+#   heavy.sh --pool docker <명령> [인자…]
+#                             도커를 쓰는 명령(Testcontainers·docker compose·방언 검증). PC 전역 **도커 슬롯**(기본 1개)과
+#                             일반 슬롯 하나를 **함께** 잡는다. 도커 명령도 무거운 명령이라 일반 슬롯 수(K)에 들어가야
+#                             PC 전체 동시 실행이 K 를 넘지 않는다. 이 세션이 이미 일반 슬롯을 쥐고 있으면(acquire·감싼
+#                             실행 안) 도커 슬롯만 잡는다.
+#
+# 교착을 피하는 규칙(불변식): **도커 슬롯을 쥔 쪽은 아무것도 기다리지 않는다.** 도커 슬롯은 늘 마지막에, 필요한
+# 슬롯을 한 번에 모두 잡는다 — 도커 슬롯을 잡았는데 일반 슬롯이 없으면 그 자리에서 도커 슬롯을 돌려주고 다음 시도로
+# 간다(쥐고 기다리지 않는다). 그래서 "일반 슬롯을 쥐고 도커를 기다리는 쪽" 과 "도커를 쥐고 일반을 기다리는 쪽" 이 서로를
+# 막는 순환이 생기지 않는다. 일반 슬롯을 쥔 채 도커 슬롯을 기다리는 쪽은 있을 수 있지만, 도커 슬롯 보유자는 이미 필요한
+# 것을 다 가진 채 돌고 있으므로 끝나면 풀린다. 감싼 실행 안의 acquire 도 새 슬롯을 기다리지 않는다(아래 cmd_acquire).
 #
 # 슬롯을 DFLOW_HEAVY_WAIT 초(기본 240) 안에 못 얻으면 명령을 돌리지 않고 stderr 에
 #   HEAVY_BUSY k=<K> wait=<초>s 보유: [slot-1 pid=… 12분 run] <명령> | …
@@ -20,18 +34,26 @@
 #
 # 환경변수
 #   DFLOW_HEAVY_SLOTS    K. 기본 max(1, floor(RAM_GB/8)) — 16GB 면 2. RAM 을 못 읽으면 2.
+#   DFLOW_HEAVY_DOCKER_SLOTS  도커 슬롯 수. 기본 1(같은 목적의 컨테이너를 PC 에서 하나만 띄운다).
 #   DFLOW_HEAVY_DIR      슬롯 폴더. 기본 ~/.dflow/locks/heavy (시험은 임시 폴더로 바꾼다)
-#   DFLOW_HEAVY_WAIT     슬롯 대기 상한(초). 기본 240
+#   DFLOW_HEAVY_WAIT     슬롯 대기 상한(초). 기본 240. baseline.sh 는 자기 공유 마감까지 남은 시간(최소 5초)을 넘긴다
+#                        — 앞선 대기와 겹쳐 Bash 한 번이 10분 상한에 닿지 않게.
 #   DFLOW_HEAVY_POLL     재시도 간격(초). 기본 2
 #   DFLOW_HEAVY_HOLD_TTL acquire 슬롯의 최대 보유(초). 기본 3600. 넘으면 버려진 것으로 보고 회수한다
 #                        (release 를 잊은 세션이 몇 시간씩 슬롯을 막지 않게).
 #   DFLOW_HEAVY_OWNER    acquire·release 의 소유 PID. 기본 CLAUDE_PID, 없으면 PPID.
 #
-# 슬롯 = <DIR>/slot-<i> 폴더(1..K). 안의 owner 파일에 pid·kind(run|hold)·start(epoch)·pstart(ps lstart)·host·cwd·cmd.
+# 슬롯 = <DIR>/slot-<i> 폴더(1..K), 도커 슬롯 = <DIR>/docker-<i> 폴더. 안의 owner 파일에 pid·kind(run|hold)·start(epoch)·pstart(ps lstart)·host·cwd·cmd.
 # 소유 PID 가 죽었거나(kill -0 실패, 또는 lstart 가 달라 PID 가 재사용됨) hold 의 TTL 이 지났으면 회수한다.
 # 회수는 <DIR>/slot-<i>.reclaim mkdir 뮤텍스 안에서 owner 를 다시 읽고 확인한 뒤에만 지운다.
 #
+# 대기 표식: 슬롯을 기다리는 동안 <DIR>/wait-<pid>(pid = 기다리는 heavy.sh 자신의 $$) 파일을 둔다. 안에 pid·pool
+# (general|docker)·start·pstart·cmd. 슬롯을 얻거나, 포기하거나(BUSY), 신호로 끝나면 지운다(trap). SIGKILL 처럼 지우지
+# 못하고 죽은 표식은 status 가 소유 PID 생존(+ lstart)을 확인해 무시하고 지운다.
+#
 # 출력(stderr): HEAVY_WAIT · HEAVY_SLOT · HEAVY_REUSE · HEAVY_RECLAIM · HEAVY_BUSY · HEAVY_ACQUIRED · HEAVY_RELEASED
+#   도커 풀은 HEAVY_DOCKER_WAIT · HEAVY_DOCKER_SLOT · HEAVY_DOCKER_BUSY(exit 75, 일반 풀의 HEAVY_BUSY 와 같은 규약)
+# 도커 풀 실행은 DFLOW_HEAVY_DOCKER_HELD 에 도커 슬롯 경로를 export 한다(안쪽 --pool docker 호출은 기다리지 않는다).
 set -u
 
 DIR="${DFLOW_HEAVY_DIR:-$HOME/.dflow/locks/heavy}"
@@ -58,6 +80,8 @@ slots() {
 }
 
 K=$(slots)
+KD="${DFLOW_HEAVY_DOCKER_SLOTS:-1}"
+case "$KD" in ''|*[!0-9]*|0) KD=1 ;; esac
 now() { date +%s; }
 # 시작 시각은 로캘을 고정해 읽는다. 세션마다 LANG·LC_TIME 이 달라도 같은 문자열이 나와야 살아 있는 소유자를
 # PID 재사용으로 오판하지 않는다. Git Bash 의 ps 는 -o 를 모르므로 빈 값(= 확인 생략)이 된다.
@@ -77,6 +101,56 @@ alive() {
 }
 field() { sed -n "s/^$2=//p" "$1/owner" 2>/dev/null | head -n 1; }
 owner_pid() { echo "${DFLOW_HEAVY_OWNER:-${CLAUDE_PID:-$PPID}}"; }
+
+# 대기 표식(머리 주석). 임시 파일은 wait-* 패턴 밖(.wtmp.*)에 써서 status 가 반쯤 쓴 표식을 세지 않게 한다.
+WAITF=
+wait_mark() { # $1 pool $2 cmd
+  local t="$DIR/.wtmp.$$" p c
+  [ -z "$WAITF" ] || return 0
+  p=$(pstart "$$"); c=$(printf '%s' "$2" | tr '\n' ' ')
+  if { echo "pid=$$"; echo "pool=$1"; echo "start=$(now)"; echo "pstart=${p:--}"; echo "cmd=$c"; } > "$t" 2>/dev/null &&
+    mv -f "$t" "$DIR/wait-$$" 2>/dev/null; then
+    WAITF="$DIR/wait-$$"
+  else
+    rm -f "$t" 2>/dev/null
+  fi
+  return 0
+}
+wait_unmark() { [ -z "$WAITF" ] || rm -f "$WAITF" 2>/dev/null; WAITF=; }
+wfield() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1; }
+# 표식의 주인이 죽었으면 0(무시·청소 대상). pid 를 못 읽으면 쓰는 중일 수 있어 1분 넘었을 때만 죽은 것으로 본다.
+wait_dead() {
+  local f="$1" pid ps0 ps1
+  pid=$(wfield "$f" pid)
+  case "$pid" in ''|*[!0-9]*) [ -n "$(find "$f" -maxdepth 0 -mmin +1 2>/dev/null)" ]; return ;; esac
+  alive "$pid" || return 0
+  ps0=$(wfield "$f" pstart)
+  if [ -n "$ps0" ] && [ "$ps0" != "-" ]; then
+    ps1=$(pstart "$pid")
+    [ -z "$ps1" ] || [ "$ps1" = "$ps0" ] || return 0   # PID 재사용
+  fi
+  return 1
+}
+# $1 pool(general|docker) — 살아 있는 대기 표식 수. 죽은 표식은 지운다
+count_waiting() {
+  local f n=0 pool
+  for f in "$DIR"/wait-*; do
+    [ -f "$f" ] || continue
+    if wait_dead "$f"; then rm -f "$f" 2>/dev/null; continue; fi
+    pool=$(wfield "$f" pool); [ -n "$pool" ] || pool=general
+    [ "$pool" = "$1" ] && n=$((n + 1))
+  done
+  echo "$n"
+}
+# $1 접두(slot|docker) $2 개수 — 살아 있는 보유 슬롯 수(죽은 소유자·만료된 hold 는 빈 슬롯으로 센다)
+count_held() {
+  local i n=0
+  for i in $(seq 1 "$2"); do
+    [ -d "$DIR/$1-$i" ] || continue
+    stale "$DIR/$1-$i" || n=$((n + 1))
+  done
+  echo "$n"
+}
 
 # 죽은 소유자·만료된 hold·주인 없이 1분 넘은 폴더면 0(회수 대상)
 stale() {
@@ -116,12 +190,12 @@ reclaim() {
   return 0
 }
 
-# $1 kind  $2 pid  $3 cmd — 빈 슬롯을 잡으면 SLOT 에 경로를 넣고 0
+# $1 kind  $2 pid  $3 cmd  [$4 접두(slot|docker) $5 개수] — 빈 슬롯을 잡으면 SLOT(도커면 DSLOT)에 경로를 넣고 0
 take() {
-  local i d t p c
+  local i d t p c pre="${4:-slot}" n="${5:-$K}"
   p=$(pstart "$2"); c=$(printf '%s' "$3" | tr '\n' ' ')
-  for i in $(seq 1 "$K"); do
-    d="$DIR/slot-$i"
+  for i in $(seq 1 "$n"); do
+    d="$DIR/$pre-$i"
     if mkdir "$d" 2>/dev/null; then
       t="$d/owner.tmp.$$"
       {
@@ -133,20 +207,20 @@ take() {
         echo "cwd=$PWD"
         echo "cmd=$c"
       } > "$t" && mv "$t" "$d/owner" || { rm -rf "$d"; continue; }
-      SLOT="$d"
+      if [ "$pre" = docker ]; then DSLOT="$d"; else SLOT="$d"; fi
       return 0
     fi
   done
   return 1
 }
 
-holders() {
-  local i d out="" age
-  for i in $(seq 1 "$K"); do
-    d="$DIR/slot-$i"
+holders() { # [$1 접두(slot|docker) $2 개수]
+  local i d out="" age pre="${1:-slot}" n="${2:-$K}"
+  for i in $(seq 1 "$n"); do
+    d="$DIR/$pre-$i"
     [ -d "$d" ] || continue
     age=$(field "$d" start); case "$age" in ''|*[!0-9]*) age='?' ;; *) age=$(( ($(now) - age) / 60 )) ;; esac
-    out="$out${out:+ | }[slot-$i pid=$(field "$d" pid) ${age}분 $(field "$d" kind)] $(field "$d" cmd)"
+    out="$out${out:+ | }[$pre-$i pid=$(field "$d" pid) ${age}분 $(field "$d" kind)] $(field "$d" cmd)"
   done
   echo "$out"
 }
@@ -158,14 +232,42 @@ wait_slot() {
   mkdir -p "$DIR" 2>/dev/null || { echo "HEAVY_UNLOCKED 슬롯 폴더를 만들 수 없음: $DIR" >&2; return 2; }
   deadline=$(( $(now) + WAIT ))
   while :; do
-    take "$kind" "$pid" "$cmd" && return 0
+    take "$kind" "$pid" "$cmd" && { wait_unmark; return 0; }
     for i in $(seq 1 "$K"); do stale "$DIR/slot-$i" && reclaim "$DIR/slot-$i"; done
-    take "$kind" "$pid" "$cmd" && return 0
+    take "$kind" "$pid" "$cmd" && { wait_unmark; return 0; }
     if [ "$(now)" -ge "$deadline" ]; then
+      wait_unmark
       echo "HEAVY_BUSY k=$K wait=${WAIT}s 보유: $(holders)" >&2
       return 1
     fi
+    wait_mark general "$cmd"
     [ "$announced" = 1 ] || { echo "HEAVY_WAIT k=$K 보유: $(holders)" >&2; announced=1; }
+    sleep "$POLL"
+  done
+}
+
+# 도커 풀: 대기 상한 안에 도커 슬롯(+ need_general=1 이면 일반 슬롯)을 **한 번에** 잡는다. 도커 슬롯을 잡았는데
+# 일반 슬롯이 없으면 도커 슬롯을 곧바로 돌려준다 — 도커 슬롯을 쥔 채 기다리지 않는다(머리의 교착 불변식).
+# 못 잡으면 HEAVY_DOCKER_BUSY 를 내고 1
+wait_docker() {
+  local pid="$1" cmd="$2" need="$3" deadline announced=0 i
+  mkdir -p "$DIR" 2>/dev/null || { echo "HEAVY_UNLOCKED 슬롯 폴더를 만들 수 없음: $DIR" >&2; return 2; }
+  deadline=$(( $(now) + WAIT ))
+  while :; do
+    DSLOT=; SLOT=
+    if take run "$pid" "[docker] $cmd" docker "$KD"; then
+      if [ "$need" = 0 ] || take run "$pid" "[docker] $cmd" slot "$K"; then wait_unmark; return 0; fi
+      rm -rf "$DSLOT"; DSLOT=
+    fi
+    for i in $(seq 1 "$KD"); do stale "$DIR/docker-$i" && reclaim "$DIR/docker-$i"; done
+    for i in $(seq 1 "$K"); do stale "$DIR/slot-$i" && reclaim "$DIR/slot-$i"; done
+    if [ "$(now)" -ge "$deadline" ]; then
+      wait_unmark
+      echo "HEAVY_DOCKER_BUSY k=$K docker=$KD wait=${WAIT}s 도커: $(holders docker "$KD") 일반: $(holders)" >&2
+      return 1
+    fi
+    wait_mark docker "$cmd"
+    [ "$announced" = 1 ] || { echo "HEAVY_DOCKER_WAIT k=$K docker=$KD 도커: $(holders docker "$KD") 일반: $(holders)" >&2; announced=1; }
     sleep "$POLL"
   done
 }
@@ -182,7 +284,9 @@ held_by() {
 
 mine_release() { # 내 것일 때만 지운다(회수된 뒤 남이 잡은 슬롯을 지우지 않게)
   [ -n "${SLOT:-}" ] && [ "$(field "$SLOT" pid)" = "$MYPID" ] && rm -rf "$SLOT"
-  SLOT=
+  [ -n "${DSLOT:-}" ] && [ "$(field "$DSLOT" pid)" = "$MYPID" ] && rm -rf "$DSLOT"
+  SLOT=; DSLOT=
+  wait_unmark
 }
 
 cmd_run() {
@@ -216,8 +320,50 @@ cmd_run() {
   exit "$rc"
 }
 
+cmd_run_docker() {
+  local rc h need=1
+  [ $# -ge 1 ] || { echo "사용법: heavy.sh --pool docker <명령> [인자…]" >&2; exit 2; }
+  # 안쪽 도커 호출(도커 슬롯을 쥔 실행이 또 --pool docker 를 부름)은 기다리지 않는다
+  if [ -n "${DFLOW_HEAVY_DOCKER_HELD:-}" ] && [ -d "$DFLOW_HEAVY_DOCKER_HELD" ]; then exec "$@"; fi
+  # 이미 일반 슬롯을 쥐고 있으면(감싼 실행 안, 또는 이 세션의 acquire) 도커 슬롯만 잡는다
+  if [ -n "${DFLOW_HEAVY_HELD:-}" ] && [ -d "$DFLOW_HEAVY_HELD" ]; then
+    need=0
+  else
+    h=$(held_by "$(owner_pid)" | head -n 1)
+    if [ -n "$h" ]; then
+      echo "HEAVY_REUSE $(basename "$h")" >&2
+      export DFLOW_HEAVY_HELD="$h"; need=0
+    fi
+  fi
+
+  MYPID=$$; SLOT=; DSLOT=; child=
+  on_sig() {
+    [ -n "$child" ] && { command -v pkill >/dev/null 2>&1 && pkill -TERM -P "$child" 2>/dev/null; kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; }
+    mine_release; exit "$1"
+  }
+  trap 'on_sig 130' INT; trap 'on_sig 143' TERM; trap 'on_sig 129' HUP
+  trap 'mine_release' EXIT
+  wait_docker "$MYPID" "$*" "$need"; rc=$?
+  [ "$rc" -ne 1 ] || exit "$BUSY_RC"
+  if [ "$rc" -eq 0 ]; then
+    echo "HEAVY_DOCKER_SLOT $(basename "$DSLOT") docker=$KD${SLOT:+ + $(basename "$SLOT") k=$K}" >&2
+    export DFLOW_HEAVY_DOCKER_HELD="$DSLOT"
+    [ -z "$SLOT" ] || export DFLOW_HEAVY_HELD="$SLOT"
+  fi
+  "$@" &
+  child=$!
+  wait "$child"; rc=$?
+  child=
+  exit "$rc"
+}
+
 cmd_acquire() {
   local o h rc
+  # 감싼 실행 안에서 부르면 그 실행의 슬롯을 쓴다 — 쥔 슬롯 위에서 두 번째 슬롯을 기다리지 않는다(교착 불변식).
+  # 그 슬롯은 감싼 실행이 끝나면 풀리므로, 서버는 그 실행 안에서 끄고 끝낸다.
+  if [ -n "${DFLOW_HEAVY_HELD:-}" ] && [ -d "$DFLOW_HEAVY_HELD" ]; then
+    echo "HEAVY_ACQUIRED $(basename "$DFLOW_HEAVY_HELD") (감싼 실행의 슬롯) k=$K" >&2; exit 0
+  fi
   o=$(owner_pid)
   h=$(held_by "$o" | head -n 1)
   if [ -n "$h" ]; then echo "HEAVY_ACQUIRED $(basename "$h") (이미 보유) owner=$o" >&2; exit 0; fi
@@ -242,18 +388,41 @@ cmd_release() {
   exit 0
 }
 
+# stdout 은 정확히 한 줄(기계가 읽는다). 세부는 stderr. 늘 exit 0 — 폴더가 없거나 못 읽어도 held=0 waiting=0 이다.
 cmd_status() {
-  local g
+  local g h
+  echo "HEAVY_STATUS slots=$K held=$(count_held slot "$K") waiting=$(count_waiting general)"
   g=$(ram_gb) || g='?'
-  echo "HEAVY_STATUS k=$K ram=${g}GB dir=$DIR wait=${WAIT}s"
-  local h; h=$(holders); echo "${h:-(비어 있음)}"
+  {
+    echo "HEAVY_DETAIL k=$K ram=${g}GB dir=$DIR wait=${WAIT}s"
+    h=$(holders); echo "${h:-(비어 있음)}"
+    h=$(holders docker "$KD")
+    echo "HEAVY_DOCKER docker=$KD held=$(count_held docker "$KD") waiting=$(count_waiting docker) ${h:-(비어 있음)}"
+  } >&2
+  exit 0
 }
+
+POOL=general
+case "${1:-}" in
+  --pool) POOL="${2:-}"; shift 2 2>/dev/null || shift $# ;;
+  --pool=*) POOL="${1#--pool=}"; shift ;;
+esac
+case "$POOL" in
+  general) ;;
+  docker)
+    case "${1:-}" in
+      acquire|release|status|'') echo "사용법: heavy.sh --pool docker <명령> [인자…] (도커 풀은 명령 실행만 받는다)" >&2; exit 2 ;;
+      --) shift ;;
+    esac
+    cmd_run_docker "$@" ;;
+  *) echo "사용법: heavy.sh --pool general|docker … (모르는 풀: $POOL)" >&2; exit 2 ;;
+esac
 
 case "${1:-}" in
   acquire) shift; cmd_acquire "$@" ;;
   release) shift; cmd_release ;;
   status)  cmd_status ;;
   --)      shift; cmd_run "$@" ;;
-  '')      echo "사용법: heavy.sh <명령> [인자…] | acquire <이름> | release | status" >&2; exit 2 ;;
+  '')      echo "사용법: heavy.sh [--pool docker] <명령> [인자…] | acquire <이름> | release | status" >&2; exit 2 ;;
   *)       cmd_run "$@" ;;
 esac

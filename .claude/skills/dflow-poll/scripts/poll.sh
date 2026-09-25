@@ -20,14 +20,22 @@ EXCLUDE=""        # 쉼표 구분 id8 — 영구성 제외(사용자 결정 대�
 EXCLUDE_TEMP=""   # 쉼표 구분 id8 — 일시성 제외(spec 부재·선행 대기). RECHECK_CYCLES 뒤 자동 해제
                   # → 재발견(exit 0)으로 세션이 착수 판정을 다시 하게 만든다(자율 재검사).
 RECHECK_CYCLES=6  # 일시성 제외를 유지할 주기 수. 기본 6주기(interval 300s면 30분).
+EXCLUDE_WAIT=""   # 쉼표 구분 id8 — 선행 대기(서버 판정 reached=false 인 선행을 기다리는 작업). WAIT_CYCLES 뒤 자동 해제.
+                  # 일시성 제외와 따로 두는 이유: 선행이 끝나기 전에는 몇 번을 다시 봐도 결과가 같다. 30분마다 풀면
+                  # 같은 Task 를 선행이 끝날 때까지 되풀이해 검사한다(2026-09-24 실측 13~16회). 선행이 끝나거나 머지되면
+                  # 호출자(팀장)가 목록에서 빼고 poll 을 다시 띄운다. 이 해제는 그 신호를 놓쳤을 때의 안전망이다.
+WAIT_CYCLES=24    # 선행 대기를 유지할 주기 수. 기본 24주기(interval 300s면 2시간).
 REQUIRE_TAG=""    # 지정 시 item.tags 에 이 태그가 있는 작업만 감지(에이전트 위임 플래그).
                   # list 응답에는 tags 가 없어 후보별 show 1회씩 조회한다.
+TAG_CACHE_CYCLES=3 # 필터(--require-tag·--wp)에서 떨어진 후보의 show 결과를 이 주기 수 × interval 초 동안 재사용한다(0=끔).
+                  # list 에 updated_at 같은 무효화 키가 없어 TTL 로만 묶는다. 통과·조회 실패는 캐시하지 않는다.
+                  # 근거: ../../dflow-team/references/rationale.md 「2-1. poll」
 WP=""             # 쉼표 구분 WP 목록(WP-02 또는 모듈/WP-02). 지정 시 그 WP 의 Task 만 감지.
                   # WP 는 external_ref 의 TSK 번호 첫 칸(TSK-02-05 → WP-02)으로 가린다. WBS ID 규칙상
                   # Task ID 의 첫 칸이 WP 번호다. list 응답에는 external_ref 가 없어 show 를 쓴다.
 NET_FAIL_MAX=3
 
-usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM|\"YYYY-MM-DD HH:MM\"|none] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--require-tag 태그] [--wp WP-02,모듈/WP-03]" >&2; exit 2; }
+usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM|\"YYYY-MM-DD HH:MM\"|none] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--exclude-wait id8,id8] [--wait-cycles N] [--require-tag 태그] [--wp WP-02,모듈/WP-03] [--tag-cache-cycles N]" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -36,8 +44,11 @@ while [ $# -gt 0 ]; do
     --exclude)        EXCLUDE="${2:-}"; shift 2 || usage ;;
     --exclude-temp)   EXCLUDE_TEMP="${2:-}"; shift 2 || usage ;;
     --recheck-cycles) RECHECK_CYCLES="${2:-}"; shift 2 || usage ;;
+    --exclude-wait)   EXCLUDE_WAIT="${2:-}"; shift 2 || usage ;;
+    --wait-cycles)    WAIT_CYCLES="${2:-}"; shift 2 || usage ;;
     --require-tag)    REQUIRE_TAG="${2:-}"; shift 2 || usage ;;
     --wp)             WP="${2:-}"; shift 2 || usage ;;
+    --tag-cache-cycles) TAG_CACHE_CYCLES="${2:-}"; shift 2 || usage ;;
     *) usage ;;
   esac
 done
@@ -59,6 +70,8 @@ case "$UNTIL_RAW" in
 esac
 [ -z "$UNTIL_RAW" ] || [ "$UNTIL_RAW" = none ] || [ -n "$UNTIL_EPOCH" ] || usage
 case "$RECHECK_CYCLES" in ''|*[!0-9]*) usage ;; esac
+case "$WAIT_CYCLES"    in ''|*[!0-9]*) usage ;; esac
+case "$TAG_CACHE_CYCLES" in ''|*[!0-9]*) usage ;; esac
 # --wp 형식 검사와 정규화: 항목마다 WP-<숫자> 또는 <모듈>/WP-<숫자>. 오타가 조용히 "감지 0건" 이 되지 않게
 # 막는다. 번호는 앞의 0 을 떼어 적는다(WP-2 와 WP-02 를 같게 보고, TSK-02-05 의 02 도 같은 방식으로 뗀다).
 if [ -n "$WP" ]; then
@@ -90,6 +103,45 @@ STATE_FILES() { (DFLOW_CONFIG_QUIET=1; dflow_config_tasks_dirs) | while IFS= rea
 # 반복하지 않도록 STATE_FILES 는 조용히 부른다.
 dflow_config_tasks_dirs >/dev/null
 
+# 필터 캐시: 줄 = id8<TAB>조회 에포크<TAB>tags(쉼표)<TAB>external_ref. dflow.sh 의 캐시 폴더에 api_base·바인딩별 파일로
+# 둔다(dflow.sh LIST_CACHE 와 같은 cksum 관례) — 스테이징은 운영 데이터를 복제해 같은 주문 id 가 두 서버에 있을 수 있고,
+# 한 파일을 나눠 쓰면 한쪽의 탈락 기록이 다른 쪽의 TTL 을 끝없이 늘린다. 쓸 수 없으면 캐시 없이 돈다.
+TAG_CACHE=''
+TAG_TTL=$((TAG_CACHE_CYCLES * INTERVAL))
+if { [ -n "$REQUIRE_TAG" ] || [ -n "$WP" ]; } && [ "$TAG_TTL" -gt 0 ]; then
+  _cd="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
+  _b=${DFLOW_API_BASE:-}; _key=$(printf '%s|%s' "${_b%/}" "$(DFLOW_CONFIG_QUIET=1; dflow_config_projects)" | cksum | cut -d' ' -f1)
+  if mkdir -p "$_cd" 2>/dev/null && [ -w "$_cd" ]; then TAG_CACHE="$_cd/poll-filter-cache-$_key.tsv"
+  else echo "필터 캐시 끔(쓸 수 없음: $_cd) — 후보마다 매 주기 show 한다" >&2; fi
+fi
+# 필터 판정 — $1=tags(쉼표) $2=external_ref. 통과면 0.
+filter_ok() {
+  if [ -n "$REQUIRE_TAG" ]; then
+    case ",$1," in *",$REQUIRE_TAG,"*) ;; *) return 1 ;; esac
+  fi
+  if [ -n "$WP" ]; then
+    _wpn=$(printf '%s' "${2##*/}" | sed -n 's/^TSK-\([0-9][0-9]*\)-.*/\1/p')
+    [ -n "$_wpn" ] || return 1
+    _wpn=$(printf '%s' "$_wpn" | sed 's/^0*//'); _wpn=${_wpn:-0}
+    case "$2" in */*) _mod=${2%/*} ;; *) _mod='' ;; esac
+    case ",$WP," in
+      *",WP-$_wpn,"*) ;;
+      *",$_mod/WP-$_wpn,"*) [ -n "$_mod" ] || return 1 ;;
+      *) return 1 ;;
+    esac
+  fi
+  return 0
+}
+# 탈락 기록 — 같은 id 의 옛 줄과 만료 줄을 걷어 내고 새로 쓴다(임시 파일 + mv). 실패해도 감시는 계속한다.
+cache_drop() { # $1=id8 $2=tags $3=ref
+  [ -n "$TAG_CACHE" ] || return 0
+  _now=$(date +%s)
+  { [ -f "$TAG_CACHE" ] && awk -F'\t' -v id="$1" -v now="$_now" -v ttl="$TAG_TTL" '$1!=id && now-$2<ttl' "$TAG_CACHE"
+    printf '%s\t%s\t%s\t%s\n' "$1" "$_now" "$2" "$3"; } > "$TAG_CACHE.$$" 2>/dev/null \
+    && mv -f "$TAG_CACHE.$$" "$TAG_CACHE" 2>/dev/null || rm -f "$TAG_CACHE.$$" 2>/dev/null
+  return 0
+}
+
 net_fail=0
 cycle=0
 while :; do
@@ -106,6 +158,11 @@ while :; do
   if [ -n "$EXCLUDE_TEMP" ] && [ "$cycle" -gt "$RECHECK_CYCLES" ]; then
     echo "일시성 제외 해제(재검사 유도): $EXCLUDE_TEMP" >&2
     EXCLUDE_TEMP=""
+  fi
+  # 선행 대기는 더 길게 붙든다(WAIT_CYCLES). 풀리면 위와 같이 재발견으로 세션이 다시 판정한다.
+  if [ -n "$EXCLUDE_WAIT" ] && [ "$cycle" -gt "$WAIT_CYCLES" ]; then
+    echo "선행 대기 해제(안전망 재검사): $EXCLUDE_WAIT" >&2
+    EXCLUDE_WAIT=""
   fi
 
   # ── 승인 감지 (ready 스캔보다 먼저 — 머지가 후속 작업을 해금한다) ──────────────
@@ -154,35 +211,32 @@ EOF
   case "$rc" in
     0)
       net_fail=0
-      ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE,$EXCLUDE_TEMP," \
+      ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE,$EXCLUDE_TEMP,$EXCLUDE_WAIT," \
         '$2=="RD" && index(ex, ","$4",")==0 {print $1"\t"$4"\t"$5}')
       # 위임 플래그 필터: --require-tag 지정 시 태그가 있는 작업만 남긴다.
       # 태그 없는 ready 는 수동 몫이므로 감지 대상이 아니다(통지는 세션이 한다).
       # WP 필터: --wp 지정 시 그 WP 의 Task 만 남긴다. 두 필터는 같은 show 1회로 판정한다.
-      # show 가 실패하면 그 후보는 이번 주기에서 빠지고 다음 주기에 다시 판정된다(기존 태그 필터와 같다).
+      # show 가 실패하면 그 후보는 이번 주기에서 빠지고 다음 주기에 다시 판정된다(실패는 캐시하지 않는다).
+      # 필터 캐시에 TTL 안의 탈락 기록이 있고 지금 필터로도 탈락이면 show 를 건너뛴다. 지금 통과할 값이면 믿지 않고 다시 본다.
       if [ -n "$ready" ] && { [ -n "$REQUIRE_TAG" ] || [ -n "$WP" ]; }; then
         _kept=''
         while IFS= read -r _line; do
           [ -n "$_line" ] || continue
           _id=$(printf '%s' "$_line" | cut -f2)
-          _item=$("$DFLOW" show "$_id" 2>/dev/null | jq -r '.order.item | [((.tags // []) | join(",")), (.external_ref // "")] | @tsv') || _item=''
+          if [ -n "$TAG_CACHE" ] && [ -f "$TAG_CACHE" ]; then
+            _hit=$(awk -F'\t' -v id="$_id" -v now="$(date +%s)" -v ttl="$TAG_TTL" \
+              '$1==id && now-$2<ttl {print $3"\t"$4; exit}' "$TAG_CACHE" 2>/dev/null)
+            if [ -n "$_hit" ] && ! filter_ok "$(printf '%s' "$_hit" | cut -f1)" "$(printf '%s' "$_hit" | cut -f2)"; then
+              continue
+            fi
+          fi
+          # 주문 id 가 없는 응답(오류 JSON·빈 출력)은 조회 실패다 — "태그 없음" 으로 읽거나 캐시하지 않는다.
+          _json=$("$DFLOW" show "$_id" 2>/dev/null) || continue
+          _item=$(printf '%s' "$_json" | jq -r 'select((.order.id // "") != "") | .order.item | [((.tags // []) | join(",")), (.external_ref // "")] | @tsv' 2>/dev/null) || _item=''
           [ -n "$_item" ] || continue
           _tags=$(printf '%s' "$_item" | cut -f1)
           _ref=$(printf '%s' "$_item" | cut -f2)
-          if [ -n "$REQUIRE_TAG" ]; then
-            case ",$_tags," in *",$REQUIRE_TAG,"*) ;; *) continue ;; esac
-          fi
-          if [ -n "$WP" ]; then
-            _wpn=$(printf '%s' "${_ref##*/}" | sed -n 's/^TSK-\([0-9][0-9]*\)-.*/\1/p')
-            [ -n "$_wpn" ] || continue
-            _wpn=$(printf '%s' "$_wpn" | sed 's/^0*//'); _wpn=${_wpn:-0}
-            case "$_ref" in */*) _mod=${_ref%/*} ;; *) _mod='' ;; esac
-            case ",$WP," in
-              *",WP-$_wpn,"*) ;;
-              *",$_mod/WP-$_wpn,"*) [ -n "$_mod" ] || continue ;;
-              *) continue ;;
-            esac
-          fi
+          filter_ok "$_tags" "$_ref" || { cache_drop "$_id" "$_tags" "$_ref"; continue; }
           _kept="${_kept}${_line}
 "
         done <<POLL_EOF

@@ -11,7 +11,12 @@ project_id=
 # 운영 브랜치 — 개발 브랜치를 승격해서만 들어간다. 비우면 원격 기본 브랜치(origin/HEAD).
 release_branch=main
 
-# 1 이면 이 리포의 D'Flow 워커가 도커를 쓰지 않는다(docker·Testcontainers 검증을 게이트에서 빼고 보고한다).
-# 모든 PC 에 적용된다. PC 하나만 켜거나 끄려면 .dflow.local 에 적는다(.dflow.local 이 이긴다).
+# D'Flow 워커는 기본적으로 도커를 쓰지 않는다(docker·Testcontainers 검증을 게이트에서 빼고 보고한다). 예외는 D'Flow 작업에
+# docker 태그가 달린 Task 뿐이다. 1 이면 태그가 있어도·수동 /dflow-dev 에서도 막는 강제 금지다. 0 은 아무것도 풀지 않는다.
 # 규칙 정본: .claude/skills/dflow-dev/references/dev-discipline.md 「도커 사용 규칙」.
 # no_docker=1
+
+# 방언 검증 명령. 승인 스윕(/dflow-merge)이 머지를 마친 뒤 스윕마다 한 번, 개발 브랜치 끝 커밋의 깨끗한 임시 워크트리
+# 최상위에서 bash -c 로 돌린다(PC 전역 도커 슬롯 안에서). 비우면 이 단계는 없다. PC 전용 값(JAVA_HOME 등)이 든 명령은
+# .dflow.local 에 둔다(.dflow.local 이 이긴다). 정본: .claude/skills/dflow-merge/SKILL.md 「방언 검증」.
+# dialect_check=cd src/backend/mdm && ../gradlew :api:mssqlMigrationTest --no-daemon --console=plain

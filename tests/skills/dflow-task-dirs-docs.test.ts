@@ -1,14 +1,17 @@
 // 스킬 문서의 작업 폴더를 <DOCS_DIR>/tasks 로 통일(docs/superpowers/specs/2026-09-23-dflow-task-scaffold-design.md §6).
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 describe('스킬 문서의 작업 폴더', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
-  const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-merge/SKILL.md',
-    'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
-    'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
-    'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']
+  // 스킬 본문과 references 전부(2026-09-25 토큰 절감으로 규칙이 references 로 흩어졌다 — 새 파일이 검사에서 빠지지 않게 목록을 파일 시스템에서 만든다)
+  const FILES = ['dflow-dev', 'dflow-merge', 'dflow-team', 'dflow-work'].flatMap((d) => [
+    `${d}/SKILL.md`,
+    ...(existsSync(join(process.cwd(), '.claude/skills', d, 'references')) ? readdirSync(join(process.cwd(), '.claude/skills', d, 'references')).filter((f) => f.endsWith('.md')).map((f) => `${d}/references/${f}`) : []),
+  ]).concat(['dflow-work/README.md'])
+    // 원래 검사 밖이던 문서 셋은 옛 dflow.sh 호환 폴백(`echo docs/tasks`)과 예시로 이 경로를 적는다
+    .filter((f) => !['dflow-team/references/merge-conflict.md', 'dflow-team/references/restart.md', 'dflow-team/references/resolve-prompt.md'].includes(f))
   it('고정 경로 docs/tasks 가 남아 있지 않다(워커의 옛 팀장 호환 폴백 한 곳만 예외)', () => {
     const FALLBACK = '`docs/tasks/{TSK}`'
     for (const f of FILES) expect(read(f).replaceAll(FALLBACK, ''), f).not.toMatch(/docs\/tasks/)
@@ -54,7 +57,8 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(t).not.toContain('taskdir <ref>)` 로 이 작업의 작업 폴더')
   })
   it('taskdir 를 부르는 블록마다 넘기는 변수를 같은 블록 첫머리에서 자리표시로 묶는다', () => {
-    const t = read('dflow-team/SKILL.md')
+    // 2026-09-25: 「5-1」 의 절차는 dflow-team references/resume.md 로 옮겼다
+    const t = read('dflow-team/SKILL.md') + '\n' + read('dflow-team/references/resume.md')
     const blocks = [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
       .filter((b) => b.includes('dflow.sh taskdir'))
     const vars = blocks.map((b) => /dflow\.sh taskdir "\$(\w+)"/.exec(b)?.[1])
@@ -105,15 +109,15 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(t).not.toContain('done <<EOF')
   })
   it('행 G 의 기본 브랜치 반영 확인이 TASKS 를 줄 사이 변수로 넘기지 않는다', () => {
-    const t = read('dflow-dev/SKILL.md')
+    const t = read('dflow-dev/references/worker-mode.md')
     expect(t).toContain('git show "origin/<기본브랜치>:$(dirname {TASK_DIR})/<선행TSK>/state.json"')
     expect(t).not.toContain('TASKS=$(dirname {TASK_DIR})')
     expect(t).not.toMatch(/:\$TASKS\//)
   })
   it('팀장 재개 spawn 이 TASK_DIR 을 슬롯 되돌리기보다 먼저 구한다', () => {
-    const t = read('dflow-team/SKILL.md')
-    const start = t.indexOf('### 5-1. 재개 spawn')
-    const section = t.slice(start, t.indexOf('## 6. blocked'))
+    const t = read('dflow-team/references/resume.md')
+    const start = t.indexOf('# /dflow-team 재개 spawn')
+    const section = t.slice(start)
     const taskDirIdx = section.indexOf('TASK_DIR` 을 구한다')
     const unparkIdx = section.indexOf('.dflow-agent` 를 되돌린다')
     expect(start).toBeGreaterThan(-1)
@@ -131,12 +135,12 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(t.slice(spawnStep4, spawnEnd)).not.toMatch(/\$TASK_DIR\b/)
     expect(t.slice(spawnStep4, spawnEnd)).toContain('TASK_DIR=<작업 폴더>')
 
-    // 「5-1. 재개 spawn」: 4번(TASK_DIR 을 구하는 곳) 이후, 5번부터는 $task_dir 을 다시 쓰지 않는다
-    const resumeStep5 = t.indexOf('5. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.**', spawnEnd)
-    const resumeEnd = t.indexOf('## 6. blocked')
+    // 「5-1. 재개 spawn」(references/resume.md): 4번(TASK_DIR 을 구하는 곳) 이후, 5번부터는 $task_dir 을 다시 쓰지 않는다
+    const r = read('dflow-team/references/resume.md')
+    const resumeStep5 = r.indexOf('5. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.**')
     expect(resumeStep5).toBeGreaterThan(-1)
-    expect(t.slice(resumeStep5, resumeEnd)).not.toMatch(/\$task_dir\b/)
-    expect(t.slice(resumeStep5, resumeEnd)).toContain('<4항에서 출력된 작업 폴더>')
+    expect(r.slice(resumeStep5)).not.toMatch(/\$task_dir\b/)
+    expect(r.slice(resumeStep5)).toContain('<4항에서 출력된 작업 폴더>')
   })
 })
 
@@ -144,10 +148,13 @@ describe('스킬 문서의 작업 폴더', () => {
 // 들여쓴 here-doc 은 종결자(`     EOF`)가 인식되지 않아 뒤를 전부 삼키고 exit 0 으로 끝난다.
 describe('들여쓴 bash 블록의 붙여넣기 안전성', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
-  const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-merge/SKILL.md',
-    'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
-    'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
-    'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']
+  // 스킬 본문과 references 전부(2026-09-25 토큰 절감으로 규칙이 references 로 흩어졌다 — 새 파일이 검사에서 빠지지 않게 목록을 파일 시스템에서 만든다)
+  const FILES = ['dflow-dev', 'dflow-merge', 'dflow-team', 'dflow-work'].flatMap((d) => [
+    `${d}/SKILL.md`,
+    ...(existsSync(join(process.cwd(), '.claude/skills', d, 'references')) ? readdirSync(join(process.cwd(), '.claude/skills', d, 'references')).filter((f) => f.endsWith('.md')).map((f) => `${d}/references/${f}`) : []),
+  ]).concat(['dflow-work/README.md'])
+    // 원래 검사 밖이던 문서 셋은 옛 dflow.sh 호환 폴백(`echo docs/tasks`)과 예시로 이 경로를 적는다
+    .filter((f) => !['dflow-team/references/merge-conflict.md', 'dflow-team/references/restart.md', 'dflow-team/references/resolve-prompt.md'].includes(f))
   it('목록 안(들여쓴) 코드 블록에 here-doc 이 없다', () => {
     for (const f of FILES) {
       for (const m of read(f).matchAll(/^( +)```[a-z]*\n([\s\S]*?)^\1```/gm))
@@ -165,7 +172,7 @@ describe('들여쓴 bash 블록의 붙여넣기 안전성', () => {
     expect(read('dflow-team/SKILL.md')).toContain('find "$(git rev-parse --show-toplevel)/$d" -mindepth 2 -maxdepth 2 -name state.json')
   })
   it('임시 머지 워크트리: $W 를 쓰는 뒤 호출은 가드 줄로 시작한다(빈 $W 면 호출한 체크아웃에서 머지·push·reset 된다)', () => {
-    const t = read('dflow-merge/SKILL.md')
+    const t = read('dflow-merge/references/merge-worktree.md')
     expect(t).toContain('W="$(git rev-parse --show-toplevel)/.claude/worktrees/dflow-merge"; [ -e "$W/.git" ] || { echo NO_MERGE_WT; exit 1; }')
     expect(t).not.toContain('별도 호출로 나누면 그 블록이 만든 실제 경로를 `<W>` 자리에 옮겨 적는다')
   })

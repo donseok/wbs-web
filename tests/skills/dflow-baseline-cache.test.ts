@@ -19,6 +19,8 @@ const GIT_ENV = {
   DFLOW_BASELINE_POLL: '0.2',
   // baseline.sh 는 측정을 heavy.sh(PC 전역 세마포어)로 감싼다 — 시험이 이 PC 의 실제 슬롯을 쓰지 않게 임시 폴더로 돌린다
   DFLOW_HEAVY_DIR: mkdtempSync(join(tmpdir(), 'dflow-baseline-heavy-')),
+  // 시험 자체를 heavy.sh 안에서 돌려도 안쪽 호출로 여겨 슬롯을 건너뛰지 않게 한다
+  DFLOW_HEAVY_HELD: '', DFLOW_HEAVY_DOCKER_HELD: '',
 }
 
 function sh(cwd: string, script: string, env: Record<string, string> = {}) {
@@ -272,4 +274,93 @@ describe('baseline.sh — 대기 상한과 PC 전역 슬롯(2026-09-24 통합)',
     expect(again.out).toMatch(/BASELINE_MEASURED exit=1 key=/)
     expect(runs()).toBe(1)
   }, 30_000)
+
+  // 공유 마감(2026-09-24 P1): 잠금 대기와 안쪽 heavy.sh 슬롯 대기가 한 마감을 나눠 쓴다. 전에는 잠금 WAIT 뒤에
+  // heavy.sh 가 다시 DFLOW_HEAVY_WAIT(기본 240초)를 기다려, 이 시험은 240초를 넘겨 시간 초과로 실패했다.
+  it('잠금을 기다린 만큼 슬롯 대기가 줄어 호출 하나의 총 대기가 WAIT(+최소 5초) 안에 끝난다', async () => {
+    const heavyDir = join(tmp, 'heavy')
+    mkdirSync(join(heavyDir, 'slot-1'), { recursive: true })
+    writeFileSync(join(heavyDir, 'slot-1', 'owner'), `pid=${process.pid}\nkind=run\nstart=${Math.floor(Date.now() / 1000)}\npstart=-\ncmd=other-testAll\n`)
+    const key = `${base}-${sh(repo, `printf '%s\\n%s' '' '${CMD}' | (sha256sum 2>/dev/null || shasum -a 256) | tr -dc '0-9a-f' | cut -c1-12`).out.trim()}`
+    const lock = join(cacheDir(), `${key}.lock`)
+    mkdirSync(lock, { recursive: true })
+    writeFileSync(join(lock, 'owner'), `${process.pid} ${hostname()} ${Math.floor(Date.now() / 1000)}\n`)
+    const env = {
+      ...GIT_ENV, DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_DIR: heavyDir, DFLOW_HEAVY_POLL: '0.2', DFLOW_HEAVY_WAIT: '',
+      DFLOW_BASELINE_WAIT: '7',
+    }
+    const t0 = Date.now()
+    const p = spawn('bash', ['-c', `bash '${BASELINE}' run --base ${base} --task-dir docs/tasks/TSK-01-01 -- '${CMD}'`],
+      { cwd: repo, env, timeout: 25_000 })
+    let out = ''
+    p.stdout.on('data', (d) => (out += d))
+    p.stderr.on('data', (d) => (out += d))
+    const done = new Promise<number | null>((res) => p.on('close', (code) => res(code)))
+    // 다른 팀원의 측정이 1.5초 뒤 저장 없이 끝난다(잠금만 풀린다) — 이 호출이 잠금을 얻어 슬롯을 기다린다
+    for (let i = 0; i < 100 && !out.includes('BASELINE_WAITING'); i++) await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 1500))
+    rmSync(lock, { recursive: true, force: true })
+    const code = await done
+    const took = (Date.now() - t0) / 1000
+    expect(code, out).toBe(75)
+    expect(out).toContain('BASELINE_WAITING')
+    expect(out).toContain('BASELINE_BUSY exit=75')
+    // 안쪽 heavy.sh 가 받은 상한은 남은 시간(최소 5초)이다 — 240 이 아니다
+    const hw = Number(out.match(/HEAVY_BUSY k=1 wait=(\d+)s/)?.[1])
+    expect(hw).toBeGreaterThanOrEqual(5)
+    expect(hw).toBeLessThanOrEqual(6)
+    expect(took).toBeLessThan(10)
+    expect(runs()).toBe(0)
+    expect(jsons()).toEqual([])
+  }, 30_000)
+
+  it('캐시를 쓰지 않는 측정(HEAD 가 기점과 다름)도 PC 전역 슬롯을 거친다 — 차 있으면 BASELINE_BUSY', () => {
+    const heavyDir = join(tmp, 'heavy')
+    mkdirSync(join(heavyDir, 'slot-1'), { recursive: true })
+    writeFileSync(join(heavyDir, 'slot-1', 'owner'), `pid=${process.pid}\nkind=run\nstart=${Math.floor(Date.now() / 1000)}\npstart=-\ncmd=other\n`)
+    sh(repo, `printf 'y\\n' > src/b.txt && git add src/b.txt && git commit -qm feat`)
+    const env = { DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_DIR: heavyDir, DFLOW_HEAVY_WAIT: '0' }
+    const r = run(repo, env)
+    expect(r.code, r.out).toBe(75)
+    expect(r.out).toContain('HEAVY_BUSY')
+    expect(r.out).toContain('BASELINE_BUSY exit=75')
+    expect(runs()).toBe(0)
+    rmSync(join(heavyDir, 'slot-1'), { recursive: true })
+    const again = run(repo, env)
+    expect(again.out).toContain('BASELINE_MEASURED exit=1 cache=off(HEAD 가 기점과 다름)')
+    expect(again.out).toContain('HEAVY_SLOT slot-1')
+    expect(runs()).toBe(1)
+  })
+})
+
+describe('baseline.sh --pool docker — 도커가 허용된 워커의 기준선(2026-09-24 도커 규칙 개정)', () => {
+  it('측정을 PC 전역 도커 슬롯 안에서 돌린다(캐시를 쓰든 안 쓰든)', () => {
+    const env = { DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_DIR: join(tmp, 'heavy') }
+    const cmd = `echo "held=$DFLOW_HEAVY_DOCKER_HELD" >> ${tmp}/held; echo run >> ${tmp}/counter; exit 0`
+    const r = run(repo, env, cmd, '--task-dir docs/tasks/TSK-01-01 --pool docker')
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toMatch(/BASELINE_MEASURED exit=0 key=/)
+    const r2 = run(repo, { ...env, DFLOW_BASELINE_CACHE: '0' }, cmd, '--pool docker')
+    expect(r2.out).toContain('BASELINE_MEASURED exit=0 cache=off(DFLOW_BASELINE_CACHE=0)')
+    const held = readFileSync(join(tmp, 'held'), 'utf8').trim().split('\n')
+    expect(held).toEqual([`held=${join(tmp, 'heavy', 'docker-1')}`, `held=${join(tmp, 'heavy', 'docker-1')}`])
+    expect(existsSync(join(tmp, 'heavy', 'docker-1'))).toBe(false)
+  }, 30_000)
+  it('도커 슬롯이 차 있으면 저장하지 않고 BASELINE_BUSY(exit 75)로 끝난다', () => {
+    const env = { DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_DIR: join(tmp, 'heavy'), DFLOW_HEAVY_WAIT: '0' }
+    mkdirSync(join(tmp, 'heavy', 'docker-1'), { recursive: true })
+    writeFileSync(join(tmp, 'heavy', 'docker-1', 'owner'), `pid=${process.pid}\nkind=run\nstart=1\npstart=-\ncmd=other\n`)
+    const r = run(repo, env, CMD, '--task-dir docs/tasks/TSK-01-01 --pool docker')
+    expect(r.code, r.out).toBe(75)
+    expect(r.out).toContain('BASELINE_BUSY exit=75')
+    expect(runs()).toBe(0)
+    expect(jsons()).toEqual([])
+    const r2 = run(repo, { ...env, DFLOW_BASELINE_CACHE: '0' }, CMD, '--pool docker')
+    expect(r2.code, r2.out).toBe(75)
+    expect(r2.out).toContain('BASELINE_BUSY exit=75')
+    expect(runs()).toBe(0)
+  }, 30_000)
+  it('모르는 풀은 사용법 오류다', () => {
+    expect(run(repo, {}, CMD, '--pool bogus').code).toBe(2)
+  })
 })

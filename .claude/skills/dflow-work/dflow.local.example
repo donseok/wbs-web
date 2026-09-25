@@ -17,6 +17,11 @@ automerge=0
 # 내가 맡은 서브시스템의 DOCS_DIR=프로젝트 UUID(쉼표 구분). 리포 전체가 한 프로젝트면 비운다.
 # project_map=docs/c10=<uuid>
 
-# 1 이면 이 PC 의 D'Flow 워커가 도커를 쓰지 않는다. .dflow 의 no_docker 를 덮는다(0 이면 리포 값이 1 이어도 끈다).
-# /dflow-team 은 인원이 기준 이상이면 이 값과 무관하게 팀원에게 금지를 넘긴다. 정본: dev-discipline.md 「도커 사용 규칙」.
+# 1 이면 이 PC 에서 docker 태그 Task 의 워커와 수동 /dflow-dev 도 도커를 쓰지 않는다(강제 금지). .dflow 의 no_docker 를
+# 덮는다. 워커는 이 값과 무관하게 기본이 금지다(0 으로 풀 수 없다 — 허용은 D'Flow 의 docker 태그로만). 정본: dev-discipline.md
+# 「도커 사용 규칙」.
 # no_docker=1
+
+# 방언 검증 명령(.dflow 의 dialect_check 를 덮는다). PC 전용 값(JAVA_HOME 등)이 든 명령은 .dflow.local 에 둔다.
+# 정본: .claude/skills/dflow-merge/SKILL.md 「방언 검증」.
+# dialect_check=cd src/backend/mdm && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ../gradlew :api:mssqlMigrationTest --no-daemon --console=plain

@@ -235,6 +235,17 @@ filter_projects() {
   jq --arg ps "$ALLOWED_PROJECTS" '($ps | split("\n")) as $ok | [.[] | select(.project_id as $p | $ok | index($p))]'
 }
 
+# /work/mine 은 페이지 넘김이 없고 limit 기본값이 20, 상한이 100 이다. limit 을 빼면 20건에서 잘려, 배정 34건 중
+# 20건만 보여 새로 위임한 14건을 poll·팀장이 1시간 넘게 못 봤다(2026-09-24 dmes-standard). 모든 호출에 상한을 싣고,
+# 한 구획(claimed·assigned·available)이 상한으로 차면 잘렸을 수 있으니 stderr 로 알린다.
+MINE_LIMIT=100
+warn_truncated() { # $1=/work/mine 응답 본문
+  _full=$(printf '%s' "$1" | jq -r --argjson n "$MINE_LIMIT" \
+    '[("claimed","assigned","available") as $k | select(((.[$k] // []) | length) >= $n) | $k] | join(",")' 2>/dev/null)
+  [ -z "$_full" ] || printf '⚠ LIST_TRUNCATED %s — 서버 상한 %s건에 닿아 목록이 잘렸을 수 있습니다(서버에 페이지 넘김이 없다).\n' "$_full" "$MINE_LIMIT" >&2
+  return 0
+}
+
 cmd_list() {
   _scope='available'; _all=''; _anyp=''
   while [ $# -gt 0 ]; do case "$1" in
@@ -251,12 +262,14 @@ cmd_list() {
   if [ -n "$_all" ]; then
     for _t in $(tokens); do
       printf '== %s ==\n' "$(profile_email "$_t" || printf '?')"
-      _body=$(TOKEN="$_t" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
+      _body=$(TOKEN="$_t" api_raw GET "/api/v1/agent/work/mine?scope=$_scope&limit=$MINE_LIMIT") || exit $?
+      warn_truncated "$_body"
       printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | filter_projects "$_anyp" | tee "$LIST_CACHE.tmp" | print_list
       remember_ids "$LIST_CACHE.tmp"
     done
   else
-    _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
+    _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=$_scope&limit=$MINE_LIMIT") || exit $?
+    warn_truncated "$_body"
     printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | filter_projects "$_anyp" > "$LIST_CACHE.tmp" \
       || die 6 "목록 해석 실패"
     print_list < "$LIST_CACHE.tmp"
@@ -325,7 +338,7 @@ write_spec_cache() { # $1=claim 응답 JSON. ORDER_DOCS_DIR 는 check_project �
 # 주문의 프로젝트가 이 리포 바인딩 안인지 확인한다. show 응답에는 project_id 가 없어 /work/mine 목록에서 찾는다.
 check_project() { # $1=전체 UUID
   [ -n "$ALLOWED_PROJECTS" ] || die 2 "PROJECT_MISMATCH 프로젝트 바인딩 없음 — .env 에 DFLOW_PROJECT_ID 또는 DFLOW_PROJECT_MAP 을 넣으세요. 어느 프로젝트의 작업인지 가릴 수 없어 claim 하지 않습니다."
-  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=all") || exit $?
+  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=all&limit=$MINE_LIMIT") || exit $?
   _p=$(printf '%s' "$_body" | jq -r --arg id "$1" '[.claimed[]?, .assigned[]?, .available[]?] | map(select(.id == $id)) | .[0].project_id // empty') \
     || die 6 "목록 해석 실패"
   [ -n "$_p" ] || die 2 "PROJECT_MISMATCH 주문 $(printf '%s' "$1" | cut -c1-8) 의 프로젝트를 목록에서 찾지 못했습니다 — claim 하지 않습니다."
@@ -369,7 +382,8 @@ cmd_taskdir() {
 cmd_scaffold() {
   [ -n "$ALLOWED_PROJECTS" ] || die 2 "PROJECT_MISMATCH 프로젝트 바인딩 없음 — .dflow 의 project_id 또는 .dflow.local 의 project_map 을 넣으세요."
   _top=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "NOT_REPO git 리포 안에서 실행하세요."
-  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=assigned&limit=100") || exit $?
+  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=assigned&limit=$MINE_LIMIT") || exit $?
+  warn_truncated "$_body"
   printf '%s' "$_body" | jq -e 'has("assigned")' >/dev/null 2>&1 || die 6 "목록 해석 실패"
   # ready 만 폴더를 만든다 — assigned 는 ready·claimed·reported 를 다 담아 오므로, 이미 claim 된
   # 주문까지 여기서 phase=ready state.json 을 만들면 팀장 재시작 때 에이전트 브랜치의 같은 경로와

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # /dflow-dev Phase 01 4번: 게이트 기준선 측정을 리포 공용 캐시로 감싼다. cwd = 기준선 명령을 돌릴 폴더.
 #
-#   baseline.sh run --base <기점> [--task-dir <TASKS>/<TSK>] -- '<기준선 명령>'
+#   baseline.sh run --base <기점> [--task-dir <TASKS>/<TSK>] [--pool docker] -- '<기준선 명령>'
 #   baseline.sh note <key> --tests <총수> --failures <실패 수> [--failed-file <실패 이름 목록 파일>]
 #   baseline.sh list --base <기점>     같은 기점에서 이미 잰 명령(재사용하려면 그 문자열·cwd 를 글자 그대로 쓴다)
 #
@@ -30,6 +30,16 @@
 # 오판하기 때문이다(heavy.sh 의 HEAVY_BUSY 와 같은 이유·같은 exit). 측정 명령은 같은 폴더의 heavy.sh(PC 전역 무거운 명령
 # 세마포어)로 감싸 돌린다. heavy.sh 가 HEAVY_BUSY(exit 75)로 끝나면 저장하지 않고 BASELINE_BUSY 로 끝난다. 결과
 # 파일은 임시 파일에 쓴 뒤 하드링크로 게시한다(원자적, 이미 있으면 먼저 쓴 쪽이 남는다). flock 은 macOS 에 없다.
+# --pool docker: 도커를 쓰는 명령(도커가 허용된 워커의 기준선)이면 heavy.sh --pool docker 로 감싸 PC 전역 도커 슬롯을
+# 잡고 잰다(캐시를 쓰지 않는 경우도 같다). 바깥에서 baseline.sh 를 heavy.sh --pool docker 로 감싸지 않는다 — 그러면
+# 도커 슬롯을 쥔 채 이 스크립트의 측정 잠금을 기다리게 되어 heavy.sh 의 교착 불변식(도커 슬롯 보유자는 아무것도
+# 기다리지 않는다)이 깨진다. 슬롯은 잠금을 잡은 뒤, 측정 직전에만 잡는다.
+# 공유 마감: 대기 상한 WAIT 는 호출 하나 전체에 한 번만 쓴다. 시작할 때 마감(시작+WAIT)을 잡고, 측정 잠금을 기다린
+# 시간을 뺀 나머지만 안쪽 heavy.sh 에 DFLOW_HEAVY_WAIT 로 넘긴다(최소 5초 — 잠금을 막 얻은 쪽이 슬롯을 한 번은
+# 기다려 보게). 이전에는 잠금 240초 + 슬롯 240초를 겹쳐 기다려 Bash 한 번이 10분 상한에 닿을 수 있었다. 그래서
+# 호출 하나의 총 대기는 WAIT(+ 최소 5초) 를 넘지 않고, 그 위에 측정 시간만 더해진다. 호출하는 쪽 환경의
+# DFLOW_HEAVY_WAIT 가 그보다 짧으면 그 값을 쓴다. 캐시를 쓰지 않는 측정(HEAD 가 기점과 다름 등)도 heavy.sh 로
+# 감싸 같은 마감으로 돈다 — 재개한 브랜치 위의 testAll 도 PC 전역 슬롯을 거쳐야 한다.
 #
 # 출력 마지막 줄(`| tail -30` 뒤에도 남는다):
 #   BASELINE_MEASURED exit=<n> key=<key> json=<경로>         새로 쟀고 저장했다
@@ -47,7 +57,7 @@ POLL="${DFLOW_BASELINE_POLL:-2}"
 MODE="${DFLOW_BASELINE_CACHE:-1}"
 
 usage() {
-  echo "usage: baseline.sh run --base <기점> [--task-dir <dir>] -- '<명령>'" >&2
+  echo "usage: baseline.sh run --base <기점> [--task-dir <dir>] [--pool docker] -- '<명령>'" >&2
   echo "       baseline.sh note <key> --tests <n> --failures <n> [--failed-file <file>]" >&2
   echo "       baseline.sh list --base <기점>" >&2
   exit 2
@@ -84,24 +94,56 @@ reuse() {
   exit "$rc"
 }
 
+HEAVY="$(cd "$(dirname "$0")" && pwd)/heavy.sh"
+POOL=general
+DEADLINE=""
+
+# 안쪽 heavy.sh 에 넘길 슬롯 대기 상한(초): 공유 마감까지 남은 시간, 최소 5초. 호출한 쪽 환경의 DFLOW_HEAVY_WAIT 가
+# 더 짧으면 그 값(머리 주석 「공유 마감」).
+heavy_wait() {
+  local rem=5 u="${DFLOW_HEAVY_WAIT:-}"
+  [ -z "$DEADLINE" ] || rem=$(( DEADLINE - $(now) ))
+  [ "$rem" -ge 5 ] || rem=5
+  case "$u" in ''|*[!0-9]*) ;; *) [ "$u" -lt "$rem" ] && rem="$u" ;; esac
+  echo "$rem"
+}
+
 measure_nocache() { # $1 사유
-  bash -c "$CMD"
-  rc=$?
+  if [ -x "$HEAVY" ]; then
+    # 캐시를 쓰지 않아도 PC 전역 슬롯(도커 명령이면 도커 슬롯) 안에서만 돈다
+    pool_args=""; [ "$POOL" = docker ] && pool_args="--pool docker"
+    nl=$(mktemp "${TMPDIR:-/tmp}/dflow-baseline-nocache.XXXXXX") || nl=/dev/null
+    DFLOW_HEAVY_WAIT=$(heavy_wait) "$HEAVY" $pool_args bash -c "$CMD" 2>&1 | tee "$nl"
+    rc=${PIPESTATUS[0]}
+    if [ "$rc" -eq 75 ] && grep -qE '^HEAVY_(DOCKER_)?BUSY' "$nl" 2>/dev/null; then
+      [ "$nl" = /dev/null ] || rm -f "$nl"
+      echo "BASELINE_BUSY exit=75 PC 전역 무거운 명령 슬롯이 차 있다 — 같은 명령을 다시 호출한다"
+      exit 75
+    fi
+    [ "$nl" = /dev/null ] || rm -f "$nl"
+  else
+    bash -c "$CMD"
+    rc=$?
+  fi
   echo "BASELINE_MEASURED exit=$rc cache=off($1)"
   exit "$rc"
 }
 
 cmd_run() {
+  # 공유 마감(머리 주석): 측정 잠금 대기와 안쪽 heavy.sh 슬롯 대기가 이 한 마감을 나눠 쓴다
+  DEADLINE=$(( $(now) + WAIT ))
   BASE=""; TASK_DIR=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --base) BASE="${2:-}"; shift 2 ;;
       --task-dir) TASK_DIR="${2:-}"; shift 2 ;;
+      --pool) POOL="${2:-}"; shift 2 ;;
       --) shift; break ;;
       *) usage ;;
     esac
   done
   [ $# -eq 1 ] && [ -n "$1" ] && [ -n "$BASE" ] || usage
+  case "$POOL" in general|docker) ;; *) usage ;; esac
   CMD="$1"
   # 앞뒤 공백만 뗀다(키가 우연히 갈라지지 않게). 안쪽은 건드리지 않는다 — 다른 명령을 같은 키로 묶으면 안 된다
   CMD="${CMD#"${CMD%%[![:space:]]*}"}"; CMD="${CMD%"${CMD##*[![:space:]]}"}"
@@ -134,7 +176,7 @@ cmd_run() {
 
   [ "$MODE" != refresh ] && usable && reuse
 
-  locked=0; waited=0; deadline=$(( $(now) + WAIT ))
+  locked=0; waited=0
   while :; do
     if mkdir "$L" 2>/dev/null; then
       printf '%s %s %s\n' "$$" "$HOST" "$(now)" > "$L/owner"
@@ -167,7 +209,7 @@ cmd_run() {
       echo "BASELINE_WAITING 다른 팀원이 같은 기준선을 재는 중(pid $opid@$ohost), 결과를 기다린다"
       waited=1
     fi
-    if [ "$(now)" -ge "$deadline" ]; then
+    if [ "$(now)" -ge "$DEADLINE" ]; then
       echo "BASELINE_BUSY exit=75 다른 팀원의 측정(pid $opid@$ohost)이 ${WAIT}초 안에 끝나지 않았다 — 같은 명령을 다시 호출한다"
       exit 75
     fi
@@ -176,14 +218,16 @@ cmd_run() {
 
   LOG="$KEY.$$.log"
   started=$(now)
-  HEAVY="$(cd "$(dirname "$0")" && pwd)/heavy.sh"
-  if [ -x "$HEAVY" ]; then
-    "$HEAVY" bash -c "$CMD" 2>&1 | tee "$C/$LOG"
+  # 잠금을 기다린 만큼 줄어든 나머지 시간만 슬롯을 기다린다(공유 마감)
+  if [ -x "$HEAVY" ] && [ "$POOL" = docker ]; then
+    DFLOW_HEAVY_WAIT=$(heavy_wait) "$HEAVY" --pool docker bash -c "$CMD" 2>&1 | tee "$C/$LOG"
+  elif [ -x "$HEAVY" ]; then
+    DFLOW_HEAVY_WAIT=$(heavy_wait) "$HEAVY" bash -c "$CMD" 2>&1 | tee "$C/$LOG"
   else
     bash -c "$CMD" 2>&1 | tee "$C/$LOG"
   fi
   rc=${PIPESTATUS[0]}
-  if [ "$rc" -eq 75 ] && grep -q '^HEAVY_BUSY' "$C/$LOG" 2>/dev/null; then
+  if [ "$rc" -eq 75 ] && grep -qE '^HEAVY_(DOCKER_)?BUSY' "$C/$LOG" 2>/dev/null; then
     rm -f "$C/$LOG"
     echo "BASELINE_BUSY exit=75 PC 전역 무거운 명령 슬롯이 차 있다 — 같은 명령을 다시 호출한다"
     exit 75

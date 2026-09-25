@@ -15,7 +15,13 @@ const DOCS = [
   '.claude/skills/dflow-team/references/worker-prompt.md',
   '.claude/skills/dflow-team/references/resolve-prompt.md',
   '.claude/skills/dflow-team/references/merge-conflict.md',
+  // 2026-09-25 분기 전용 절을 옮긴 문서(그 분기에서만 cat 한다)
+  '.claude/skills/dflow-team/references/args.md',
+  '.claude/skills/dflow-team/references/resume.md',
+  '.claude/skills/dflow-team/references/closing.md',
+  '.claude/skills/dflow-team/references/second-lead.md',
   '.claude/skills/dflow-dev/SKILL.md',
+  '.claude/skills/dflow-dev/references/worker-mode.md',
   '.claude/skills/dflow-merge/SKILL.md',
 ]
 

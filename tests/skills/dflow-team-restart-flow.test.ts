@@ -8,11 +8,13 @@ const section = (from: string, to: string) => { const i = S.indexOf(from); expec
 
 describe('dflow-team 자동 재시작 흐름', () => {
   it('참조와 압축 뒤 첫 기상에 restart.md 가 있다', () => {
-    expect(S).toContain('`references/restart.md`(자동 재시작 판정·재투입·rate-limit 대기·중단 표식 정리)')
-    expect(S).toContain('「7. 마감」 과 `references/events.md`, `references/restart.md`(전부), `references/merge-conflict.md`, `references/backends.md` 의')
+    // 2026-09-25: 참조는 "언제 읽는가" 표가 됐다
+    expect(S).toContain('| `references/restart.md` | TICK 판정·결과 줄 없는 `PANE_DEAD`·재투입·rate-limit 대기·중단 표식 정리 때 |')
+    // 2026-09-25: 압축 뒤 재독 세트를 줄였다. restart.md 는 그 절차(TICK 판정·재투입 등)를 처음 탈 때 읽는다
+    expect(S).toContain('`references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
   })
   it('팀장 상태: 차단기는 team.lost 도 세고, 제외·고아 스캔 다섯째 조건·멈춤 사유를 더한다', () => {
-    const st = section('## 팀장 상태', '## 두 번째 팀장')
+    const st = section('## 팀장 상태:', '\n## 두 번째 팀장 (')
     expect(st).toContain('`team.lost` 는 `cause` 와 무관하게 실패 1건으로 센다')
     expect(st).toMatch(/- \*\*`team\.lost`\*\*:[^\n]*영구 제외/)
     expect(st).toContain('`PARKED`·`RL_WAIT`·`RL_DUE` 가 아니다')
@@ -48,12 +50,16 @@ describe('dflow-team 자동 재시작 흐름', () => {
     expect(s).toMatch(/\| `failed no-result`\(pane 이 죽었는데 결과 줄 없음\) \|[^\n]*127 이 아닌 죽음은[^\n]*restart\.md/)
     expect(s).toMatch(/\| `failed rate-limit` \|[^\n]*자동 재시작·보류 대상이 아니다/)
   })
-  it('차단기와 무응답: team.lost 를 세고, tmux 무응답은 자동 재시작이 대신하며 Orca 는 관문 전 그대로', () => {
+  it('차단기와 무응답: team.lost 를 세고, 자동 재시작은 2026-09-24부터 두 백엔드 공통이다', () => {
     const s = section('## 3. 결과 처리', '## 4. 승인 스윕')
     expect(s).toContain('`team.lost`(모든 `cause`)도 실패 1건으로 센다')
     expect(s).toContain('**자동 재시작**')
-    expect(s).toMatch(/tmux 갈래는[^\n]*`references\/restart\.md`/)
-    expect(s).toMatch(/Orca 는 관문 전이라/)
+    expect(s).toMatch(/위 자동 정리는[^\n]*`references\/restart\.md`/)
+    // 날짜·옛 방식(2026-09-24부터, Orca "관문 전")은 references/rationale.md 로 옮겼다
+    expect(s).toMatch(/위 자동 정리는 `references\/restart\.md` 「판정」 이 대신한다\(두 백엔드 공통\)/)
+    const rationale = readFileSync('.claude/skills/dflow-team/references/rationale.md', 'utf8')
+    expect(rationale).toMatch(/2026-09-24부터 두 백엔드 공통/)
+    expect(rationale).toMatch(/Orca 가 "관문 전" 이라 이 절 대신/)
     // 기존 문구 유지
     expect(s).toContain('"무응답" 으로 보고만 하고 슬롯을 유지한다')
     expect(s).toContain('**두 TICK 연속으로** 생존 증거가 없을 때만')
@@ -62,13 +68,14 @@ describe('dflow-team 자동 재시작 흐름', () => {
     const s5 = section('## 5. 팀원 spawn', '### 5-1. 재개 spawn')
     expect(s5).toContain('5. **띄우기 직전** `references/restart.md` 「중단 표식 정리」 블록을 돈다')
     expect(s5).toContain('`CANCEL_MARK_RM_FAILED` 면 띄우지 않고')
-    const s51 = section('### 5-1. 재개 spawn', '## 6. blocked')
+    const s51 = readFileSync('.claude/skills/dflow-team/references/resume.md', 'utf8') // 2026-09-25 「5-1」 절차를 옮겼다
     expect(s51).toContain('- **재시작**: `references/restart.md` 「재투입」')
     expect(s51).toContain('7. **띄운다.** 먼저 `references/restart.md` 「중단 표식 정리」 블록을 돈다')
   })
   it('같은 작업 재spawn 예외가 넷이고 마감은 재시작 대기를 멈춤 표에 적는다', () => {
     expect(S).toContain('같은 작업을 다시 띄우는 것은 다섯뿐이다(')
-    expect(S).toContain('- 같은 작업의 재spawn. 예외는 다섯이다(')
-    expect(section('## 7. 마감', '**잠금 상실 마감**')).toContain('`references/restart.md` 「마감·lease·잠금」 대로')
+    expect(S).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 다섯뿐이다.')
+    const closing = readFileSync('.claude/skills/dflow-team/references/closing.md', 'utf8')
+    expect(closing.slice(0, closing.indexOf('**잠금 상실 마감**'))).toContain('`references/restart.md` 「마감·lease·잠금」 대로')
   })
 })

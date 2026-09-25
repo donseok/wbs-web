@@ -2,8 +2,8 @@
 
 > 설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-23-parallel-merge-conflict-design.md §4~§8(킷에는 미동봉).
 
-SKILL.md 「4-1. 머지 충돌 해소」·「5-2. 해소 spawn」 이 이 문서를 가리킨다. 컨텍스트 압축 뒤 첫 기상에서는 다른
-reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규칙은 `resolve-prompt.md` 다.
+SKILL.md 「4-1. 머지 충돌 해소」·「5-2. 해소 spawn」 이 이 문서를 가리킨다. 충돌 접수·해소 spawn·해소 결과·사람 머지 감지를
+다루는 기상에서 Bash `cat` 으로 읽는다(컨텍스트 압축 뒤에도 그때 다시 읽는다). 해소 워커 쪽 규칙은 `resolve-prompt.md` 다.
 
 ## 0. 상태와 불변식
 
@@ -11,12 +11,12 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
   충돌을 다시 내기 때문이다.
 - **충돌 목록**: 표시를 풀어야 할 id8 이다. `team.conflict` 이벤트로 남기며, id8 마다 마지막 `decision` 이 `cleared` 가
   아닌 것이다(「5」 의 jq).
-- **해소 슬롯**: 워크트리 이름이 `-resolve` 로 끝나는 슬롯이다(tmux `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`, Orca
-  `<MAIN>/dflow-<id8>-resolve`). `spawn_kind` 로 가르지 않는 이유: 팀장을 다시 띄우면 「1. 시작」 5번이 살아 있는 슬롯을
-  `spawn_kind: readopt` 로 다시 적어 `resolve` 가 사라진다. 그 줄은 `orig_kind` 에 원래 종류를 싣지만(events.md), 옛 줄에는
-  없으므로 판별의 정본은 워크트리 이름이다. 이 판별을 해소 결과 처리(「4」)·차단기(「6」)·동시 해소 상한이 모두 쓴다.
+- **해소 슬롯**: 워크트리 이름이 `-resolve` 로 끝나는 슬롯이다(`<MAIN>/.claude/worktrees/dflow-<id8>-resolve`,
+  두 백엔드 공통. 옛 방식 Orca 워크트리는 `<MAIN>/dflow-<id8>-resolve`). `spawn_kind` 로 가르지 않는다(팀장을 다시 띄우면
+  「1. 시작」 5번이 `spawn_kind: readopt` 로 다시 적는다. `orig_kind` 는 옛 줄에 없다). 판별의 정본은 워크트리 이름이며
+  해소 결과 처리(「4」)·차단기(「6」)·동시 해소 상한이 모두 쓴다.
 - **동시 해소 상한**은 `max(1, ⌊인원/2⌋)` 이다. 세는 대상은 위 판별(워크트리 접미사 `-resolve`)로 고른 해소 슬롯이며, 답을 기다리는 `blocked` 해소 워커도 센다. 넘치는 것은 해소 큐에 남긴다.
-  이유: `blocked` 해소 워커는 슬롯을 쥔다. 상한이 없으면 충돌이 많은 밤에 모든 슬롯이 사람을 기다리며 선다.
+  (`blocked` 해소 워커가 슬롯을 쥐므로, 상한이 없으면 충돌이 많은 밤에 모든 슬롯이 사람을 기다리며 선다.)
 - **해소는 이 신원의 주문(`mine`)만 한다.** 같은 신원+프로젝트의 팀장은 lease 가 하나로 묶는다.
 - `LEASE_LOST` 마감·잠금 상실 마감·「7. 마감」 에 들어선 뒤에는 해소를 새로 띄우지 않는다(spawn 이기 때문이다). 떠 있는
   해소 워커는 워커와 같이 끝까지 한다.
@@ -68,6 +68,7 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
    else
      echo docs/tasks
    fi
+   .claude/skills/dflow-team/scripts/docker-allow.sh '<id8>'   # DOCKER=allow|ban — 4번 해소 포인터에 옮긴다
    ```
 3. **워크트리**: 남아 있으면 먼저 backends.md 「고아 정리 규칙」 2-1번으로 정리를 시도한다. 그래도 있으면 띄우지 않고
    "해소 워크트리 남아 있음: <경로>" 로 보고한다. `team.conflict` 는 decision `human` 이다.
@@ -75,28 +76,28 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
    W='<MAIN>/.claude/worktrees/dflow-<id8>-resolve'
    [ ! -e "$W" ] || echo "RESOLVE_WT_EXISTS $W"
    ```
-   - **tmux**: backends.md 「pane(tmux)」 의 spawn 블록을 그대로 한 번의 Bash 호출로 돌린다. 워크트리 생성
-     (`git worktree add --detach "$WT" origin/<기본브랜치>`)도 그 블록이 한다. 바꾸는 것은 셋이다: 블록 첫머리의
-     `WT="<MAIN>/.claude/worktrees/dflow-<id8>"` 를 `WT="<MAIN>/.claude/worktrees/dflow-<id8>-resolve"` 로 쓰고,
-     `<포인터 한 줄>` 을 아래 4번의 해소 포인터로 쓰고, 이름표를 `w<slot> · 해소 <TSK> <id8>` 로 붙인다. 그 뒤의
-     `.dflow-pane` 기록·**폴더 신뢰 확인 루프**는 같다.
-   - **Orca**:
-     ```
-     orca worktree create --name dflow-<id8>-resolve --agent claude --no-parent \
-       --base-branch origin/<개발브랜치> --prompt "<포인터 한 줄>" --json
-     ```
-     Orca 는 브랜치 워크트리를 만든다. 해소 워커가 부트스트랩 끝에서 `origin/<개발브랜치>` 로 detach 한다
-     (`resolve-prompt.md` 「2」). create 뒤 같은 포인터를 `.dflow-prompt` 에도 쓴다.
+   - **tmux**: backends.md 「pane(tmux)」 의 스폰 블록(「팀원 워크트리 준비」)을 그대로 한 번의 Bash 호출로 돌린다.
+     워크트리 생성(`git worktree add --detach "$WT" origin/<기본브랜치>`)도 그 블록이 한다. 바꾸는 것은 셋이다:
+     블록의(입장 제어 줄 다음) `WT="<MAIN>/.claude/worktrees/dflow-<id8>"` 를
+     `WT="<MAIN>/.claude/worktrees/dflow-<id8>-resolve"` 로 쓰고, `<포인터 한 줄>` 을 아래 4번의 해소 포인터로 쓰고,
+     이름표를 `w<slot> · 해소 <TSK> <id8>` 로 붙인다. 그 뒤의 `.dflow-pane` 기록·**폴더 신뢰 확인 루프**는 같다.
+   - **Orca**: tmux 와 같은 블록을 같은 `WT`
+     치환(`-resolve` 접미)으로 그대로 돈 뒤(입장 제어 두 줄 포함이므로 따로 부르지 않는다), `chmod +x
+     "$WT/.dflow-run"` 줄 뒤를 backends.md 「pane(Orca)」 대로 `orca terminal create --worktree "path:$WT"
+     --title 'w<slot> · 해소 <TSK> <id8>' --command ./.dflow-run --json` 으로 잇는다. 결과 핸들을 `$WT/.dflow-pane`
+     에 쓰고 **폴더 신뢰 확인 루프**를 돈다(backends.md 「pane(Orca)」와 같다). 준비 블록이 이미 포인터를
+     `$WT/.dflow-prompt` 에 썼으므로 따로 쓰지 않는다.
 4. **포인터 한 줄**:
    ```
-   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/resolve-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> ORDER=<order 전체 UUID> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<TASK_DIR> ATTEMPT=<n> ON_REPORT=<0|1> NO_DOCKER=<NO_DOCKER>
+   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/resolve-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> ORDER=<order 전체 UUID> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<TASK_DIR> ATTEMPT=<n> ON_REPORT=<0|1> DOCKER=<allow|ban>
    ```
-   `NO_DOCKER` 는 SKILL.md 「인자」 의 도커 금지 인원 기준으로 정한 값이다(개발 워커와 같다).
+   `DOCKER` 는 SKILL.md 「인자」 의 「도커 허용 태그」 대로 2번 블록의 `.claude/skills/dflow-team/scripts/docker-allow.sh '<id8>'`
+   가 낸 값이다(개발 워커와 같다. 옛 포인터 값을 옮겨 쓰지 않는다).
    `MODEL` 은 이번 실행의 인자다(해소도 같은 모델). `ON_REPORT` 는 `AUTOMERGE_ON` 이면 `1` 이다.
 5. `team.spawn` 을 기록한다. 필드는 「5. 팀원 spawn」 6번과 같고 `spawn_kind` 는 `resolve` 다. 이 줄의 개수가 해소
    카운터이므로 `new` 로 적으면 상한이 동작하지 않는다. id8 은 진행 중으로 영구 제외에 넣는다.
 6. 표시 note 를 `해소 중 w<slot> <n>/3` 으로 바꾼다(「3」).
-7. 감시 루프(SKILL.md 「2-2」)를 새로 띄울 때 이 슬롯의 `set --` 항목은 `'<워크트리>/<TASK_DIR>/.result|<해시 또는 ->|<pane id 또는 ->'`
+7. 감시 루프(SKILL.md 「2-2」 `tick.sh`)를 새로 띄울 때 이 슬롯의 인자 항목은 `'<워크트리>/<TASK_DIR>/.result|<해시 또는 ->|<pane id 또는 ->'`
    다. 이 리포에서 `TASK_DIR` 은 `docs/tasks/<TSK>` 라 워커 슬롯과 모양이 같다.
 
 ## 3. 표시 heartbeat 대리 호출
@@ -132,7 +133,7 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
 
 | status | 슬롯 | 표시 | 그 밖 |
 |---|---|---|---|
-| `resolved` | 해제 | 먼저 조상을 확인한다(아래). 참이면 해제하고 `team.conflict`(decision `cleared`)를 남긴다. 거짓이면 표시를 두고 "해소 push 확인 불가: <id8>" 로 보고하며 `team.conflict`(decision `human`)를 남긴다 | 조상이 참이면 선행 계열 일시 제외를 풀고(「4. 승인 스윕」 의 일시 제외 해제), 다음 `team.sweep` 의 `resolved` 에 1을 더하고, **곧바로 승인 스윕**을 한다. 보고는 "해소됨: <TSK> <id8> (<사유>)" 다. 주문이 `approved` 였으면 "해소 내용은 승인 범위 밖 — 머지 커밋·resolution.md 확인" 을 붙인다 |
+| `resolved` | 해제 | 먼저 조상을 확인한다(아래). 참이면 해제하고 `team.conflict`(decision `cleared`)를 남긴다. 거짓이면 표시를 두고 "해소 push 확인 불가: <id8>" 로 보고하며 `team.conflict`(decision `human`)를 남긴다 | 조상이 참이면 선행 계열 일시 제외를 풀고(「4. 승인 스윕」 의 일시 제외 해제), 다음 `team.sweep` 의 `resolved` 에 1을 더하고, **곧바로 승인 스윕**을 한다(따로 한 번 더가 아니라 이 기상의 스윕 1회다 — SKILL.md 「4-0. 스윕을 부르는 규칙」. `sweep-check.sh` 가 `SWEEP_NONE` 이면 부르지 않는다. 해소 워커가 이미 머지했으므로 남은 후보가 없을 수 있다). 보고는 "해소됨: <TSK> <id8> (<사유>)" 다. 주문이 `approved` 였으면 "해소 내용은 승인 범위 밖 — 머지 커밋·resolution.md 확인" 을 붙인다 |
 | `skipped` | 해제 | `pred-reflected.sh '<TASKS>' '<TSK>' '<개발브랜치>'` 가 `REFLECTED` 면 해제하고 `team.conflict` `cleared` 를 남긴다. 아니면 note `해소 건너뜀: <사유>` | "해소 대상 아님: <id8> (<사유>)" 로 보고한다 |
 | `blocked` | 유지 | note `해소 결정 대기: <질문>` | SKILL.md 「6. blocked」 통지·답 매칭 그대로다. 통지 문구 앞에 "(해소)" 를 붙인다 |
 | `failed push-race`·`failed rate-limit`·`failed no-result` | 해제 | note `해소 대기(재시도 가능): <status> <n>/3` | 다음 스윕에서 충돌이 다시 나면 「1」 이 재시도를 판정한다 |
@@ -149,7 +150,8 @@ git fetch origin && git merge-base --is-ancestor '<결과 줄 head>' origin/<개
 
 ## 5. 사람 머지 감지
 
-스윕을 도는 기상마다 한다. 충돌 목록 중 해소 슬롯·해소 큐에 없는 id8 마다, 사람이 손으로 머지했는지 본다.
+스윕을 판정하는 기상마다 한다(SKILL.md 「4-0. 스윕을 부르는 규칙」 — `SWEEP_NONE` 이라 `/dflow-merge` 를 부르지 않은 기상도
+한다. 사람이 머지하면 agent 브랜치가 지워져 후보가 없기 때문이다). 충돌 목록 중 해소 슬롯·해소 큐에 없는 id8 마다, 사람이 손으로 머지했는지 본다.
 ```bash
 jq -rs --arg a '<신원>/<host>/lead' --arg r '<MAIN>' '[.[] | select(.agent == $a and .repo == $r and .event == "team.conflict")] | group_by(.id8) | map(last) | .[] | select(.decision != "cleared") | [.id8, .tsk, .order] | @tsv' ~/.dflow/events.jsonl 2>/dev/null
 ```
@@ -160,8 +162,7 @@ jq -rs --arg a '<신원>/<host>/lead' --arg r '<MAIN>' '[.[] | select(.agent == 
 ## 6. 차단기
 
 해소 워커의 **내용 실패** `failed gate`·`failed push-race`·`failed push-hook`·`failed push-other`·`failed not-detached`·`failed dirty-dev-state` 는
-`not-assignee` 처럼 **세지도 끊지도 않는다.** 이유: 의미 충돌 두 건이 연달아 `failed gate` 가 되면 차단기가 새 spawn 을
-모두 멈춘다. 이 설계가 풀려던 정지를 다시 만드는 셈이다. **환경 실패**(`rate-limit`·`no-result`·`deps`·`permission`·
+`not-assignee` 처럼 **세지도 끊지도 않는다**(의미 충돌 두 건으로 차단기가 걸리면 해소가 풀려던 정지가 되돌아온다). **환경 실패**(`rate-limit`·`no-result`·`deps`·`permission`·
 부트스트랩 실패 값)만 워커와 같이 센다. 실패가 아닌 결과(`resolved`·`skipped`·`blocked`)는 워커와 같이 연속 수를
 0으로 되돌린다. 재구성에서 해소 워커인지는 id8 마다 마지막 `team.spawn` 의 워크트리 이름으로 가른다(「0」). `readopt`
 줄이 `spawn_kind` 를 덮어도 워크트리와 `orig_kind` 가 남으므로, 팀장을 다시 띄운 뒤에도 해소 워커의 내용 실패가
@@ -172,5 +173,5 @@ jq -rs --arg a '<신원>/<host>/lead' --arg r '<MAIN>' '[.[] | select(.agent == 
 
 ## 7. 마감
 
-해소 워커도 다른 팀원과 같이 기다린다(「7. 마감」 2번). 마감은 남은 `merge_conflict` 표시를 지우지 않는다. 사람이 보아야
+해소 워커도 다른 팀원과 같이 기다린다(`references/closing.md` 2번). 마감은 남은 `merge_conflict` 표시를 지우지 않는다. 사람이 보아야
 하기 때문이다. 마감 보고에 충돌 목록(「5」 jq)을 함께 적는다.
