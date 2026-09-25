@@ -458,6 +458,10 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
   // 표 칸은 좁아 연도를 뺀 MM-DD HH:mm 로 쓴다(전체 시각은 title).
   const at = (iso: string) => seoulStamp(iso).slice(5)
   const mins = (n: number | null) => n === null ? '—' : t('wbs.agentOrderMinutes').replace('{n}', String(n))
+  // 모델 칸도 좁아 토큰 줄처럼 claude- 접두를 뗀다(전체 이름은 title).
+  const shortModel = (m: string | null | undefined) => m ? m.replace(/^claude-/, '') : '—'
+  // 합계 줄 — 이 주문에서 쓰인 모델을 처음 나온 순서대로. 진행 중이면 지금 모델(tl.model)도 넣는다.
+  const usedModels = [...new Set([...order.reports.map(r => r.model), ...(tl.openMinutes !== null ? [tl.model] : [])].filter((m): m is string => !!m))]
   // 승인 대기 회차 = 주문이 reported 일 때의 마지막 completion. 그 밖의 completion 은 옛 회차다.
   const latestCompletionId = [...order.reports].reverse().find(r => r.kind === 'completion')?.id ?? null
   const pendingCompletionId = order.status === 'reported'
@@ -508,8 +512,9 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
         </p>
       )}
       {/* 보고 하나 = 한 줄인 데이터 표(2026-09-24 사용자 요청). 각 줄의 시작은 직전 보고(첫 줄은 착수), 종료는 그 보고
-          시각이다. 시각은 한국 시간 분 단위로 쓰고 칸 이름에 시간대를 달지 않는다. 모델은 보고마다 남지 않고 마지막
-          heartbeat 값만 있어(0100) 합계 줄에만 보인다. */}
+          시각이다. 시각은 한국 시간 분 단위로 쓰고 칸 이름에 시간대를 달지 않는다. 마지막 칸은 그 단계를 돌린 모델이다
+          (2026-09-25 사용자 요청으로 에이전트 칸을 대체, 보고 시점 heartbeat_model 을 0105 가 보고 행에 남긴다). 에이전트
+          이름은 title 로 본다. 0105 이전 보고는 모델을 모른다('—'). */}
       <table data-agent-order-reports className="mt-1.5 w-full table-fixed border-collapse text-[11px]">
         {/* 칸 너비를 고정한다 — 자동 배치는 nowrap 시각 칸이 폭을 먹어 단계 칸이 45px 로 눌렸다(staging 실측). */}
         <colgroup>
@@ -527,7 +532,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
             <th className="py-1 pr-2 font-medium">{t('wbs.agentOrderEnd')}</th>
             <th className="py-1 pr-2 text-right font-medium">{t('wbs.agentOrderDuration')}</th>
             <th className="py-1 pr-2 text-right font-medium">{t('wbs.agentOrderPct')}</th>
-            <th className="py-1 font-medium">{t('wbs.agentOrderAgent')}</th>
+            <th className="py-1 font-medium">{t('wbs.agentOrderModelCol')}</th>
           </tr>
         </thead>
         <tbody className="tabular-nums text-ink">
@@ -552,7 +557,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
                 <td className="whitespace-nowrap py-1 pr-2" title={seoulStamp(r.created_at)}>{at(r.created_at)}</td>
                 <td className="whitespace-nowrap py-1 pr-2 text-right">{mins(tl.gaps[i])}</td>
                 <td className="whitespace-nowrap py-1 pr-2 text-right">{r.percent}%</td>
-                <td className="max-w-0 py-1"><span className="block truncate font-mono text-[10px] text-ink-muted" title={r.agent}>{r.agent}</span></td>
+                <td className="max-w-0 py-1"><span data-report-model className="block truncate font-mono text-[10px] text-ink-muted" title={`${r.model ?? '—'} · ${r.agent}`}>{shortModel(r.model)}</span></td>
               </tr>
             )
           })}
@@ -563,7 +568,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
               <td className="py-1 pr-2">—</td>
               <td className="whitespace-nowrap py-1 pr-2 text-right">{mins(tl.openMinutes)}</td>
               <td className="py-1 pr-2" />
-              <td className="max-w-0 py-1"><span className="block truncate font-mono text-[10px]" title={order.claimed_by ?? undefined}>{order.claimed_by ?? '—'}</span></td>
+              <td className="max-w-0 py-1"><span data-report-model className="block truncate font-mono text-[10px]" title={`${tl.model ?? '—'} · ${order.claimed_by ?? '—'}`}>{shortModel(tl.model)}</span></td>
             </tr>
           )}
         </tbody>
@@ -575,7 +580,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
             <td className="whitespace-nowrap py-1 pr-2 text-right">{mins(tl.minutes)}</td>
             <td className="whitespace-nowrap py-1 pr-2 text-right">{lastReport ? `${lastReport.percent}%` : '—'}</td>
             <td className="max-w-0 py-1 font-normal text-ink-muted">
-              <span className="block truncate text-[10px]" title={tl.model ?? undefined}>{t('wbs.agentOrderModel')} <span className="font-mono">{tl.model ?? '—'}</span></span>
+              <span data-agent-order-models className="block truncate font-mono text-[10px]" title={usedModels.join('\n') || undefined}>{usedModels.length ? usedModels.map(shortModel).join(' · ') : '—'}</span>
             </td>
           </tr>
           {/* 사용 토큰(0104) — heartbeat 훅이 세션 기록을 셸로 합친 누적값. 캐시 읽기가 대부분이라 한 숫자로 뭉치지 않고

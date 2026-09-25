@@ -825,6 +825,18 @@ export function WbsGanttSheet({
   // 선택된 행(상세 패널). items가 갱신돼도 id로 다시 찾아 최신값 표시 —
   // itemById(전체 펼침 flatten 색인)가 모든 노드를 담고 있어 트리 재귀 탐색이 불필요하다.
   const selectedItem = selectedId ? itemById.get(selectedId) ?? null : null
+  // 상세 패널의 위·아래 버튼 — 지금 표에 보이는 행(접힘·검색·완료 숨김 반영) 순서를 그대로 따른다.
+  // 선택 행이 표에 없으면(접힌 구간 안) 둘 다 끈다. 옮긴 행이 패널 뒤 표에서도 보이게 가까운 쪽으로만 스크롤한다.
+  const selectedNav = useMemo(() => {
+    const i = selectedId ? flatRows.findIndex(n => n.id === selectedId) : -1
+    const prev = i > 0 ? flatRows[i - 1].id : null
+    const next = i >= 0 && i < flatRows.length - 1 ? flatRows[i + 1].id : null
+    const go = (id: string) => () => {
+      setSelectedId(id)
+      rootRef.current?.querySelector<HTMLElement>(`[data-row-id="${id}"]`)?.scrollIntoView({ block: 'nearest' })
+    }
+    return { onPrev: prev ? go(prev) : null, onNext: next ? go(next) : null }
+  }, [flatRows, selectedId])
 
   // 상세 패널의 선행·후속 항목 클릭 — 대상이 접힌 구간이나 완료 숨김 뒤에 있어도
   // 조상 경로를 임시로 펼쳐 표에서 같이 보이게 한 뒤 선택을 옮긴다(focus 딥링크와 같은 계열).
@@ -2109,6 +2121,7 @@ export function WbsGanttSheet({
           canForce={!readOnly && forceManagedIds.includes(selectedItem.id)}
           onSelectItem={selectLinkedItem}
           unresolvedRefs={unresolvedDepends[selectedItem.id] ?? EMPTY_REFS}
+          nav={selectedNav}
         />
       )}
     </div>

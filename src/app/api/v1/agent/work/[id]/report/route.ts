@@ -96,6 +96,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     // 사람의 수기 입력으로만 바뀐다(에이전트가 찍는 임의의 % 대신 정해진 값). 응답 필드는 호환을 위해 둔다.
     const appliedToWbs = false
 
+    // 단계별 실행 모델(0105) — dflow-dev 는 Phase 서브에이전트를 띄우기 직전에 모델을 state.json 에 쓰고 끝난 뒤
+    // progress 를 보고하므로, 지금 주문의 heartbeat_model 이 방금 끝난 단계의 모델이다. 재위임으로 heartbeat 가
+    // 비워졌으면(0097, last_heartbeat_at=null) 옛 값이라 쓰지 않는다.
+    const model = order.last_heartbeat_at ? (order.heartbeat_model ?? null) : null
+
     // 보고 행은 판정·감사의 원천 — 실패를 삼키면 승인 화면이 거짓이 된다(fail-loud 500).
     // completion 은 보고 insert 선행(경합 시 cleanup)이라 재시도 수렴. progress 는 보고 행만 남긴다.
     const { data: report, error: repErr } = await admin
@@ -105,6 +110,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         agent: actor.agentLabel, actor_user_id: loaded.userId, applied_to_wbs: appliedToWbs,
         // 필드가 없으면 키 자체를 넣지 않는다 — 행은 null = 제출 안 됨.
         ...(dec.decisions !== null ? { decisions: dec.decisions } : {}),
+        ...(model !== null ? { model } : {}),
       })
       .select('id')
     if (repErr || !report || (report as unknown[]).length === 0) {

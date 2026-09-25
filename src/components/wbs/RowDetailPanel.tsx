@@ -32,7 +32,7 @@ const EMPTY_REFS: string[] = []
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
   canEditDeliverable = false, projectId, levelLabels = DEFAULT_LEVEL_LABELS, maxDepth = null,
-  members = EMPTY_MEMBERS, onSelectItem, unresolvedRefs = EMPTY_REFS, canForce = false,
+  members = EMPTY_MEMBERS, onSelectItem, unresolvedRefs = EMPTY_REFS, canForce = false, nav,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -59,6 +59,11 @@ export function RowDetailPanel({
   unresolvedRefs?: string[]
   /** 후행의 서브트리 관리자 — 관리자가 아니어도 강제 진행 절 버튼을 본다(스펙 2026-09-23 §3.2). */
   canForce?: boolean
+  /**
+   * 표에서 바로 위·아래 행으로 상세를 옮긴다(2026-09-25 사용자 요청). 미제공이면 버튼을 그리지 않고,
+   * 끝 행이라 갈 곳이 없는 쪽은 null 로 넘겨 버튼을 끈다. 편집 중 값은 item.id 초기화 effect 가 버린다.
+   */
+  nav?: { onPrev: (() => void) | null; onNext: (() => void) | null }
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -330,6 +335,16 @@ export function RowDetailPanel({
             <h2 className="mt-1.5 break-words text-[16px] font-bold leading-snug text-ink">{item.name}</h2>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {nav && (
+              <>
+                <button type="button" data-detail-prev onClick={nav.onPrev ?? undefined} disabled={!nav.onPrev}
+                  aria-label={t('wbs.detailPrev')} title={t('wbs.detailPrev')}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-subtle transition hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-30"><ChevronUp className="h-4 w-4" /></button>
+                <button type="button" data-detail-next onClick={nav.onNext ?? undefined} disabled={!nav.onNext}
+                  aria-label={t('wbs.detailNext')} title={t('wbs.detailNext')}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-subtle transition hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-30"><ChevronDown className="h-4 w-4" /></button>
+              </>
+            )}
             {editable && !editing && (
               <button onClick={() => setEditing(true)} aria-label={t('common.edit')} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-subtle transition hover:bg-surface-2 hover:text-ink"><Pencil className="h-4 w-4" /></button>
             )}
