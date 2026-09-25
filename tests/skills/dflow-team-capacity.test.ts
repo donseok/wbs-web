@@ -247,6 +247,179 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
   })
 })
 
+// 주간 사용량 판정(capacity.sh usage) — 팀원 statusLine 덤프(~/.dflow/limits/<id8>.json, backends.md 「statusLine 덤프」)를 흉내 낸다.
+// 이 PC 의 실제 ~/.dflow/limits 를 읽지 않도록 언제나 DFLOW_CAP_LIMITS_DIR 를 준다.
+describe('capacity.sh usage — 주간 사용량으로 새 작업 spawn 제한', { timeout: 30000 }, () => {
+  const now = () => Math.floor(Date.now() / 1000)
+  function limDir() { const d = join(tmp, 'limits'); mkdirSync(d, { recursive: true }); return d }
+  function dump(id8: string, o: { weekly?: number | null; ageSec?: number; resetIn?: number; rateLimits?: unknown; raw?: string }) {
+    const d = limDir()
+    if (o.raw !== undefined) { writeFileSync(join(d, `${id8}.json`), o.raw); return }
+    const at = now() - (o.ageSec ?? 60)
+    const rl = o.rateLimits !== undefined ? o.rateLimits : {
+      five_hour: { used_percentage: 10, resets_at: now() + 3600 },
+      ...(o.weekly === null ? {} : { seven_day: { used_percentage: o.weekly ?? 50, resets_at: now() + (o.resetIn ?? 86400) } }),
+    }
+    writeFileSync(join(d, `${id8}.json`), JSON.stringify({ at, rate_limits: rl }))
+  }
+  function usage(live: number | null, env: Record<string, string> = {}, extra: string[] = []) {
+    const args = ['usage', ...(live === null ? [] : ['--live', String(live)]), ...extra]
+    return cap(args, { DFLOW_CAP_LIMITS_DIR: limDir(), ...env })
+  }
+
+  it('89% 면 제한 없음 — CAPACITY_USAGE_OK, exit 0', () => {
+    dump('aaaaaaaa', { weekly: 89 })
+    const r = usage(3)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_OK weekly=89 live=3 /)
+  })
+
+  it('90% 에 팀원 2명이면 미룬다 — CAPACITY_USAGE_CAP max=2 … defer=1, exit 1', () => {
+    dump('aaaaaaaa', { weekly: 90 })
+    const r = usage(2)
+    expect(r.code, r.out).toBe(1)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_CAP max=2 weekly=90 live=2 defer=1 /)
+  })
+
+  it('90% 에 팀원 1명이면 허용한다 — 띠는 CAP 이지만 defer=0, exit 0', () => {
+    dump('aaaaaaaa', { weekly: 91.6 })
+    const r = usage(1)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_CAP max=2 weekly=91 live=1 defer=0 /)
+  })
+
+  it('95% 면 팀원 수와 관계없이 미룬다 — CAPACITY_USAGE_STOP, exit 1', () => {
+    for (const live of [0, 1, 4]) {
+      dump('aaaaaaaa', { weekly: 95 })
+      const r = usage(live)
+      expect(r.code, r.out).toBe(1)
+      expect(r.out).toMatch(new RegExp(`^CAPACITY_USAGE_STOP weekly=95 live=${live} defer=1 `))
+    }
+  })
+
+  it('여러 덤프 가운데 가장 최근(at) 것을 쓴다 — 설정 파일·임시 파일은 덤프가 아니다', () => {
+    dump('old00000', { weekly: 97, ageSec: 600 })
+    dump('new00000', { weekly: 80, ageSec: 30 })
+    const d = limDir()
+    writeFileSync(join(d, 'zzzzzzzz.settings.json'), JSON.stringify({ at: now(), rate_limits: { seven_day: { used_percentage: 99, resets_at: now() + 999 } } }))
+    writeFileSync(join(d, 'yyyyyyyy.json.tmp'), JSON.stringify({ at: now(), rate_limits: { seven_day: { used_percentage: 99, resets_at: now() + 999 } } }))
+    const r = usage(3)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_OK weekly=80 live=3 .*src=fresh/)
+  })
+
+  it('덤프가 없으면 제한하지 않는다(fail-open) — CAPACITY_USAGE_UNKNOWN, exit 0', () => {
+    const r = usage(4)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_UNKNOWN 덤프 없음 — 막지 않는다 \| live=4/)
+    // 폴더 자체가 없어도 같다
+    const n = cap(['usage', '--live', '4'], { DFLOW_CAP_LIMITS_DIR: join(tmp, 'none') })
+    expect(n.code).toBe(0)
+    expect(n.out).toMatch(/^CAPACITY_USAGE_UNKNOWN 덤프 없음/)
+  })
+
+  it('오래된 덤프(30분 넘음)이고 주간 창이 이미 해제됐으면 제한하지 않는다', () => {
+    dump('aaaaaaaa', { weekly: 99, ageSec: 3 * 86400, resetIn: -3600 })
+    const r = usage(4)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_UNKNOWN 덤프 오래됨\(창 해제 지남\) — 막지 않는다 \|/)
+  })
+
+  it('오래된 덤프라도 주간 창이 아직 안 끝났으면 그 값을 하한으로 쓴다(src=old) — 첫 spawn 폭주를 막는다', () => {
+    dump('aaaaaaaa', { weekly: 96, ageSec: 5 * 3600, resetIn: 2 * 86400 })
+    const r = usage(0)
+    expect(r.code, r.out).toBe(1)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_STOP weekly=96 live=0 defer=1 .*src=old/)
+  })
+
+  it('30분 안의 덤프라도 주간 창이 해제된 뒤면 옛 창의 값이므로 제한하지 않는다', () => {
+    dump('aaaaaaaa', { weekly: 99, ageSec: 120, resetIn: -60 })
+    expect(usage(4).out).toMatch(/^CAPACITY_USAGE_UNKNOWN 덤프 오래됨\(창 해제 지남\)/)
+  })
+
+  it('seven_day 가 없으면(API 키 사용자·rate_limits null) 제한하지 않는다', () => {
+    dump('aaaaaaaa', { weekly: null })
+    dump('bbbbbbbb', { rateLimits: null })
+    dump('cccccccc', { rateLimits: { seven_day: { used_percentage: null, resets_at: now() + 99 } } })
+    const r = usage(4)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_UNKNOWN seven_day 없음 — 막지 않는다 \|/)
+  })
+
+  it('깨진 덤프 하나는 건너뛰고 나머지로 판정한다', () => {
+    dump('broken00', { raw: '{not json' })
+    dump('bbbbbbbb', { rateLimits: 'weird' })
+    dump('aaaaaaaa', { weekly: 96 })
+    expect(usage(1).out).toMatch(/^CAPACITY_USAGE_STOP weekly=96 /)
+    rmSync(join(tmp, 'limits', 'aaaaaaaa.json'))
+    const r = usage(1)
+    expect(r.code).toBe(0)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_UNKNOWN seven_day 없음/)
+  })
+
+  it('--live 가 없거나 이상하면 CAP 띠에서 미루지 않는다(fail-open). STOP 은 팀원 수와 무관하다', () => {
+    dump('aaaaaaaa', { weekly: 92 })
+    expect(usage(null).code).toBe(0)
+    expect(usage(null).out).toMatch(/^CAPACITY_USAGE_CAP max=2 weekly=92 live=\? defer=0 /)
+    expect(cap(['usage', '--live', 'x'], { DFLOW_CAP_LIMITS_DIR: limDir() }).out).toMatch(/live=\? defer=0 /)
+    dump('aaaaaaaa', { weekly: 99 })
+    expect(usage(null).code).toBe(1)
+  })
+
+  it('jq 가 없으면 제한하지 않는다(fail-open)', () => {
+    dump('aaaaaaaa', { weekly: 99 })
+    const bin = join(tmp, 'nojq')
+    mkdirSync(bin, { recursive: true })
+    for (const t of ['awk', 'date', 'sed', 'cat', 'head', 'dirname', 'printf', 'uname']) {
+      const w = spawnSync('bash', ['-c', `command -v ${t}`], { encoding: 'utf8' }).stdout.trim()
+      if (w.startsWith('/')) symlinkSync(w, join(bin, t))
+    }
+    const r = spawnSync('/bin/bash', [CAP, 'usage', '--live', '4'], { encoding: 'utf8', env: { ...baseEnv(), PATH: bin, DFLOW_CAP_LIMITS_DIR: limDir() } })
+    expect(r.status, r.stdout + r.stderr).toBe(0)
+    expect(r.stdout).toMatch(/^CAPACITY_USAGE_UNKNOWN jq 없음 — 막지 않는다/)
+  })
+
+  it('기준값은 환경변수로 덮는다(DFLOW_CAP_WEEKLY_CAP_PCT·_STOP_PCT·_MAX)', () => {
+    dump('aaaaaaaa', { weekly: 85 })
+    const env = { DFLOW_CAP_WEEKLY_CAP_PCT: '80', DFLOW_CAP_WEEKLY_STOP_PCT: '90', DFLOW_CAP_WEEKLY_MAX: '3' }
+    expect(usage(2, env).code).toBe(0)
+    const r = usage(3, env)
+    expect(r.code).toBe(1)
+    expect(r.out).toMatch(/^CAPACITY_USAGE_CAP max=3 weekly=85 live=3 defer=1 .*limits=cap>=80%:max3,stop>=90%/)
+    dump('aaaaaaaa', { weekly: 90 })
+    expect(usage(0, env).out).toMatch(/^CAPACITY_USAGE_STOP /)
+    // 이상한 값은 무시하고 기본값을 쓴다
+    dump('aaaaaaaa', { weekly: 91 })
+    expect(usage(2, { DFLOW_CAP_WEEKLY_CAP_PCT: 'x', DFLOW_CAP_WEEKLY_MAX: '0' }).out).toMatch(/^CAPACITY_USAGE_CAP max=2 weekly=91 live=2 defer=1 .*limits=cap>=90%:max2,stop>=95%/)
+  })
+
+  it('--state: 사용량 띠(없음·CAP·STOP)가 바뀔 때만 notify=1 — 팀원 수로 defer 가 오가도 되풀이하지 않는다', () => {
+    const st = join(tmp, 'usage.state')
+    dump('aaaaaaaa', { weekly: 50 })
+    expect(usage(2, {}, ['--state', st]).out).toMatch(/^CAPACITY_USAGE_OK .*notify=0$/)
+    dump('aaaaaaaa', { weekly: 91 })
+    expect(usage(2, {}, ['--state', st]).out).toMatch(/defer=1 .*notify=1$/)
+    expect(usage(1, {}, ['--state', st]).out).toMatch(/defer=0 .*notify=0$/)
+    expect(usage(2, {}, ['--state', st]).out).toMatch(/defer=1 .*notify=0$/)
+    expect(readFileSync(st, 'utf8')).toMatch(/^\d+ CAPACITY_USAGE_CAP /)
+    dump('aaaaaaaa', { weekly: 96 })
+    expect(usage(1, {}, ['--state', st]).out).toMatch(/^CAPACITY_USAGE_STOP .*notify=1$/)
+    expect(usage(1, {}, ['--state', st]).out).toMatch(/notify=0$/)
+    // 창이 해제돼 판정 불가(UNKNOWN)로 가면 풀린 것으로 한 번 알리고, UNKNOWN↔OK 는 알리지 않는다
+    dump('aaaaaaaa', { weekly: 96, ageSec: 7200, resetIn: -60 })
+    expect(usage(1, {}, ['--state', st]).out).toMatch(/^CAPACITY_USAGE_UNKNOWN .*notify=1$/)
+    dump('aaaaaaaa', { weekly: 10, resetIn: 7 * 86400 })
+    expect(usage(1, {}, ['--state', st]).out).toMatch(/^CAPACITY_USAGE_OK .*notify=0$/)
+  })
+
+  it('usage 는 입장 제어 상태 파일을 건드리지 않는다 — 기본 판정 출력도 그대로다', () => {
+    dump('aaaaaaaa', { weekly: 99 })
+    const r = cap([], { ...fakeDarwin({ free: 64, swapUsedM: '8192.00M', load5: 9, level: 1 }), ...fakeHeavy('HEAVY_STATUS slots=2 held=1 waiting=0'), DFLOW_CAP_LIMITS_DIR: limDir() })
+    expect(r.code).toBe(0)
+    expect(r.out).toBe('CAPACITY_OK free=64% swap=50% load=0.9 heavy_wait=0/2 pressure=normal os=darwin limits=free>=30%,load<=2.0,heavy_wait<slots,swap<150%')
+  })
+})
+
 describe('팀장 SKILL.md 의 입장 제어', () => {
   const sec = TEAM.slice(TEAM.indexOf('### 5-3. 입장 제어'), TEAM.indexOf('## 6. blocked'))
   it('「5. 팀원 spawn」 첫 단계가 입장 제어를 가리키고, 5-3 절이 정본이다', () => {
@@ -282,6 +455,24 @@ describe('팀장 SKILL.md 의 입장 제어', () => {
     expect(sec).toContain('SPAWN_DEFERRED_CAPACITY')
     // 압축 뒤에는 「5-3」·backends.md 「입장 제어」 를 spawn 절차를 처음 탈 때 읽는다(2026-09-25 재독 세트 축소). 집행은 spawn 블록이 한다
     expect(TEAM).toContain('`references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
+  })
+
+  // 2026-09-25: 주간 사용량은 새 작업(「5」)만 본다 — 공용 spawn 블록(재개·재투입·해소도 도는 두 줄)에 넣지 않는다
+  it('주간 사용량 판정은 「5」 0항에서 새 작업에만 부르고, 입장 제어와 다른 상태 파일을 쓴다', () => {
+    const five = TEAM.slice(TEAM.indexOf('## 5. 팀원 spawn'), TEAM.indexOf('### 5-1. 재개 spawn'))
+    const zero = five.slice(five.indexOf('0. **입장 제어는'), five.indexOf('1. 그 id8 이 재구성한 슬롯 표에 있으면'))
+    expect(zero).toContain('capacity.sh usage --live')
+    expect(zero).toContain('이번 기상에 띄운 것 포함')
+    expect(zero).toContain('--git-path dflow-team.usage')
+    expect(zero).toContain('notify=1')
+    const B = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/backends.md'), 'utf8')
+    const gateSec = B.slice(B.indexOf('## 입장 제어'), B.indexOf('## pane(tmux)'))
+    expect(gateSec).not.toMatch(/capacity\.sh usage --live/)
+    const resume = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resume.md'), 'utf8')
+    expect(resume).not.toContain('capacity.sh usage')
+    const RA = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/rationale.md'), 'utf8')
+    expect(RA).toContain('### 주간 사용량 (`capacity.sh usage`')
+    expect(RA).toContain('**fail-open**')
   })
 
   it('기준값 설명이 capacity.sh 와 맞는다(load 2.0·heavy 대기·스왑 150% 안전망)', () => {

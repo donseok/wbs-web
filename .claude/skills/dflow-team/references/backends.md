@@ -43,6 +43,7 @@ case "$CAP" in CAPACITY_LOW*) echo SPAWN_DEFERRED_CAPACITY; exit 0 ;; esac
   merge-conflict.md 「2」 의 해소 spawn 도 그 블록을 그대로 돌리므로 여기에 걸린다(tmux·Orca 모두). 블록을 통째로
   돌지 않는 자리 — 재개(`references/resume.md` 0항)와 재투입(restart.md 「재투입」) — 는 이 블록을 먼저 따로 돈다
   (있는 워크트리를 이어 쓰므로 준비 블록 전체를 다시 돌지 않는다).
+- 주간 사용량(`capacity.sh usage`)은 이 블록이 아니라 새 작업 spawn(SKILL.md 「5」 0항)만 이 블록 전에 따로 본다.
 
 ## pane(tmux)
 
