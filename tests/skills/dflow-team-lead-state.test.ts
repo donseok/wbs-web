@@ -189,11 +189,12 @@ describe('lead-state.sh — 재구성 보조 요약', () => {
       ...base,
       result('1', 'aaaa0001', 'resolved', { worktree: WT('aaaa0001', '-resolve') }), cleared('aaaa0001'),
       result('2', 'bbbb0002', 'resolved', { worktree: WT('bbbb0002', '-resolve') }), line({ event: 'team.conflict', id8: 'bbbb0002', decision: 'human', files: '-' }), // 조상 확인 실패
+      cleared('bbbb0002'), // 뒤에 사람 머지 감지로 푼 것은 resolved 가 아니다
       cleared('cccc0003'), // 사람 머지 감지·해소 건너뜀(REFLECTED)
       start(), // 재시작해도 마지막 스윕 뒤를 센다
-      result('1', 'dddd0004', 'resolved', { worktree: WT('dddd0004', '-resolve') }), cleared('dddd0004'),
+      cleared('dddd0004'), result('1', 'dddd0004', 'resolved', { worktree: WT('dddd0004', '-resolve') }), // 기록 순서가 바뀌어도 짝짓는다
     ])
-    expect(get(out, 'CONFLICT_CLEARED')).toEqual(['CONFLICT_CLEARED resolved=2 other=1'])
+    expect(get(out, 'CONFLICT_CLEARED')).toEqual(['CONFLICT_CLEARED resolved=2 other=2'])
     // 스윕이 한 번도 없으면 처음부터 센다
     expect(get(run([start(), result('1', 'eeee0005', 'resolved'), cleared('eeee0005')]), 'CONFLICT_CLEARED')).toEqual(['CONFLICT_CLEARED resolved=1 other=0'])
   })

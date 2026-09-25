@@ -13,7 +13,7 @@
 #                                          건너뛴 깨진 줄(JSON 이 아니거나 객체가 아닌 줄) 수 — 누구의 줄인지 알 수 없어 거르지 않고 센다
 #   BREAKER <n>                            차단기: 끝에서부터 연속한 실패 수(규칙은 SKILL.md 「3」 차단기·merge-conflict.md 「6」)
 #   CONFLICT_CLEARED resolved=<n> other=<n>  이 팀장의 마지막 team.sweep 이후(없으면 처음부터) team.conflict cleared 수.
-#                                          resolved 는 같은 id8 의 team.result resolved 뒤에 온 것(다음 team.sweep 의 resolved),
+#                                          resolved 는 같은 id8 의 team.result resolved 와 이웃한 것(다음 team.sweep 의 resolved),
 #                                          other 는 해소 건너뜀(REFLECTED)·사람 머지 감지로 푼 것
 #   HASH_OMITTED <n>                       상한(SLOT 이 아닌 경로 최근 50개)에 걸려 내지 않은 HASH 수
 #   EXCLUDE_PERM <id8,…|->                  영구 제외(진행 중·failed…·cancelled). failed rate-limit 은 넣지 않는다
@@ -74,11 +74,15 @@ jq -R -c --arg a "$AGENT" --arg r "$REPO" 'select(test("\\S")) | (try fromjson c
      else [$hall[] | select(.id8 as $i | $slots | index($i))] + ([$hall[] | select(.id8 as $i | $slots | index($i) | not)] | .[:$cap]) end) as $hshow
   | (if $hw != "" then 0 else ([$hall[] | select(.id8 as $i | $slots | index($i) | not)] | length) - $cap | if . < 0 then 0 else . end end) as $homit
   | ([range($all | length) as $k | select($all[$k].event == "team.sweep") | $k] | last) as $swi
-  | (reduce (if $swi == null then $all else $all[$swi + 1:] end)[] as $e ({seen: {}, r: 0, o: 0};
-      if $e.event == "team.result" and ($e.status // "") == "resolved" then .seen[$e.id8 // "-"] = true
-      elif $e.event == "team.conflict" and ($e.decision // "") == "cleared" then
-        (if .seen[$e.id8 // "-"] then (.r += 1 | .seen[$e.id8 // "-"] = false) else .o += 1 end)
-      else . end)) as $cc
+  # id8 마다 이웃한 resolved 결과와 cleared 를 짝짓는다(기록 순서는 어느 쪽이 먼저여도 된다). 사이에 human·queued 가 끼면 끊는다
+  | (reduce (if $swi == null then $all else $all[$swi + 1:] end)[] as $e ({p: {}, r: 0, o: 0};
+      ($e.id8 // "-") as $i | (.p[$i] // "") as $pv
+      | if $e.event == "team.result" and ($e.status // "") == "resolved" then
+          (if $pv == "C" then (.r += 1 | .o -= 1 | .p[$i] = "") else .p[$i] = "R" end)
+        elif $e.event == "team.conflict" and ($e.decision // "") == "cleared" then
+          (if $pv == "R" then (.r += 1 | .p[$i] = "") else (.o += 1 | .p[$i] = "C") end)
+        elif $e.event == "team.conflict" then .p[$i] = ""
+        else . end)) as $cc
   | def kind($s): if $s.spawn_kind == "readopt" then "readopt/" + ($s.orig_kind // "-") else ($s.spawn_kind // "new") end;
     def excl($e):
       if $e.event == "team.spawn" or $e.event == "team.blocked" or $e.event == "team.lost" then "perm"
