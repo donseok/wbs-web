@@ -100,7 +100,7 @@ reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규�
 5. `team.spawn` 을 기록한다. 필드는 「5. 팀원 spawn」 6번과 같고 `spawn_kind` 는 `resolve` 다. 이 줄의 개수가 해소
    카운터이므로 `new` 로 적으면 상한이 동작하지 않는다. id8 은 진행 중으로 영구 제외에 넣는다.
 6. 표시 note 를 `해소 중 w<slot> <n>/3` 으로 바꾼다(「3」).
-7. 감시 루프(SKILL.md 「2-2」)를 새로 띄울 때 이 슬롯의 `set --` 항목은 `'<워크트리>/<TASK_DIR>/.result|<해시 또는 ->|<pane id 또는 ->'`
+7. 감시 루프(SKILL.md 「2-2」 `tick.sh`)를 새로 띄울 때 이 슬롯의 인자 항목은 `'<워크트리>/<TASK_DIR>/.result|<해시 또는 ->|<pane id 또는 ->'`
    다. 이 리포에서 `TASK_DIR` 은 `docs/tasks/<TSK>` 라 워커 슬롯과 모양이 같다.
 
 ## 3. 표시 heartbeat 대리 호출

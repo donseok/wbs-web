@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest'
 
 const SKILL = readFileSync('.claude/skills/dflow-team/SKILL.md', 'utf8')
 const HELP = readFileSync('.claude/skills/dflow-team/references/help.md', 'utf8')
+// 감시 루프·기상 블록은 2026-09-25 에 scripts/tick.sh·wake.sh 로 옮겼다
+const TICK = readFileSync('.claude/skills/dflow-team/scripts/tick.sh', 'utf8')
+const WAKE = readFileSync('.claude/skills/dflow-team/scripts/wake.sh', 'utf8')
 const section = (from: string, to: string) => SKILL.slice(SKILL.indexOf(from), SKILL.indexOf(to, SKILL.indexOf(from) + 1))
 
 describe('dflow-team lease', () => {
@@ -25,7 +28,7 @@ describe('dflow-team lease', () => {
     expect(SKILL).toMatch(/dflow\.sh lease keep --pid <LEAD_PID> --lost-file '<[^>]+>'/)
   })
   it('감시 루프: LEASE_LOST 검사가 STOP_REQUESTED 뒤, 결과 검사 앞', () => {
-    const s = section('### 2-2. 감시 루프', '### 2-3.')
+    const s = TICK.slice(TICK.indexOf('while :; do\n  [ "$(cut'))
     const stop = s.indexOf('echo STOP_REQUESTED')
     const lease = s.indexOf('echo "LEASE_LOST')
     const hit = s.indexOf('RESULT_READY$hit')
@@ -35,13 +38,14 @@ describe('dflow-team lease', () => {
   })
   it('기상: watch 에 --holder 를 싣고 keep 의 beat 를 확인한다', () => {
     const s = section('### 2-3. 기상마다 하는 일', '## 3. 결과 처리')
-    expect(s).toMatch(/--holder "\$h"/)
+    expect(WAKE).toMatch(/--holder "\$h"/)
+    expect(WAKE).toMatch(/LEASE_KEEP_DEAD/)
     expect(s).toMatch(/LEASE_KEEP_DEAD/)
     expect(s).toMatch(/\| `LEASE_LOST/)
   })
   it('--holder 는 먼저 값을 구한 뒤 비어 있지 않을 때만 watch 를 부른다(빈 --holder 로 무필터 조회하지 않는다)', () => {
-    const s = section('### 2-3. 기상마다 하는 일', '## 3. 결과 처리')
-    const h = s.indexOf("h=$(.claude/skills/dflow-work/scripts/dflow.sh lease holder) || h=''")
+    const s = WAKE
+    const h = s.indexOf('h=$("$DFLOW" lease holder) || h=\'\'')
     const ifn = s.indexOf('if [ -n "$h" ]; then')
     const holderFlag = s.indexOf('--holder "$h"')
     const elseFailed = s.indexOf('echo "HOLDER_FAILED"')
@@ -50,7 +54,8 @@ describe('dflow-team lease', () => {
     expect(holderFlag).toBeGreaterThan(ifn)
     expect(elseFailed).toBeGreaterThan(holderFlag)
     // watch 호출 자체가 --holder "$(... lease holder)" 처럼 실패를 삼키는 부분 전개로 남아 있지 않다
-    expect(s).not.toMatch(/--holder "\$\(\.claude\/skills\/dflow-work\/scripts\/dflow\.sh lease holder\)"/)
+    expect(s).not.toMatch(/--holder "\$\("\$DFLOW" lease holder\)"/)
+    expect(WAKE).toContain('DFLOW="${DFLOW_SH:-.claude/skills/dflow-work/scripts/dflow.sh}"')
     expect(SKILL).toMatch(/`HOLDER_FAILED`[^\n]*watch 를 아예 부르지 않은 것이다/)
   })
   it('lease 상실 마감은 워커를 건드리지 않고, 6번 블록의 release 가 남의 lease 를 풀지 않는 이유를 적는다', () => {
@@ -83,7 +88,7 @@ describe('dflow-team lease', () => {
   })
   it('기상 표: LEASE_LOST 는 1~5 를 하지 않고 LEASE_KEEP_DEAD 도 무시하며, 목록 머리말은 LEASE_LOST 도 뺀다', () => {
     expect(SKILL).toMatch(/`STALE` 과 `LEASE_LOST` 를 뺀 모든 기상에서는 `LOCK_OK` 뒤에 이어서 이 순서로 한다\./)
-    const row = SKILL.match(/\| `LEASE_LOST <사유>`.*\|/)?.[0] ?? ''
+    const row = section('### 2-3. 기상마다 하는 일', '## 3. 결과 처리').match(/\| `LEASE_LOST <사유>`.*\|/)?.[0] ?? ''
     expect(row).toMatch(/1~5/)
     expect(row).toMatch(/LEASE_KEEP_DEAD/)
     expect(row).toMatch(/무시/)

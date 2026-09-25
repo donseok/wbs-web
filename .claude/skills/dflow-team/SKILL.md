@@ -168,7 +168,8 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
        마지막 `team.start` 이후만 읽으므로, 새로 쓰면 그 앞의 슬롯·제외 목록·답 대기가 사라진다.
     2. 떠 있는 poll 은 옛 `--until` 로 돌고 있으므로 새 `--until` 로 poll 을 다시 띄운다(재기동 조건은 「2-1」). 옛
        poll 이 나중에 exit 8 로 끝나도 「2-3」 표의 poll exit 8 행이 지금 `<UNTIL>` 과 대조해 무시한다.
-    3. 좌석표에 새 `--until '<UNTIL_LABEL>'` 로 watch 를 보낸다(「2-3」 블록).
+    3. 좌석표에 새 `<UNTIL_LABEL>` 로 watch 를 보낸다(「2-3」 의 `wake.sh --until-label`). 감시 루프도 새 `--until`·
+       `--until-label` 로 다시 띄운다(「2-2」, `--new-tick` 없이).
     4. 새 `<UNTIL>` 이 오늘이 아니거나 `none` 이고 macOS 인데 절전 방지가 떠 있지 않으면 「1. 시작」 6번대로 띄운다.
     5. **마감 중에 연장하면 마감을 취소한다.** 「7. 마감」 2번의 기다림 중이면 기다림을 끝내고 평소 기상 절차로
        돌아가 poll 을 다시 띄운다. 3번 이후(집계 보고를 낸 뒤)면 이미 끝난 실행이므로 `/dflow-team` 을 새로
@@ -642,7 +643,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      파일·승인 스윕을 서로 덮어쓴다. 생존(가져와도 되는지)은 PID 가 아니라 `beat`(없으면 잠금 디렉터리 수정
      시각)로 본다. 이유: 세션 프로세스가
      살아 있어도 권한 확인 등에 멈춘 팀장은 기상하지 않아 제 몫을 못 하는데, `beat` 는 그 멈춤까지 드러낸다.
-     살아 있는 팀장은 늦어도 `TICK`(30분)마다 깨어 `beat` 를 갱신하므로, 70분이면 두 `TICK` 을 연속으로 놓친 것이다.
+     살아 있는 팀장은 늦어도 `TICK`(30분)마다 `beat` 를 갱신하므로(변화가 없어 건너뛴 TICK 은 감시 루프가 `wake.sh` 로
+     갱신한다, 「2-2」), 70분이면 두 `TICK` 을 연속으로 놓친 것이다.
    - **팀장 lease**: 로컬 잠금은 같은 리포의 워크트리끼리만 본다. 같은 신원이 **다른 clone·다른 PC** 에서 같은
      프로젝트의 팀장을 띄우는 것은 서버 lease 가 막는다(스펙 wbs-web docs/superpowers/specs/2026-09-23-dflow-lead-lease-design.md).
      로컬 잠금을 잡은 **뒤** 얻는다. 이유: 같은 리포의 두 팀장이 동시에 서버에 가서 같은 holder 로 서로를
@@ -819,7 +821,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    그 다음 **승인 스윕**(「4. 승인 스윕」)을 한 번 돌고 결과(머지됨·대기·반려·건너뜀)를 한 줄씩 보고한다. 이 스윕은 사전 검사 없이 늘 부른다(「4-0」 의 예외).
    스윕을 마친 뒤, 빈 슬롯이 있으면 재개 대상을 띄운다(「5-1. 재개 spawn」). 스윕보다 뒤에 두는 이유: 스윕이
    선행을 main 에 반영하면 재개한 워커가 기점을 다시 잡지 않아도 되기 때문이다.
-6. **감시 시작**: 다음 TICK 예정 시각을 지금+1800초로 정하고 「2-2」 대로 감시 루프를 띄운다. 재기동 조건이
+6. **감시 시작**: 「2-2」 대로 감시 루프를 `--new-tick` 으로 띄운다(다음 TICK 을 지금+1800초로 정한다). 재기동 조건이
    맞으면 poll.sh 도 띄운다(「2-1」). 둘 다 Bash `run_in_background` 로 띄운다. 셸 `&` 는 쓰지 않는다. 종료
    알림이 세션에 오지 않아 루프가 소리 없이 끊기기 때문이다. 그 다음 좌석표에 감시 시작을 알린다. STANDBY 는
    마지막 신호 뒤 70분에 꺼지므로 시작과 매 기상마다 보낸다.
@@ -908,108 +910,76 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 
 ### 2-2. 감시 루프
 
-루프 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)` 로 한다. 파일은 한 줄
-`<세대> <다음 TICK epoch 초>` 이다. 이유: 컨텍스트 압축으로 태스크 id 를 잃어도 루프가 겹쳐 같은 결과를 두 번
-처리하지 않는다.
-
-루프를 새로 띄울 때마다 팀장은 먼저 세대를 올린다.
+감시 루프는 `scripts/tick.sh` 다. 루프를 손으로 쓰지 않고 아래 한 줄을 Bash `run_in_background` 로 띄운다(셸 `&` 금지).
+대괄호는 선택 플래그 표기다.
 ```bash
-GEN_FILE=$(git rev-parse --git-path dflow-team.gen); case "$GEN_FILE" in /*) ;; *) GEN_FILE="$PWD/$GEN_FILE" ;; esac
-old=$(cut -d' ' -f1 "$GEN_FILE" 2>/dev/null); gen=$(( ${old:-0} + 1 ))
-printf '%s %s\n' "$gen" '<다음 TICK epoch 초>' > "$GEN_FILE"; echo "GEN_FILE=$GEN_FILE gen=$gen"
+.claude/skills/dflow-team/scripts/tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] --tm '<진짜 tmux 절대경로 또는 빈 값>' \
+  --owner '<신원>/<host>/lead' --slots <N> --until-label '<UNTIL_LABEL>' \
+  -- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'
 ```
-다음 TICK 예정 시각은 시작과 `TICK` 기상 때만 지금+1800초로 새로 정하고, 그 밖의 교체에서는 세대 파일 둘째
-칸 값을 그대로 쓴다. 이유: 루프를 자주 바꿔도 TICK 이 밀리지 않게 하고, 컨텍스트 압축 뒤에도 그 값을 되찾는다.
+- `--` 뒤에는 진행 중 슬롯(`blocked` 포함)마다 `'<.result 경로>|<그 경로의 마지막 처리 해시 또는 ->|<pane id 또는 ->'` 를
+  작은따옴표로 넣는다. pane id 는 tmux 팀원의 `.dflow-pane` 첫 줄, Orca 팀원은 `-` 다. 진행 중 슬롯이 없으면 `--` 뒤를
+  비운다. 경로에 공백이나 작은따옴표가 든 워크트리는 지원하지 않는다.
+- `--tm` 은 전제 검사가 낸 `TM` 을 **리터럴 절대경로**로 쓴다(Orca 백엔드면 `''`). 루프는 별도 셸이라 변수를 물려받지 않고,
+  PATH 에는 Orca shim 이 있을 수 있다. 세대·종료·lease 상실 파일 경로는 스크립트가 git 에 직접 묻는다.
+- `--new-tick` 은 시작과 `TICK` 기상 때만 붙인다. 다음 TICK 을 지금+1800초로 새로 정한다. 그 밖의 교체에서는 붙이지 않아
+  세대 파일의 값을 그대로 쓴다(루프를 자주 바꿔도 TICK 이 밀리지 않고, 압축 뒤에도 그 값을 되찾는다).
+- `--until` 은 `<UNTIL>` 이 `none` 이 아닐 때 붙인다. `--slots`·`--until-label` 은 좌석표 watch 에 싣는 값이다(아래 건너뛰기).
+- 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)`(한 줄 `<세대> <다음 TICK epoch 초> <건너뛴
+  TICK 수>`)로 한다. 스크립트는 기동할 때 세대를 올리고, 옛 루프는 `STALE` 로 끝난다. 압축으로 태스크 id 를 잃어도 루프가
+  겹쳐 같은 결과를 두 번 처리하지 않는다. 새 루프 없이 끝내기만 할 때(「7. 마감」)는 `tick.sh --retire` 다.
+- 교체 시점: 진행 중 슬롯의 경로·처리 해시·pane id 집합이 바뀔 때와 루프가 끝나 있을 때 새로 띄운다(두 백엔드 공통).
+  컨텍스트 압축 뒤 루프가 떠 있는지 모르면 새로 띄운다.
+- 루프는 기동 즉시 넘겨받은 경로를 한 번 전수 검사한 뒤 20초 간격으로 감시한다. 루프를 바꾸는 사이에 도착한
+  `.result` 를 놓치지 않기 위해서다.
 
-그리고 아래 루프를 `run_in_background` 로 띄운다. `set --` 에는 진행 중 슬롯(`blocked` 포함)마다
-`'<워크트리>/<TASKS>/<TSK>/.result|<그 경로의 마지막 처리 해시 또는 ->|<pane id 또는 ->'` 를 작은따옴표로
-넣는다. pane id 는 tmux 팀원의 `.dflow-pane` 첫 줄이고 Orca 팀원은 `-` 다. 진행 중 슬롯이 없으면 `set --` 를
-비운다. 경로에 공백이나 작은따옴표가 든 워크트리는 지원하지 않는다. `TM` 은 **리터럴 절대경로**로 박는다.
-루프는 `run_in_background` 의 별도 셸이라 전제 검사의 변수를 물려받지 않고, PATH 에는 Orca shim 이 살아 있을
-수 있기 때문이다.
-```bash
-GEN_FILE='<세대 파일 절대경로>'; MY_GEN=<세대>; TICK_AT=<다음 TICK epoch 초>
-STOP_FILE='<팀장 체크아웃>/.git/dflow-team.stop'   # git rev-parse --git-path dflow-team.stop 의 절대경로
-LEASE_FILE='<git rev-parse --path-format=absolute --git-path dflow-team.lease-lost 의 값>'   # 워크트리에선 .git 이 파일이라 이 값을 리터럴로 써야 한다
-TM='<진짜 tmux 절대경로 또는 빈 값>'
-set -- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'
-while :; do
-  [ "$(cut -d' ' -f1 "$GEN_FILE" 2>/dev/null)" = "$MY_GEN" ] || { echo STALE; exit 0; }
-  [ -e "$STOP_FILE" ] && { echo STOP_REQUESTED; exit 0; }
-  [ -e "$LEASE_FILE" ] && { echo "LEASE_LOST $(head -n 1 "$LEASE_FILE")"; exit 0; }
-  hit=''; dead=''
-  for s in "$@"; do
-    f=${s%%|*}; rest=${s#*|}; prev=${rest%%|*}; pane=${rest#*|}
-    if [ -f "$f" ]; then
-      cur=$(head -n 1 "$f"); sum=$(printf '%s\n' "$cur" | cksum | cut -d' ' -f1)
-      [ "$sum" = "$prev" ] || hit="$hit $f"
-    fi
-    if [ "$pane" != - ] && [ -n "$TM" ]; then
-      d=$("$TM" -L dflow list-panes -t "$pane" -F '#{pane_dead}' 2>/dev/null | head -n 1)
-      [ "$d" = 0 ] || dead="$dead $f"
-    fi
-  done
-  [ -n "$hit" ] && { echo "RESULT_READY$hit"; exit 0; }
-  [ -n "$dead" ] && { echo "PANE_DEAD$dead"; exit 0; }
-  [ "$(date +%s)" -ge "$TICK_AT" ] && { echo TICK; exit 0; }
-  sleep 20
-done
-```
-- **줄 전체를 비교한다.** status 만 비교하면 답을 받은 팀원이 다시 `blocked` 가 됐을 때 status 가 같아 깨어나지
-  않는다. 줄에 따옴표가 든 질문이 올 수 있어 줄 대신 그 해시를 넘긴다.
-- `PANE_DEAD` 는 tmux 팀원의 pane 이 새 결과 줄 없이 죽었을 때 난다. 결과 줄이 새로 있으면 `RESULT_READY` 가
-  먼저다. `list-panes` 는 없는 pane 에서 stderr 로 죽으므로 `2>/dev/null` 로 삼키고, 빈 출력을 `0` 이 아닌
-  값으로 보아 죽음으로 친다. pane 이 사라진 것도 팀원이 끝난 것이기 때문이다.
-- 루프는 기동 즉시 넘겨받은 전체 경로를 한 번 전수 검사한 뒤 20초 간격으로 감시한다. 루프를 바꾸는 사이에
-  도착한 `.result` 를 놓치지 않기 위해서다.
-- 종료 파일이 생기면 `STOP_REQUESTED` 를 출력하고 끝난다(「인자」 종료 요청). 결과보다 먼저 보는 이유: 사람이
-  멈추라고 한 뒤에 새로 도착한 결과로 spawn 을 이어 가지 않게 한다. 결과 줄은 마감에서 그대로 처리된다.
-- lease 상실 표식(`dflow-team.lease-lost`)이 생기면 `LEASE_LOST <사유>` 를 출력하고 끝난다. 종료 요청 다음, 결과보다
-  먼저 본다. 이유: 밀려난 팀장이 새로 도착한 결과로 spawn·스윕을 이어 가지 않게 한다.
-- 두 백엔드 모두 `TICK_AT` 이 지나면 `TICK` 을 출력하고 끝난다. 한가한 구간에도 30분마다 승인 스윕 판정(「4-0」)과
-  무응답 점검을 하기 위해서다.
-- 교체 시점: 진행 중 슬롯의 경로·처리 해시·pane id 집합이 바뀔 때와 루프가 끝나 있을 때 새로 띄운다(두
-  백엔드 공통). 컨텍스트 압축 뒤 루프가 떠 있는지 모르면 새로 띄운다. 옛 루프는 `STALE` 로 끝난다.
+출력의 **마지막 줄**이 기상 사유다. 위에서부터 먼저 걸린 하나다.
+
+| 마지막 줄 | 뜻 |
+|---|---|
+| `STALE` | 세대가 바뀌었다(새 루프가 떴거나 `--retire`) |
+| `STOP_REQUESTED` | 종료 파일이 생겼다(「인자」 종료 요청). 결과보다 먼저 본다: 멈추라고 한 뒤 새 결과로 spawn 을 이어 가지 않는다. 결과 줄은 마감에서 그대로 처리된다 |
+| `LEASE_LOST <사유>` | lease 상실 표식(`dflow-team.lease-lost`)이 생겼다. 종료 요청 다음, 결과보다 먼저 본다: 밀려난 팀장이 새 결과로 spawn·스윕을 이어 가지 않는다 |
+| `RESULT_READY <경로…>` | 결과 줄의 해시가 넘겨받은 해시와 다르다. **줄 전체를 비교한다.** status 만 보면 답을 받은 팀원이 다시 `blocked` 가 됐을 때 깨지 않는다. 줄에 따옴표가 든 질문이 올 수 있어 해시를 넘긴다 |
+| `PANE_DEAD <경로…>` | tmux 팀원의 pane 이 새 결과 줄 없이 죽었거나 사라졌다(빈 출력도 죽음이다). 결과 줄이 새로 있으면 `RESULT_READY` 가 먼저다 |
+| `TICK` | 다음 TICK 시각이 지났다. 한가한 구간에도 승인 스윕 판정(「4-0」)과 무응답 점검을 한다 |
+
+**변화 없는 TICK 건너뛰기**(`--may-skip`): 붙이면 TICK 시각에 아래가 모두 참일 때 TICK 을 내지 않고 **한 번만** 건너뛴다.
+`TICK_SKIPPED at=<epoch> next=<epoch>` 줄을 남기고 루프를 계속하며, 건너뛴 다음 TICK 은 반드시 낸다(건너뛴 수는 세대 파일에
+남아 루프를 바꿔도 이어지고 `--new-tick` 이 0 으로 되돌린다). 그래서 팀장 기상 간격은 최대 60분이다.
+- 진행 중 슬롯(결과 줄이 `blocked` 인 것은 뺀다)마다 생존 증거(「3」 의 셋과 heartbeat)가 루프를 띄운 때와 달라졌고 서버
+  status 는 그대로다. 한 슬롯이라도 증거가 그대로면(팀원 무응답 30분) 깨운다. 재지 못해도 깨운다.
+- 승인 후보(`sweep-check.sh`)와 그 서버 status 가 그대로다. 사람의 승인·반려는 건너뛰지 않고 깨운다. 판정 불가면 깨운다.
+- 종료 시각이 지나지 않았다(poll 이 떠 있지 않을 때의 종료 시각 확인). 형식을 읽지 못하면 깨운다.
+- `scripts/wake.sh`(「2-3」)가 `LOCK_OK` 를 내고 재개 요청 조회가 성공했으며 이 리포의 요청이 없다. `LOCK_LOST`·
+  `WATCH_FAILED`·`HOLDER_FAILED`·`LEASE_KEEP_DEAD` 면 깨운다. 건너뛸 때도 이 호출이 잠금 `beat` 와 좌석표 STANDBY 를
+  갱신한다. 대가로, 루프를 띄운 뒤 멈춘 팀장은 한 TICK(30분) 늦게 드러난다.
+
+건너뛸 때는 진행 슬롯마다 `EVIDENCE <id8> ct=<…> report=<…> heartbeat=<…> phase=<…> dirty=<…> status=<…>` 줄도 남긴다.
+다음 TICK 에서 이 값이 그 슬롯의 "직전 TICK" 증거다(「3」 생존 증거).
+
+`--may-skip` 은 TICK 이 시각으로 할 일이 없을 때만 붙인다. 아래 중 하나라도 있으면 붙이지 않는다.
+- 차단기가 걸렸다(TICK 마다 시험 spawn 1건).
+- 재시작 대기·rate-limit 대기(`references/restart.md` 「이벤트로 본 상태」 의 `RESTART_DUE`·`RL_WAIT`·`RL_DUE`)가 있다.
+- 빈 슬롯이 있는데 띄우지 못한 후보(대기 큐·재개 대상·해소 큐. 입장 제어로 미룬 것 포함)가 남았다.
+- 「7. 마감」 에 들어섰다(마감의 기다림은 `TICK` 두 번이다).
 
 ### 2-3. 기상마다 하는 일
 
-모든 기상은 먼저 잠금 소유를 확인하고, 소유가 맞을 때만 `beat` 를 갱신하고 좌석표에도 같은 신호를 보낸다.
-`STALE` 은 그것만 하고 넘긴다. 이유: 살아 있는 팀장의 잠금이 70분 뒤 죽은 것으로 보이지 않게 하되, 잠금을 잃은
-팀장이 새 팀장의 잠금을 계속 살아 있게 만들지 않는다(「1. 시작」 팀장 잠금).
-기상에서 이벤트를 기록할 때는 아래 블록의 마지막 명령이 띄운 `references/events.md` 의 명령 블록을 그대로 쓴다.
+모든 기상은 먼저 아래 한 줄(`scripts/wake.sh`, 기상 블록)을 돈다. 스크립트는 잠금 소유를 확인하고, 소유가 맞을 때만
+`beat` 를 갱신하고 좌석표에도 같은 신호(watch)를 보낸 뒤, lease 갱신 상태를 보고, 마지막으로 `references/events.md` 의
+「기록 명령」 절을 띄운다. `STALE` 은 그것만 하고 넘긴다. 이유: 살아 있는 팀장의 잠금이 70분 뒤 죽은 것으로 보이지 않게 하되,
+잠금을 잃은 팀장이 새 팀장의 잠금을 계속 살아 있게 만들지 않는다(「1. 시작」 팀장 잠금).
+기상에서 이벤트를 기록할 때는 이 출력이 띄운 `references/events.md` 의 명령 블록을 그대로 쓴다.
 기억으로 재구성한 명령은 쓰지 않는다. 이유: 컨텍스트 압축 뒤 기억으로 재구성한 명령은 인자가 비거나 추가
 필드를 빠뜨려 null 필드를 남긴다. events.md 의 가드가 그런 줄을 `EVENT_ARGS_MISSING` 으로 거부하므로, 그 출력이
 보이면 명령 블록을 다시 띄워 다시 기록한다.
 ```bash
-LEAD_PID=${CLAUDE_PID:-$PPID}
-LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
-{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
-if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
-  date +%s > "$LOCK/beat" && { echo LOCK_OK
-    h=$(.claude/skills/dflow-work/scripts/dflow.sh lease holder) || h=''
-    if [ -n "$h" ]; then
-      wr=$(.claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
-        --slots <N> --busy <M> --until '<UNTIL_LABEL>' --json \
-        --holder "$h") \
-        && ps=$(.claude/skills/dflow-work/scripts/dflow.sh config projects) \
-        && printf '%s' "$wr" | jq -c --arg ps "$ps" '($ps | split("\n")) as $ok
-             | {n: (.resume_requests | if . == null then "NULL" else length end),
-             err: (.resume_requests_error // "-"),
-             reqs: [(.resume_requests // [])[] | select(.project_id as $p | $ok | index($p)) | {id8, code, host, requested_at}],
-             other_project: [(.resume_requests // [])[] | select(.project_id as $p | ($ok | index($p)) | not) | .id8]}' \
-        || echo "WATCH_FAILED"
-    else
-      echo "HOLDER_FAILED"
-    fi
-  } || echo "LOCK_LOST beat 쓰기 실패"
-else
-  echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$LEAD_PID"
-fi
-LB=$(git rev-parse --git-path dflow-team.lease).beat
-lb=$(cat "$LB" 2>/dev/null); lb=${lb:-0}
-[ $(( $(date +%s) - lb )) -lt 180 ] || echo "LEASE_KEEP_DEAD 마지막 갱신 ${lb}"
-sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md   # 이벤트 기록 명령의 정본. 이 출력의 블록으로만 기록한다
+.claude/skills/dflow-team/scripts/wake.sh --owner '<신원>/<host>/lead' --slots <N> --busy <M> --until-label '<UNTIL_LABEL>'
 ```
+출력 줄(글자 그대로): `LOCK_OK` 다음 줄에 재개 요청 요약 `{"n":…,"err":…,"reqs":[…],"other_project":[…]}`(또는
+`WATCH_FAILED`·`HOLDER_FAILED`), 소유가 아니면 `LOCK_LOST …`, lease 갱신이 멈췄으면 `LEASE_KEEP_DEAD …`, 그 뒤에 기록 명령 절이다.
+팀장 세션 PID 는 `CLAUDE_PID` 로 본다(스크립트 안의 `$PPID` 는 팀장이 아니다).
 **`resume_requests` 는 좌석표의 「이어서 시작」 요청이다.** 사람이 화면에서 멈춘 좌석의 그 버튼을 누르면
 서버가 주문에 표식을 남기고, 이 응답이 그것을 실어 온다. 항목은
 `{order_id, id8, project_id, wbs_item_id, code, name, host, claimed_by, requested_at}` 이며 최대 50건, 오래된
@@ -1040,7 +1010,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 기상에 함께 뜰 수 있다. **우선순위는 `LEASE_LOST` 다**: 곧장 「7. 마감」 의 lease 상실 마감으로 가고, 같은
 기상에 함께 뜬 `LEASE_KEEP_DEAD` 는 무시한다.
 그 밖의 기상(감시 루프의 `LEASE_LOST` 없이 이 블록만 `LEASE_KEEP_DEAD` 를 낸 경우)에서는 `dflow.sh lease renew`
-를 한 번 부른다. `LEASE_OK` 면, lease 상실 표식 파일(`dflow-team.lease-lost`, 「2-2」 의 `LEASE_FILE`)이 남아
+를 한 번 부른다. `LEASE_OK` 면, lease 상실 표식 파일(`dflow-team.lease-lost`, 「2-2」)이 남아
 있으면 먼저 지운 뒤 「1. 시작」 6번의 lease 갱신 블록과 감시 루프를 다시 띄운다. 표식을 지우지 않고 다시 띄우면
 그 감시 루프가 첫 검사에서 옛 표식을 보고 재기동 직후 곧바로 다시 `LEASE_LOST` 로 깨운다. `LEASE_LOST`
 (exit 4)나 `LEASE_NONE` 이면 「7. 마감」 의 lease 상실 마감으로 간다. 그 밖의 실패는 사유를 보고하고 다음 기상에 다시
@@ -1068,7 +1038,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
    않은 `--resume` 지목분이다. 재시작 대기 목록(`references/restart.md` 「이벤트로 본 상태」 의 `RESTART_DUE`)도 재개 대상이며
    재투입 전 확인(`REINJECT_OK`)을 통과할 때만 띄운다. 재시작 대기는
    새 작업보다 먼저다. rate-limit 보류 중에는 재개·새 작업 모두 띄우지 않는다(`RL_DUE` 슬롯 자신의 재투입만 예외).
-5. 끝나 있는 감시 루프를 다시 띄우고, 재기동 조건(「2-1」)을 만족하면 poll.sh 를 다시 띄운다. 컨텍스트 압축 뒤
+5. 끝나 있는 감시 루프를 다시 띄우고(`--may-skip` 은 「2-2」 의 조건일 때만), 재기동 조건(「2-1」)을 만족하면 poll.sh 를 다시 띄운다. 컨텍스트 압축 뒤
    poll 이 떠 있는지 모르면 재기동 조건에 따라 새로 띄운다. poll 이 겹쳐 떠도 poll exit 0 처리의 대조와 spawn 전
    확인(「5. 팀원 spawn」 1번)이 같은 작업을 두 번 띄우지 않게 막는다.
 
@@ -1082,7 +1052,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 | `PANE_DEAD <경로…>` (tmux) | 경로마다 「3. 결과 처리」. `.result` 가 있으면 그 줄, 없으면 죽은 pane 화면 폴백, 그것도 없으면 `references/restart.md` 「판정」(`pane_dead_status` 127 이면 `failed no-result`) |
 | 팀원의 cross-session 메시지(이슈 보고) | 「2-4. 팀원 이슈 보고 처리」 로 간다. 도착한 이 기상 안에서 곧바로 처리한다 — 사람에게 보고만 하고 턴을 끝내지 않는다 |
 | 사람의 답 | 「6. blocked」 의 답 매칭 |
-| `TICK` | 다음 TICK 예정 시각을 지금+1800초로 새로 정한다. 진행 중 슬롯의 생존을 확인하고 무응답 슬롯의 생존 증거를 잰다(「3. 결과 처리」). 결과 줄 없는 정체 슬롯과 재시작 대기 목록은 `references/restart.md` 「판정」·「rate-limit 대기」 를 탄다. 차단기가 걸려 있으면 시험 spawn 1건을 허용한다 |
+| `TICK` | 감시 루프를 `--new-tick` 으로 다시 띄워 다음 TICK 을 지금+1800초로 새로 정한다. 출력에 `TICK_SKIPPED` 가 있었으면 한 번 건너뛴 뒤의 TICK 이며 그 `EVIDENCE` 줄이 직전 TICK 증거다(「3」). 진행 중 슬롯의 생존을 확인하고 무응답 슬롯의 생존 증거를 잰다(「3. 결과 처리」). 결과 줄 없는 정체 슬롯과 재시작 대기 목록은 `references/restart.md` 「판정」·「rate-limit 대기」 를 탄다. 차단기가 걸려 있으면 시험 spawn 1건을 허용한다 |
 | `LEASE_LOST <사유>` | 다른 곳이 이 신원+프로젝트의 팀장 lease 를 가져갔거나(`LEASE_LOST <project_id…>`), 서버에 3분 넘게 닿지 못했다(`LEASE_UNREACHABLE`). 위 1~5(재구성·승인 스윕·spawn·poll·감시 루프 재기동)를 하지 않고, 같은 `LOCK_OK` 블록이 함께 낸 `LEASE_KEEP_DEAD` 도 무시한 채 곧장 「7. 마감」 의 lease 상실 마감으로 간다 |
 | `STALE` | 잠금 소유 확인과 `beat` 갱신만 하고 나머지는 넘긴다 |
 
@@ -1227,7 +1197,9 @@ dmes-standard TSK-01-01 사고가 그 패턴이었다(팀원이 이슈를 보고
 
 **생존 증거**: tmux 팀원은 먼저 「팀장 상태」 정본 표의 생존 칸(`.dflow-pane` 의 pane 이 `#{pane_dead}=0` 인지)
 을 본다. `dead` 면 증거를 재지 않고 `PANE_DEAD` 와 같이 처리한다. 살아 있는 팀원은 아래 중 하나라도 직전
-`TICK` 과 달라지면 살아 있는 것이다. 슬롯의 첫 `TICK` 은 기록만 한다.
+`TICK` 과 달라지면 살아 있는 것이다. 슬롯의 첫 `TICK` 은 기록만 한다. 직전 TICK 증거는 그 슬롯의 마지막 TICK 기상 때
+잰 값이고, 감시 루프가 그 뒤 TICK 을 건너뛰었으면(「2-2」) 그 출력의 `EVIDENCE <id8>` 줄이다(`ct`=1번, `report`=2번,
+`heartbeat`·`phase`=무응답의 heartbeat 값, `dirty`=3번 cksum 의 첫 칸).
 ```bash
 git -C <워크트리> log -1 --format=%ct                                        # 1. 워크트리가 있으면 HEAD 커밋 시각
 git fetch origin && git log -1 --format=%ct 'origin/agent/<id8>-<slug>'   # 1. 워크트리가 없으면 원격 tip 커밋 시각
@@ -1449,7 +1421,8 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
 흩어져 한 기상에 겹쳤고, 부를 때마다 `/dflow-merge` 본문(약 61KB)이 팀장 문맥에 다시 들어갔다.
 
 1. **한 기상에 최대 1회.** 결과가 여럿 도착했거나 `done`·`needs-merge`·`resolved` 행이 "곧바로 스윕" 을 말해도, 그
-   기상의 판정과 스윕은 「2-3」 3번 자리에서 한 번이다. 그 행들의 "곧바로" 는 "같은 기상의 spawn(「2-3」 4번)보다
+   기상의 판정과 스윕은 「2-3」 3번 자리에서 한 번이다. 감시 루프가 건너뛴 TICK(「2-2」)은 기상이 아니므로 판정하지 않는다
+   (승인·반려가 생기면 루프가 건너뛰지 않고 깨운다). 그 행들의 "곧바로" 는 "같은 기상의 spawn(「2-3」 4번)보다
    먼저" 라는 뜻이다. 판정하는 기상은 「2-3」 3번에 적은 것(시작·결과 도착·`TICK`·poll 재기동 직전·마감)뿐이다. 사람의
    답·이슈 보고·`STALE`·`LEASE_LOST` 기상에서는 판정하지 않는다.
 2. **먼저 사전 검사**: `/dflow-merge` 를 부르기 전에 아래를 돈다. 후보 정의는 `/dflow-merge` 「절차」 1번 그대로다(서버
@@ -1781,7 +1754,7 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
 않고 아래 「잠금 상실 마감」·「lease 상실 마감」 으로 간다.
 1. 새 spawn 을 멈춘다. 대기 큐는 보고만 하고 비운다.
 2. **기다림의 상한**: `blocked` 슬롯과 무응답 슬롯은 기다리지 않는다. 진행 중 슬롯은 마감에 들어선 뒤
-   `TICK` 두 번까지만 결과를 기다린다. 이 동안 poll 은 재기동하지 않고 감시 루프만 재기동해 결과와 `TICK` 을
+   `TICK` 두 번까지만 결과를 기다린다. 이 동안 poll 은 재기동하지 않고 감시 루프만 `--may-skip` 없이 재기동해 결과와 `TICK` 을
    계속 받는다(「2-3」 의 일은 spawn·poll 만 빼고 그대로 한다). 그 뒤에도 남은 슬롯은 TSK·id8·워크트리 경로·
    마지막 생존 증거를 목록으로 보고한다. 이유: 사람이 자리를 비운 시간대에 답이 오지 않는 슬롯 하나가 팀장을
    무한정 붙잡지 않게 한다. 팀원은 팀장이 끝나도 자기 pane 이나 탭에서 계속 돈다.
@@ -1814,7 +1787,7 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
 5. **agent 브랜치는 남긴다.** 승인은 사람이 D'Flow 웹에서 하고, 승인 뒤 머지는 다음 `/dflow-team` 의 스윕이나
    `/dflow-merge` 가 한다.
 6. poll 이 떠 있으면 TaskStop 으로 멈추고(태스크 id 를 모르면 종료 시각에 스스로 끝난다), 세대 파일의 세대를
-   올려 감시 루프를 끝낸다. `team.stop` 을 기록하고, 좌석표에 감시 종료를 알린 뒤 팀장 잠금 디렉터리를 지운다.
+   올려 감시 루프를 끝낸다(`.claude/skills/dflow-team/scripts/tick.sh --retire`). `team.stop` 을 기록하고, 좌석표에 감시 종료를 알린 뒤 팀장 잠금 디렉터리를 지운다.
    지우기 전에 「1. 시작」 의 소유 판정(`owner` 의 신원이 자기 `<신원>/<host>/lead` 이고 PID 가 현재
    `$LEAD_PID` 와 같다)을 한 번 더 하고, 참일 때만 지운다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓쳐 다른 팀장이 잠금을 가져갔다면
    그 잠금은 신원·host·리포가 같아도 PID 가 다르며, 지우면 안 된다. events.jsonl 의 `team.start` 시각과 비교하지
@@ -1862,7 +1835,7 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
 손을 뗀다.
 1. "팀장 lease 상실: <사유>. 이 프로젝트는 다른 곳의 팀장이 맡았다" 를 보고한다.
 2. 새 claim·새 spawn·승인 스윕·머지를 하지 않는다. 대기 큐는 보고만 하고 비운다.
-3. 떠 있는 poll 을 TaskStop 으로 멈추고, 세대 파일의 세대를 올려 감시 루프를 끝낸다. lease 갱신 프로세스는 이미
+3. 떠 있는 poll 을 TaskStop 으로 멈추고, 세대 파일의 세대를 올려 감시 루프를 끝낸다(`tick.sh --retire`). lease 갱신 프로세스는 이미
    끝나 있다(표식을 쓰고 끝난다).
 4. **떠 있는 워커는 건드리지 않는다.** 워커는 하던 작업을 끝까지 하고 agent 브랜치 push 와 done 보고를 한다. 그
    결과는 새 팀장의 승인 스윕이 서버에서 이어받는다. 팀원 pane·탭을 닫지 않고 `kill-server` 도 하지 않는다.
@@ -1879,9 +1852,10 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
 - 팀원의 좌석 식별은 워커가 쓰는 워크트리 루트 `.dflow-agent`(`<신원>/<host>/w<slot>`)다. 좌석표 S1 의 훅이 이
   파일을 `heartbeat_agent` 로 읽는다. `<신원>/<host>/parked` 는 좌석이 아니며 heartbeat 를 보내지 않는다.
 - 팀장 자신은 `<신원>/<host>/lead` 다. 같은 신원의 두 PC 팀장이 좌석표에서 하나로 합쳐지지 않게 한다.
-- 좌석표 STANDBY 신호: 팀장은 「1. 시작」 6번과 매 기상(「2-3」)에서 잠금 `owner` 의 신원으로
+- 좌석표 STANDBY 신호: 팀장은 「1. 시작」 6번과 매 기상(「2-3」 의 `wake.sh`)에서 잠금 `owner` 의 신원으로
   `dflow.sh watch --agent <신원>/<host>/lead --slots <N> --busy <M> --until '<UNTIL_LABEL>'` 을 1회 보내고, 「7. 마감」에서
-  `--stop` 을 1회 보낸다. 좌석표는 마지막 신호 뒤 70분에 STANDBY 를 끈다.
+  `--stop` 을 1회 보낸다. 감시 루프가 TICK 을 건너뛸 때도 `wake.sh` 로 1회 보낸다(「2-2」). 좌석표는 마지막 신호 뒤 70분에
+  STANDBY 를 끈다.
 - poll.sh 는 `DFLOW_WATCH=0` 으로 띄우므로 watch 를 보내지 않는다.
 - **이 호출은 표시용만이 아니다.** 응답의 `resume_requests` 가 좌석표의 「이어서 시작」 요청을 실어 오므로
   `--json` 으로 부르고 본문을 읽는다(「2-3」). 실패해도 팀장을 멈추지 않지만, 실패를 "요청 없음" 으로 읽지

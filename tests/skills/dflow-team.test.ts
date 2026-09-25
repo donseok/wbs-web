@@ -6,6 +6,9 @@ import { join } from 'node:path'
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
 const SKILL_DIR = join(ROOT, '.claude', 'skills', 'dflow-team')
 const read = (rel: string) => readFileSync(join(SKILL_DIR, rel), 'utf8')
+// 감시 루프(「2-2」)와 기상 블록(「2-3」)은 2026-09-25 에 scripts/tick.sh·wake.sh 로 옮겼다(팀장이 루프를 매번 다시 쓰지 않게)
+const tick = () => read('scripts/tick.sh')
+const wake = () => read('scripts/wake.sh')
 
 // {ANSWER} 는 tmux 전환(스펙 2026-09-16 §9, 236a3a25)으로 없어졌고 {DEV_BRANCH} 가 .dflow 전환(cdccee70)으로 들어왔다
 const PLACEHOLDERS = ['{TSK}', '{ID8}', '{AGENT_ID}', '{MAIN_CHECKOUT}', '{BACKEND}', '{MODEL_FLAG}', '{DEV_BRANCH}']
@@ -245,8 +248,11 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('**깨어날 때마다**')
     // 매 기상: 소유(신원 + 세션 PID)를 확인한 뒤에만 beat 를 쓰고, 아니면 잠금 상실
     expect(s()).toContain('{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true')
-    expect(s()).toContain('if [ "$o_who" = \'<신원>/<host>/lead\' ] && [ "$o_pid" = "$LEAD_PID" ]; then\n  date +%s > "$LOCK/beat"')
+    expect(wake()).toContain('{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true')
+    expect(wake()).toContain('if [ "$o_who" = "$OWNER" ] && [ -n "$LEAD_PID" ] && [ "$o_pid" = "$LEAD_PID" ]; then\n  date +%s > "$LOCK/beat"')
+    expect(s()).toContain(".claude/skills/dflow-team/scripts/wake.sh --owner '<신원>/<host>/lead'")
     expect(s()).toContain('LOCK_LOST')
+    expect(wake()).toContain('LOCK_LOST')
     expect(s()).not.toContain('date +%s > "$(git rev-parse --git-path dflow-team.lock)/beat"')
     expect(s()).toContain('case "$a" in "<신원>/<host>/"*) ;; *) continue ;; esac')
     expect(s()).toContain('`<신원>/<host>/parked`')
@@ -290,18 +296,21 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   })
 
   it('감시 루프: 세대 파일로 교체하고 줄 전체(해시)를 비교하며 TICK 은 예정 시각으로 낸다', () => {
-    expect(s()).toContain('git rev-parse --git-path dflow-team.gen')
-    expect(s()).toContain('echo STALE')
-    expect(s()).toContain('RESULT_READY')
-    expect(s()).toContain('echo TICK')
-    expect(s()).toContain('[ "$(date +%s)" -ge "$TICK_AT" ]')
-    expect(s()).toContain("sum=$(printf '%s\\n' \"$cur\" | cksum | cut -d' ' -f1)")
+    expect(s()).toContain('$(git rev-parse --git-path dflow-team.gen)')
+    expect(tick()).toContain('git rev-parse --path-format=absolute --git-path dflow-team.gen')
+    expect(tick()).toContain('echo STALE')
+    expect(tick()).toContain('RESULT_READY')
+    expect(tick()).toContain('echo TICK')
+    expect(tick()).toContain('[ "$(date +%s)" -ge "$TICK_AT" ]')
+    expect(tick()).toContain("sum=$(printf '%s\\n' \"$cur\" | cksum | cut -d' ' -f1)")
     expect(s()).toContain('**줄 전체를 비교한다.**')
     expect(s()).toContain('run_in_background')
     // tmux 팀원은 pane_dead 로 죽음을 감지한다(146ea66d, 종전 PID). 결과 줄이 새로 있으면 RESULT_READY 가 먼저다
-    expect(s()).toContain('[ "$d" = 0 ] || dead="$dead $f"')
-    expect(s()).toContain('[ -n "$hit" ] && { echo "RESULT_READY$hit"; exit 0; }\n  [ -n "$dead" ] && { echo "PANE_DEAD$dead"; exit 0; }')
-    expect(s()).toContain("set -- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'")
+    expect(tick()).toContain('[ "$d" = 0 ] || dead="$dead $f"')
+    expect(tick()).toContain('[ -n "$hit" ] && { echo "RESULT_READY$hit"; exit 0; }\n  [ -n "$dead" ] && { echo "PANE_DEAD$dead"; exit 0; }')
+    // 항목 형식(경로|해시|pane)은 그대로다. 팀장은 스크립트를 한 줄로 부른다
+    expect(s()).toContain("-- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'")
+    expect(s()).toContain('.claude/skills/dflow-team/scripts/tick.sh [--new-tick] [--may-skip]')
   })
 
   // DFLOW_ENV_FILE=<MAIN>/.env 는 .dflow 전환(cdccee70)으로 DFLOW_CONFIG_DIR=<MAIN> 이, --interval 300 은 ab8ee46b 로 180 이 됐다.
@@ -477,8 +486,10 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(start).toBeGreaterThan(-1)
     expect(s().slice(start, start + 1500)).toContain('기억으로 재구성한 명령은 쓰지 않는다')
     expect(s().slice(start, start + 1500)).toContain('EVENT_ARGS_MISSING')
-    // 기상 블록의 마지막 명령이 events.md 의 기록 명령을 화면에 띄운다(압축 뒤 기억으로 쓰지 않게)
-    expect(s().slice(start, start + 2500)).toContain("sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md")
+    // 기상 블록(wake.sh)의 마지막 명령이 events.md 의 기록 명령을 화면에 띄운다(압축 뒤 기억으로 쓰지 않게)
+    expect(s().slice(start, start + 2500)).toContain('.claude/skills/dflow-team/scripts/wake.sh')
+    expect(wake()).toContain('EVENTS_MD="$HERE/../references/events.md"')
+    expect(wake()).toContain("sed -n '/^## 기록 명령/,$p' \"$EVENTS_MD\"")
   })
 
   it('프로세스 리허설 반영: 압축 뒤 첫 기상은 절차 정본을 다시 읽고, 고아 스캔이 남긴 워크트리는 parked 로 표시한다', () => {
