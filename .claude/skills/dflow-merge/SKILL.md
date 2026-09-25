@@ -22,7 +22,7 @@ description 의 사용법에도 노출하지 않는다. 반려되지 않은 `sta
 > 게이트(`merge-base --is-ancestor` 검사)가 영원히 거짓이고 스택 브랜치가 무한히 깊어진다.
 > 서버 통신은 dflow.sh, exit code 분기, dflow-work 금지사항 상속.
 
-**분기별 읽을 파일**(그 분기에 들어설 때만 읽는다): `--resolve` → `references/resolve.md` · 호출한 체크아웃이 기본 브랜치에
+**분기별 읽을 파일**(그 분기에 들어설 때만 읽는다. 경로는 이 스킬 폴더 `.claude/skills/dflow-merge/` 기준): `--resolve` → `references/resolve.md` · 호출한 체크아웃이 기본 브랜치에
 있지 않음 → `references/merge-worktree.md` · 로컬 스캔에 `merged` 줄 → `references/unapproved.md` · push 실패 →
 `references/push-fail.md` · 스윕 보고 직전(`dialect_check` 설정 시) → `references/dialect.md` · 결정 번호·마이그레이션 관문 출력을 풀어 설명하거나
 설정을 바꿀 때 → `references/script-details.md`. 근거·사고 이력은 `references/rationale.md` 다(실행에 필요 없고 규칙을 바꿀 때만 읽는다).
