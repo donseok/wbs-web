@@ -122,6 +122,7 @@ LAST_PASS=$(get last_pass); LAST_FAIL=$(get last_fail)
 # 다음 실제 검증의 DIALECT_UNVERIFIED·unverified= 에 실린다.
 # 문서: *.md, docs/**, 작업 폴더(dflow.sh config tasks-dirs 의 <폴더>/<TSK>/)의 state.json·decisions.json·.issues·.result.
 # --no-renames: 코드를 문서 폴더로 옮긴 것을 새 경로만 보고 문서뿐으로 보지 않게 옛 경로도 낸다.
+# core.quotePath=false: 한글 파일명(docs/설계.md)이 "\354…" 로 따옴표 쳐져 문서 규칙에 안 걸리는 것을 막는다.
 docs_only() {
   local f d td
   td=$("$DFLOW" config tasks-dirs 2>/dev/null) || td=''   # 못 읽으면 작업 폴더 규칙만 빠진다(더 엄격해질 뿐이다)
@@ -143,7 +144,7 @@ EOF
   return 0
 }
 if [ -n "$LAST_PASS" ] && git cat-file -e "$LAST_PASS^{commit}" 2>/dev/null &&
-   CHANGED=$(git diff --no-renames --name-only "$LAST_PASS" "$SHA" 2>/dev/null) &&
+   CHANGED=$(git -c core.quotePath=false diff --no-renames --name-only "$LAST_PASS" "$SHA" 2>/dev/null) &&
    printf '%s\n' "$CHANGED" | docs_only; then
   put docs_only "$SHA"; put deferred ''
   echo "DIALECT_SKIP docs-only $(short "$SHA") since=$(short "$LAST_PASS")"

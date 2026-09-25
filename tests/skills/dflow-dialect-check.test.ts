@@ -164,7 +164,7 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     expect(run().code).toBe(0)
     // *.md · docs/** · 작업 폴더(tasks-dirs 의 <폴더>/<TSK>/) 의 state.json 등은 문서로 본다
     const tip = mergeTask('TSK-11-02', UNV, { docsOnly: true, files: {
-      'README.md': 'x', 'mod/guide.md': 'x', 'mod/docs/tasks/TSK-11-02/state.json': '{}', 'mod/docs/tasks/TSK-11-02/decisions.json': '[]' } })
+      'README.md': 'x', 'mod/guide.md': 'x', 'docs/설계 메모.txt': 'x', '안내.md': 'x', 'mod/docs/tasks/TSK-11-02/state.json': '{}', 'mod/docs/tasks/TSK-11-02/decisions.json': '[]' } })
     const r = run()
     expect(r.code, r.out + r.err).toBe(0)
     expect(r.out.trim()).toBe(`DIALECT_SKIP docs-only ${tip.slice(0, 12)} since=${passed.slice(0, 12)}`)
@@ -338,7 +338,7 @@ describe('방언 검증 문서 계약', () => {
   })
   it('문서뿐 이월(DIALECT_SKIP docs-only)은 보고에 싣지 않는 줄이다(merge 보고·팀장 처리 모두)', () => {
     expect(DIALECT).toContain('`DIALECT_SKIP docs-only <sha> since=<직전 통과>`')
-    expect(MERGE.slice(MERGE.indexOf('## 방언 검증'), MERGE.indexOf('## 결정 번호 매김'))).toContain('`DIALECT_SKIP` 은 싣지 않는다')
+    expect(MERGE).toContain('결과 줄(`DIALECT_*`, `DIALECT_SKIP` 제외)과 `DIALECT_UNVERIFIED` 줄을 표 아래에 그대로 싣는다')
     expect(TEAM).toMatch(/`DIALECT_BUSY`·`DIALECT_RUNNING`·`DIALECT_SKIP`·`DIALECT_NONE`: 보고하지 않는다/)
   })
   it('/dflow-merge 는 실행 불가·시그널 exit 를 실패로 기록하지 않는다고 적는다', () => {

@@ -213,7 +213,7 @@ description 의 사용법에도 노출하지 않는다. 반려되지 않은 `sta
    "결정 번호 매김 실패(<출력>)"·`UNION_SET <파일>`·`DUP_REF_REPLACED`·`DUP_REF_AMBIGUOUS`(사람이 볼 위치)·`DUP_LEFT`·
    `DECISIONS_SEQ` 줄은 표 아래에 그 작업 id8 과 함께 그대로 적는다.
    보고를 쓰기 전에 「방언 검증」 을 한 번 돈다(스윕이 중간에 멈췄어도 돈다. 머지가 0건이어도 돈다 — 보류된 커밋을
-   다시 시도한다). 결과 줄(`DIALECT_*`)과 `DIALECT_UNVERIFIED` 줄을 표 아래에 그대로 싣는다.
+   다시 시도한다). 결과 줄(`DIALECT_*`, `DIALECT_SKIP` 제외)과 `DIALECT_UNVERIFIED` 줄을 표 아래에 그대로 싣는다.
 
 ## 방언 검증
 
@@ -221,7 +221,7 @@ description 의 사용법에도 노출하지 않는다. 반려되지 않은 `sta
 한 번, 마지막 머지 커밋(스윕 끝의 `origin/<기본브랜치>`)에서** 돌린다. 머지마다 돌리지 않는다. **도커 런타임을 켜지 않는다.**
 `--resolve` 는 이 절을 타지 않는다. 스윕은 시작의 `git fetch origin` 직후 `git rev-parse origin/<기본브랜치>` 를 `<스윕 전 sha>`
 로 기록해 두고, 6번 보고 직전에 `.claude/skills/dflow-work/scripts/dflow.sh config dialect_check` 를 본다. exit 0 에 빈 값이면
-이 단계는 없다(`DIALECT_NONE`). 그 밖에는 `references/dialect.md` 를 읽고 그 명령을 한 번 부른다. `DIALECT_SKIP` 은 싣지 않는다.
+이 단계는 없다(`DIALECT_NONE`). 그 밖에는 `references/dialect.md` 를 읽고 그 명령을 한 번 부른다.
 
 ## 결정 번호 매김
 
