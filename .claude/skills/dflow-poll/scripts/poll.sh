@@ -103,13 +103,15 @@ STATE_FILES() { (DFLOW_CONFIG_QUIET=1; dflow_config_tasks_dirs) | while IFS= rea
 # 반복하지 않도록 STATE_FILES 는 조용히 부른다.
 dflow_config_tasks_dirs >/dev/null
 
-# 필터 캐시: 줄 = id8<TAB>조회 에포크<TAB>tags(쉼표)<TAB>external_ref. dflow.sh 의 캐시 폴더를 같이 쓴다(주문 id 는 전역 유일,
-# 담기는 것은 탈락뿐이라 여러 poll 이 나눠 써도 틀린 착수는 없다). 쓸 수 없으면 캐시 없이 돈다.
+# 필터 캐시: 줄 = id8<TAB>조회 에포크<TAB>tags(쉼표)<TAB>external_ref. dflow.sh 의 캐시 폴더에 api_base·바인딩별 파일로
+# 둔다(dflow.sh LIST_CACHE 와 같은 cksum 관례) — 스테이징은 운영 데이터를 복제해 같은 주문 id 가 두 서버에 있을 수 있고,
+# 한 파일을 나눠 쓰면 한쪽의 탈락 기록이 다른 쪽의 TTL 을 끝없이 늘린다. 쓸 수 없으면 캐시 없이 돈다.
 TAG_CACHE=''
 TAG_TTL=$((TAG_CACHE_CYCLES * INTERVAL))
 if { [ -n "$REQUIRE_TAG" ] || [ -n "$WP" ]; } && [ "$TAG_TTL" -gt 0 ]; then
   _cd="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
-  if mkdir -p "$_cd" 2>/dev/null && [ -w "$_cd" ]; then TAG_CACHE="$_cd/poll-filter-cache.tsv"
+  _b=${DFLOW_API_BASE:-}; _key=$(printf '%s|%s' "${_b%/}" "$(DFLOW_CONFIG_QUIET=1; dflow_config_projects)" | cksum | cut -d' ' -f1)
+  if mkdir -p "$_cd" 2>/dev/null && [ -w "$_cd" ]; then TAG_CACHE="$_cd/poll-filter-cache-$_key.tsv"
   else echo "필터 캐시 끔(쓸 수 없음: $_cd) — 후보마다 매 주기 show 한다" >&2; fi
 fi
 # 필터 판정 — $1=tags(쉼표) $2=external_ref. 통과면 0.

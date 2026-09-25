@@ -137,6 +137,24 @@ describe('poll.sh 필터 캐시', { timeout: 40000 }, () => {
     expect(shows('aaaa1111')).toBe(1)
   })
 
+  it('캐시는 api_base·프로젝트 바인딩마다 따로다 — 다른 서버(스테이징·운영)의 탈락 기록을 쓰지 않는다', () => {
+    const base = (b: string) => writeFileSync(join(cfg, '.dflow'), `api_base=${b}\nproject_id=11111111-1111-4111-8111-111111111111\nrelease_branch=main\n`)
+    const rows = [row(1, 'aaaa1111'), row(2, 'bbbb2222')]
+    // 1회차(a.test): aaaa1111 은 태그가 없어 탈락·캐시되고 bbbb2222 가 나온다
+    base('https://a.test'); put('tagfrom-bbbb2222', '1')
+    expect(poll(['--require-tag', 'agent', '--tag-cache-cycles', '20'], rows).out).toBe('2\tbbbb2222\t작업bbbb2222')
+    // 이제 aaaa1111 에 태그가 붙었다. 2회차(b.test)는 a.test 의 탈락 기록을 쓰지 않고 show 해 잡는다
+    put('tagfrom-aaaa1111', '1'); reset(); base('https://b.test')
+    const r2 = poll(['--require-tag', 'agent', '--tag-cache-cycles', '20'], rows)
+    expect(r2.code, r2.err).toBe(0)
+    expect(r2.out).toBe('1\taaaa1111\t작업aaaa1111\n2\tbbbb2222\t작업bbbb2222')
+    // 대조: 같은 a.test 로 다시 돌면 TTL 안의 탈락 기록을 쓴다(그래서 aaaa1111 은 show 하지 않는다)
+    reset(); base('https://a.test')
+    const r3 = poll(['--require-tag', 'agent', '--tag-cache-cycles', '20'], rows)
+    expect(r3.out).toBe('2\tbbbb2222\t작업bbbb2222')
+    expect(shows('aaaa1111')).toBe(0)
+  })
+
   it('필터가 없으면 show 도 캐시도 쓰지 않는다', () => {
     const r = poll([], [row(1, 'aaaa1111')])
     expect(r.code, r.err).toBe(0)

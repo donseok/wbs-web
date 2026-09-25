@@ -1091,14 +1091,12 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
    order='<order>'   # show 출력의 .order.id(전체 UUID)를 옮겨 쓴다
    TASK_DIR=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$order"); rc=$?
    echo "TASK_DIR=${TASK_DIR:-없음} rc=$rc"
-   .claude/skills/dflow-team/scripts/docker-allow.sh "$order" --reuse-dir "$(git rev-parse --git-path dflow-team-poll)"   # DOCKER=allow|ban — 4번 포인터에 옮긴다(show 필터 응답 재사용)
+   .claude/skills/dflow-team/scripts/docker-allow.sh "$order" --reuse-dir "$(git rev-parse --git-path dflow-team-poll)"   # DOCKER=allow|ban — 4번 포인터에 옮긴다
    ```
-   로 이 작업의 작업 폴더(`<TASKS>/<TSK>`)를 구한다. `taskdir` 는 순번·id8·전체 UUID 만 받고 `external_ref` 는
-   모른다 — `ref` 가 아니라 `order`(전체 UUID, id8 도 된다)를 넘긴다. `rc` 가 0 이 아니면(exit 2
-   `PROJECT_MISMATCH`·`AMBIGUOUS_DOCS_DIR`, exit 6 `NO_REF`) **spawn 하지 않는다**: 그 id8 을 일시 제외에 넣고
-   사유 `작업 폴더 해석 실패(exit $rc)` 를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴 뒤 다음
-   후보로 간다(위 poll exit 0 갈래의 spec 부재·TSK 없음과 같은 처리). 성공하면 위 출력의 `TASK_DIR` 값을
-   4번 포인터의 `TASK_DIR=` 자리에 그대로 옮겨 쓴다.
+   로 이 작업의 작업 폴더(`<TASKS>/<TSK>`)를 구한다. `taskdir` 는 `external_ref` 를 모르므로 `ref` 가 아니라
+   `order` 를 넘긴다. `rc` 가 0 이 아니면(exit 2 `PROJECT_MISMATCH`·`AMBIGUOUS_DOCS_DIR`, exit 6 `NO_REF`)
+   **spawn 하지 않는다**: 그 id8 을 일시 제외에 넣고 사유 `작업 폴더 해석 실패(exit $rc)` 를 보고하며
+   `team.result`(slot `-`, status `skipped`)를 남긴 뒤 다음 후보로 간다(poll exit 0 갈래의 spec 부재·TSK 없음과 같은 처리).
 4. 포인터 **한 줄**을 만든다. 백엔드에는 워커 프롬프트 전문이 아니라 이 포인터를 넘기고, 워커가
    `references/worker-prompt.md` 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다.
    ```
