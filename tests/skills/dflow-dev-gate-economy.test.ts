@@ -111,6 +111,11 @@ describe('변이 검증은 Build 한 곳, Verify 는 감사', () => {
     expect(build).toContain('Build 서브에이전트는 전체 스위트를 돌리지 않는다')
     expect(build).toContain('`--findRelatedTests')
   })
+  it('Build: Gradle 변이 스크립트는 데몬을 재사용하고, E2E 서버 bootRun 의 --no-daemon 만 예외로 남는다', () => {
+    expect(build).toContain('**Gradle 변이 스크립트는 데몬을 재사용한다(`--no-daemon` 을 쓰지 않는다).**')
+    expect(flat(build)).toContain('E2E 서버의 `bootRun --no-daemon`(e2e.md)은 오래 떠 있는 서버가 공용 데몬을 붙잡지 않게 하려는 것이라 유지한다')
+    expect(ref('e2e.md')).toContain('./gradlew :api:bootRun --no-daemon')
+  })
   it('Verify: 전체 스위트를 다시 돌리지 않고, 코드를 고쳤을 때만 게이트가 돈다', () => {
     expect(verify).toContain('전체 스위트를 다시 돌리지 않는다')
     expect(verify).toContain('「변이 검증 기록」 표의 행마다')
