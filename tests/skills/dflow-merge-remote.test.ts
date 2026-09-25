@@ -71,7 +71,7 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
     expect(skill).toContain('git diff --name-only "origin/<기본브랜치>...$ref" -- "$@"')
     expect(skill).toContain('`git show <ref>:<경로>`')
     expect(skill).toContain('`git show` 에는 glob 을 쓰지 않는다')
-    expect(skill).toContain('**`phase` 가 `merged` 가 아니면\n     전부 후보**')
+    expect(skill).toContain('**`phase` 가 `merged` 가 아니면 전부 후보**')
     expect(skill).toContain('`origin/agent/<id8>-<slug>`')
   })
 

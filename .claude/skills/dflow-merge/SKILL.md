@@ -26,6 +26,8 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
 > 게이트(`merge-base --is-ancestor` 검사)가 영원히 거짓이고 스택 브랜치가 무한히 깊어진다.
 > 서버 통신은 dflow.sh, exit code 분기, dflow-work 금지사항 상속.
 
+근거·사고 이력은 `references/rationale.md` 에 있다. 실행에는 필요 없고 규칙을 바꿀 때만 읽는다.
+
 ## 절차
 
 `<기본브랜치>` 는 개발 브랜치, 즉 `dflow.sh branch dev` 의 값이다(`.dflow.local` 의 `dev_branch`, 레거시는
@@ -36,13 +38,11 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
 여러 작업을 훑을 때는 `dflow.sh config tasks-dirs` 가 내는 폴더 전부를 본다. `<DOCS_DIR>` 를 `docs` 로 박아 둔
 고정 경로는 쓰지 않는다.
 
-1. **후보 식별**: 인자 없으면 대상 저장소의 `<TASKS>/*/state.json` 에서 `phase=reported`
-   인 작업 전부(로컬 후보). 여기에 원격 후보를 더한다.
-   - `git fetch origin` 뒤 `git branch -r --list 'origin/agent/*'` 의 각 `<ref>` 에서, state.json 경로를
-     `git diff --name-only origin/<기본브랜치>...<ref> --` 뒤에 **`dflow.sh config tasks-dirs` 가 낸 폴더마다 하나씩
-     만든 pathspec**(`<그 폴더>/*/state.json`)을 붙여 찾고 `git show <ref>:<경로>` 로 읽는다. `git show` 에는 glob 을 쓰지 않는다(경로를 해석하지 않는다).
-     고정 glob `*/tasks/*/state.json` 을 쓰지 않는 이유: 이 repo 밖 어느
-     디렉터리든 이름이 `tasks` 이기만 하면 걸린다(예 `src/tasks/…`) — 이 프로젝트의 작업 폴더가 아니다.
+1. **후보 식별**: 인자가 없으면 아래 원격·로컬 두 스캔이 낸 줄이 후보다. **정본은 이 두 셸 블록이다**(`scripts/sweep-check.sh`
+   는 이 1번을 흉내 내는 사전 검사일 뿐이다 — 이 번호 끝 항목).
+   - **원격 스캔**: `git fetch origin` 뒤 `origin/agent/*` 의 각 `<ref>` 에서, `git diff --name-only origin/<기본브랜치>...<ref> --`
+     뒤에 `dflow.sh config tasks-dirs` 의 폴더마다 만든 pathspec(`<그 폴더>/*/state.json`)을 붙여 state.json 을 찾고
+     `git show <ref>:<경로>` 로 읽는다. `git show` 에는 glob 을 쓰지 않는다. 고정 glob `*/tasks/*/state.json` 도 쓰지 않는다.
      ```bash
      cd "$(git rev-parse --show-toplevel)" || exit 1   # tasks-dirs·pathspec 은 리포 최상위 기준이다
      api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}
@@ -62,35 +62,13 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
        done
      }
      ```
-     `$dirs` 를 here-doc(`<<EOF`)으로 넘기지 않는 이유: 이 블록은 목록 들여쓰기째 붙여 넣어질 수 있는데,
-     그러면 종결자 `EOF` 앞에 공백이 붙어 here-doc 이 끝나지 않고 뒤의 반복문 전체를 삼킨 채 exit 0 으로
-     끝난다(후보 0건이 오류 없이 보고된다). 파이프 뒤 `{ … }` 는 들여쓰기와 무관하다.
-     `tasks-dirs` 가 실패하거나(exit≠0) 빈 값을 내면 `$dirs` 가 빈 줄 하나가 되어 `"$d/*/state.json"` 이
-     `"/*/state.json"` 으로 풀린다. git 은 이런 pathspec 을 리포 바깥 경로로 보고 거부한다("outside
-     repository") — `git diff` 자체가 실패해 원격 후보를 **조용히 0건**으로 만든다(오류가 파이프 뒤로 사라져
-     눈에 띄지 않는다). 그래서 `rc`·빈 값을 먼저 확인하고 실패하면 후보 식별을 **하지 않고** "건너뜀(tasks-dirs
-     조회 실패)" 로 보고한 뒤 멈춘다.
-     여섯째 칸(`$p`)은 그 state.json 의 정확한 경로다. 4번 머지 단계가 이 값을 `<후보 state.json 경로>` 로
-     그대로 쓴다 — 다시 `dflow.sh taskdir` 를 부르지 않는다.
-   - 브랜치 이름의 id8 과 state.json `order` 의 앞 8자가 일치해야 하고, **`phase` 가 `merged` 가 아니면
-     전부 후보**로 본다. 이유: tip 의 phase 는 `reported` 커밋이 실패하면 `verify` 에 머물 수 있으므로
-     기대지 않는다. 판정은 서버 `show` 로만 하므로 넓게 잡아도 안전하다. 일치하는 state.json 이 없는
-     브랜치는 후보가 아니다(아직 state.json 을 커밋하기 전이다).
-   - **로컬·원격 중복**: 같은 order 가 로컬과 원격에 모두 있으면 로컬 후보 하나로 합쳐 로컬 규칙으로
-     판정한다. 합친 후보의 `api_base` 는 값이 있는 쪽을 쓰고(원격·로컬 스캔 출력 마지막 칸이 `none` 이 아닌 쪽), 둘 다
-     값이 있는데 서로 다르면 "건너뜀(다른 D'Flow)" 로 보고한다. 머지 대상은 증적 head_sha 를 포함하는 쪽
-     (`git merge-base --is-ancestor <증적 head_sha> <그 브랜치>` 가 참)이고, 그 밖에는(둘 다 포함하거나 증적에
-     head_sha 가 없으면) 원문처럼 로컬 브랜치 `agent/<id8>-<slug>`, 로컬 브랜치가 없으면 원격 브랜치다.
-     순서는 중복 제거 → `api_base` 필터다. 이유: 필터를 먼저 걸면 같은 작업이 "건너뜀(다른 D'Flow)" 와
-     "머지됨" 으로 두 번 보고되고, 원격 사본 쪽을 남기면 `api_base` 가 없는 옛 로컬 후보가 원격 규칙에 걸려
-     건너뛰어져 수동 경로가 머지하던 작업을 놓친다. head_sha 를 포함하는 쪽을 고르는 이유: 사람이 승인한
-     코드는 그 커밋까지이며, 그 커밋이 없는 쪽은 4번의 승인 뒤 변경 확인을 통과할 수 없다.
-   - **`api_base` 필터**(중복 제거 뒤): 후보 state.json 의
-     `api_base` 가 현재 `DFLOW_API_BASE`(끝 `/` 제거)와 다르면
-     로컬이든 원격이든 "건너뜀(다른 D'Flow)" 로 보고한다. 중복 제거 뒤 남은
-     원격 후보는 값이 없어도 건너뛴다(위 출력 마지막 칸 `none`·`other`). 값이 없는 로컬 후보(이 수정 전에
-     만든 state.json)는 지금처럼 판정한다. `/dflow-team` 팀장은 그런 후보가 있으면 시작하지 않는다. 로컬
-     후보의 값은 아래로 본다.
+     `tasks-dirs` 가 실패하거나(exit≠0) 빈 값을 내면 후보 식별을 **하지 않고** "건너뜀(tasks-dirs 조회 실패)" 로 보고한 뒤
+     멈춘다(블록이 `rc`·빈 값을 먼저 본다). `$dirs` 를 here-doc(`<<EOF`)으로 넘기지 않는다. 여섯째 칸(`$p`)은 그 state.json 의
+     정확한 경로이며, 4번이 `<후보 state.json 경로>` 로 그대로 쓴다 — 다시 `dflow.sh taskdir` 를 부르지 않는다.
+     브랜치 이름의 id8 과 state.json `order` 의 앞 8자가 일치하고 **`phase` 가 `merged` 가 아니면 전부 후보**다(tip 의 phase 에
+     기대지 않는다. 판정은 서버 `show` 로 한다). 일치하는 state.json 이 없는 브랜치는 후보가 아니다. 원격에만 있는 후보의
+     머지 대상은 `origin/agent/<id8>-<slug>` 다.
+   - **로컬 스캔**: `<TASKS>/*/state.json` 중 `phase=reported` 이거나, `phase=merged` 이고 `unapproved=true` 인 것.
      ```bash
      cd "$(git rev-parse --show-toplevel)" || exit 1   # tasks-dirs 는 최상위 기준. $f 도 최상위 기준 경로로 나와야 <W>/<경로> 로 재사용된다
      api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}   # 원격 스캔 블록과 별도 호출이라 다시 구한다
@@ -101,32 +79,32 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
          | [$f, .tsk, .order, .phase, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end)] | @tsv' "$f"
      done
      ```
-     넷째 칸이 `merged` 인 줄은 **승인 전 머지분**이다(`--on-report` 가 머지하며 `unapproved: true` 를 남겼다). 이미 기본
-     브랜치에 들어 있으므로 머지 대상이 아니라 2번의 「승인 전 머지분 판정」 만 받는다. 플래그와 무관하게 늘 본다. 이유:
-     머지한 뒤에는 원격 스캔(`phase != "merged"`)에도 `reported` 스캔에도 걸리지 않아, 그 작업의 승인·반려를 아무도
-     읽지 못한다. 팀장의 poll 에는 반려 신호(exit 10)도 오지 않는다(`/dflow-team` 「2-3」).
-     glob(`<TASKS>/*/state.json`)을 쓰지 않는 이유: zsh 에서는 매치가 없으면 `no matches found` 로 명령
-     전체가 죽는다. `<TASKS>` 가 없는 리포에서도 `find` 는 조용히 아무것도 내지 않는다. 첫째 칸(`$f`)이 그
-     state.json 의 정확한 경로다 — 원격 스캔의 여섯째 칸(`$p`)과 같은 역할이며, 4번 머지 단계가 이 값을
-     그대로 쓴다.
-     이유: 스테이징 D'Flow DB 는 운영을 복제하므로, 스테이징 `api_base`(export 된 `DFLOW_API_BASE`) 로 실제 리포에서 스윕하면 운영에서
-     승인된 작업을 로컬 후보든 원격 후보든 머지할 수 있다. 값이 없는 옛 로컬 후보는 출처를 가릴 수 없으므로
-     사람이 보는 수동 경로에만 남긴다.
-   - 서버 조회는 state.json 의 전체 UUID 로 한다. 원격에만 있는 후보의 머지 대상은
-     `origin/agent/<id8>-<slug>` 다.
-   - show 출력은 jq 로 `.order.status` 와 마지막 `kind=completion` 리포트의 `review_action`·`review_note`·완료
-     증적의 `head_sha` 만 뽑는다. 스윕마다 spec 본문을 컨텍스트에 싣지 않기 위해서다. `head_sha` 는 4번의 승인 뒤
-     변경 확인에 쓴다.
+     첫째 칸(`$f`)이 그 state.json 의 정확한 경로다(원격의 `$p` 와 같은 역할 — 4번이 그대로 쓴다). glob(`<TASKS>/*/state.json`)을
+     쓰지 않는다. 넷째 칸이 `merged` 인 줄은 **승인 전 머지분**이다(`--on-report` 가 `unapproved: true` 를 남겼다). 이미 기본
+     브랜치에 들어 있으므로 머지 대상이 아니라 2번의 「승인 전 머지분 판정」 만 받는다. 플래그와 무관하게 늘 본다.
+   - **로컬·원격 중복**: 같은 order 가 로컬과 원격에 모두 있으면 로컬 후보 하나로 합쳐 로컬 규칙으로 판정한다. 합친 후보의
+     `api_base` 는 값이 있는 쪽을 쓰고(스캔 출력 마지막 칸이 `none` 이 아닌 쪽), 둘 다 값이 있는데 서로 다르면 "건너뜀(다른
+     D'Flow)" 로 보고한다. 머지 대상은 증적 head_sha 를 포함하는 쪽(`git merge-base --is-ancestor <증적 head_sha> <그 브랜치>`
+     가 참)이고, 그 밖에는(둘 다 포함하거나 증적에 head_sha 가 없으면) 로컬 브랜치 `agent/<id8>-<slug>`, 로컬 브랜치가 없으면
+     원격 브랜치다.
+   - **`api_base` 필터**: 순서는 중복 제거 → `api_base` 필터다. 후보 state.json 의
+     `api_base` 가 현재 `DFLOW_API_BASE`(끝 `/` 제거)와 다르면 로컬이든 원격이든 "건너뜀(다른 D'Flow)" 로 보고한다. 중복 제거 뒤
+     남은 원격 후보는 값이 없어도 건너뛴다
+     (마지막 칸 `none`·`other`). 값이 없는 로컬 후보(옛 state.json)는 지금처럼 판정한다. `/dflow-team` 팀장은 그런 후보가
+     있으면 시작하지 않는다.
+   - **서버 조회**: 서버 조회는 state.json 의 전체 UUID 로 한다. show 출력은 jq 로 `.order.status` 와 마지막 `kind=completion`
+     리포트의 `review_action`·`review_note`·완료 증적 `head_sha`(4번의 승인 뒤 변경 확인용)만 뽑는다 — spec 본문을 싣지 않는다.
      ```bash
      j=$(.claude/skills/dflow-work/scripts/dflow.sh show <order 전체 UUID>); echo "show=$?"
      printf '%s' "$j" | jq -c '{status: .order.status, last: ([.reports[]? | select(.kind == "completion")] | last | {review_action, review_note, head_sha: .evidence.head_sha})}'
      ```
-   - **사전 검사 스크립트**: `scripts/sweep-check.sh` 가 이 1번 후보 식별(로컬·원격 스캔, 중복 제거, `api_base` 필터)을
-     서버 조회 없이 흉내 내 `SWEEP_CANDIDATES n=<N> <id8…>`·`SWEEP_NONE`·`SWEEP_UNKNOWN <사유>` 를 낸다. `/dflow-team`
-     팀장이 이 스킬을 부르기 전에 돌려 후보가 없으면 부르지 않는다(그 스킬 「4-0. 스윕을 부르는 규칙」). 이 스킬을 직접
-     부를 때는 쓰지 않아도 된다. 이 1번을 바꾸면 그 스크립트도 같이 고친다 — `tests/skills/dflow-sweep-check.test.ts` 가
-     위 두 블록과 스크립트의 후보를 같은 샌드박스에서 대조한다. 스크립트는 정본의 **상위 집합**이다(팀장 체크아웃이
-     뒤처져 있어도 `origin/<기본브랜치>` 트리의 승인 전 머지분을 본다). 덜 내면 머지가 누락되고, 더 내면 스윕 한 번이 는다.
+   - **사전 검사 `scripts/sweep-check.sh`**: 이 1번(두 스캔, 중복 제거, `api_base` 필터)을 서버 조회 없이 흉내 낸다. 출력 계약
+     (마지막 줄이 판정, 늘 exit 0): `SWEEP_CANDIDATES n=<N> <id8…>`(후보 있음) · `SWEEP_NONE`(없음 — 이 스킬을 부르지 않는다) ·
+     `SWEEP_UNKNOWN <사유>`(판정 못 함 — 스윕을 돌린다). 판정 줄 앞에 `SWEEP_DIALECT_PENDING <sha>` 가 오면 `SWEEP_NONE` 이어도
+     「방언 검증」 의 `dialect-check.sh` 를 한 번 부른다. 호출자는 `/dflow-team` 「4-0. 스윕을 부르는 규칙」 과 `/dflow-dev`
+     Phase 01-가 다. 이 스킬을 직접 부를 때는 쓰지 않아도 된다. 스크립트는 정본의 **상위 집합**이다(덜 내면 머지가 누락되고,
+     더 내면 스윕 한 번이 는다). 이 1번을 바꾸면 스크립트도 같이 고친다 — `tests/skills/dflow-sweep-check.test.ts` 가 위 두 블록과
+     스크립트의 후보를 같은 샌드박스에서 대조한다.
 2. **판정: approved 만 진행**(`--on-report` 면 승인 대기도): 후보마다 아래 중 하나로 보고한다. 승인 대기나 데이터 없음으로 뭉개지 않는다.
    **approved 확인 전 머지 절대 금지** — 로컬 state 나 기억이 아니라 show 응답이 판정이다.
    예외는 `--on-report` 의 승인 대기 머지 하나뿐이며, 그 판정도 show 응답으로 한다.
