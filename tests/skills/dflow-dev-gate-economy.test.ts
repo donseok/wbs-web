@@ -40,8 +40,8 @@ describe('워커는 Refactor 를 건너뛴다', () => {
     expect(p05).toContain('`/dflow-team` 팀원(`/dflow-dev` 「--worker」 I)')
     expect(p05).toContain('Refactor 가 커밋을 남기지 않았으면(고칠 것이 없었다) Refactor 게이트를 돌리지 않는다')
   })
-  it('SKILL.md 워커 표에 행 I 가 있고, 표지 머리와 끝 문장이 아홉 행을 말한다', () => {
-    const sec = workerBlocks(SKILL).at(-1)?.body ?? ''
+  it('워커 표(worker-mode.md)에 행 I 가 있고, 표지 머리와 끝 문장이 아홉 행을 말한다', () => {
+    const sec = ref('worker-mode.md')
     const rowI = sec.split('\n').find((l) => l.startsWith('| I |')) ?? ''
     expect(rowI).toContain('Phase 05 Refactor')
     expect(rowI).toContain('**실행하지 않는다.**')
@@ -68,7 +68,7 @@ describe('heavy.sh 적용 범위: Gradle·Maven 은 단일 테스트도 감싼�
   })
   it('DEPS_BUSY(exit 75)는 실패가 아니라 다시 부른다 — 정본·워커 행 H·deps 블록', () => {
     expect(heavy).toContain('`DEPS_BUSY <폴더>` 와 exit 75')
-    const sec = workerBlocks(SKILL).at(-1)?.body ?? ''
+    const sec = ref('worker-mode.md')
     expect(sec).toContain('`DEPS_BUSY <폴더>`(exit 75)는 실패가 아니다')
     expect(sec).toContain('# 75(DEPS_BUSY)면 잠시 뒤 다시 부른다')
   })

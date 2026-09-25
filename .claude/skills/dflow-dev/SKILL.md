@@ -11,6 +11,8 @@ description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕
 <!-- worker:begin -->
 > `--worker` 는 `/dflow-team` 팀장 전용 플래그다(사람이 직접 쓰지 않는다). 있으면 아래 「--worker 팀원 모드」
 > 절의 아홉 행(A~I)만 달라지고, 없으면 이 문서 절차 그대로다.
+> `--worker` 면 **지금 `.claude/skills/dflow-dev/references/worker-mode.md` 를 Read 한다** — 아홉 행과 워커 규칙이 그 파일에
+> 있고, 아래 절차가 행 A 부터 곧바로 가리킨다.
 <!-- worker:end -->
 
 > **위치 선언**: 이 스킬은 자율 러너 설계(wbs-web 리포 docs/superpowers/specs, 킷에는 미동봉)의
@@ -416,137 +418,9 @@ Refactor 가 커밋을 남기지 않았으면 Refactor 게이트를 돌리지 �
 <!-- worker:begin -->
 ## --worker 팀원 모드 (팀장 전용)
 
-**팀장 전용, 사람이 직접 쓰지 않는다.** `--worker` 는 "이 세션은 자동 실행되는 팀원이며, 기본 브랜치를
-잡고 있는 상위 체크아웃이 따로 있다" 는 뜻이다. `/dflow-team` 팀장이 띄운 팀원만 이 플래그를 붙인다.
-description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있다고 워커 모드로 자동 전환하지 않는다.
-남은 워크트리에서 사람의 질문이 조용히 꺼지는 사고를 막기 위해서다.
-
-| # | 위치 | 플래그 없음 | `--worker` |
-|---|---|---|---|
-| A | Phase 01-가 승인 스윕 | claim 앞에서 매번 스윕한다 | **건너뛴다.** 스윕은 팀장 몫이며, 이유를 한 줄 남긴다 |
-| B | Phase 01 2번, 선행이 approved 인데 main 미반영이면 직접 머지 | 직접 머지한다 | **머지하지 않는다.** 기점을 그 `head_sha` 로 잡고, Phase 01 2번 공통 규칙대로 claim 전에 그 기점으로 detach 한 뒤 claim 하고 스택 브랜치를 만든다. state.json 에 `branch_base` 와 `risk: "선행 main 미반영(팀장 머지 대기)"` 를 기록한다 |
-| C | Phase 01 1번 재개 판정의 approved 갈래 | 즉시 머지하고 종료한다 | **머지하지 않고** `.result` 를 `{TSK} {ID8} <branch> <head_sha> - needs-merge approved` 로 쓰고 종료한다 |
-| D | 사람 판단이 필요한 분기(AskUserQuestion, `--only` 확인) | 지금처럼 묻는다 | **AskUserQuestion 을 쓰지 않는다.** 합리적으로 고른 뒤 나중에 알린다. 기본값이 있으면 택해 한 줄 남기고 진행한다. 없어도 근거가 더 강한 쪽을 골라 진행하고, design.md `## 담당자 확인 필요 결정` 절에 질문·선택지·택한 것·근거·반려 시 재작업 방향을 남긴다. Phase 06 `done` 요약 끝에 `확인 필요 결정 N건: …` 을 싣는다. 결정마다 `D` 번호를 붙이고, Phase 06 에서 그 절을 `<TASKS>/<TSK>/decisions.json` 으로 옮겨 `done --decisions` 로 넘긴다(0건이면 `[]`). `blocked` 는 되돌리기 어려운 결정(데이터 삭제·외부 공개·다른 Task 산출물의 대폭 수정·보안·권한 변경)에만 쓴다(worker-prompt.md 판단 규칙). 팀장은 `--only` 를 넘기지 않으므로 `--only` 확인은 워커 경로에 없다 |
-| E | Phase 02~05 공통 프롬프트 | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로를 글자 그대로 적어 호출한다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다" 한 줄을 덧붙인다. 오케스트레이터 자신도 같은 규칙을 따른다. 손자 서브에이전트까지 rtk 격리 가드 차단을 피하게 하기 위해서다 |
-| F | Phase 01 2번 claim exit 4 재시도 | `git fetch origin` 뒤 기점을 다시 정해 1회 재시도하고, 그래도 4 면 중단·보고한다(merge 없음) | 같다. 그래도 4 면 `.result` 에 `skipped` 를 쓴다 |
-| G | Phase 01 2번 `head_sha` 없는 선행의 갈래 1·2 | 갈래 1(미승인·stage 미달)은 로컬 선행 산출물이 있으면 스택하고, 갈래 2(`stage >= im`·`order_approved:false`, 완료 보고 뒤 승인 대기)는 한 줄 남기고 진행한다 | **스택하지 않는다.** 갈래 1(`reached` 가 거짓)은 `skipped 선행 미승인` 으로 끝내고 팀장이 일시 제외한다. 갈래 2(`reached` 가 참인데 `head_sha` 가 없음)는 아래 **기본 브랜치 반영 확인**을 거쳐, 반영이 확인되면 `origin/<기본브랜치>` 기점으로 **스택 없이 진행**하고 그 사실을 한 줄 남긴다. 확인되지 않으면 `skipped 선행 승인 대기` 로 끝낸다. 이유: 종전에는 갈래 2 도 `skipped` 였으나, 그 근거였던 「`head_sha` 가 없으면 선행 코드도 없다」 가 참이 아니다. 승인 전에 기본 브랜치로 머지하는 운영에서는 선행 산출물이 `origin/<기본브랜치>` 에 이미 있고, 그때 워커만 멈추면 그 선행에 걸린 후속 전부가 승인 버튼 하나를 기다리며 영영 착수하지 못한다(2026-09-17 mdm-dict 실측: 기능 12건이 한 선행에 함께 막혔다). 수동 경로는 같은 갈래에서 이미 「한 줄 남기고 진행」 이므로, 이 변경은 새 정책이 아니라 워커에만 있던 이탈을 없애는 것이다. 워커의 스택은 `head_sha` 가 있는 선행(행 B)에만 한다. `waived:true` 간선은 이 행의 대상이 아니다 — Phase 01 2번의 강제 진행 갈래로 간다(기본 브랜치 반영 확인 없음) |
-| H | Phase 01 3번의 브랜치 생성 또는 재개 판정으로 agent 브랜치에 들어온 직후 | 설치하지 않는다. 사람의 체크아웃에는 의존성이 이미 있다 | 생성 또는 재개로 agent 브랜치에 들어온 직후, 4번 기준선과 Phase 02~05 게이트 전에 아래 블록으로 설치한다. `blocked` 답을 받아 재spawn 된 워커처럼 재개 판정으로 기존 agent 브랜치에 들어온 경우도 같다. 재개는 브랜치를 새로 만들지 않아 3번을 지나지 않는데, 새 격리 워크트리에는 `node_modules` 가 없기 때문이다. lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만 설치하며, lockfile 이 없으면 설치하지 않는다. 설치가 실패하면 `.result` 에 `failed deps <실패한 명령과 exit>` 를 쓰고 끝낸다. `DEPS_BUSY <폴더>`(exit 75)는 실패가 아니다 — heavy 슬롯이 없어 설치를 미룬 것이므로 잠시 뒤 같은 명령을 다시 부른다(이어서 설치한다). 이유: 새 워크트리에는 `node_modules` 가 없어 기준선 명령이 127 로 끝나고, 스택이면 선행 작업이 lockfile 을 바꿨을 수 있어 브랜치 기점의 lockfile 로 설치해야 한다. 고정되지 않은 설치는 기준선을 재현하지 못하고 새 lockfile 을 산출물에 섞는다 |
-| I | Phase 05 Refactor | supervised 에서 기본 실행한다(커밋이 없으면 Refactor 게이트 생략) | **실행하지 않는다.** Verify 게이트 통과 뒤 곧바로 Phase 06 으로 간다. Refactor 서브에이전트를 띄우지 않고 state.json 의 `phase` 도 `refactor` 로 쓰지 않는다. 이유: 무인 실행은 검증 수단이 테스트뿐이라 동작을 바꾸지 않는 손질의 이득이 작고, 전체 스위트를 두 번(서브에이전트·게이트) 더 돌린다 — dev-discipline.md 「Phase 05」 의 "무인 모드에서는 실행하지 않는다" |
-
-행 G 의 **기본 브랜치 반영 확인**: 선행 산출물이 `origin/<기본브랜치>` 에 실재하는지를 git 으로만 확인한다.
-`<선행TSK>` 는 그 `depends_evidence` 원소의 `external_ref` 에서 마지막 `/` 뒤다(예 `dict/TSK-02-01` → `TSK-02-01`).
-선행 주문을 `show` 하지 않는 이유: 워커의 서버 조회는 자기 `{ID8}` 하나로 제한되고(worker-prompt.md 「5」),
-`depends_evidence[]` 에는 주문 UUID 가 없어 어차피 아래 state.json 을 읽어야 UUID 를 얻는다.
-**실행은 공용 스크립트 한 줄이다**(팀장의 선행 반영 사전 검사와 같은 판정, 2026-09-23). `git fetch origin` 을 먼저
-단독으로 실행한 뒤 부른다.
-```bash
-.claude/skills/dflow-dev/scripts/pred-reflected.sh <TASKS> <선행TSK> <기본브랜치>
-```
-`<TASKS>` 는 선행 Task 폴더의 부모다. 팀장이 넘긴 `{TASK_DIR}` 의 부모 디렉터리(`$(dirname {TASK_DIR})`)를 쓴다 —
-선행은 같은 프로젝트·모듈 안에 있으므로(의존은 프로젝트 경계를 넘지 않는다) 같은 `<TASKS>` 아래에 있다고 본다.
-출력 첫 낱말이 `REFLECTED` 면 반영이 확인된 것이다. `NOT_REFLECTED`·`UNKNOWN` 은 모두 `skipped 선행 승인 대기` 다
-(지금 동작과 같다). 아래 블록은 스크립트가 하는 일의 설명이며 워커가 직접 치지 않는다. 스크립트 안에서 git 을
-부르는 것은 `deps.sh` 와 같은 방식이며, 워커 git 호출 규칙(명령 치환 금지)은 워커가 직접 치는 Bash 줄에 대한 것이다.
-
-판정은 `phase=merged` **AND** (아래 세 증거 중 하나라도 참) 이다. **첫 증거가 가장 강하다** — 선행 산출물이
-`origin/<기본브랜치>` 라는 기점에 실재한다는 직접 증거이기 때문이다. 커밋 그래프의 조상 관계는 git 이 보증하는
-사실이라, 커밋 메시지 트레일러나 state.json 값처럼 사람·자동화가 빠뜨리거나 잘못 쓸 수 있는 경로를 거치지
-않는다. `state.json` 에 `head_sha` 가 없으면 첫 증거는 판정 불가로 건너뛰고 나머지 둘로 본다.
-
-```bash
-git fetch origin
-git show "origin/<기본브랜치>:$(dirname {TASK_DIR})/<선행TSK>/state.json"   # phase 가 merged 여야 하고, 여기서 order 와 head_sha 를 읽는다
-git merge-base --is-ancestor <head_sha> origin/<기본브랜치>   # 증거 1. head_sha 가 있을 때만 실행. exit 0 이면 참
-git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h   # 증거 2. 한 줄이라도 나오면 참
-git log origin/<기본브랜치> --merges --grep='^merge: <선행TSK> ' --format=%h   # 증거 3. 한 줄이라도 나오면 참. TSK 뒤 공백까지 넣는다 — 안 넣으면 TSK-03-1 이 TSK-03-10·03-11 도 함께 집어 오탐이 된다
-```
-
-state.json 의 정본 스키마(상태 모델)에는 아직 `head_sha` 필드가 없다 — 2026-09-22 mdm-dict-v2 실측으로도
-확인했다(막혔던 선행 4건의 state.json 전부 `head_sha` 없음). 그래서 지금은 거의 항상 증거 1 이 판정 불가로
-건너뛰어지고 증거 3(머지 커밋 제목)이 실제로 막힌 사례를 푼다(같은 실측에서 네 건 모두 증거 3 은 있었다).
-그래도 증거 1 을 첫 자리에 남기는 이유는 이것이 유일하게 커밋 메시지·state.json 값 없이도 성립하는 구조적
-증거이기 때문이다 — 상태 모델 스키마가 나중에 `head_sha` 를 갖게 되면 그 즉시 가장 강한 증거로 바로 쓰인다.
-
-팀장의 자동 머지(`automerge=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가
-붙을 뿐이므로 같은 확인을 통과한다. `unapproved` 는 이 판정에서 보지 않는다.
-`show` 가 실패하거나(그 경로에 파일이 없다) `phase` 가 `merged` 가 아니거나 세 증거가 모두 판정 불가·거짓이면
-반영되지 않은 것이며, 그때는 `skipped 선행 승인 대기` 로 끝낸다.
-`phase` 만으로 충분하지 않은 이유는 그대로다 — state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일
-수 있다. 종전에는 커밋 트레일러(증거 2) 하나만으로 이를 보강해 **두 조건을 모두** 요구했으나, 그 트레일러를
-붙이라는 지시가 이 스킬 어디에도 없어 부착이 워커·수동 경로 모두에서 우연에 맡겨져 있었다(실측: 작업마다 0건인
-경우와 13건인 경우가 섞여 있었다). 그 결과 선행이 실제로 기본 브랜치에 머지됐는데도 후속 워커가 `skipped
-선행 승인 대기` 로 끝나는 결함이 났다 — 2026-09-22 mdm-dict-v2 실측: 선행 4건 TSK-03-07·03-09·03-11·03-12 가
-origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10·03-13·04-01 이 모두 막혔다. 이제 커밋 규칙
-(Phase 02~06 공통 프롬프트, 행 E)과 `/dflow-merge` 양쪽에 트레일러 부착을 못 박았지만(아래 참조), 이미 만들어진
-과거 커밋에는 여전히 없을 수 있고 훅으로 강제하지도 않으므로, 증거를 트레일러 하나로 묶어 두지 않고 세 가지로
-넓힌다. 이 확인을 통과했다는 것은 선행 코드가 기점에 있다는 뜻이므로 스택할 대상도, 스택할 이유도 없다.
-트레일러 패턴(증거 2)의 콜론 뒤 **공백을 반드시 넣고 따옴표로 감싼다.** 실제 트레일러가 `DFlow-Order: <uuid>` 라
-공백을 빼면 매치가 0 건이 되고, 그 0 건은 「반영되지 않음」 과 구분되지 않아 정상인 선행까지 `skipped` 로 만든다
-(2026-09-17 실측: 공백 없는 패턴 0 건, 공백 있는 패턴 2 건).
-
-행 H 의 설치 블록:
-```bash
-.claude/skills/dflow-dev/scripts/deps.sh   # 75(DEPS_BUSY)면 잠시 뒤 다시 부른다. 그 밖에 0 이 아니면 .result 에 failed deps <DEPS_FAILED 줄의 명령과 exit>
-```
-- `DEPS_GRADLE_JAR_MISSING <폴더>` 줄은 실패가 아니라 경고다. 그 폴더의 `gradlew` 는 wrapper jar 가 없어 돌지 않는다.
-  그 폴더의 Gradle 작업이 이번 작업에 필요하면 jar 를 커밋하거나 `.gitignore` 를 고치지 말고 팀장에게 이슈로 보고한다
-  (수동 실행이면 사용자에게 알린다). 필요 없는 폴더(예제·PoC)면 무시한다.
-- 설치 규칙은 위 표와 같다(lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만,
-  lockfile 이 없으면 설치하지 않는다). npm 은 한 가지가 더 있다. lockfile·`node -v`·플랫폼으로 만든 키가 같은
-  설치본이 리포 공용 캐시(`<git-common-dir>/dflow-deps/<키>`)에 있으면 `npm ci` 대신 그것을 복제한다. macOS 는
-  `cp -Rc`(APFS 복제), Linux 는 `cp -R --reflink=auto` 이며, 복제가 실패하면 지우고 `npm ci` 로 간다.
-  pnpm 은 공용 캐시 대신 메인 체크아웃을 복제한다(아래).
-- 메인 체크아웃에서 gitignore 된 심링크를 워크트리에 걸 때 `node_modules` 자체가 심링크인 것은 걸지 않는다. 링크째
-  걸리면 워커의 설치가 사람 체크아웃에 쓴다.
-- 캐시는 이 스크립트의 `npm ci` 가 성공한 결과로만 채운다. npm 은 사람 체크아웃의 `node_modules` 를 쓰지 않는다. 이유:
-  사람이 lockfile 이 바뀐 커밋을 받고 설치를 안 했을 수 있어, lockfile 이 같아도 설치본이 맞는다는 보장이 없고,
-  `npm ci` 는 `node_modules` 를 지우고 시작하므로 무엇을 깔아 두든 바로잡는 데 쓰이지 않는다.
-- pnpm(`pnpm-lock.yaml`)은 반대로 메인 체크아웃의 같은 폴더 설치본을 출발점으로 쓴다. 워크스페이스 루트의
-  `node_modules` 와 워크스페이스 패키지들의 `node_modules` 를 같은 상대 경로로 복제하고, 복제본 안의 모든
-  `node_modules/.bin`(`.pnpm` 안 포함)과 도구 캐시를 지운 뒤, 워크스페이스 루트에서
-  `pnpm install --frozen-lockfile --prefer-offline --config.confirmModulesPurge=false` 를 한 번 돌린다(`DEPS_SYNCED`).
-  사람 쪽 설치본이 어긋나 있어도 되는 이유: pnpm 은 기존 설치를 lockfile 과 대조해 다른 것만 바로잡으므로, 이 install
-  뒤에는 워커 기점(스택이면 선행 브랜치)의 lockfile 대로다. `.bin` 을 지우는 이유는 셈의 `NODE_PATH` 에 메인의 절대경로가
-  박혀 있고 install 이 `.pnpm` 안 셈은 다시 쓰지 않기 때문이다. `confirmModulesPurge=false` 가 없으면 store 가 다를 때
-  pnpm 이 확인 프롬프트에서 영원히 멈춘다(stdin 이 없어도 실패하지 않는다). 메인의 `node_modules` 가 없거나
-  심링크거나, 복제나 그 뒤 install 이 실패하면 복제본을 모두 지우고 새로 설치한다(`DEPS_SYNC_FAILED`·`DEPS_CLONE_FAILED`
-  뒤 `DEPS_INSTALLED pnpm`). 자기 lockfile 을 가진 하위 프로젝트는 워크스페이스 패키지로 보지 않고 따로 설치한다.
-  **메인 복제는 `DFLOW_DEPS_MAIN_CLONE=1` 일 때만 하고 기본은 꺼져 있다(새로 설치).** 파일이 아주 많은 `node_modules` 는 `cp -Rc` 가
-  파일마다 복제해 전역 store 에서 새로 링크하는 것보다 느릴 수 있다. 2026-09-24 dmes-standard `src/frontend`(루트
-  `node_modules` 파일 7.9만 개 + 워크스페이스 9개) 실측: 복제 경로 134초·53초(그중 `cp -Rc` 113초·48초, 뒤 install 은
-  3~16초로 어긋난 6개만 바로잡음) 대 새 설치(`--prefer-offline`, store 가 따뜻함) 53초·26초.
-- yarn 은 종전대로 새로 설치한다(복제 방식을 실측하지 못했다).
-- 복제는 `postinstall` 을 다시 돌리지 않는다. Playwright 브라우저처럼 `postinstall` 이 받는 것은 사용자 전역
-  캐시(macOS `~/Library/Caches/ms-playwright`)에 있어 첫 `npm ci` 가 받아 두면 그대로 쓴다. 이 점을 "고치려고"
-  복제 뒤에 `npm rebuild` 를 넣지 않는다.
-- 캐시는 완성 항목 최근 3개만 남긴다.
-- **행 H 서버 프로세스**: Build·Verify Phase 가 화면 작업의 브라우저 E2E 를 위해 서버를 띄울 때도 행 H 와
-  같은 자리의 규칙이다 — dev-discipline.md 「화면 작업의 브라우저 E2E」의 「서버 프로세스」 절(정본)을
-  따른다. 리포의 서버 실행 스크립트(`be-run.sh`·`fe-run.sh` 류)를 쓰지 않고 빈 포트로 직접 띄우며, 끝나면
-  자기가 띄운 프로세스만 거둔다(2026-09-24 dmes-standard 사고: 팀원이 `./be-run.sh --mdm` 을 돌리자
-  `pgrep -f be-run.sh` 가 메인 체크아웃의 서버를 찾아 TERM 했고 `gradlew --stop` 이 전역 Gradle 데몬까지
-  세웠다).
-- **도커 금지 모드(워커)**: 워커는 도커를 쓰지 않는 것이 기본이다. 팀장 포인터의 `DOCKER` 값(worker-prompt.md
-  변수표)이 `allow` 일 때만(`docker` 태그 Task) 풀리고, 그때도 `dflow.sh config no_docker` 가 `1` 이면 금지다. 옛 포인터의
-  `NO_DOCKER` 는 보지 않는다. 기준선 전에 판정하고 출처를 기준선 기록에 남긴다. 판정·제외·도커 슬롯·기록의 정본은
-  dev-discipline.md 「도커 사용 규칙」 이며, 도커 런타임을 켜지 않는 규칙은 금지 모드와 무관하게 늘 지킨다.
-
-- 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다.
-- `.result` 형식과 status 뜻은 `.claude/skills/dflow-team/references/worker-prompt.md` 가 정본이다. 끝날 때
-  status·agent 브랜치·head·`done` exit·한 줄 사유를 마지막에 요약해 워커가 `.result` 로 옮기게 한다.
-- 중단(exit 10, 상태 모델)이면 `.result` 에 `{TSK} {ID8} <branch|-> <head_sha|-> - cancelled <멈춘 Phase 와 호출>` 을
-  쓰고 끝낸다. push 하지 않으므로 `<head_sha>` 는 로컬 커밋이다. 팀장이 슬롯을 풀고 pane 을 거두되 워크트리는
-  남긴다(산출물 보존).
-- 기본 브랜치를 switch·pull·merge·push 하는 지점은 행 A·B·C 뿐이며, 워커는 셋 다 하지 않는다. 행 F 의
-  재시도는 수동·워커 모두 merge 하지 않는다. claim 전 기점 이동(`git switch --detach`, Phase 01 2번)은 기본
-  브랜치를 체크아웃하지 않으므로 팀장 체크아웃과 부딪치지 않는다. agent 브랜치를 만들고 그 위에 push
-  하는 Phase 01 3번과 Phase 06(`reported` 커밋 포함)는 워커에서도 그대로 돈다.
-- 새로 만드는 "사람에게 묻기" 지점은 없다. dflow-dev 의 판단 실패는 이미 전부 "중단·보고"(push 훅
-  거부, Verify 재시도 소진, 빨간 기준선)라서 워커에서는 `.result` 의 `failed <사유>` 로 떨어진다. 설계
-  재량 분기는 판단 규칙이 받으며, 대부분은 골라서 진행하고 기록한다. `blocked` 는 되돌리기 어려운 결정뿐이다.
-- 인자 파싱과 위 아홉 행만 워커용으로 갈린다(행 F 는 수동과 같고 결과 표기만 다르다). 게이트·Phase
-  정의·커밋 규칙·모델 배정(dev-discipline.md)은 워커에서도 같다. 행 I 의 Refactor 생략도 dev-discipline.md 가 정한
-  무인 모드 규칙을 따르는 것이다.
+**팀장 전용, 사람이 직접 쓰지 않는다.** 행 A~I 와 세부 규칙(행 G 기본 브랜치 반영 확인·행 H 설치·도커·`.result`)의 정본은
+`.claude/skills/dflow-dev/references/worker-mode.md` 다 — 이 문서 머리의 첫 표지 블록에서 이미 읽었다. 이 문서의 「--worker」
+A~I 는 그 파일의 행이다.
 <!-- worker:end -->
 
 ## --only 옵션

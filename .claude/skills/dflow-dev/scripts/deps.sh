@@ -11,6 +11,7 @@
 #    DEPS_MAXDEPTH 미만)가 이 워크트리의 같은 상대 경로에 없으면 `ln -s <메인>/<경로>` 로 건다. 이미 무엇이든
 #    있으면 건드리지 않는다. 외부 설계 문서 링크(dmes-standard docs/mdm/design)가 새 워크트리에 없어 팀원이 절대경로를
 #    추측해 읽은 일(2026-09-24 TSK-02-02)에서 나왔다. Windows(Git Bash) 의 ln -s 는 복사본을 만든다.
+#    `node_modules` 자체가 심링크인 것은 걸지 않는다 — 링크째 걸리면 워커의 설치가 사람 체크아웃에 쓴다.
 # 2) JS 의존성 설치. 루트뿐 아니라 하위 폴더의 lockfile 도 찾아 각각 설치한다(예 src/frontend/pnpm-lock.yaml)
 #    — node_modules·.git·.claude(워크트리 포함) 는 제외하고 깊이는 DEPS_MAXDEPTH(기본 4)로 제한한다. 폴더마다
 #    한 줄씩 보고하며, 루트 줄의 형식은 기존 계약과 글자 그대로 같다(접미사 없음) — 하위 폴더 줄만 끝에 그 폴더
@@ -20,6 +21,9 @@
 #    (<git-common-dir>/dflow-deps/<key>)에서 복제한다. 캐시는 이 스크립트의 npm ci 가 성공한 결과로만 채운다.
 #    npm 은 사람 체크아웃의 node_modules 를 쓰지 않는다 — npm ci 는 node_modules 를 지우고 시작하므로 무엇을
 #    복제해 두든 이득이 없고, 사람 체크아웃은 lockfile 과 어긋난 채 남아 있을 수 있다.
+#    캐시는 완성 항목 최근 3개만 남긴다. 복제는 postinstall 을 다시 돌리지 않는다 — Playwright 브라우저처럼 postinstall 이
+#    받는 것은 사용자 전역 캐시(macOS ~/Library/Caches/ms-playwright)에 있어 첫 npm ci 가 받아 두면 그대로 쓴다. 이 점을
+#    "고치려고" 복제 뒤에 npm rebuild 를 넣지 않는다.
 #  2-b) pnpm(pnpm-lock.yaml): 메인 체크아웃(MAIN)의 같은 폴더에 설치본이 있으면 그 node_modules 와 워크스페이스
 #    패키지의 node_modules 를 같은 상대 경로로 복제한 뒤, 이 워크트리의 lockfile 로
 #    `pnpm install --frozen-lockfile --prefer-offline --config.confirmModulesPurge=false` 를 한 번 돌린다.

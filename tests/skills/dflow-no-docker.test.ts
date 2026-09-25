@@ -125,7 +125,8 @@ describe('참조 문서는 정본을 가리키기만 한다', () => {
     expect(gate).toContain('`heavy.sh --pool docker`')
     expect(manual).not.toContain('NO_DOCKER') // 포인터 값은 워커 경로에만 있다
     expect(manual).not.toContain('DOCKER=allow')
-    const sec = workerBlocks(DEV).at(-1)?.body ?? ''
+    // --worker 절 본문은 references/worker-mode.md 로 옮겼다
+    const sec = read('.claude/skills/dflow-dev/references/worker-mode.md')
     expect(sec).toContain('**도커 금지 모드(워커)**')
     expect(sec).toContain('`DOCKER` 값')
     expect(sec).toContain('`allow` 일 때만')

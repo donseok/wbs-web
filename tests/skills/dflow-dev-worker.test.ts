@@ -168,7 +168,15 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
     { prev: '기본 브랜치 반영 확인이 이 트레일러를 증거로 쓴다.', tag: '「--worker」 E' },
     { next: '## --only 옵션', tag: '## --worker 팀원 모드 (팀장 전용)' },
   ]
-  const section = () => workerBlocks(skill).at(-1)?.body ?? ''
+  // 마지막 표지 블록은 이제 worker-mode.md 를 가리키는 머리 절이다. 행 A~I 본문은 그 파일에 있다
+  const section = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
+
+  it('첫 표지 블록이 worker-mode.md 를 지금 읽게 하고, 마지막 표지 블록은 같은 이름의 머리 절로 그 파일을 가리킨다', () => {
+    const blocks = workerBlocks(skill)
+    expect(blocks[0].body).toContain('**지금 `.claude/skills/dflow-dev/references/worker-mode.md` 를 Read 한다**')
+    expect(blocks.at(-1)?.body).toContain('## --worker 팀원 모드 (팀장 전용)')
+    expect(blocks.at(-1)?.body).toContain('`.claude/skills/dflow-dev/references/worker-mode.md`')
+  })
 
   it('표지는 짝이 맞고 여덟 블록이 정한 자리에 정한 순서로 있다', () => {
     const blocks = workerBlocks(skill)

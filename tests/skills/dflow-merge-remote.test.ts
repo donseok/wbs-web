@@ -139,7 +139,8 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
 
 describe('/dflow-merge --on-report 와 /dflow-team 자동 머지(2026-09-19)', () => {
   const team = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
-  const dev = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
+  // 행 G 는 dflow-dev/references/worker-mode.md 로 옮겼다
+  const dev = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
 
   it('승인 전 머지분은 phase 를 merged 로 두고 unapproved 로 구분한다 — 새 phase 값은 행 G·반려 감지를 깨뜨린다', () => {
     expect(skill).toContain('승인 전 머지면 같은 커밋에서 `unapproved: true` 를 함께 넣는다')

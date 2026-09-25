@@ -16,6 +16,7 @@ const DOCS = [
   '.claude/skills/dflow-team/references/resolve-prompt.md',
   '.claude/skills/dflow-team/references/merge-conflict.md',
   '.claude/skills/dflow-dev/SKILL.md',
+  '.claude/skills/dflow-dev/references/worker-mode.md',
   '.claude/skills/dflow-merge/SKILL.md',
 ]
 
