@@ -80,6 +80,7 @@ SKILL.md 에서 뺀 근거(이유)와 이력(날짜·실측·옛 방식)을 절�
 - 메모리에만 있는 값이 떠 있는 poll 프로세스 안에 숨으면, 컨텍스트 압축으로 대기 큐를 잃었을 때 그 작업들이 보이지 않는 제외에 갇히기 때문이다.
 - poll 을 다른 이유로 재기동하면 10주기 계산이 처음부터 다시 시작된다(poll.sh 프로세스 안에서 세기 때문이다). 재검사가 늦어질 뿐 틀린 착수는 생기지 않는다. 선행 대기는 poll.sh 가 40주기(2시간) 뒤에 푼다. poll 은 ready 를 찾을 때마다 끝나 자주 다시 뜨므로 이 계산도 자주 처음부터 시작되는데, 그래서 선행 대기 블록이 기록 시각으로 2시간 지난 것을 목록에서 뺀다. 두 장치 가운데 먼저 닿는 쪽이 푼다.
 - 그래서 poll exit 0 의 재대조는 일시 제외 목록을 보지 않는다(「2-3」 표). 팀장이 자기 일시 제외 목록으로 다시 버리면, 같은 목록을 다시 `--exclude-temp` 로 넘겨 그 작업이 그 세션에서 끝내 뜨지 않기 때문이다.
+- **poll.sh 필터 캐시(2026-09-25, `--tag-cache-cycles`, 기본 3)**: list 응답(`/work/mine`)에는 tags 도 `updated_at` 같은 무효화 키도 없다(서버가 고르는 열은 주문 id·status·priority·instructions·claimed_at·created_at 과 item 의 code·name·일정·external_ref 뿐). 그래서 `--require-tag`·`--wp` 에서 떨어진 후보의 tags·external_ref 를 `${XDG_CACHE_HOME:-$HOME/.cache}/dflow/poll-filter-cache.tsv`(dflow.sh 캐시 폴더)에 적어 두고 `주기 수 * interval` 초 동안 show 를 건너뛴다. 파일인 이유: poll 은 ready 를 찾을 때마다 끝나 다시 뜨므로 프로세스 안의 주기 계산은 매번 처음부터다. 담는 것은 탈락뿐이다 — 팀장 show 필터는 태그를 다시 보지 않아 poll 이 `agent` 의 유일한 관문이므로, 통과를 캐시하면 사람이 태그를 뗀 작업을 띄운다. 캐시된 탈락도 매번 지금 필터로 다시 판정해 통과할 값이면 믿지 않고 show 한다(`--wp` 가 다른 poll 과 파일을 나눠 쓴다). 조회 실패(0 아닌 종료·주문 id 없는 응답)는 담지 않는다. 대가: 태그를 새로 단 작업은 최대 약 (3+1) 주기(interval 180초면 9~12분) 뒤에 잡힌다(전에는 한 주기). 캐시 폴더를 쓸 수 없으면 시작 때 한 번 알리고 예전처럼 돈다.
 
 ## 2-3. 기상마다 하는 일
 
@@ -141,6 +142,7 @@ SKILL.md 에서 뺀 근거(이유)와 이력(날짜·실측·옛 방식)을 절�
 - 워커 프롬프트 경로를 절대경로로 주는 이유: 새 워크트리에 스킬이 없을 수 있다.
 - `WT` 는 tmux 와 같은 자리 `<MAIN>/.claude/worktrees/dflow-<id8>` 다(2026-09-24부터 — 옛 리포 루트 위치는 쓰지 않는다). 기점은 agent 브랜치가 결국 머지될 `origin/<기본브랜치>` 로 명시한다(준비 블록의 `git worktree add`). 결과 JSON 의 `result.terminal.handle`(옛 런타임은 `result.agentTerminalHandle`)을 슬롯 표와 `$WT/.dflow-pane` 에 저장한다.
 - 워크트리를 새로 만들지 않고 claim 도 하지 않기 때문이다.
+- **`docker-allow.sh --reuse-dir` (2026-09-25)**: 새 작업 한 건을 띄우기까지 같은 주문을 poll·show 필터·docker-allow 가 세 번 show 했다. show 필터가 받은 응답을 `tee` 로 `<git-path dflow-team-poll>/show-<id8>.json` 에 남기고, 3번 블록의 docker-allow 가 그것을 쓴다. "옛 포인터 값을 옮겨 쓰지 않고 서버 tags 를 다시 읽는다" 는 규칙을 지키려고 재사용을 같은 기상의 방금 받은 응답으로 묶는다: 5분 안에 쓰인 파일·같은 주문 id 일 때만 쓰고, 쓰든 못 쓰든 한 번 뒤 지운다. 못 쓰면 금지가 아니라 show 로 다시 읽는다(대기 큐에서 늦게 뜬 작업은 이 길로 간다). 재사용하지 않는 길: 재개(resume.md)·재투입(restart.md)은 옛 포인터가 남은 바로 그 경로이고 마지막 show 뒤로 시간이 흘렀으며 사람이 멈춘 동안 태그를 바꿨을 수 있다. 해소(merge-conflict.md)는 스윕에서 오며 그 흐름에 show 가 없다. 셋 다 드물어 절감도 작다.
 
 ## 5-2. 해소 spawn
 

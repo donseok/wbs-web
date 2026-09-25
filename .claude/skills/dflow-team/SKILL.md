@@ -738,7 +738,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 
 poll exit 0 의 show 필터:
 ```bash
-(.claude/skills/dflow-work/scripts/dflow.sh show <id8>) \
+(.claude/skills/dflow-work/scripts/dflow.sh show <id8>) | tee "$(git rev-parse --git-path dflow-team-poll)/show-<id8>.json" \
   | jq -c '{order: .order.id, status: .order.status, ref: .order.item.external_ref, spec_empty: ((.order.item.spec // "") | length == 0),
             deps_unmet: [.depends_evidence[]? | select(has("reached") and .reached == false) | .external_ref],
             deps_nohead: [.depends_evidence[]? | select(.reached == true and ((.head_sha // "") == "")) | .external_ref]}'
@@ -1091,7 +1091,7 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
    order='<order>'   # show 출력의 .order.id(전체 UUID)를 옮겨 쓴다
    TASK_DIR=$(.claude/skills/dflow-work/scripts/dflow.sh taskdir "$order"); rc=$?
    echo "TASK_DIR=${TASK_DIR:-없음} rc=$rc"
-   .claude/skills/dflow-team/scripts/docker-allow.sh "$order"   # DOCKER=allow|ban — 4번 포인터에 그대로 옮긴다(「인자」 도커 허용 태그)
+   .claude/skills/dflow-team/scripts/docker-allow.sh "$order" --reuse-dir "$(git rev-parse --git-path dflow-team-poll)"   # DOCKER=allow|ban — 4번 포인터에 옮긴다(show 필터 응답 재사용)
    ```
    로 이 작업의 작업 폴더(`<TASKS>/<TSK>`)를 구한다. `taskdir` 는 순번·id8·전체 UUID 만 받고 `external_ref` 는
    모른다 — `ref` 가 아니라 `order`(전체 UUID, id8 도 된다)를 넘긴다. `rc` 가 0 이 아니면(exit 2
