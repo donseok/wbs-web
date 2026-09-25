@@ -105,6 +105,24 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 승인해 놓고 아무도 main 에 반영을 안 시키는 게 병목이었다(2026-08-24). 대상 작업의 claim 여부와
 무관하게 매 호출마다 돈다.
 
+0. **사전 검사 — 후보가 없으면 `/dflow-merge` 를 읽지 않는다.** 스윕 절차는 `/dflow-merge` SKILL.md(약 31K 토큰)에 있는데,
+   후보가 없는 호출에서 그것을 읽을 까닭이 없다. 먼저 스크립트로 후보를 본다(서버 조회 없이, 후보 정의는 아래 1번과 같다).
+   ```bash
+   .claude/skills/dflow-merge/scripts/sweep-check.sh --dev '<기본브랜치>'; echo "rc=$?"
+   ```
+   | 마지막 줄 | 처리 |
+   |---|---|
+   | `SWEEP_CANDIDATES n=<N> <id8…>` | `/dflow-merge` SKILL.md 를 읽고 1~6번을 한다 |
+   | `SWEEP_NONE` | `/dflow-merge` 를 읽지 않고 1~5번을 건너뛴다. 6번 집계는 "스윕 생략(후보 없음)" 한 줄이다 |
+   | `SWEEP_UNKNOWN <사유>`, 빈 출력, 스크립트 없음(옛 킷), `rc` 가 0 이 아님 | **스윕을 돌린다**(fail-open) — 위 `SWEEP_CANDIDATES` 와 같다. 사유를 한 줄 보고한다 |
+
+   글자 그대로 `SWEEP_NONE` 일 때만 건너뛴다. 판정 불가를 후보 없음으로 뭉개면 승인된 작업이 머지되지 않고, 그 후속이
+   선행 반영 확인에 걸려 선다. `SWEEP_NONE` 인데 출력에 `SWEEP_DIALECT_PENDING <sha>` 줄이 있으면 방언 검증을 직접 한 번
+   부르고 그 결과 줄을 6번 집계에 싣는다(`/dflow-merge` 본문은 읽지 않는다). 스윕을 돌리면 방언 검증은 `/dflow-merge` 의
+   「방언 검증」 이 스윕 끝에 한다. 이 판정은 `/dflow-team` SKILL.md 「4-0. 스윕을 부르는 규칙」 과 같다.
+   ```bash
+   .claude/skills/dflow-merge/scripts/dialect-check.sh run --dev '<기본브랜치>'; echo "rc=$?"
+   ```
 1. **후보 식별**: `/dflow-merge` 1번(`.claude/skills/dflow-merge/SKILL.md`)과 같게 로컬 + 원격으로 본다.
    대상 저장소의 `dflow.sh config tasks-dirs` 의 각 폴더 아래 `*/state.json` 중 `phase=reported` 전부(로컬 후보)에 더해, 원격 `origin/agent/*`
    브랜치 tip 의 state.json 중 브랜치 이름의 id8 과 `order` 가 일치하고 `phase` 가 `merged` 가 아닌 것(원격
@@ -139,6 +157,7 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    <!-- worker:begin -->
    `--worker` 면 머지하지 않고 `needs-merge` 로 끝낸다(「--worker」 C).
    <!-- worker:end -->
+   이 머지도 `/dflow-merge` SKILL.md 4번 절차다 — Phase 01-가 가 `SWEEP_NONE` 으로 건너뛰어 아직 읽지 않았으면 먼저 읽는다.
 
    **반려 재작업 경로** — 로컬 `phase=reported`(또는 승인 뒤 재작업 요청이면 `merged`)인데
    서버 `status=claimed` 이면 반려를 의심한다.
@@ -179,7 +198,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
        stage 축만으로 판정하고 그 사실을 한 줄 남긴다.**
      - 선행 완료 + `head_sha` 있음:
        `git fetch origin && git merge-base --is-ancestor <head_sha> origin/<기본브랜치>` —
-       거짓이면 선행이 main 미반영 상태. **Phase 01-가 4번과 같은 절차로 지금 직접 머지한다**
+       거짓이면 선행이 main 미반영 상태. **Phase 01-가 4번과 같은 절차로 지금 직접 머지한다**(Phase 01-가 가
+       `SWEEP_NONE` 으로 `/dflow-merge` SKILL.md 를 읽지 않았으면 먼저 읽는다)
        (브랜치명을 모르면 `<head_sha>` 를 그대로 머지 대상으로 써도 된다 — fetch 로 이미 origin 에
        있다). 머지 후 이어서 진행.
        <!-- worker:begin -->

@@ -124,6 +124,20 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
     expect(sweep).not.toContain('phase=rejected')
   })
 
+  it('Phase 01-가 0번: sweep-check.sh 가 글자 그대로 SWEEP_NONE 일 때만 /dflow-merge 를 읽지 않고, 판정 불가는 fail-open 이다', () => {
+    const sweep = between(manual, '## Phase 01-가', '## Phase 01 — Claim·브랜치·기준선')
+    expect(sweep.indexOf('0. **사전 검사')).toBeLessThan(sweep.indexOf('1. **후보 식별**'))
+    expect(sweep).toContain(".claude/skills/dflow-merge/scripts/sweep-check.sh --dev '<기본브랜치>'; echo \"rc=$?\"")
+    expect(sweep).toContain('| `SWEEP_NONE` | `/dflow-merge` 를 읽지 않고 1~5번을 건너뛴다.')
+    expect(sweep).toContain('| `SWEEP_UNKNOWN <사유>`, 빈 출력, 스크립트 없음(옛 킷), `rc` 가 0 이 아님 | **스윕을 돌린다**(fail-open)')
+    expect(sweep).toContain('글자 그대로 `SWEEP_NONE` 일 때만 건너뛴다')
+    expect(sweep).toContain('`SWEEP_DIALECT_PENDING <sha>`')
+    expect(sweep).toContain(".claude/skills/dflow-merge/scripts/dialect-check.sh run --dev '<기본브랜치>'")
+    // 스윕을 건너뛴 세션에서 뒤의 직접 머지가 절차를 모르고 하지 않게 한다
+    expect(manual).toContain('`SWEEP_NONE` 으로 건너뛰어 아직 읽지 않았으면 먼저 읽는다')
+    expect(manual).toContain('`SWEEP_NONE` 으로 `/dflow-merge` SKILL.md 를 읽지 않았으면 먼저 읽는다')
+  })
+
   it('Phase 0 2번: spec 은 .order.item.spec 에서 읽고, 원래 위치를 기록하고 기점으로 옮긴 뒤 claim 하며, 실패하면 기록한 위치로 돌아간다', () => {
     const p02 = between(manual, '2. **착수 가능 판정', '3. **브랜치를 오케스트레이터가 직접 만든다**')
     expect(p02).toContain('show 의 `.order.item.spec` 이 비어 있으면')
