@@ -18,13 +18,14 @@
 # 도커 런타임이 꺼져 있으면 켜지 않는다(DFLOW_DOCKER_PROBE, 기본 `docker info` 로만 본다). 보류로 기록하고 다음
 # 스윕에서 같은 커밋을 다시 시도한다. 자동으로 되돌리거나 Task 를 재오픈하지 않는다.
 #
-# 상태: <git-common-dir>/dflow-dialect/<브랜치>.state (last_pass·last_fail·deferred·last_result), 로그 <브랜치>.log.
+# 상태: <git-common-dir>/dflow-dialect/<브랜치>.state (last_pass·last_fail·deferred·docs_only·last_result), 로그 <브랜치>.log.
 # 결과는 출력하기 전에 상태 파일에 먼저 기록한다(임시 파일 → mv). 10분을 넘겨 호출이 백그라운드로 옮겨져도 결과를
 # `status` 로 다시 읽을 수 있다.
 #
 # 출력(stdout, 마지막 줄이 결과):
 #   DIALECT_NONE                                             키가 없다 — 이 단계는 없다         exit 0
 #   DIALECT_SKIP passed|failed <sha>                         그 커밋은 이미 판정했다(다시 돌리지 않는다) exit 0
+#   DIALECT_SKIP docs-only <sha> since=<sha>                 직전 통과 이후 문서만 바뀌었다 — 이월(상태 docs_only) exit 0
 #   DIALECT_RUNNING <sha> pid=<pid>                          같은 브랜치의 검증이 아직 돈다       exit 0
 #   DIALECT_DEFERRED docker-off <sha> notify=<0|1>           도커 꺼짐 — 보류(다음 스윕에 다시)   exit 3
 #   DIALECT_BUSY <sha>                                       도커 슬롯이 차 있다 — 다음 스윕에 다시 exit 75
@@ -111,6 +112,44 @@ trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
 LAST_PASS=$(get last_pass); LAST_FAIL=$(get last_fail)
 [ "$SHA" = "$LAST_PASS" ] && { echo "DIALECT_SKIP passed $(short "$SHA")"; exit 0; }
 [ "$SHA" = "$LAST_FAIL" ] && { echo "DIALECT_SKIP failed $(short "$SHA")"; exit 0; }
+
+# 문서뿐 이월 — 직전 통과 커밋과 끝 커밋의 트리 차이가 문서뿐이면 끝 커밋의 코드는 이미 통과한 트리와 같다. 돌리지 않고
+# 다음 스윕으로 넘긴다(도커 확인보다 앞 — 꺼져 있어도 보류가 아니다). 기준은 last_pass 만 쓴다. --sweep-base 는 판정받은 적 없는
+# 트리라(앞 스윕의 보류·BUSY·오류로 남은 코드일 수 있다) 문서뿐 판정에 쓰지 않는다. diff 를 못 구하면 돌린다(fail-closed).
+# last_pass·last_result 는 옮기지 않는다 — 다음 실제 검증의 since·tasks 가 이월분을 포함하고, status 는 마지막 실제 판정을 낸다.
+# DIALECT_UNVERIFIED(도커 금지로 확인하지 못한 항목)가 있어도 돌리지 않는다: 코드가 통과한 트리와 같아 다시 돌려도 얻을 것이
+# 없고, 그런 표시를 남긴 Task 는 보통 코드도 바꿔 이 판정에 걸리지 않는다. 문서만 바꾼 Task 가 남긴 표시는 since 가 그대로라
+# 다음 실제 검증의 DIALECT_UNVERIFIED·unverified= 에 실린다.
+# 문서: *.md, docs/**, 작업 폴더(dflow.sh config tasks-dirs 의 <폴더>/<TSK>/)의 state.json·decisions.json·.issues·.result.
+# --no-renames: 코드를 문서 폴더로 옮긴 것을 새 경로만 보고 문서뿐으로 보지 않게 옛 경로도 낸다.
+# core.quotePath=false: 한글 파일명(docs/설계.md)이 "\354…" 로 따옴표 쳐져 문서 규칙에 안 걸리는 것을 막는다.
+docs_only() {
+  local f d td
+  td=$("$DFLOW" config tasks-dirs 2>/dev/null) || td=''   # 못 읽으면 작업 폴더 규칙만 빠진다(더 엄격해질 뿐이다)
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$f" in *.md|docs/*) continue ;; esac
+    while IFS= read -r d; do
+      [ -n "$d" ] || continue
+      case "${f#"$d"/}" in
+        "$f") ;;
+        */*/*) ;;
+        */state.json|*/decisions.json|*/.issues|*/.result) continue 2 ;;
+      esac
+    done <<EOF
+$td
+EOF
+    return 1
+  done
+  return 0
+}
+if [ -n "$LAST_PASS" ] && git cat-file -e "$LAST_PASS^{commit}" 2>/dev/null &&
+   CHANGED=$(git -c core.quotePath=false diff --no-renames --name-only "$LAST_PASS" "$SHA" 2>/dev/null) &&
+   printf '%s\n' "$CHANGED" | docs_only; then
+  put docs_only "$SHA"; put deferred ''
+  echo "DIALECT_SKIP docs-only $(short "$SHA") since=$(short "$LAST_PASS")"
+  exit 0
+fi
 
 # 도커 런타임 확인 — 켜지 않는다. 켜는 것은 사람이 한다
 if ! bash -c "${DFLOW_DOCKER_PROBE:-docker info}" >/dev/null 2>&1; then

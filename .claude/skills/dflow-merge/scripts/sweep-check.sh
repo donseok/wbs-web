@@ -24,7 +24,7 @@
 #   SWEEP_UNKNOWN <사유>                  판정하지 못했다(fetch·설정·git·jq 실패) — 호출자는 스윕을 **돌린다**(fail-open)
 # 판정 줄 앞에 올 수 있는 줄:
 #   SWEEP_DIALECT_PENDING <sha12|unknown> 방언 검증(dialect_check)이 개발 브랜치 끝 커밋을 아직 판정하지 않았다(보류·BUSY·
-#                                        오류 포함). SWEEP_NONE 이어도 호출자가 dialect-check.sh 를 직접 한 번 부른다.
+#                                        오류 포함, 문서뿐 이월 docs_only 제외). SWEEP_NONE 이어도 호출자가 dialect-check.sh 를 직접 한 번 부른다.
 set -u
 
 usage() { echo "사용법: sweep-check.sh [--dev <개발 브랜치>]" >&2; echo "SWEEP_UNKNOWN usage"; exit 2; }
@@ -134,7 +134,8 @@ elif [ -n "$dc" ]; then
   ST="$CD/dflow-dialect/$(printf '%s' "$DEV" | tr '/ ' '__').state"
   lp=$(sed -n 's/^last_pass=//p' "$ST" 2>/dev/null | head -n 1)
   lf=$(sed -n 's/^last_fail=//p' "$ST" 2>/dev/null | head -n 1)
-  [ "$TIP" = "$lp" ] || [ "$TIP" = "$lf" ] || echo "SWEEP_DIALECT_PENDING $(printf '%s' "$TIP" | cut -c1-12)"
+  ld=$(sed -n 's/^docs_only=//p' "$ST" 2>/dev/null | head -n 1)   # 문서뿐 이월도 판정이다(last_pass 는 옮기지 않는다)
+  [ "$TIP" = "$lp" ] || [ "$TIP" = "$lf" ] || [ "$TIP" = "$ld" ] || echo "SWEEP_DIALECT_PENDING $(printf '%s' "$TIP" | cut -c1-12)"
 fi
 
 if [ -n "$cands" ]; then

@@ -213,7 +213,7 @@ description 의 사용법에도 노출하지 않는다. 반려되지 않은 `sta
    "결정 번호 매김 실패(<출력>)"·`UNION_SET <파일>`·`DUP_REF_REPLACED`·`DUP_REF_AMBIGUOUS`(사람이 볼 위치)·`DUP_LEFT`·
    `DECISIONS_SEQ` 줄은 표 아래에 그 작업 id8 과 함께 그대로 적는다.
    보고를 쓰기 전에 「방언 검증」 을 한 번 돈다(스윕이 중간에 멈췄어도 돈다. 머지가 0건이어도 돈다 — 보류된 커밋을
-   다시 시도한다). 결과 줄(`DIALECT_*`)과 `DIALECT_UNVERIFIED` 줄을 표 아래에 그대로 싣는다.
+   다시 시도한다). 결과 줄(`DIALECT_*`, `DIALECT_SKIP` 제외)과 `DIALECT_UNVERIFIED` 줄을 표 아래에 그대로 싣는다.
 
 ## 방언 검증
 

@@ -28,6 +28,9 @@
   `DIALECT_RUNNING` 이다. 명령이 exit 126·127·128 이상(실행 불가·명령 없음·시그널로 죽음 — 잘못된 JAVA_HOME, OOM kill
   등)으로 끝나면 코드 판정이 아니므로 실패로 기록하지 않고 `DIALECT_ERROR exit=<n> <sha> notify=<0|1> log=<로그>` 로 낸다.
   다음 스윕이 같은 커밋을 다시 시도한다. 죽은 앞 호출이 남긴 임시 워크트리는 다음 호출이 치운다.
+- **문서뿐 이월**: 직전 통과 커밋 이후 바뀐 파일이 문서뿐(`*.md`·`docs/**`·작업 폴더의 `state.json` 등)이면 돌리지 않고
+  `DIALECT_SKIP docs-only <sha> since=<직전 통과>` 로 끝낸다. `last_pass` 는 그대로라 코드가 바뀐 다음 검증이 누적분을
+  `since`·`tasks`·`unverified` 에 싣는다. 보고에 싣지 않는다. 판정 목록·근거는 스크립트 머리와 `rationale.md` 「방언 검증」.
 - **실패**: `DIALECT_FAIL <sha> exit=<n> since=<직전 통과> tasks=<그 뒤 머지된 Task…> unverified=<…> log=<로그>`. tasks 는
   직전 통과 커밋(없으면 스윕 전 sha) 이후 개발 브랜치에 머지된 Task 다(머지 커밋 제목 `merge: <TSK> …`). 자동으로 되돌리거나
   Task 를 재오픈하지 않는다 — 보고만 한다.
@@ -36,5 +39,5 @@
   통과든 실패든 싣는다 — 워커가 도커 금지로 확인하지 못한 수용 기준을 이 결과와 사람이 대조한다.
 - 결과는 출력하기 전에 상태 파일에 먼저 적는다. 호출이 10분을 넘겨 백그라운드로 옮겨지거나 결과를 놓쳤으면
   `dialect-check.sh status --dev <기본브랜치>` 가 마지막 결과를 다시 낸다.
-- 결과 줄(`DIALECT_*`)과 `DIALECT_UNVERIFIED` 줄은 보고 표 아래에 그대로 싣는다. 호출자(`/dflow-team` 팀장)의 보고·기록
+- 결과 줄(`DIALECT_*`, `DIALECT_SKIP` 제외)과 `DIALECT_UNVERIFIED` 줄은 보고 표 아래에 그대로 싣는다. 호출자(`/dflow-team` 팀장)의 보고·기록
   방법은 그 스킬의 「4. 승인 스윕」 이다.
