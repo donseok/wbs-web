@@ -14,11 +14,15 @@ alter table public.agent_lead_leases add column if not exists heavy jsonb;
 comment on column public.agent_lead_leases.heavy is
   '팀장 PC 의 무거운 작업 요약 — {k, held, waiting, load, cpus}. lease 가 살아 있을 때만 유효.';
 
--- 대상은 이 holder 가 지금 쥔(만료 전) lease 의 프로젝트뿐이다. 주문은 claimed 이고 id 앞 8자리가 하나로 맞을 때만 적는다.
+-- 대상은 이 holder 가 지금 쥔(만료 전) lease 의 프로젝트뿐이다. 주문은 claimed 이고 이 신원이 점유했으며(팀원은 팀장과 같은
+-- PAT 신원으로 claim 한다) id 앞 8자리가 하나로 맞을 때만 적는다 — 한 프로젝트에 두 신원의 팀장이 있어도 남의 좌석에 쓰지 않는다.
 -- 이 팀장이 적었는데(by) 이번 목록에 없는 주문은 비운다. 값이 같으면 쓰지 않는다(매분 같은 값을 다시 쓰지 않게).
 create or replace function public.lead_lease_heavy(p_user uuid, p_holder text, p_pc jsonb, p_orders jsonb)
 returns integer
-language plpgsql as $$
+language plpgsql
+-- renew 응답이 이 기록을 기다린다. 주문 행 잠금을 오래 기다리면 팀장 renew 가 시간 초과로 실패 1회가 된다 — 짧게 포기한다.
+set lock_timeout = '2s'
+as $$
 declare
   v_proj uuid[];
   n integer;
@@ -39,6 +43,7 @@ begin
       from want w
       join public.agent_work_orders o
         on left(o.id::text, 8) = w.id8 and o.status = 'claimed' and o.project_id = any(v_proj)
+       and o.claimed_by_user_id = p_user
      group by w.id8
     having count(*) = 1
   ), cleared as (
