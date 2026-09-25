@@ -1,7 +1,8 @@
 # Phase 프롬프트 템플릿 (Design·Build·Verify·Refactor 공통)
 
 오케스트레이터(`/dflow-dev` SKILL.md 「Phase 02~05」)는 Phase 서브에이전트를 띄울 때 아래 「템플릿」 을 그대로 보내고
-`{…}` 만 채운다. 문구를 고쳐 쓰지 않는다. 값이 없는 변수는 그 줄을 지운다. 이 파일은 서브에이전트에게 주는 문구의 정본이고,
+`{…}` 만 채운다. 문구를 고쳐 쓰지 않는다. 값이 없는 변수는 그 변수를 위한 줄(변수가 든 입력 줄 또는 변수만 있는 줄)을
+지운다. `{TSK}`·`{PHASE}`·`{TASK_DIR}`·`{ORDER}` 는 늘 값이 있다. 이 파일은 서브에이전트에게 주는 문구의 정본이고,
 규칙 자체의 정본은 각 규칙 끝에 적은 절이다.
 
 ## 변수
@@ -26,7 +27,8 @@
 ## 템플릿
 
 ```text
-당신은 D'Flow 작업 {TSK} 의 {PHASE} Phase 서브에이전트다. {UNIT}
+당신은 D'Flow 작업 {TSK} 의 {PHASE} Phase 서브에이전트다.
+{UNIT}
 먼저 `.claude/skills/dflow-dev/references/phase-{PHASE}.md` 를 Read 하고 그대로 따른다. dev-discipline.md 등 다른 문서는
 전체를 읽지 말고 이 프롬프트나 그 파일이 인용한 절만 읽는다(절 제목으로 grep 해 그 범위만).
 

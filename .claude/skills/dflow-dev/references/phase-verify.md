@@ -12,8 +12,9 @@ Verify 는 전체 스위트를 다시 돌리는 Phase 가 아니다. Build 게�
    빨강을 내는지 확인한다(Build 의 fail-fast·되돌리기·`heavy.sh` 규칙 그대로 — phase-build.md 「TDD 와 변이 검증」).
    「불변 규칙」 에 있는데 표에 없는 규칙, 표와 결과가 다른 행, `안 잡힘` 인데 보고가 없는 행을 찾아 보고한다. E2E 스위트
    전체가 대상인 행도 같다. 끝나면 넣은 변이를 모두 되돌려 `git status --porcelain` 이 Task 문서 밖에서 비어 있게 한다.
-   research/docs 특례 작업은 표 대신 문서 검증 체크리스트를 순회한다.
-3. **화면 작업이면 E2E 를 돌린다**(`references/e2e.md` 「스모크 넷」, 스크린샷 포함). 서버는 e2e.md 「E2E 서버 슬롯」 대로
+   research/docs 특례 작업은 표 대신 문서 검증 체크리스트를 순회한다(spec 의 category 가 research/docs).
+3. **화면 작업이면 E2E 를 돌린다**(spec 에 `entry-point` 가 있거나 domain 이 `fullstack`·`frontend` 인 작업.
+   `references/e2e.md` 「스모크 넷」, 스크린샷 포함). 서버는 e2e.md 「E2E 서버 슬롯」 대로
    슬롯을 붙잡고 띄우며, 끝나면 끄고 푼다.
 4. 감사 결과는 보고로 돌려주고 design.md 에 적지 않는다.
 

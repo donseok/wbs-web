@@ -120,7 +120,7 @@ describe('변이 검증은 Build 한 곳, Verify 는 감사', () => {
     expect(SKILL).toContain('state.json 의 `build_gate`')
   })
   it('research/docs 특례 작업은 기록 표 대신 문서 검증 체크리스트를 쓴다(Build·Verify·오케스트레이터 감사 셋 다)', () => {
-    expect(build).toContain('research/docs 특례 작업(dev-discipline.md 「research/docs 작업 특례」)은 변이할 코드가 없으므로')
+    expect(build).toContain('research/docs 특례 작업(spec 의 category 가 research/docs. dev-discipline.md 「research/docs 작업 특례」)은 변이할 코드가 없으므로')
     expect(verify).toContain('research/docs 특례 작업은 표 대신 문서 검증 체크리스트를 순회한다')
     expect(SKILL).toContain('research/docs 특례 작업(dev-discipline 「research/docs 작업 특례」)은 표 대신')
   })
@@ -193,5 +193,18 @@ describe('Build 구현 단위(단위마다 서브에이전트, 상한과 인계)
     expect(SKILL).toContain('`build_unit`(선택)은 지금 도는 구현 단위')
     expect(SKILL).toContain('단위가 몇 개든 `phase` 는 Build 동안 `build` 하나다')
     expect(SKILL).toContain('띄우기 직전 state.json 의 `model` 과 `build_unit` 을 쓴다')
+  })
+  it('재개는 단위 커밋 트레일러(DFlow-Unit)로 끝난 단위를 가린다', () => {
+    expect(BUILD).toContain('`--trailer "DFlow-Unit: <단위> done"`')
+    expect(BUILD).toContain('`--trailer "DFlow-Unit: <단위> handoff"`')
+    expect(SKILL).toContain("git log <기점>..HEAD --grep='DFlow-Unit: <단위> done' --format=%h")
+  })
+  it('템플릿의 빈 변수 지우기가 정체 문장을 지우지 않는다({UNIT} 은 제 줄에 있다)', () => {
+    expect(PROMPT).toContain("Phase 서브에이전트다.\n{UNIT}\n")
+    expect(PROMPT).toContain('`{TSK}`·`{PHASE}`·`{TASK_DIR}`·`{ORDER}` 는 늘 값이 있다')
+  })
+  it('화면 작업의 정의가 Build·Verify 파일과 오케스트레이터 읽기 목록에 있다', () => {
+    for (const doc of [BUILD, VERIFY]) expect(flat(doc)).toContain('spec 에 `entry-point` 가 있거나 domain 이 `fullstack`·`frontend`')
+    expect(flat(SKILL)).toContain('「화면 작업의 브라우저 E2E」·「도커 사용 규칙」')
   })
 })

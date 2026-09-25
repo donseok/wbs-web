@@ -22,7 +22,7 @@ description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕
 > 중복 서술하지 않고 오케스트레이션(순서·게이트 집행·상태·서버 보고)만 정의한다.
 >
 > **시작할 때 읽는 것**: **`.claude/skills/dflow-dev/references/dev-discipline.md`** 의 「게이트 기준선」(「기준선 캐시」·
-> 「research/docs 작업 특례」 포함)·「도커 사용 규칙」·「Phase 정의」·「Phase 05 — Refactor」·「모델 배정」·「무거운 명령 줄
+> 「research/docs 작업 특례」 포함)·「화면 작업의 브라우저 E2E」·「도커 사용 규칙」·「Phase 정의」·「Phase 05 — Refactor」·「모델 배정」·「무거운 명령 줄
 > 세우기」·「포그라운드 실행(백그라운드 게이트 금지)」·「공통 금지」 절을 읽고 그대로 따른다. 「공용 결정 기록(decisions.md)의
 > 번호」·「마이그레이션 버전」 은 그 일이 생길 때 읽는다. Phase 서브에이전트에게 주는 문구는 `references/phase-prompt.md` 다.
 > 규칙의 이유·사고 이력은 `references/rationale.md` 에 있다(실행 중에는 읽지 않는다).
@@ -296,7 +296,9 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
   `TaskStop` 하고 다음 단위를 띄운다. `UNIT_HANDOFF <단위>` 면 build-log.md `## 인계 <단위>` 가 커밋됐는지 확인하고
   TaskStop 한 뒤 같은 단위를 새 에이전트로 이어 띄운다(프롬프트에 그 인계 절을 넣는다). 이어 띄우기는 단위마다 2회까지다.
   세 번째 인계나 둘 다 아닌 보고는 Build 실패다(아래 4번).
-- 재개하면 커밋과 build-log.md 로 끝난 단위를 확인하고 남은 단위부터 띄운다.
+- 재개하면 끝난 단위를 커밋 트레일러로 가린다 — `git log <기점>..HEAD --grep='DFlow-Unit: <단위> done' --format=%h` 가 한 줄
+  이상이면 끝난 단위다(단위 커밋 규칙은 phase-build.md 「구현 단위」). 남은 단위부터 띄우고, 마지막 인계가 있으면
+  build-log.md `## 인계 <단위>` 를 프롬프트에 넣는다.
 - 마지막 단위가 끝나면 Build 게이트를 돈다(아래 1번). Build 게이트 재시도(아래 4번)는 마지막 단위의 에이전트에 이어 붙인다.
 
 **띄우기 직전에 state.json 의 `model` 을 그 서브에이전트의 모델로 쓴다** — Agent 도구에 넘기는 값 그대로
