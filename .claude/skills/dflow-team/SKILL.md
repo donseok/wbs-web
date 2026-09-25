@@ -681,7 +681,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
   요청을 하나도 처리하지 않고 사유를 한 줄 보고한 뒤 다음 기상에 다시 읽는다. 빈 배열(`n` 이 0)과 절대
   뭉개지 않는다.
 - `host` 가 이 PC 의 `<host>` 슬러그와 **글자 그대로 같은 것만** 「5-1. 재개 spawn」 으로 보낸다(서버가 `claimed_by` 에서
-  파생한 값이다). 다른 값이면 **"멈춤" 표에 사유 `다른 PC claim` 으로 적고 띄우지 않는다.**
+  파생한 값이다. 팀장이 다시 계산하지 않는다). 다른 값이면 **"멈춤" 표에 사유 `다른 PC claim` 으로 적고 띄우지 않는다.**
 - **팀장은 표식을 지우지 않으며 확인 응답도 보내지 않는다.** 되살아난 워커의 첫 heartbeat 가 그것을 비우고,
   회수 뒤 재claim 하는 경로에서는 claim 라우트가 지운다.
 `WATCH_FAILED`(watch 호출 실패)·`HOLDER_FAILED`(`lease holder` 조회가 실패해 watch 를 아예 부르지 않은 것. 빈 `--holder`
