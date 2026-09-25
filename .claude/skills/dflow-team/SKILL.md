@@ -1084,6 +1084,8 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
 0. **입장 제어는 spawn 블록이 집행한다**(「5-3. 입장 제어」). 5항에서 도는 backends.md 의 spawn 블록이 첫 단계에서
    `capacity.sh` 를 부르고, 막히면 `SPAWN_DEFERRED_CAPACITY` 를 내고 아무것도 만들지 않은 채 끝난다. 그러면 6항
    (`team.spawn`·진행 중 제외)을 하지 않고 이 작업을 대기 큐에 되돌리며, 이번 기상의 나머지 spawn 도 하지 않는다. 재개(「5-1」)·해소(「5-2」)·재투입도 같다.
+   **새 작업만은** 그 블록 전에 주간 사용량도 본다: `.claude/skills/dflow-team/scripts/capacity.sh usage --live <점유 슬롯 수(이번 기상에 띄운 것 포함)> --state "$(git rev-parse --git-path dflow-team.usage)"`.
+   exit 1(`CAPACITY_USAGE_STOP`, `CAPACITY_USAGE_CAP … defer=1`)이면 `SPAWN_DEFERRED_CAPACITY` 와 같이 새 작업만 미룬다. 알림은 `notify=1` 일 때만 그 줄 그대로 한 줄. 근거는 rationale.md 「5-3」.
 1. 그 id8 이 재구성한 슬롯 표에 있으면 띄우지 않는다(poll 이 겹쳐 떠서 같은 ready 를 두 번 돌려줘도 한 번만 띄운다).
 2. 슬롯 번호를 정하고(「팀장 상태」 의 발급 규칙) `AGENT_ID = <신원>/<host>/w<slot>` 을 만든다.
 3. TSK 는 show 필터의 `ref`(`.order.item.external_ref`)에서 마지막 `/` 뒤, order 는 `.order.id` 다.

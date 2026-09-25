@@ -13,6 +13,24 @@
 #     CAPACITY_LOW     <사유…> | free=… swap=… load=… heavy_wait=… …                                  exit 1  (이번에는 띄우지 않는다)
 #     CAPACITY_UNKNOWN <사유> | …                                                                     exit 0  (막지 않는다)
 #   capacity.sh max                팀 인원 상한. 출력 한 줄: TEAM_MAX <n> k=<K> ram=<GB>GB source=<default|DFLOW_TEAM_MAX> …
+#   capacity.sh usage --live <n> [--state <파일>]
+#                                  주간 사용량 판정 — **새 작업 spawn(SKILL.md 「5」) 전용**. 재개·재투입·해소는 부르지 않는다.
+#                                  <n> 은 지금 떠 있는 팀원 수(점유 슬롯, 이번 기상에 띄운 것 포함). 출력 한 줄:
+#     CAPACITY_USAGE_OK      weekly=42 live=1 age=60s src=fresh limits=…                exit 0
+#     CAPACITY_USAGE_CAP     max=2 weekly=91 live=2 defer=1 age=… src=… limits=…        exit 1 (defer=0 이면 exit 0)
+#     CAPACITY_USAGE_STOP    weekly=96 live=1 defer=1 age=… src=… limits=…              exit 1
+#     CAPACITY_USAGE_UNKNOWN <사유> — 막지 않는다 | live=…                               exit 0
+#   exit 1 이면 그 새 작업을 띄우지 않는다(SPAWN_DEFERRED_CAPACITY 와 같은 처리). --state 는 위와 같되 **사용량 띠**
+#   (없음=OK·UNKNOWN / CAP / STOP)가 바뀔 때만 notify=1 이다 — 팀원 수로 defer 가 오가도 알림은 되풀이하지 않는다.
+#   입장 제어와 다른 상태 파일(git-path dflow-team.usage)을 쓴다.
+#
+# 주간 사용량의 출처: 팀원 statusLine 덤프 ~/.dflow/limits/<id8>.json(`{at, rate_limits}`, ../references/backends.md
+#   「statusLine 덤프」). 계정 전체 값이므로 seven_day 가 있는 덤프 가운데 at 이 가장 큰 것 하나를 쓴다(<id8>.settings.json·
+#   .tmp 는 덤프가 아니다). 주간 창이 아직 안 끝났으면(seven_day.resets_at > 지금) 30분 넘은 덤프도 쓴다(src=old) — 창
+#   안에서 사용률은 줄지 않으므로 옛 값은 지금 값의 하한이다. 덤프·seven_day·jq 가 없거나 창이 이미 해제됐으면
+#   CAPACITY_USAGE_UNKNOWN(막지 않는다, fail-open). 근거: ../references/rationale.md 「5-3」.
+#   기준: DFLOW_CAP_WEEKLY_CAP_PCT(90) 이상이면 동시 팀원 DFLOW_CAP_WEEKLY_MAX(2)명까지, DFLOW_CAP_WEEKLY_STOP_PCT(95) 이상이면
+#   새 작업 없음. 시험용 주입: DFLOW_CAP_LIMITS_DIR(~/.dflow/limits 대신).
 #
 # 측정하지 못한 항목은 `?` 로 적고 `unknown=<항목,…>` 을 붙인다. 판정은 읽은 항목만으로 한다. 자원 항목(free·swap·load)
 # 을 하나도 못 읽고 막을 사유도 없으면 CAPACITY_UNKNOWN 이다.
@@ -45,11 +63,14 @@ set -u
 
 MODE=check
 STATE=
+LIVE=
 while [ $# -gt 0 ]; do
   case "$1" in
     --state) STATE="${2:-}"; shift 2 ;;
+    --live) LIVE="${2:-}"; shift 2 ;;
     max) MODE=max; shift ;;
-    *) echo "사용법: capacity.sh [--state <파일>] | capacity.sh max" >&2; exit 2 ;;
+    usage) MODE=usage; shift ;;
+    *) echo "사용법: capacity.sh [--state <파일>] | capacity.sh max | capacity.sh usage --live <n> [--state <파일>]" >&2; exit 2 ;;
   esac
 done
 
@@ -75,6 +96,68 @@ ram_gb() {
   isint "$kb" && { echo $(( (kb + 524288) / 1048576 )); return 0; }
   return 1
 }
+
+# --state 공통: 지난 줄의 첫 낱말과 이번 첫 낱말을 띠로 바꿔 비교해 다르면 notify=1, 같으면 notify=0 을 붙여 출력하고
+# 이번 줄을 파일에 적는다. 띠는 첫 낱말에 $2(sed 식, 빈 값이면 첫 낱말 그대로)를 적용한 것이다.
+with_notify() {   # $1=이번 줄 $2=띠 sed 식 $3=파일이 없을 때 볼 지난 첫 낱말
+  local line="$1" prev cur
+  prev=$(sed -n '1s/^[0-9]* \([A-Z_]*\).*/\1/p' "$STATE" 2>/dev/null)
+  prev=$(printf '%s\n' "${prev:-$3}" | sed "$2"); cur=$(printf '%s\n' "${line%% *}" | sed "$2")
+  if [ "$prev" = "$cur" ]; then line="$line notify=0"; else line="$line notify=1"; fi
+  printf '%s %s\n' "$(date +%s)" "$line" > "$STATE" 2>/dev/null || line="$line state_write_failed"
+  echo "$line"
+}
+
+if [ "$MODE" = usage ]; then
+  isnum "${DFLOW_CAP_WEEKLY_CAP_PCT:-}" && CAPP="$DFLOW_CAP_WEEKLY_CAP_PCT" || CAPP=90
+  isnum "${DFLOW_CAP_WEEKLY_STOP_PCT:-}" && STOPP="$DFLOW_CAP_WEEKLY_STOP_PCT" || STOPP=95
+  if isint "${DFLOW_CAP_WEEKLY_MAX:-}" && [ "$DFLOW_CAP_WEEKLY_MAX" -ge 1 ]; then WMAX="$DFLOW_CAP_WEEKLY_MAX"; else WMAX=2; fi
+  isint "$LIVE" || LIVE='?'
+  LIM="${DFLOW_CAP_LIMITS_DIR:-$HOME/.dflow/limits}"
+  now=$(date +%s)
+  limits="limits=cap>=${CAPP}%:max${WMAX},stop>=${STOPP}%"
+  why=; best=; nd=0; rows=
+  if ! command -v jq >/dev/null 2>&1; then
+    why='jq 없음'
+  else
+    # 덤프 파일마다 D 한 줄, at·seven_day 사용률·해제 시각이 모두 수이면 그 셋을 한 줄 더 낸다(깨진 파일은 그 파일만 건너뛴다)
+    rows=$(for f in "$LIM"/*.json; do
+      [ "${f%.settings.json}" = "$f" ] || continue   # <id8>.settings.json 은 덤프가 아니다($( ) 안 case 는 bash 3.2 가 못 읽는다)
+      [ -f "$f" ] || continue          # 빈 glob 은 글자 그대로 남는다(Git Bash 포함)
+      echo D
+      jq -r '[.at, .rate_limits.seven_day.used_percentage, .rate_limits.seven_day.resets_at]
+             | select(all(.[]; type == "number")) | @tsv' "$f" 2>/dev/null
+    done)
+    nd=$(printf '%s\n' "$rows" | awk '$0 == "D" { n++ } END { print n + 0 }')
+    best=$(printf '%s\n' "$rows" | awk -F '\t' 'NF == 3 && (l == "" || $1 + 0 > m + 0) { m = $1; l = $0 } END { if (l != "") print l }')
+    if [ "$nd" -eq 0 ]; then why='덤프 없음'
+    elif [ -z "$best" ]; then why='seven_day 없음'
+    fi
+  fi
+  if [ -z "$why" ]; then
+    set -- $best; at="$1"; wp="$2"; rs="$3"
+    if awk -v r="$rs" -v n="$now" 'BEGIN { exit !(r <= n) }'; then why='덤프 오래됨(창 해제 지남)'; fi
+  fi
+  if [ -n "$why" ]; then
+    line="CAPACITY_USAGE_UNKNOWN $why — 막지 않는다 | live=$LIVE $limits"; rc=0
+  else
+    age=$(awk -v a="$at" -v n="$now" 'BEGIN { d = n - a; if (d < 0) d = 0; printf "%d", d }')
+    src=fresh; [ "$age" -le 1800 ] || src=old
+    w=$(awk -v p="$wp" 'BEGIN { printf "%d", p }')
+    tail="age=${age}s src=$src $limits"
+    if awk -v p="$wp" -v t="$STOPP" 'BEGIN { exit !(p >= t) }'; then
+      line="CAPACITY_USAGE_STOP weekly=$w live=$LIVE defer=1 $tail"; rc=1
+    elif awk -v p="$wp" -v t="$CAPP" 'BEGIN { exit !(p >= t) }'; then
+      if [ "$LIVE" != '?' ] && [ "$LIVE" -ge "$WMAX" ]; then d=1; rc=1; else d=0; rc=0; fi
+      line="CAPACITY_USAGE_CAP max=$WMAX weekly=$w live=$LIVE defer=$d $tail"
+    else
+      line="CAPACITY_USAGE_OK weekly=$w live=$LIVE $tail"; rc=0
+    fi
+  fi
+  if [ -n "$STATE" ]; then with_notify "$line" 's/^CAPACITY_USAGE_UNKNOWN$/CAPACITY_USAGE_OK/' CAPACITY_USAGE_OK
+  else echo "$line"; fi
+  exit "$rc"
+fi
 
 if [ "$MODE" = max ]; then
   g=$(ram_gb) || g=
@@ -188,12 +271,5 @@ else
   line="CAPACITY_OK $metrics"; rc=0
 fi
 
-if [ -n "$STATE" ]; then
-  prev=$(sed -n '1s/^[0-9]* \([A-Z_]*\).*/\1/p' "$STATE" 2>/dev/null)
-  cur=${line%% *}
-  if [ "${prev:-CAPACITY_OK}" = "$cur" ]; then line="$line notify=0"; else line="$line notify=1"; fi
-  printf '%s %s\n' "$(date +%s)" "$line" > "$STATE" 2>/dev/null || line="$line state_write_failed"
-fi
-
-echo "$line"
+if [ -n "$STATE" ]; then with_notify "$line" '' CAPACITY_OK; else echo "$line"; fi
 exit "$rc"
