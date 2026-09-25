@@ -198,6 +198,15 @@ describe('Build 구현 단위(단위마다 서브에이전트, 상한과 인계)
     expect(BUILD).toContain('`--trailer "DFlow-Unit: <단위> done"`')
     expect(BUILD).toContain('`--trailer "DFlow-Unit: <단위> handoff"`')
     expect(SKILL).toContain("git log <기점>..HEAD --grep='DFlow-Unit: <단위> done' --format=%h")
+    // 이어 띄우기 2회는 세션 기억이 아니라 인계 트레일러로 센다(재개해도 이어진다). 단위 하나짜리도 트레일러를 붙인다
+    expect(SKILL).toContain("git log <기점>..HEAD --grep='DFlow-Unit: <단위> handoff' --format=%h` 줄 수로 센다")
+    expect(BUILD).toContain('단위가 하나여도 `--trailer "DFlow-Unit: <단위> handoff"`')
+  })
+  it('Build 게이트 재시도는 단위 범위 제한을 풀고, 재시도 중 인계는 단위 상한에 들며, 회수는 -c<n> 을 포함한 이름으로 한다', () => {
+    expect(flat(SKILL)).toContain('"재시도 때는 단위 범위 제한 없이 Build 전체를 고친다" 를 넘겨')
+    expect(flat(SKILL)).toContain('재시도 중 인계(`UNIT_HANDOFF`)는 단위 상한 2회에 포함하고')
+    expect(BUILD).toContain('다른 단위의 파일은 고치지 않는다(Build 게이트 재시도 때는 Build 전체를 고친다)')
+    expect(SKILL).toContain('Build 는 띄울 때 붙인 이름 그대로(`-c<n>` 포함) 회수하고')
   })
   it('템플릿의 빈 변수 지우기가 정체 문장을 지우지 않는다({UNIT} 은 제 줄에 있다)', () => {
     expect(PROMPT).toContain("Phase 서브에이전트다.\n{UNIT}\n")
