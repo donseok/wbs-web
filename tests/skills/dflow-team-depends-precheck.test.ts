@@ -121,6 +121,8 @@ describe('dflow-team — 선행 대기 블록', () => {
   it('SKILL.md: poll 은 --wait-cycles 40 과 --exclude-wait 로 띄우고, 선행 대기는 일시 제외에 넣지 않는다', () => {
     expect(team).toContain('--wait-cycles 40 [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] [--exclude-wait <id8,id8>] )')
     expect(team).toContain('일시 제외가 아니라 **선행 대기**에 넣는다')
-    expect(team).toContain('선행 대기 목록은\n  기억이 아니라')
+    // 2026-09-25 문장 압축: 목록은 기억이 아니라 선행 대기 블록 출력으로 복원한다(「팀장 상태」·「2-3」)
+    expect(team).toContain('선행 대기 목록은\n  「2-3」 의 선행 대기 블록 출력으로 복원한다')
+    expect(team).toContain('목록은 기억이 아니라 이 출력이 정본이며')
   })
 })
