@@ -27,13 +27,13 @@ const OTHERS: [string, string][] = [
 ]
 const between = (t: string, a: string, b: string) => t.split(a)[1]?.split(b)[0] ?? ''
 const count = (t: string, s: string) => t.split(s).length - 1
-const RULE = between(DISC, '## 도커 사용 규칙', '## Phase 02 — Design')
+const RULE = between(DISC, '## 도커 사용 규칙', '## Phase 정의')
 
 describe('dev-discipline 「도커 사용 규칙」(정본)', () => {
-  it('서버 프로세스 절 바로 뒤, Phase 02 앞에 새 절로 있다', () => {
+  it('서버 프로세스 절 바로 뒤, Phase 정의 앞에 새 절로 있다', () => {
     const iServer = DISC.indexOf('### 서버 프로세스 (정본')
     const iRule = DISC.indexOf('## 도커 사용 규칙 (정본')
-    const iDesign = DISC.indexOf('## Phase 02 — Design')
+    const iDesign = DISC.indexOf('## Phase 정의')
     expect(iServer).toBeGreaterThan(0)
     expect(iRule).toBeGreaterThan(iServer)
     expect(iDesign).toBeGreaterThan(iRule)

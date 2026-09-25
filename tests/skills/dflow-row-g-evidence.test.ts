@@ -49,9 +49,12 @@ describe('행 G 기본 브랜치 반영 확인: head_sha 조상 확인을 첫 �
 })
 
 describe('커밋 규칙: 모든 커밋에 DFlow-Order 트레일러를 붙인다', () => {
-  it('dev-discipline.md 가 Design·Build·Verify·Refactor·Phase 06 전부에 트레일러 부착을 못 박는다', () => {
-    expect(discipline).toContain('모든 커밋에 `--trailer "DFlow-Order: <주문 UUID>"` 를 붙인다')
-    expect(discipline).toContain('워커·수동 경로 모두 예외 없다')
+  it('Phase 서브에이전트 커밋(phase-prompt.md 공통 규칙 1)과 SKILL 커밋 규칙이 전부에 트레일러 부착을 못 박는다', () => {
+    // Phase 규율은 dev-discipline.md 에서 Phase 파일·프롬프트 템플릿으로 옮겼다
+    const prompt = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/phase-prompt.md'), 'utf8')
+    expect(prompt).toContain('모든 커밋에 `--trailer "DFlow-Order: {ORDER}"` 를 붙인다')
+    expect(dev).toContain('워커·수동 경로 모두 예외 없다')
+    expect(discipline).toContain('`phase-prompt.md`')
   })
 
   it('/dflow-dev SKILL.md 공통 프롬프트 절이 트레일러 규칙을 가리킨다', () => {

@@ -14,17 +14,18 @@ const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests
 const dflowDev = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
 const dflowTeam = () => readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 const devDiscipline = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
+// 서브에이전트에게 주는 문구는 phase-prompt.md 템플릿으로 옮겼다(줄바꿈 위치는 보지 않는다)
+const phasePrompt = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/phase-prompt.md'), 'utf8').replace(/\s+/g, ' ')
 
 describe('dflow-dev: Phase 서브에이전트 공통 프롬프트의 포그라운드 실행 규칙', () => {
-  it('게이트·변이 검증 스윕·테스트를 run_in_background 로 띄우지 않는 문구를 공통 프롬프트에 포함하고 dev-discipline.md 를 가리킨다', () => {
-    const skill = dflowDev()
-    expect(skill).toContain('**포그라운드 실행 규칙**')
-    expect(skill).toContain('(dev-discipline.md 「포그라운드 실행(백그라운드 게이트\n금지)」)')
-    expect(skill).toContain('게이트·변이 검증 스윕·테스트를 run_in_background 로 띄우지')
-    expect(skill).toContain('말고 포그라운드로 끝까지 돌린다(필요하면 Bash timeout 을 길게 준다)')
-    expect(skill).toContain('결과는 보고에 담는다')
-    expect(skill).toContain('띄웠다면 그 작업이 끝나 결과를 확인하기 전에는 턴을 끝내지 않는다')
-    expect(skill).toContain('dmes-standard TSK-03-01')
+  it('게이트·변이 검증 스윕·테스트를 run_in_background 로 띄우지 않는 문구를 공통 프롬프트(phase-prompt.md)에 포함하고 dev-discipline.md 를 가리킨다', () => {
+    const p = phasePrompt()
+    expect(p).toContain('4. 포그라운드:')
+    expect(p).toContain('dev-discipline.md 「포그라운드 실행(백그라운드 게이트 금지)」')
+    expect(p).toContain('게이트·변이 검증 스윕·테스트를 run_in_background 로 띄우지 말고 포그라운드로 끝까지 돌린다(필요하면 Bash timeout 을 길게 준다)')
+    expect(p).toContain('결과는 보고에 담는다')
+    expect(p).toContain('띄웠다면 그 작업이 끝나 결과를 확인하기 전에는 턴을 끝내지 않는다')
+    expect(dflowDev()).toContain('dmes-standard TSK-03-01')
   })
 
   it('dev-discipline.md 가 정본 절을 갖고, 두 소비자(dflow-dev·무인 러너) 공통이라고 밝힌다', () => {
@@ -49,16 +50,16 @@ describe('dflow-dev: Phase 서브에이전트 공통 프롬프트의 포그라�
     const doc = devDiscipline()
     expect(doc).toContain('600000ms=10분')
     expect(doc).toContain('하네스가 그 호출을\n   자동으로 백그라운드로 옮기며')
-    const skill = dflowDev()
-    expect(skill).toContain('Bash 의 timeout 은 최대 600000ms(10분)')
-    expect(skill).toContain("하네스가 시간 초과로 자동으로\n백그라운드로 옮긴 경우도 위 '백그라운드로 띄웠다면'과 똑같이 다룬다")
+    const p = phasePrompt()
+    expect(p).toContain('Bash 의 timeout 은 최대 600000ms(10분)')
+    expect(p).toContain("하네스가 시간 초과로 자동으로 백그라운드로 옮긴 경우도 위 '백그라운드로 띄웠다면'과 똑같이 다룬다")
   })
 
-  it('공통 프롬프트 삽입 지점은 --worker 표지 블록(E) 바로 앞이 아니다(표지 블록 검사 보호)', () => {
+  it('공통 프롬프트 문구는 phase-prompt.md 에 있고, SKILL 의 --worker 표지 블록(E) 바로 앞은 커밋 규칙 문단이다(표지 블록 검사 보호)', () => {
     const skill = dflowDev()
     // 「커밋 규칙에는 ...」 문단이 여전히 표지 블록(E) 바로 앞의 마지막 문단이어야
     // tests/skills/dflow-dev-worker.test.ts 의 표지 prev 검사가 깨지지 않는다.
-    const idx = skill.indexOf('**포그라운드 실행 규칙**')
+    const idx = skill.indexOf('`.claude/skills/dflow-dev/references/phase-prompt.md` 의 템플릿')
     const commitRuleIdx = skill.indexOf('커밋 규칙에는 **모든 커밋에')
     const workerBeginIdx = skill.indexOf('<!-- worker:begin -->\n`--worker` 면 공통 프롬프트에 git 절대경로')
     expect(idx).toBeGreaterThan(-1)

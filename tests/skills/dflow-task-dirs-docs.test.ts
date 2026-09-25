@@ -5,7 +5,9 @@ import { join } from 'node:path'
 
 describe('스킬 문서의 작업 폴더', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
-  const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-merge/SKILL.md',
+  const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-dev/references/phase-prompt.md',
+    'dflow-dev/references/phase-design.md', 'dflow-dev/references/phase-build.md', 'dflow-dev/references/phase-verify.md',
+    'dflow-dev/references/phase-refactor.md', 'dflow-dev/references/e2e.md', 'dflow-dev/references/rationale.md', 'dflow-merge/SKILL.md',
     'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
     'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
     'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']
@@ -144,7 +146,9 @@ describe('스킬 문서의 작업 폴더', () => {
 // 들여쓴 here-doc 은 종결자(`     EOF`)가 인식되지 않아 뒤를 전부 삼키고 exit 0 으로 끝난다.
 describe('들여쓴 bash 블록의 붙여넣기 안전성', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
-  const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-merge/SKILL.md',
+  const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-dev/references/phase-prompt.md',
+    'dflow-dev/references/phase-design.md', 'dflow-dev/references/phase-build.md', 'dflow-dev/references/phase-verify.md',
+    'dflow-dev/references/phase-refactor.md', 'dflow-dev/references/e2e.md', 'dflow-dev/references/rationale.md', 'dflow-merge/SKILL.md',
     'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
     'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
     'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']

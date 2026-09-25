@@ -467,8 +467,20 @@ describe('dev-discipline 「무거운 명령 줄 세우기」 정본', () => {
   })
   it('기준선·Verify 문단이 정본을 가리킨다', () => {
     const base = DISC.slice(DISC.indexOf('## 게이트 기준선'), DISC.indexOf('### research/docs'))
-    const verify = DISC.slice(DISC.indexOf('## Phase 04'), DISC.indexOf('## Phase 05'))
+    // Verify 규율은 phase-verify.md 로 옮겼다
+    const verify = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/phase-verify.md'), 'utf8')
     expect(base).toContain('「무거운 명령 줄 세우기」')
     expect(verify).toContain('「무거운 명령 줄 세우기」')
+  })
+  it('E2E 서버 슬롯 절차(acquire → 서버 → 종료 → release)는 e2e.md 가 정본이고 정본 절이 그곳을 가리킨다', () => {
+    const e2e = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/e2e.md'), 'utf8')
+    const slot = e2e.slice(e2e.indexOf('## E2E 서버 슬롯'))
+    expect(slot).toContain('`.claude/skills/dflow-dev/scripts/heavy.sh acquire e2e-<TSK>`')
+    expect(slot).toContain('`HEAVY_ACQUIRED`')
+    expect(slot).toContain('`HEAVY_REUSE`')
+    expect(slot).toContain('**E2E 가 끝나면 성공·실패·중단과 상관없이 서버를 반드시 종료한다**')
+    expect(slot).toContain('`.claude/skills/dflow-dev/scripts/heavy.sh release`')
+    expect(slot).toContain('`DFLOW_HEAVY_HOLD_TTL`')
+    expect(sec).toContain('`references/e2e.md` 「E2E 서버 슬롯」')
   })
 })
