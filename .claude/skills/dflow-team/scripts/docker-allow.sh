@@ -8,6 +8,10 @@
 #
 # 사용법
 #   docker-allow.sh <id8|order UUID>   dflow.sh show 로 tags 를 읽는다(DFLOW_SH 로 dflow.sh 경로를 바꾼다 — 시험용)
+#   docker-allow.sh <id8|order UUID> --reuse-dir <dir>
+#                                      <dir>/show-<앞 8자>.json 이 5분 안에 쓰였고 같은 주문의 응답이면 show 대신 쓴다.
+#                                      쓰든 못 쓰든 그 파일은 지운다(한 번만). 못 쓰면 show 로 다시 읽는다(금지로 떨어뜨리지 않는다).
+#                                      새 작업 spawn 전용 — 같은 기상의 show 필터가 남긴 응답이다. 근거 ../references/rationale.md 「5. 팀원 spawn」
 #   docker-allow.sh --json             show 응답 JSON 을 stdin 으로 받는다
 # 출력 한 줄(stdout), 늘 exit 0:
 #   DOCKER=allow tag=docker        포인터에 DOCKER=allow 를 싣는다
@@ -17,13 +21,30 @@
 # NO_DOCKER=0 이 옛 포인터에 남아 있을 수 있기 때문이다.
 set -u
 
+usage() { echo "사용법: docker-allow.sh <id8|order> [--reuse-dir <dir>] | --json" >&2; exit 2; }
 json=''
 case "${1:-}" in
   --json) json=$(cat) ;;
-  ''|-*) echo "사용법: docker-allow.sh <id8|order> | --json" >&2; exit 2 ;;
+  ''|-*) usage ;;
   *)
-    DFLOW="${DFLOW_SH:-$(cd "$(dirname "$0")/../../dflow-work/scripts" 2>/dev/null && pwd)/dflow.sh}"
-    json=$("$DFLOW" show "$1" 2>/dev/null) || json=''
+    ref=$1; shift
+    case "${1:-}" in
+      '') ;;
+      --reuse-dir)
+        [ -n "${2:-}" ] || usage
+        f="$2/show-$(printf '%s' "$ref" | cut -c1-8).json"
+        # 5분(-mmin -5) 은 BSD·GNU·Git Bash find 공통이다. 같은 주문인지는 .order.id 앞자리로 본다(id8·전체 UUID 둘 다).
+        if [ -f "$f" ] && [ -n "$(find "$f" -mmin -5 2>/dev/null)" ]; then
+          json=$(jq -c --arg r "$ref" 'select((.order.id // "") != "" and (.order.id | startswith($r)))' "$f" 2>/dev/null) || json=''
+        fi
+        rm -f "$f" 2>/dev/null
+        ;;
+      *) usage ;;
+    esac
+    if [ -z "$json" ]; then
+      DFLOW="${DFLOW_SH:-$(cd "$(dirname "$0")/../../dflow-work/scripts" 2>/dev/null && pwd)/dflow.sh}"
+      json=$("$DFLOW" show "$ref" 2>/dev/null) || json=''
+    fi
     ;;
 esac
 

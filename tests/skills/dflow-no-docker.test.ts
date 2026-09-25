@@ -6,7 +6,7 @@
 // 「도커 사용 규칙」 하나이고, 다른 문서는 가리키기만 한다.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stripWorkerBlocks, workerBlocks } from './_preserve'
@@ -235,5 +235,66 @@ describe('docker-allow.sh — 태그로 허용', () => {
       expect(r.status).toBe(0)
       expect(r.stdout).toBe('DOCKER=ban show-failed\n')
     }
+  })
+})
+
+// 새 작업 spawn 은 같은 기상의 show 필터가 남긴 응답을 재사용한다(중복 show 제거). 5분 안·같은 주문일 때만 쓰고 한 번 쓰면
+// 지운다. 못 쓰면 금지가 아니라 show 로 다시 읽는다. 재개·재투입·해소는 재사용하지 않는다(references/rationale.md 「5. 팀원 spawn」).
+describe('docker-allow.sh --reuse-dir — 같은 흐름의 show 재사용', () => {
+  const SCRIPT = join(process.cwd(), '.claude/skills/dflow-team/scripts/docker-allow.sh')
+  const ORDER = 'abcd1234-0000-4000-8000-000000000000'
+  let tmp: string
+  beforeEach(() => { tmp = realpathSync(mkdtempSync(join(tmpdir(), 'dflow-docker-reuse-'))) })
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }) })
+  const body = (tags: string[], id = ORDER) => JSON.stringify({ order: { id, status: 'ready', item: { tags } } })
+  const saved = () => join(tmp, 'show-abcd1234.json')
+  function run(arg: string, showTags: string[]) {
+    const stub = join(tmp, 'dflow.sh')
+    writeFileSync(join(tmp, 'body.json'), body(showTags))
+    writeFileSync(stub, `#!/bin/sh\necho "$1 $2" >> '${join(tmp, 'calls')}'\ncat '${join(tmp, 'body.json')}'\n`, { mode: 0o755 })
+    const r = spawnSync('bash', [SCRIPT, arg, '--reuse-dir', tmp], { encoding: 'utf8', env: { ...process.env, DFLOW_SH: stub } })
+    const calls = existsSync(join(tmp, 'calls')) ? readFileSync(join(tmp, 'calls'), 'utf8').trim().split('\n').length : 0
+    return { out: r.stdout, code: r.status, calls }
+  }
+
+  it('방금 받은 같은 주문의 응답이 있으면 show 를 부르지 않고 쓰며, 쓴 뒤 지운다', () => {
+    writeFileSync(saved(), body(['agent', 'docker']))
+    for (const arg of [ORDER, 'abcd1234']) {
+      writeFileSync(saved(), body(['agent', 'docker']))
+      rmSync(join(tmp, 'calls'), { force: true })
+      const r = run(arg, ['agent'])
+      expect(r.out).toBe('DOCKER=allow tag=docker\n')
+      expect(r.calls).toBe(0)
+      expect(existsSync(saved())).toBe(false)
+    }
+  })
+  it('5분 넘은 응답·다른 주문·주문 없는 응답·빈 파일은 쓰지 않고 show 로 다시 읽는다(금지로 떨어뜨리지 않는다)', () => {
+    const old = new Date(Date.now() - 10 * 60 * 1000)
+    const cases: Array<() => void> = [
+      () => { writeFileSync(saved(), body(['agent'])); utimesSync(saved(), old, old) },
+      () => writeFileSync(saved(), body(['agent'], 'abcd1234-ffff-4000-8000-000000000000')),
+      () => writeFileSync(saved(), '{"error":"x"}'),
+      () => writeFileSync(saved(), ''),
+      () => {},
+    ]
+    for (const prep of cases) {
+      rmSync(join(tmp, 'calls'), { force: true })
+      prep()
+      const r = run(ORDER, ['agent', 'docker'])
+      expect(r.out).toBe('DOCKER=allow tag=docker\n')
+      expect(r.calls).toBe(1)
+      expect(existsSync(saved())).toBe(false)
+    }
+  })
+  it('SKILL.md: show 필터가 응답을 남기고 새 작업 spawn 만 재사용한다. 재개·해소는 매번 show 한다', () => {
+    const wake = between(TEAM, '### 2-3. 기상마다 하는 일', '## 3. 결과 처리')
+    expect(wake).toContain('| tee "$(git rev-parse --git-path dflow-team-poll)/show-<id8>.json" \\\n  | jq -c \'{order: .order.id')
+    const spawn = between(TEAM, '## 5. 팀원 spawn', '### 5-1. 재개 spawn')
+    expect(spawn).toContain('docker-allow.sh "$order" --reuse-dir "$(git rev-parse --git-path dflow-team-poll)"')
+    const resume = read('.claude/skills/dflow-team/references/resume.md')
+    expect(resume).not.toContain('--reuse-dir')
+    expect(MC).not.toContain('--reuse-dir')
+    const why = read('.claude/skills/dflow-team/references/rationale.md')
+    expect(why).toContain('docker-allow.sh --reuse-dir')
   })
 })
