@@ -483,6 +483,17 @@ describe('heartbeat.sh — 사용 토큰(0104)', () => {
     expect(readCache()).toEqual(inc)
   })
 
+  // 같은 줄을 다시 읽어도 합계는 같아서 동등성 시험으로는 위치 오차(글자 수로 셈)를 잡지 못한다 — 위치를 바이트로 직접 본다.
+  it('읽은 위치는 바이트 단위이고(한글 포함) 쓰는 중인 끝 줄 앞에서 멈춘다', () => {
+    const done = [JSON.stringify({ type: 'user', message: { content: '한글 대화 기록 — 가나다라마바사' } }),
+      line('k1', 'claude-opus-4-8', [1, 2, 3, 4])].join('\n') + '\n'
+    writeFileSync(transcript, done + '{"type":"assistant","message":{"id":"쓰는중"')
+    runTok()
+    const first = readFileSync(`${cache()}.idx`, 'utf8').split('\n')[1].split('\t')
+    expect(first[3]).toBe(transcript)
+    expect(Number(first[0])).toBe(Buffer.byteLength(done))
+  })
+
   it('이미 읽은 부분은 다시 읽지 않는다(크기가 같으면 새로 읽을 것이 없다)', () => {
     runTok()
     const before = readCache()
