@@ -20,3 +20,8 @@ release_branch=main
 # 최상위에서 bash -c 로 돌린다(PC 전역 도커 슬롯 안에서). 비우면 이 단계는 없다. PC 전용 값(JAVA_HOME 등)이 든 명령은
 # .dflow.local 에 둔다(.dflow.local 이 이긴다). 정본: .claude/skills/dflow-merge/SKILL.md 「방언 검증」.
 # dialect_check=cd src/backend/mdm && ../gradlew :api:mssqlMigrationTest --no-daemon --console=plain
+
+# 게이트 범위 대응표는 이 파일이 아니라 리포 최상위의 별도 파일 .dflow-gates 에 둔다(여러 줄 표라 key=value 한 줄에 맞지
+# 않는다). 있으면 /dflow-dev 의 Build 게이트·변이 검증이 바꾼 모듈의 테스트만 돌고 전체는 Verify 에서 한 번 돈다. 없으면
+# 게이트마다 전체다. 형식·예시: .claude/skills/dflow-dev/references/dflow-gates.example, 정본은 dev-discipline.md
+# 「게이트 범위 대응표(.dflow-gates)」.

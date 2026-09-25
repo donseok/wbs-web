@@ -71,7 +71,7 @@ lease_acquire() {
 # 비밀 류 플래그(--token·-H·Bearer …) 바로 뒤 토큰은 `***`, 영숫자·`_.:+,-` 밖의 글자가 든 토큰은 `***`. 서버(heavyWork.ts
 # sanitizeHeavyCmd)가 같은 규칙을 한 번 더 건다.
 # 무엇이 실패해도 빈 출력이다 — heavy 쪽 실패가 renew 를 실패시키면 lease_keep 이 3회 만에 팀장을 멈춘다.
-# `snapshot)` 분기가 없는 옛 heavy.sh 는 부르지 않는다 — 모르는 인자를 무거운 명령으로 보고 슬롯을 최대 240초 기다린다.
+# `snapshot)` 분기가 없는 옛 heavy.sh 는 부르지 않는다 — 모르는 인자를 무거운 명령으로 보고 슬롯을 대기 상한(DFLOW_HEAVY_WAIT)만큼 기다린다.
 lease_heavy_json() {
   _hv="${DFLOW_HEAVY_SH:-$(dirname "$0")/../../dflow-dev/scripts/heavy.sh}"
   [ -f "$_hv" ] && grep -q 'snapshot)' "$_hv" 2>/dev/null || return 0

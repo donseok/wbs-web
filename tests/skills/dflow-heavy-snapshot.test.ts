@@ -14,7 +14,9 @@ let tmp: string, dir: string
 const kids: ChildProcess[] = []
 const env = (extra: Record<string, string> = {}) => ({
   ...process.env, DFLOW_HEAVY_DIR: dir, DFLOW_HEAVY_SLOTS: '2', DFLOW_HEAVY_WAIT: '10', DFLOW_HEAVY_POLL: '0.2',
-  DFLOW_HEAVY_OWNER: '', CLAUDE_PID: '', ...extra,
+  DFLOW_HEAVY_OWNER: '', CLAUDE_PID: '',
+  // 이 PC 의 실제 부하가 슬롯 배정을 흔들지 않게 부하 검사를 끈다(부하 검사는 dflow-heavy-load.test.ts 가 본다)
+  DFLOW_HEAVY_LOAD_MAX: '0', ...extra,
 })
 const snap = (extra: Record<string, string> = {}) => {
   const r = spawnSync('bash', [HEAVY, 'snapshot'], { encoding: 'utf8', env: env(extra), timeout: 30000 })
@@ -101,6 +103,30 @@ describe('heavy.sh snapshot', { timeout: 30000 }, () => {
     slot('slot-1', { pid: process.pid, kind: 'run', start: 1, cwd: WT, cmd: 'echo\ta' })
     expect(snap().lines[1]).toHaveLength(6)
     expect(snap().lines[1][5]).toBe('echo a')
+  })
+
+  // 설계 2026-09-26-dflow-perf-audit-kit-design.md 공통 제약 2: 앱(heavyWork.ts)은 pool ∈ {general, docker}, kind ∈ {run, hold} 만 받는다.
+  it('E2E 풀 보유는 RUN <start> hold general 로 내고, PC 줄의 held 에는 세지 않는다', () => {
+    const now = Math.floor(Date.now() / 1000)
+    slot('e2e-1', { pid: process.pid, kind: 'hold', start: now, cwd: WT, cmd: 'hold e2e-TSK-01' })
+    const { lines } = snap()
+    expect(lines[0].slice(0, 4)).toEqual(['PC', '2', '0', '0'])
+    expect(lines.slice(1)).toEqual([['RUN', String(now), 'hold', 'general', WT, 'hold e2e-TSK-01']])
+  })
+
+  it('E2E 풀 대기 표식(pool=e2e)은 WAIT … general 로 내고, PC 줄의 waiting 에는 세지 않는다', () => {
+    writeFileSync(join(dir, `wait-${process.pid}`), `pid=${process.pid}\npool=e2e\nstart=1790000000\npstart=-\ncwd=${WT}\ncmd=hold e2e-TSK-02\n`)
+    const { lines } = snap()
+    expect(lines[0][3]).toBe('0')
+    expect(lines.filter(l => l[0] === 'WAIT')).toEqual([['WAIT', '1790000000', 'general', WT, 'hold e2e-TSK-02']])
+  })
+
+  it('독점 실행(같은 pid 가 일반 슬롯 K개)은 RUN run general 한 줄이고 PC held=K. 양보 표식(excl-*)은 줄을 내지 않는다', () => {
+    for (const s of ['slot-1', 'slot-2']) slot(s, { pid: process.pid, kind: 'run', start: 1790000000, cwd: WT, cmd: 'npm run bench' })
+    writeFileSync(join(dir, `excl-${process.pid}`), `pid=${process.pid}\npstart=-\nstart=1790000000\nseen=${Math.floor(Date.now() / 1000)}\ncwd=${WT}\ncmd=npm run bench\n`)
+    const { lines } = snap()
+    expect(lines[0].slice(0, 3)).toEqual(['PC', '2', '2'])
+    expect(lines.slice(1)).toEqual([['RUN', '1790000000', 'run', 'general', WT, 'npm run bench']])
   })
 
   it('status 의 stdout 한 줄 형식은 그대로다(capacity.sh 가 읽는다)', () => {

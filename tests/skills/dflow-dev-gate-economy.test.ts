@@ -75,9 +75,9 @@ describe('heavy.sh 적용 범위: Gradle·Maven 은 단일 테스트도 감싼�
   it('Bash timeout 은 대기 상한 + 명령 시간이되 10분을 넘지 않고, baseline.sh 는 공유 마감이다', () => {
     expect(heavy).toContain('**10분(600000ms)을 넘기지 않는다**')
     expect(heavy).toContain('`DFLOW_HEAVY_WAIT` 를 줄여')
-    expect(heavy).toContain('240초 + 측정 시간이면 된다')
+    expect(heavy).toContain('90초 + 측정 시간이면 된다')
     expect(heavy).toContain('`DFLOW_BASELINE_WAIT` 를 줄인다')
-    expect(DISC).toContain('한 호출의 총 대기는 240초 + 측정 시간 이하다')
+    expect(DISC).toContain('한 호출의 총 대기는 90초 + 측정 시간 이하다')
     expect(heavy).not.toContain('합친 것보다 넉넉히 준다')
   })
   it('Phase 공통 프롬프트(phase-prompt.md)에 heavy 한 줄이 포그라운드 다음에 있고, SKILL 의 트레일러 문단은 표지 블록 E 앞이다', () => {
@@ -85,6 +85,51 @@ describe('heavy.sh 적용 범위: Gradle·Maven 은 단일 테스트도 감싼�
     expect(idx).toBeGreaterThan(PROMPT.indexOf('4. 포그라운드:'))
     expect(flat(PROMPT)).toContain('모든 gradlew/mvn 호출(단일 테스트 포함)·의존성 설치는 `.claude/skills/dflow-dev/scripts/heavy.sh` 로 감싸')
     expect(SKILL.indexOf('커밋 규칙에는 **모든 커밋에')).toBeLessThan(SKILL.indexOf('<!-- worker:begin -->\n`--worker` 면 공통 프롬프트에 git 절대경로'))
+  })
+})
+
+describe('Task 브랜치는 개발 브랜치를 다시 머지하지 않는다(2026-09-26 감사: 워커 재머지 13건)', () => {
+  const sec = flat(between(DISC, '## 개발 브랜치 재머지', '## 공통 금지'))
+  it('금지 사유를 나열하고, 선행 코드가 꼭 필요할 때만 한 번 허용한다', () => {
+    expect(sec).toContain('**개발 브랜치를 다시 머지하지 않는다.**')
+    expect(sec).toContain('이유 없는 최신화("push 전 최신화"·"done 전 최신화")')
+    expect(sec).toContain('재개한 세션의 따라잡기')
+    expect(sec).toContain('**허용(유일)**: Task 가 코드상 의존하는 선행이 개발 브랜치에 막 들어왔고')
+    expect(sec).toContain('한 Task 에서 한 번을 넘기지 않는다')
+  })
+  it('허용된 재머지는 새 기점으로 기준선을 다시 재고 gate-scope 도 새 기점으로 돈다', () => {
+    expect(sec).toContain('`branch_base`·`baseline.base` 를 그 sha 로 바꾼다')
+    expect(sec).toContain('새 기점의 기준선을 **이 작업 트리에서 재지 않는다**')
+    expect(sec).toContain('`git worktree add --detach <임시 폴더> <새 기점>`')
+    expect(sec).toContain('`baseline.sh list --base <새 기점>`')
+    expect(sec).toContain('`gate-scope.sh --base <새 기점>`')
+  })
+  it('공통 금지와 워커 판단 규칙이 이 절을 가리킨다', () => {
+    expect(DISC).toContain('- 개발 브랜치 재머지(허용 조건 밖) — 「개발 브랜치 재머지」.')
+    const wp = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/worker-prompt.md'), 'utf8')
+    expect(flat(wp)).toContain('**개발 브랜치를 다시 머지하지 않는다**')
+    expect(flat(wp)).toContain('dev-discipline 「개발 브랜치 재머지」')
+  })
+})
+
+describe('총수는 합계 줄로 읽는다(스위트를 나눠 도는 리포 스크립트)', () => {
+  it('첫 요약을 총수로 읽지 않고, 합계 줄이 있으면 그 줄을, 없으면 모든 요약의 합을 쓴다', () => {
+    const base = flat(between(DISC, '## 게이트 기준선', '### 기준선 캐시'))
+    expect(base).toContain('**총수는 합계 줄로 읽는다.**')
+    expect(base).toContain('리포 스크립트가 합계 줄을 내면 그 줄을 총수·실패 수로 읽고, 합계 줄이 없으면 모든 요약의 수를 더한다')
+    expect(base).toContain('기준선(`baseline.sh note --tests`)과 게이트는 같은 방법으로 읽는다')
+  })
+})
+
+describe('게이트 명령은 필요한 의존만 빌드하고 Task 도중에 바꾸지 않는다(2026-09-26 성능 감사)', () => {
+  const base = between(DISC, '## 게이트 기준선', '### 기준선 캐시')
+  it('단위 게이트는 의존 패키지만 빌드하고, 전체 라이브러리 빌드는 E2E 같은 명령에만 둔다', () => {
+    expect(base).toContain('**게이트 명령은 필요한 의존만 빌드한다.**')
+    expect(base).toContain('`pnpm --filter "<패키지>^..." build && pnpm --filter <패키지> test`')
+  })
+  it('기준선과 게이트는 같은 명령이고 좁히는 것은 새 Task 부터다', () => {
+    expect(base).toContain('**기준선과 게이트는 같은 명령이고, Task 도중에 바꾸지 않는다.**')
+    expect(flat(base)).toContain('더 좁은 명령으로 바꾸는 것은 새 Task 부터 한다')
   })
 })
 
@@ -123,6 +168,14 @@ describe('변이 검증은 Build 한 곳, Verify 는 감사', () => {
     expect(verify).toContain('`git diff --name-only <Build 게이트 sha>..HEAD`')
     expect(SKILL).toContain('`git diff --name-only <Build 게이트 sha>..HEAD`')
     expect(SKILL).toContain('state.json 의 `build_gate`')
+  })
+  it('대응표(.dflow-gates)가 있으면 뒤집힌다: Build 게이트는 영향 모듈, 전체는 Verify 게이트가 한 번(서브에이전트는 여전히 안 돈다)', () => {
+    expect(flat(verify)).toContain('**리포에 게이트 대응표(`.dflow-gates`)가 있으면** Build 게이트는 바꾼 모듈만 돌았을 수 있다')
+    expect(flat(verify)).toContain('**오케스트레이터의 Verify 게이트가 한 번** 돈다 — 머지 전 최종 증거다. 당신은 여전히 전체 스위트를 돌리지 않는다')
+    expect(flat(SKILL)).toContain('**대응표가 있고 `build_gate.scope` 가 `module` 이면 Verify 게이트는 재실행을 생략하지 않고 `full` 명령을 한 번 돈다**')
+    expect(flat(SKILL)).toContain('`build_gate.scope` 가 `full` 이면 위 생략 규칙 그대로다')
+    expect(flat(build)).toContain('전체 스위트 대신 프롬프트의 좁힌 명령에 든 모듈 게이트 명령으로 넘어간다')
+    expect(flat(PROMPT)).toContain('예측 범위의 모듈 게이트 명령(`GATE_SCOPE module` 줄)도 넣고')
   })
   it('research/docs 특례 작업은 기록 표 대신 문서 검증 체크리스트를 쓴다(Build·Verify·오케스트레이터 감사 셋 다)', () => {
     expect(build).toContain('research/docs 특례 작업(spec 의 category 가 research/docs. dev-discipline.md 「research/docs 작업 특례」)은 변이할 코드가 없으므로')
@@ -220,5 +273,62 @@ describe('Build 구현 단위(단위마다 서브에이전트, 상한과 인계)
   it('화면 작업의 정의가 Build·Verify 파일과 오케스트레이터 읽기 목록에 있다', () => {
     for (const doc of [BUILD, VERIFY]) expect(flat(doc)).toContain('spec 에 `entry-point` 가 있거나 domain 이 `fullstack`·`frontend`')
     expect(flat(SKILL)).toContain('「화면 작업의 브라우저 E2E」·「도커 사용 규칙」')
+  })
+})
+
+describe('게이트 범위 대응표(.dflow-gates) — 2026-09-26 성능 감사', () => {
+  const sec = flat(between(DISC, '### 게이트 범위 대응표(.dflow-gates)', '### 강제 재실행'))
+  it('대응표가 없으면 절 전체를 건너뛴다(지금 동작 그대로)', () => {
+    expect(sec).toContain('**대응표가 없으면 이 절 전체를 건너뛴다**')
+    expect(flat(SKILL)).toContain('대응표가 없으면 위 그대로다')
+    expect(flat(SKILL)).toContain('`none` 이면 위 그대로, `invalid` 면 사유를 한 줄 보고하고 위 그대로다')
+  })
+  it('형식: full·prepare 예약어, - 줄, 의존 모듈은 명령이 포함, 리포 최상위 cwd', () => {
+    expect(sec).toContain('`full<TAB><명령>` — 전체 게이트 명령(예약어')
+    expect(sec).toContain('`prepare<TAB><명령>` — 새 워크트리의 의존성 설치 직후 한 번 돌리는 준비 빌드(예약어')
+    expect(sec).toContain('**모듈 명령은 그 모듈에 의존하는 모듈의 테스트까지 스스로 포함한다**')
+    expect(sec).toContain('명령은 리포 최상위에서 돈다')
+    expect(sec).toContain('.claude/skills/dflow-dev/scripts/gate-scope.sh --base <기점> --ignore <TASKS>/<TSK>/')
+    // 복합 명령(`A && B`)도 한 슬롯에서 통째로 돌고 로그·rc 가 맞게 bash -c 로 감싼다
+    expect(sec).toContain("게이트는 `heavy.sh bash -c '<명령>'` 으로 감싸 한 슬롯에서 통째로 돈다")
+    expect(flat(between(DISC, '### 게이트 기록', '### research/docs 작업 특례'))).toContain("heavy.sh bash -c '<게이트 명령>'")
+    expect(flat(SKILL)).toContain("`heavy.sh bash -c '<명령>'` 으로 감싸 돌고(복합 명령도 한 슬롯에서)")
+  })
+  it('모듈 기준선은 Design 게이트 직후(트리가 기점과 코드가 같을 때)만 잰다', () => {
+    expect(sec).toContain('**모듈 명령의 기준선은 Design 게이트 통과 직후, 첫 Build 단위를 띄우기 전에 잰다**')
+    expect(sec).toContain('아니면 (Build 뒤 재개 등) 모듈 기준선을 재지 않는다')
+    expect(flat(SKILL)).toContain('**Design 게이트 뒤(대응표가 있을 때만)**')
+    expect(flat(SKILL)).toContain('`"base": "<기점 sha>"`')
+  })
+  it('Build 게이트: 기준선 없는 모듈 명령이 하나라도 있으면 전체, Verify 게이트: 모듈 범위였으면 전체 한 번', () => {
+    expect(sec).toContain('기준선이 없는 명령이 하나라도 있으면(예측 밖 모듈을 건드렸다) `full` 명령으로 돈다')
+    expect(sec).toContain('`full` 명령을 **재실행 생략 없이 한 번** 돈다 — 머지 전 최종 증거다')
+    expect(sec).toContain('같은 트리의 전체 실행을 두 번 하지 않는다')
+  })
+  it('강제 재실행은 부분 실행 상태가 남았을 때만, 근거는 mtime 을 새로 찍는 되돌리기', () => {
+    const force = flat(between(DISC, '### 강제 재실행', '### 게이트 기록'))
+    expect(force).toContain('**변이 드라이버가 부분 실행 상태를 남겼을 때만** 쓴다')
+    expect(force).toContain('그 밖에는 Gradle 의 UP-TO-DATE 를 믿는다')
+    expect(force).toContain('phase-build.md 「되돌리기(백업 사본으로 통일)」')
+    expect(flat(BUILD)).toContain('**강제 재실행(`--rerun-tasks`·`cleanTest`)은 부분 실행 상태가 남았을 때만 쓴다**')
+  })
+  it('게이트 기록: 오케스트레이터가 build-log.md 표에 명령·범위·경과·부하·결과를 한 줄씩', () => {
+    const log = flat(between(DISC, '### 게이트 기록', '### research/docs 작업 특례'))
+    expect(log).toContain('`<TASKS>/<TSK>/build-log.md` 의 `## 게이트 기록` 표에 한 줄을 더한다')
+    for (const col of ['| 시각 |', '| Phase |', '| 명령 |', '| 범위 |', '| 경과 |', '| 부하 |', '| 결과 |']) expect(log).toContain(col)
+    expect(log).toContain('sysctl -n vm.loadavg')
+    expect(log).toContain('/proc/loadavg')
+    expect(log).toContain('`HEAVY_BUSY`(exit 75)로 돌지 못한 호출은 적지 않는다')
+    expect(flat(SKILL)).toContain('**게이트 기록**: 위 게이트 명령과 모듈 기준선 측정을 돌릴 때마다 build-log.md `## 게이트 기록`')
+  })
+  it('예시 파일과 .dflow 안내가 있고, 킷 문서에 특정 프로젝트 이름이 없다', () => {
+    const ex = ref('dflow-gates.example')
+    expect(ex).toMatch(/^full\t/m)
+    expect(ex).toMatch(/^prepare\t/m)
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-work/dflow.example'), 'utf8')).toContain('.dflow-gates')
+    for (const doc of [sec, ex]) {
+      expect(doc).not.toContain('dmes')
+      expect(doc).not.toContain('@dk-oasis')
+    }
   })
 })

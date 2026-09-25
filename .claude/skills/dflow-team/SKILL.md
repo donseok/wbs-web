@@ -32,7 +32,7 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 |---|---|
 | `references/help.md` | 인자가 `help` 일 때만 |
 | `references/args.md` | 인자를 물어야 할 때(종료 시각 누락·오류, 키 후보 둘 이상), 키를 자동 선택해 저장할 때, 키 판정이 `KEY_*`·`NO_*_KEY` 로 끝날 때 |
-| `references/precheck.md` | 전제 검사가 `PRECHECK_OK` 없이 끝났을 때 |
+| `references/precheck.md` | 전제 검사가 `PRECHECK_OK` 없이 끝났을 때, 또는 `WARN GRADLE_TUNING` 이 나왔을 때 |
 | `references/extend.md` | 사람이 실행 중 연장을 말할 때 |
 | `references/second-lead.md` | 같은 리포에서 다른 신원의 팀장을 하나 더 띄울 때 |
 | `references/backends.md` | spawn·회수·정리·답 넣기·고아 정리 때(그 절만) |
@@ -371,6 +371,14 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    fail=0; bad() { echo "FAIL $*"; fail=1; }
    MAIN=$(git rev-parse --show-toplevel); [ -z "$(git rev-parse --show-prefix)" ] || bad NOT_REPO_ROOT
    case "$MAIN" in *' '*) bad SPACE_IN_PATH ;; esac
+   if [ -x .claude/skills/dflow-team/scripts/gradle-check.sh ]; then   # Gradle 권장 설정 — 경고만, 시작은 막지 않는다
+     .claude/skills/dflow-team/scripts/gradle-check.sh "$MAIN" 2>/dev/null | while IFS= read -r gline; do
+       case "$gline" in
+         "NOFILE "*) echo "WARN GRADLE_TUNING ${gline#NOFILE } (gradle.properties 없음)" ;;
+         "MISSING "*) grest=${gline#MISSING }; echo "WARN GRADLE_TUNING ${grest% *} ${grest##* }" ;;
+       esac
+     done
+   fi
    base=$(.claude/skills/dflow-work/scripts/dflow.sh branch dev) || bad CONFIG
    [ -n "$base" ] || bad NO_DEFAULT_BRANCH
    [ -z "$base" ] || git rev-parse -q --verify "refs/remotes/origin/$base" >/dev/null || .claude/skills/dflow-work/scripts/dflow.sh branch ensure-dev >/dev/null || bad "NO_REMOTE_DEV_BRANCH $base"
@@ -523,6 +531,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    값은 「인자」 키 판정의 `selected` 행)다. 이어서 3번의 **"멈춤" 표**(「팀장 상태」)를 내고, 재개 가능으로 분류한 것과
    `--resume` 지목분은 "이번에 이어받습니다" 로 한 줄 알린다. 2번의 scaffold 출력 한 줄(부른 경우 `scaffold created=N
    skipped=N no_ref=N`, 건너뛴 경우 "scaffold 건너뜀(detached HEAD 또는 개발 브랜치 아님)")도 싣는다.
+   1번 전제 검사가 `WARN GRADLE_TUNING …` 을 냈으면 그 줄들도 싣는다(시작은 막지 않는다. 처리는 precheck.md).
    WP 범위가 있으면 "새 배정은 <WP 목록> 만 합니다. 재개·승인
    스윕은 범위와 무관합니다." 를 한 줄 알린다. 백엔드와 무관하게 "팀원은 **권한 확인 생략 모드로** 돕니다. 팀장 세션의 권한 모드와
    무관합니다." 를 알린다. tmux 백엔드면 "화면은 `TMUX= tmux -L dflow attach` 로 볼 수 있습니다." 를 한 줄 더

@@ -23,6 +23,7 @@ cp "$ROOT/kit/.gitattributes" "$OUT/.gitattributes"
 cp "$ROOT/kit/worker-allow.json" "$OUT/worker-allow.json"
 cp "$ROOT/kit/README.md" "$OUT/README.md"
 mkdir -p "$OUT/hooks" && cp "$ROOT/kit/hooks/heartbeat.sh" "$OUT/hooks/heartbeat.sh" && chmod +x "$OUT/hooks/heartbeat.sh"
+mkdir -p "$OUT/gradle" && cp "$ROOT/kit/gradle/dflow-test-jvm.gradle" "$OUT/gradle/dflow-test-jvm.gradle"
 printf 'source: wbs-web %s\nbuilt: %s\nskills: %s\n' \
   "$(git -C "$ROOT" rev-parse --short HEAD)" "$(date +%Y-%m-%d)" "$SKILLS" > "$OUT/VERSION"
 

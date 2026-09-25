@@ -185,6 +185,19 @@ describe('lease renew — 무거운 작업(heavy)', () => {
     expect(o[0]).toEqual(expect.objectContaining({ id8: 'abcdef12', state: 'run', kind: 'hold', since: now - 100, n: 3 }))
   })
 
+  // 2026-09-26 성능 감사 ④: E2E 풀(e2e-<i>) 보유는 앱이 아는 값(kind=hold, pool=general)으로 실린다. 독점 표식(excl-*)은 싣지 않는다.
+  it('E2E 풀 보유는 kind=hold pool=general 주문이 되고 PC held 에는 세지 않는다', () => {
+    run(['lease', 'acquire'])
+    const now = Math.floor(Date.now() / 1000)
+    slot('e2e-1', { pid: process.pid, start: now - 5, kind: 'hold', cwd: WT(), cmd: 'hold e2e-TSK-01' })
+    writeFileSync(join(heavyDir(), `excl-${process.pid}`), `pid=${process.pid}\npstart=-\nstart=${now}\nseen=${now}\ncwd=/elsewhere\ncmd=bench\n`)
+    run(['lease', 'renew'], HV)
+    const hv = renewBody().heavy
+    expect(hv.pc).toEqual(expect.objectContaining({ held: 0, waiting: 0 }))
+    expect(hv.orders).toEqual([{ id8: 'abcdef12', state: 'run', kind: 'hold', pool: 'general', since: now - 5, pos: null, n: 1,
+      cmd: 'hold e2e-TSK-01' }])
+  })
+
   it('대기만 있으면 state=wait 와 PC 전체 일반 풀 대기 순번(pos)', () => {
     run(['lease', 'acquire'])
     const w = (pid: number, start: number, cwd: string) =>

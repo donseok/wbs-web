@@ -14,7 +14,8 @@
 #
 # 캐시를 쓰지 않는 경우(명령은 그대로 돌리고 저장하지 않는다):
 #   - DFLOW_BASELINE_CACHE=0
-#   - HEAD 가 --base 와 다르다(재개한 브랜치 위 등 — 그 트리는 기점이 아니다)
+#   - HEAD 가 --base 와 다르다(재개한 브랜치 위 등 — 그 트리는 기점이 아니다). 단 기점 위에 --task-dir 아래 문서
+#     커밋만 있으면(Design 직후 모듈 게이트 기준선을 잴 때) 코드가 기점과 같으므로 기점 키로 캐시를 쓴다
 #   - 작업 트리가 깨끗하지 않다(--task-dir 아래의 state.json·spec.md 등 문서 부산물은 빼고 본다)
 # DFLOW_BASELINE_CACHE=refresh 면 있어도 쓰지 않고 새로 재서 덮어쓴다(오래된 결과·환경이 바뀐 결과를 갈아엎을 때).
 # DFLOW_BASELINE_MAX_AGE(초, 기본 21600=6시간)보다 오래된 결과는 쓰지 않고 새로 재서 덮어쓴다. 키가 커밋이라 코드는
@@ -25,9 +26,10 @@
 # 동시 측정: 같은 키를 둘이 동시에 재려 하면 mkdir 잠금을 잡은 쪽만 재고 다른 쪽은 결과를 기다렸다가 재사용한다.
 # 둘 다 재면 시간을 못 줄이고, testAll·마이그레이션 시험은 같은 DB·포트를 두고 서로 부딪칠 수 있다. 잠금에는
 # pid·host·시작 시각을 적고, 같은 host 에서 pid 가 죽었거나 DFLOW_BASELINE_LOCK_TTL(초, 기본 7200)을 넘기면 버려진
-# 잠금으로 보고 가져간다. DFLOW_BASELINE_WAIT(초, 기본 240)를 기다려도 안 끝나면 재지 않고 BASELINE_BUSY 와 exit 75
-# 로 끝난다 — 워커는 같은 명령을 다시 호출한다. 한 번의 Bash 호출로 오래 기다리면 heartbeat 가 끊겨 팀장이 무응답으로
-# 오판하기 때문이다(heavy.sh 의 HEAVY_BUSY 와 같은 이유·같은 exit). 측정 명령은 같은 폴더의 heavy.sh(PC 전역 무거운 명령
+# 잠금으로 보고 가져간다. DFLOW_BASELINE_WAIT(초, 기본 90 — heavy.sh 의 DFLOW_HEAVY_WAIT 와 같은 값)를 기다려도 안
+# 끝나면 재지 않고 BASELINE_BUSY 와 exit 75 로 끝난다 — 워커는 같은 명령을 다시 호출한다. 한 번의 Bash 호출로 오래
+# 기다리면 heartbeat 가 끊겨 팀장이 무응답으로 오판하기 때문이다(heavy.sh 의 HEAVY_BUSY 와 같은 이유·같은 exit).
+# 90초면 Bash 기본 timeout(120초) 안에서 돌아온다. 측정 명령은 같은 폴더의 heavy.sh(PC 전역 무거운 명령
 # 세마포어)로 감싸 돌린다. heavy.sh 가 HEAVY_BUSY(exit 75)로 끝나면 저장하지 않고 BASELINE_BUSY 로 끝난다. 결과
 # 파일은 임시 파일에 쓴 뒤 하드링크로 게시한다(원자적, 이미 있으면 먼저 쓴 쪽이 남는다). flock 은 macOS 에 없다.
 # --pool docker: 도커를 쓰는 명령(도커가 허용된 워커의 기준선)이면 heavy.sh --pool docker 로 감싸 PC 전역 도커 슬롯을
@@ -36,7 +38,7 @@
 # 기다리지 않는다)이 깨진다. 슬롯은 잠금을 잡은 뒤, 측정 직전에만 잡는다.
 # 공유 마감: 대기 상한 WAIT 는 호출 하나 전체에 한 번만 쓴다. 시작할 때 마감(시작+WAIT)을 잡고, 측정 잠금을 기다린
 # 시간을 뺀 나머지만 안쪽 heavy.sh 에 DFLOW_HEAVY_WAIT 로 넘긴다(최소 5초 — 잠금을 막 얻은 쪽이 슬롯을 한 번은
-# 기다려 보게). 이전에는 잠금 240초 + 슬롯 240초를 겹쳐 기다려 Bash 한 번이 10분 상한에 닿을 수 있었다. 그래서
+# 기다려 보게). 예전(2026-09-24 이전)에는 잠금 대기 + 슬롯 대기를 겹쳐 기다려 Bash 한 번이 10분 상한에 닿을 수 있었다. 그래서
 # 호출 하나의 총 대기는 WAIT(+ 최소 5초) 를 넘지 않고, 그 위에 측정 시간만 더해진다. 호출하는 쪽 환경의
 # DFLOW_HEAVY_WAIT 가 그보다 짧으면 그 값을 쓴다. 캐시를 쓰지 않는 측정(HEAD 가 기점과 다름 등)도 heavy.sh 로
 # 감싸 같은 마감으로 돈다 — 재개한 브랜치 위의 testAll 도 PC 전역 슬롯을 거쳐야 한다.
@@ -51,7 +53,7 @@
 set -u
 
 MAX_AGE="${DFLOW_BASELINE_MAX_AGE:-21600}"
-WAIT="${DFLOW_BASELINE_WAIT:-240}"
+WAIT="${DFLOW_BASELINE_WAIT:-90}"
 LOCK_TTL="${DFLOW_BASELINE_LOCK_TTL:-7200}"
 POLL="${DFLOW_BASELINE_POLL:-2}"
 MODE="${DFLOW_BASELINE_CACHE:-1}"
@@ -152,7 +154,7 @@ cmd_run() {
   [ "$MODE" = 0 ] && measure_nocache "DFLOW_BASELINE_CACHE=0"
   HEAD_SHA=$(git rev-parse --verify -q HEAD) || measure_nocache "HEAD 없음"
   BASE_SHA=$(git rev-parse --verify -q "$BASE^{commit}") || measure_nocache "기점 $BASE 를 모름"
-  [ "$HEAD_SHA" = "$BASE_SHA" ] || measure_nocache "HEAD 가 기점과 다름"
+  td=""
   if [ -n "$TASK_DIR" ]; then
     top=$(cd "$(git rev-parse --show-toplevel)" && pwd -P)
     # cwd 기준으로 찾고, 없으면 리포 최상위 기준으로 찾는다(기준선 명령을 하위 폴더에서 돌릴 때). 아직 없는 폴더면
@@ -162,6 +164,15 @@ cmd_run() {
     else td="$top/${TASK_DIR#./}"
     fi
     case "$td" in "$top"/*) td=${td#"$top"/} ;; *) td="" ;; esac
+  fi
+  if [ "$HEAD_SHA" != "$BASE_SHA" ]; then
+    # 기점 위에 --task-dir 아래 문서 커밋만 있으면(Design 직후 모듈 기준선을 잴 때) 코드는 기점과 같다 — 기점 키로
+    # 캐시를 쓴다. 그 밖의 커밋이 하나라도 있으면 기점이 아니다(게이트 기록이 기준선이 되면 안 된다)
+    [ -n "$td" ] && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA" 2>/dev/null \
+      && [ -z "$(git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" -- ':/' ":(top,exclude)$td")" ] \
+      || measure_nocache "HEAD 가 기점과 다름"
+  fi
+  if [ -n "$TASK_DIR" ]; then
     [ -n "$td" ] || measure_nocache "task-dir $TASK_DIR 가 리포 안에 없음"
     dirty=$(git status --porcelain --untracked-files=all -- ':/' ":(top,exclude)$td")
   else
@@ -171,7 +182,7 @@ cmd_run() {
 
   C=$(cache_dir); mkdir -p "$C" || measure_nocache "캐시 폴더를 못 만듦"
   HASH=$(printf '%s\n%s' "$(git rev-parse --show-prefix)" "$CMD" | hash12)
-  KEY="$HEAD_SHA-$HASH"; J="$C/$KEY.json"; L="$C/$KEY.lock"
+  KEY="$BASE_SHA-$HASH"; J="$C/$KEY.json"; L="$C/$KEY.lock"
   HOST=$(hostname 2>/dev/null || echo unknown)
 
   [ "$MODE" != refresh ] && usable && reuse
@@ -238,7 +249,7 @@ cmd_run() {
     exit "$rc"
   fi
   T="$C/.$KEY.json.tmp.$$"
-  jq -n --arg key "$KEY" --arg sha "$HEAD_SHA" --arg cmd "$CMD" --arg prefix "$(git rev-parse --show-prefix)" \
+  jq -n --arg key "$KEY" --arg sha "$BASE_SHA" --arg cmd "$CMD" --arg prefix "$(git rev-parse --show-prefix)" \
     --arg host "$HOST" --arg log "$LOG" --arg at "$(iso "$started")" \
     --argjson exit "$rc" --argjson epoch "$started" \
     '{key:$key, sha:$sha, cmd:$cmd, cwd:$prefix, exit:$exit, tests:null, failures:null, failed:[],

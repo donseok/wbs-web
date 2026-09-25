@@ -58,6 +58,36 @@ describe('Build: 병렬 묶음의 단위는 git 에 쓰지 않고 보고로 넘�
   })
 })
 
+describe('Build: 변이 되돌리기는 백업 사본 방식 하나로 통일한다(순차·병렬 공통)', () => {
+  const tdd = flat(between(BUILD, '## TDD 와 변이 검증', '  - **기록**'))
+  it('백업은 작업 트리 밖 dflow-bak 에 단위별로 둔다(이름 겹침 방지)', () => {
+    expect(tdd).toContain('$(git rev-parse --git-dir)/dflow-bak/<단위>/<파일 경로>')
+    expect(tdd).toContain('단위별 하위 폴더라 병렬 단위끼리도 이름이 겹치지 않는다')
+  })
+  it('되돌린 파일은 mtime 이 새로 찍혀야 한다 — cp -p·touch -r 금지(같으면 Gradle 이 재컴파일을 건너뛴다)', () => {
+    expect(tdd).toContain('`cp -p`·`touch -r` 로 mtime 을 맞추지 않는다')
+    expect(tdd).toContain('크기·mtime 이 원본과 같으면 Gradle 이 재컴파일을 건너뛴다')
+  })
+  it('git checkout -- <파일> 은 쓰지 않는다 — 미커밋 구현까지 지운다', () => {
+    expect(tdd).toContain('`git checkout --')
+    expect(tdd).toContain('<파일>` 은 쓰지 않는다')
+    expect(tdd).toContain('그 파일의 미커밋 구현까지 지운다')
+  })
+  it('git stash 는 쓰지 않는다·변이를 커밋하지 않는다 는 그대로 남는다', () => {
+    expect(tdd).toContain('`git stash` 는 쓰지')
+    expect(tdd).toContain('않는다(스택이 워크트리 전체에 공유된다)')
+    expect(tdd).toContain('변이를 커밋하지 않는다')
+  })
+  it('trap 으로 중단돼도 되돌리는 셸 예시가 있다', () => {
+    expect(BUILD).toContain("trap 'cp \"$BAK\" \"<파일>\"; rm -f \"$BAK\"' EXIT")
+  })
+  it('병렬 묶음 절은 이 규칙을 가리키기만 하고 중복 서술하지 않는다', () => {
+    const par = flat(between(BUILD, '### 병렬 묶음의 단위', '## TDD 와 변이 검증'))
+    expect(par).toContain('「TDD 와 변이 검증 > 되돌리기」의 규칙')
+    expect(par).not.toContain('.dflow-bak')
+  })
+})
+
 describe('Phase 프롬프트: {UNIT} 병렬 표기와 커밋 규칙 예외', () => {
   it('{UNIT} 값에 병렬 묶음 표기가 있고, 공통 규칙 1 이 병렬 단위를 예외로 둔다', () => {
     expect(PROMPT).toContain('`구현 단위 <단위>(병렬 묶음 — 커밋·build-log 쓰기 없이 보고로 넘긴다)`')

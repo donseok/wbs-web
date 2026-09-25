@@ -3,6 +3,14 @@
 SKILL.md 「1. 시작」 1번 전제 검사 블록이 `PRECHECK_OK` 없이 끝났을 때(`FAIL …`·`LOCKED`·lease 거부) Bash `cat` 으로 읽고
 그 코드의 처리대로 보고한다. 잠금·lease 규칙의 자세한 설명도 여기 있다.
 
+- `WARN GRADLE_TUNING <빌드 루트> <빠진 키 또는 "(gradle.properties 없음)">`: `FAIL` 이 아니라 `PRECHECK_OK` 와 함께
+  나올 수 있는 **경고**다 — 시작을 막지 않는다. `gradle-check.sh`(아래)가 그 리포를 Gradle 리포로 보는데
+  빌드 루트의 `gradle.properties` 에 권장 3키(`org.gradle.caching`·`org.gradle.workers.max`·
+  `org.gradle.daemon.idletimeout`) 가 없거나 파일 자체가 없을 때 낸다. 시작 보고에 한 줄로 안내하고
+  "dflow-kit 의 `install.sh <리포>` 를 다시 돌리면 새 파일은 만들고 기존 파일은 붙일 줄만 안내한다" 를 덧붙인다.
+  판정 로직은 `.claude/skills/dflow-team/scripts/gradle-check.sh` 하나뿐이고 `install.sh` 도 같은 스크립트를
+  부른다(중복 방지). 이 스크립트는 탐색·판정만 하고 파일을 고치지 않는다.
+
 - **팀장 잠금**: 잠금은 디렉터리이며 `mkdir` 로 얻는다. `mkdir` 는 원자적이라 동시에 시작한 팀장 둘 중 하나만
   성공한다. 실패한 검사가 잠금을 남기지 않도록 블록의 마지막에 둔다. 안에 `owner` 한 줄
   `<신원>/<host>/lead <시작 epoch 초> <PID>` 와 `beat`(epoch 초)를 쓴다. PID 는 팀장 세션 프로세스의 PID 로,

@@ -16,8 +16,8 @@
 | `{AGENT_PROMPT}` | show 의 `item.agent_prompt`(Design 만. 뒤 Phase 는 design.md 머리의 인용을 본다) |
 | `{BASELINE}` | 기준선 수치(명령마다 총수·실패 수·실패 목록) |
 | `{VERIFY_CMDS}` | 기준선(Phase 01 4번)에서 **실제로 돌린** 명령 줄(`baseline.sh` 의 `--` 뒤) 글자 그대로 |
-| `{NARROW_CMDS}` | (Build·Verify) 그 명령 줄의 cwd·러너 실행 파일·도커 제외 인자(`-x mssqlMigrationTest` 등)는 그대로 두고 좁히는 인자(vitest `related <파일…> --run`·`--bail=1`, jest `--findRelatedTests`·`--bail`, Gradle `:<모듈>:test`·`--tests <클래스>`·`--fail-fast`)만 더한 꼴 |
-| `{BUILD_GATE}` | (Verify) state.json 의 `build_gate` — HEAD sha·명령 줄·통과/실패 수·신규 실패 목록 |
+| `{NARROW_CMDS}` | (Build·Verify) 그 명령 줄의 cwd·러너 실행 파일·도커 제외 인자(`-x mssqlMigrationTest` 등)는 그대로 두고 좁히는 인자(vitest `related <파일…> --run`·`--bail=1`, jest `--findRelatedTests`·`--bail`, Gradle `:<모듈>:test`·`--tests <클래스>`·`--fail-fast`)만 더한 꼴. 리포에 `.dflow-gates` 가 있으면 Design 뒤 예측 범위의 모듈 게이트 명령(`GATE_SCOPE module` 줄)도 넣고 "변이 검증이 대상 테스트로 잡히지 않으면 전체 대신 이 명령" 이라고 적는다 |
+| `{BUILD_GATE}` | (Verify) state.json 의 `build_gate` — HEAD sha·명령 줄·통과/실패 수·신규 실패 목록, 대응표가 있으면 `scope`(`module`·`full`) |
 | `{HANDOFF}` | (Build 이어 띄우기) build-log.md `## 인계 <단위>` 절 |
 | `{FAILURES}` | (재시도) 신규 실패 테스트 이름과 출력 꼬리, 또는 Verify 실패 사유 |
 | `{FORCE_STUB}` | 강제 진행 간선이 있으면 대신할 선행과 SKILL.md Phase 01 「강제 진행 스텁 규칙」 전문 |
@@ -66,8 +66,12 @@
    하네스가 시간 초과로 자동으로 백그라운드로 옮긴 경우도 위 '백그라운드로 띄웠다면'과 똑같이 다룬다.
 5. 무거운 명령: 전체 스위트·빌드·E2E·변이 검증·모든 gradlew/mvn 호출(단일 테스트 포함)·의존성 설치는
    `.claude/skills/dflow-dev/scripts/heavy.sh` 로 감싸 돌리고, `HEAVY_BUSY`·`DEPS_BUSY`(exit 75)면 실패로 보지 말고 같은
-   명령을 다시 부른다. 감싸지 않아도 되는 것은 JS 러너의 단일 테스트 파일과 린트뿐이다. Bash timeout 은 대기 상한 240초와
-   명령 예상 시간을 더하되 600000ms 를 넘기지 않는다(넘을 것 같으면 그 호출만 `DFLOW_HEAVY_WAIT` 를 줄인다).
+   명령을 다시 부른다. 감싸지 않아도 되는 것은 JS 러너의 단일 테스트 파일과 린트뿐이다. Bash 도구의 timeout 은
+   300000~600000 으로 준다(팀원 세션은 가드 훅이 이보다 짧으면 거부한다). 대기 상한 90초와 명령 예상 시간을 더해 600000 을
+   넘을 것 같으면 그 호출만 `DFLOW_HEAVY_WAIT` 를 줄인다. 한 번에 10분을 넘을 명령은 `heavy.sh --detach <명령>` 으로 띄우고
+   `heavy.sh wait <id>` 를 `HEAVY_JOB_DONE id=<id> rc=<rc>` 가 나올 때까지 되풀이해 부른다 — `HEAVY_JOB_RUNNING`(exit 76)은
+   실패가 아니며, `HEAVY_JOB_DONE` 을 보기 전에는 턴을 끝내지 않는다(`HEAVY_JOB_BUSY`·exit 77 이면 다시 `--detach` 한다). 벽시계 성능 테스트처럼 다른 무거운 명령과 겹치면 안
+   되는 명령은 `heavy.sh --exclusive <명령>` 으로 돌린다(자세한 규칙은 dev-discipline.md 「무거운 명령 줄 세우기」).
 6. 토큰: 이미 있는 파일은 Write 로 다시 쓰지 말고 Edit 로 고친다. 하네스가 잘라 저장한 긴 출력은 Read 로 통째로 읽지 말고
    tail·grep 으로 필요한 부분만 본다. 읽기 전용 조사 서브에이전트를 띄울 때는 Agent 호출에 model(sonnet 또는 haiku)을 적는다.
 7. 금지: 게이트 통과를 위한 테스트 삭제·skip·기대값 완화. `SKIP_GUARD=1` 등 훅 우회. 진행률 보고·승인 시도(서버 보고는

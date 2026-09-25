@@ -126,6 +126,8 @@ fi
 LIM="$HOME/.dflow/limits"; mkdir -p "$LIM"
 jq -n --arg f "$LIM/<id8>.json" --argjson plugins "$P" \
   '{statusLine: {type: "command", command: ("jq -c \"{at: (now | floor), rate_limits: (.rate_limits // null)}\" > \"" + $f + ".tmp\" && mv -f \"" + $f + ".tmp\" \"" + $f + "\"; printf dflow")}}
+   + {hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", timeout: 5,
+       command: "if [ -x \"${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.sh\" ]; then /bin/sh \"${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.sh\"; else cat >/dev/null 2>&1 || :; fi"}]}]}}
    + (if ($plugins | length) > 0 then {enabledPlugins: $plugins} else {} end)' \
   > "$LIM/<id8>.settings.json"
 cat >> "$WT/.dflow-run" <<'RUNEOF'
@@ -166,6 +168,12 @@ cat "$WT/.dflow-pane"
   `claude-in-chrome`, 팀원 실행 시점에 `.dflow-run` 이 읽는다. Orca 새 탭은 로그인 셸 환경이므로 셸 프로필에 export 한다)으로
   각각 되돌린다. 이 설정은 tmux spawn·Orca spawn·재개(`references/resume.md`)·재투입(`references/restart.md` 「재투입」)이
   모두 이 블록으로 얻는다.
+- **timeout 가드 훅**: 같은 설정 파일에 `hooks.PreToolUse`(matcher `Bash`, timeout 5)로
+  `.claude/skills/dflow-dev/scripts/timeout-guard.sh` 를 건다. 팀원과 그 Phase 서브에이전트가 `heavy.sh`·`baseline.sh run`·
+  `gradlew`·`mvn`·`playwright test` 를 timeout 없이(또는 300000 미만으로) 부르거나 `run_in_background` 로 부르면 exit 2 로
+  막고 이유를 모델에게 보여 준다(E2E 서버 기동만 백그라운드 허용. `nohup` 은 예외가 아니다). 판정 규칙은 스크립트 머리말이 정본이다. 명령은
+  heartbeat 훅과 같은 가드형이라 스크립트가 없는 킷에서는 stdin 을 비우고 통과한다. 전역 `~/.claude/settings.json` 에는
+  넣지 않는다. 근거는 `references/rationale.md`.
 - **statusLine 덤프**: `--settings` 로 붙인 statusLine 이 입력 JSON 의 `.rate_limits`(구독자일 때 `five_hour`·`seven_day`
   마다 `used_percentage`·`resets_at`)를 `~/.dflow/limits/<id8>.json` 에 쓴다. 팀장은 이것으로 한도와 해제 시각을
   정한다(`references/restart.md` 「한도 판정」). 워크트리 밖(`~/.dflow/limits`)에 쓴다(안에 쓰면 `DIRTY` 검사와 「고아 정리

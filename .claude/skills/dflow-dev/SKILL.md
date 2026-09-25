@@ -22,7 +22,7 @@ description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕
 > 중복 서술하지 않고 오케스트레이션(순서·게이트 집행·상태·서버 보고)만 정의한다.
 >
 > **시작할 때 읽는 것**: **`.claude/skills/dflow-dev/references/dev-discipline.md`** 의 「게이트 기준선」(「기준선 캐시」·
-> 「research/docs 작업 특례」 포함)·「화면 작업의 브라우저 E2E」·「도커 사용 규칙」·「Phase 정의」·「Phase 05 — Refactor」·「모델 배정」·「무거운 명령 줄
+> 「게이트 범위 대응표(.dflow-gates)」·「강제 재실행」·「게이트 기록」·「research/docs 작업 특례」 포함)·「화면 작업의 브라우저 E2E」·「도커 사용 규칙」·「Phase 정의」·「Phase 05 — Refactor」·「모델 배정」·「무거운 명령 줄
 > 세우기」·「포그라운드 실행(백그라운드 게이트 금지)」·「공통 금지」 절을 읽고 그대로 따른다. 「공용 결정 기록(decisions.md)의
 > 번호」·「마이그레이션 버전」 은 그 일이 생길 때 읽는다. Phase 서브에이전트에게 주는 문구는 `references/phase-prompt.md` 다.
 > 규칙의 이유·사고 이력은 `references/rationale.md` 에 있다(실행 중에는 읽지 않는다).
@@ -44,6 +44,9 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   말해도 직접 실행 결과가 판정이다.
   전체 스위트는 **Build 게이트에서 한 번** 돈다. Verify·Refactor 게이트는 그 Phase 가 코드를 바꿨을 때만 다시 돌고,
   아니면 Build 게이트 결과를 그대로 쓴다(아래 「Phase 종료마다」 1번). 게이트 명령은 `heavy.sh` 로 감싼다.
+  **리포에 게이트 대응표(`.dflow-gates`)가 있으면** Build 게이트는 이 Task 가 바꾼 모듈의 명령만 돌고, 전체 스위트는
+  Verify 게이트에서 한 번 돈다(dev-discipline 「게이트 범위 대응표(.dflow-gates)」). 대응표가 없으면 위 그대로다.
+  게이트를 돌릴 때마다 build-log.md `## 게이트 기록` 에 한 줄을 남긴다(dev-discipline 「게이트 기록」).
 - 도커: 기준선 전에 금지 모드를 판정해 기준선·게이트·Phase 프롬프트에서 도커 명령을 빼거나, 금지가 아니면 도커 슬롯
   (`heavy.sh --pool docker`)에서만 돌린다. 도커 런타임은 켜지 않는다. 정본은 dev-discipline.md 「도커 사용 규칙」.
 
@@ -275,6 +278,9 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    재기(`DFLOW_BASELINE_CACHE=refresh`)는 dev-discipline 「기준선 캐시」 다.
    Phase 프롬프트(`{VERIFY_CMDS}`)와 게이트로 옮기는 「기준선에서 실제로 돌린 명령 줄」 은 **`--` 뒤의 명령**이다 — 감싼
    줄을 옮기면 게이트가 캐시된 기준선을 자기 결과로 받는다.
+   리포 최상위에 `.dflow-gates` 가 있으면 기준선 명령은 그 `full` 줄의 명령(들)이고 리포 최상위에서 잰다. state.json
+   `baseline` 에 `"base": "<기점 sha>"` 를 적는다 — 재개한 세션도 게이트 범위 판정(`gate-scope.sh --base`)에 같은 기점을 쓴다.
+   모듈 명령의 기준선은 여기서 재지 않고 Design 게이트 뒤에 잰다(아래 「Phase 종료마다」 1번).
 5. spec.md 읽기(필수) + 복잡도 판정(dev-discipline 의 점수표) → 설계 모델 결정, 한 줄 출력.
 6. **준비 끝 표시**: state.json 의 `phase` 가 `prepare` 이면 `design` 으로 바꾼다(Design 서브에이전트를 띄우기 전, 커밋하지
    않는다). 빠뜨리면 Design 동안 좌석이 계속 「준비」로 보인다.
@@ -336,7 +342,9 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 
 검증 명령(`{VERIFY_CMDS}`)은 **오케스트레이터가 기준선(Phase 01 4번)에서 실제로 돌린 명령 줄을 글자 그대로 옮긴다.**
 돌려 보지 않은 도구 경로를 추측해 적지 않는다. Build 의 관련 테스트·변이 검증처럼 **범위를 좁힌 명령(`{NARROW_CMDS}`)도 그
-기준선 명령 줄에서 만든다** — 적어 주지 않으면 서브에이전트가 전체 스위트를 다시 돌리거나 도구 경로를 추측한다. 도커
+기준선 명령 줄에서 만든다** — 적어 주지 않으면 서브에이전트가 전체 스위트를 다시 돌리거나 도구 경로를 추측한다.
+대응표가 있으면 Design 뒤 예측 범위의 모듈 게이트 명령(`GATE_SCOPE module` 줄)도 `{NARROW_CMDS}` 에 넣는다 — 변이 검증이 대상
+테스트로 잡히지 않을 때 전체 대신 이 명령으로 넘어간다. 도커
 문구(`{DOCKER_LINE}`)는 금지 모드 판정(dev-discipline.md 「도커 사용 규칙」)대로 고른다.
 
 커밋 규칙에는 **모든 커밋에 `--trailer "DFlow-Order: <주문 UUID>"` 를 붙이는 것**이 포함된다(state.json 의
@@ -353,8 +361,16 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 
 Phase 종료마다 오케스트레이터가:
 1. 게이트 집행(위 원칙 — 직접 실행).
+   - **Design 게이트 뒤(대응표가 있을 때만)**: 첫 Build 단위를 띄우기 전에 모듈 게이트 명령의 기준선을 잰다. design.md
+     「변경 파일 목록」 의 경로를 파일에 적어 `gate-scope.sh --base <기점> --ignore <TASKS>/<TSK>/ --paths-file <파일>` 로
+     예측 범위를 보고, `module` 줄의 명령마다 `baseline.sh run --base <기점> --task-dir <TASKS>/<TSK> -- '<명령>'` 으로 잰다.
+     트리가 기점과 코드가 같을 때(`git diff --name-only <기점>..HEAD` 와 `git status --porcelain` 이 Task 문서 밖에서 빔)만
+     잰다. 결과는 state.json `baseline.cmds` 에 `"scope": "module"` 을 붙여 더한다. 정본은 dev-discipline 「게이트 범위 대응표(.dflow-gates)」.
    - **Build 게이트**: 전체 스위트를 `heavy.sh` 로 감싸 한 번 돈다. 결과(HEAD sha·명령 줄·통과/실패 수·신규 실패 목록)를
      state.json 의 `build_gate` 에 적고 Verify 프롬프트에 그대로 넣는다 — Verify 는 전체 스위트를 다시 돌리지 않는다.
+     대응표가 있으면 먼저 `gate-scope.sh --base <기점> --ignore <TASKS>/<TSK>/` 를 부른다. `module` 이고 그 명령이 모두 모듈
+     기준선을 가졌으면 그 명령들만 `heavy.sh bash -c '<명령>'` 으로 감싸 돌고(복합 명령도 한 슬롯에서), 아니면(기준선 없는 명령, `full`) `full` 명령을 돈다. `none` 이면
+     위 그대로, `invalid` 면 사유를 한 줄 보고하고 위 그대로다. state.json 의 게이트 기록(`build_gate`·`verify_gate`·`refactor_gate`)에는 `"scope":"module"` 또는 `"scope":"full"` 을 더한다.
      기록 형식은 게이트마다(`build_gate`·`verify_gate`·`refactor_gate`) 같다:
      `{"head":"<게이트를 돈 HEAD sha>","cmds":[{"cwd":"<폴더>","cmd":"<명령 줄>","tests":<총수>,"failures":<실패 수>}],"new_failures":[…]}`.
      재실행을 생략한 게이트는 `"reused_from":"build_gate"` 를 더하고 `head` 는 Build 게이트의 sha 를 그대로 둔다
@@ -363,6 +379,14 @@ Phase 종료마다 오케스트레이터가:
      (`<TASKS>/<TSK>/` 아래)와 `*.md` 뿐이고 `git status --porcelain` 도 Task 문서 밖에서 비어 있으면 전체 스위트를 다시
      돌리지 않고 Build 게이트 결과를 그대로 쓴다. 커밋 밖에 남은 파일(되돌리지 못한 변이 등)은 Phase 06 이 커밋에 섞으므로
      재실행 생략의 근거가 못 된다. 코드가 바뀌었으면 전체 스위트를 돈다. Refactor 가 커밋을 남기지 않았으면 Refactor 게이트는 없다.
+     **대응표가 있고 `build_gate.scope` 가 `module` 이면 Verify 게이트는 재실행을 생략하지 않고 `full` 명령을 한 번 돈다** —
+     머지 전 최종 증거다(Verify 서브에이전트가 끝난 뒤 오케스트레이터가 돈다). `build_gate.scope` 가 `full` 이면 위 생략
+     규칙 그대로다. 코드가 바뀐 Refactor 게이트는 `full` 명령이다.
+   - **게이트 기록**: 위 게이트 명령과 모듈 기준선 측정을 돌릴 때마다 build-log.md `## 게이트 기록` 에 명령·범위(모듈|전체|재사용)·
+     경과 시간·1분 부하 평균·결과를 한 줄 더한다(판정 직후, 재시도를 넘기기 전). 아래 2번의 Phase 산출물 커밋에 함께 싣는다.
+     열과 측정 방법은 dev-discipline 「게이트 기록」.
+   - **강제 재실행**: Gradle `--rerun-tasks`·`cleanTest` 는 변이 드라이버가 부분 실행 상태를 남겼을 때(`dflow-bak/` 에 사본이
+     남음)만 쓴다. 그 밖에는 UP-TO-DATE 를 믿는다(dev-discipline 「강제 재실행」).
    - **Verify 의 감사 확인**: build-log.md 「변이 검증 기록」 표가 「불변 규칙」 을 모두 덮는지와, 화면 작업이면 E2E 결과가
      보고에 있는지 본다. 없으면 실패다. research/docs 특례 작업(dev-discipline 「research/docs 작업 특례」)은 표 대신
      문서 검증 체크리스트 순회를 본다.

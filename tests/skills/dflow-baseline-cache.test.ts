@@ -123,6 +123,20 @@ describe('baseline.sh — 캐시를 쓰지 않는 경우(게이트는 절대 캐
     expect(runs()).toBe(2)
   })
 
+  it('기점 위에 --task-dir 아래 문서 커밋만 있으면(Design 직후) 기점 키로 캐시를 쓴다 — 게이트 범위 기준선', () => {
+    const key = keyOf(run().out)
+    sh(repo, `printf '# d\\n' > docs/tasks/TSK-01-01/design.md && git add docs && git commit -qm design`)
+    const r = run()
+    expect(r.out).toContain(`BASELINE_REUSED exit=1 key=${key}`)
+    expect(runs()).toBe(1)
+    // 새 명령(모듈 게이트 명령)은 그 트리에서 재되 기점 sha 로 저장한다
+    const r2 = run(repo, {}, `${CMD} # module`)
+    expect(keyOf(r2.out).startsWith(`${base}-`)).toBe(true)
+    expect(JSON.parse(readFileSync(join(cacheDir(), `${keyOf(r2.out)}.json`), 'utf8'))).toMatchObject({ sha: base })
+    // --task-dir 가 없으면 문서 커밋이어도 기점이 아니다
+    expect(run(repo, {}, CMD, '').out).toContain('cache=off(HEAD 가 기점과 다름)')
+  })
+
   it('작업 트리가 더러우면 재사용도 저장도 하지 않는다', () => {
     run()
     writeFileSync(join(repo, 'src/a.txt'), 'changed\n')
@@ -276,7 +290,7 @@ describe('baseline.sh — 대기 상한과 PC 전역 슬롯(2026-09-24 통합)',
   }, 30_000)
 
   // 공유 마감(2026-09-24 P1): 잠금 대기와 안쪽 heavy.sh 슬롯 대기가 한 마감을 나눠 쓴다. 전에는 잠금 WAIT 뒤에
-  // heavy.sh 가 다시 DFLOW_HEAVY_WAIT(기본 240초)를 기다려, 이 시험은 240초를 넘겨 시간 초과로 실패했다.
+  // heavy.sh 가 다시 DFLOW_HEAVY_WAIT(당시 기본 240초, 지금 90초)를 기다려, 이 시험은 그만큼 넘겨 시간 초과로 실패했다.
   it('잠금을 기다린 만큼 슬롯 대기가 줄어 호출 하나의 총 대기가 WAIT(+최소 5초) 안에 끝난다', async () => {
     const heavyDir = join(tmp, 'heavy')
     mkdirSync(join(heavyDir, 'slot-1'), { recursive: true })
@@ -305,7 +319,7 @@ describe('baseline.sh — 대기 상한과 PC 전역 슬롯(2026-09-24 통합)',
     expect(code, out).toBe(75)
     expect(out).toContain('BASELINE_WAITING')
     expect(out).toContain('BASELINE_BUSY exit=75')
-    // 안쪽 heavy.sh 가 받은 상한은 남은 시간(최소 5초)이다 — 240 이 아니다
+    // 안쪽 heavy.sh 가 받은 상한은 남은 시간(최소 5초)이다 — 기본값(90)이 아니다
     const hw = Number(out.match(/HEAVY_BUSY k=1 wait=(\d+)s/)?.[1])
     expect(hw).toBeGreaterThanOrEqual(5)
     expect(hw).toBeLessThanOrEqual(6)

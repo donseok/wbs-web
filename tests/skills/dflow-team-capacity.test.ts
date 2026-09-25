@@ -112,7 +112,7 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
   it('heavy 대기자가 슬롯 수 이상이면 막고, 슬롯보다 적으면 통과한다', () => {
     const env = fakeDarwin({ free: 60, load5: 1, level: 1 })
     expect(cap([], { ...env, ...fakeHeavy('HEAVY_STATUS slots=2 held=2 waiting=1') }).code).toBe(0)
-    const r = cap([], { ...env, ...fakeHeavy('HEAVY_STATUS slots=2 held=2 waiting=2 ram=16GB dir=/x wait=240s') })
+    const r = cap([], { ...env, ...fakeHeavy('HEAVY_STATUS slots=2 held=2 waiting=2 ram=16GB dir=/x wait=90s') })
     expect(r.code).toBe(1)
     expect(r.out).toMatch(/^CAPACITY_LOW heavy대기2>=슬롯2 \| .*heavy_wait=2\/2 /)
   })

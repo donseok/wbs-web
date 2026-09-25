@@ -53,9 +53,27 @@
 #    node_modules(메인 복제본)를 남기지 않는다. 설치 명령 자신이 75 로 끝나도 BUSY 와 같이 거기서 멈춘다(드묾).
 #    heavy.sh 의 출력(stderr)은 설치 출력과 함께 stdout 으로 나온다. 시험은 DFLOW_HEAVY_DIR 로 슬롯 폴더를 바꾼다.
 #
+# 4) 준비 빌드(prepare): 설치가 모두 성공한 뒤, 리포 루트의 `.dflow-gates` 에 `prepare<TAB><명령>` 줄이 있으면 그 명령을
+#    리포 루트에서 **한 번** 돌린다(`bash -c`, heavy.sh 로 감싼다 — 설치와 같다). 새 워크트리에는 워크스페이스 라이브러리의
+#    dist 가 없어 첫 vitest·lint 가 실패했다(2026-09-26 dmes-standard 성능 감사 P9). 예: `prepare	pnpm --filter "<패키지>^..." build`.
+#    - `.dflow-gates` 는 한 줄에 `<키 또는 경로 접두><TAB><명령>` 이고 `full`·`prepare` 가 예약어다. 여기서는 첫 필드가 정확히
+#      `prepare` 인 첫 줄만 읽는다(`#` 주석·빈 줄 무시). 파일이나 줄이 없으면 아무것도 하지 않는다.
+#    - 이미 돌렸으면 다시 돌리지 않는다(DEPS_PREPARE_SKIP). 표식은 작업 트리 밖, 워크트리마다의 git 디렉터리
+#      `$(git rev-parse --absolute-git-dir)/dflow-prepare.done` 에 명령의 cksum 으로 남긴다 — 명령이 바뀌면 다시 돈다.
+#    - **이번 호출에서 실제로 설치를 했으면(heavy.sh 로 감싼 npm ci·pnpm install·yarn install 을 실제로 돌렸으면 —
+#      캐시·메인 복제만으로 끝난 DEPS_CLONED 는 포함하지 않는다) 준비를 시작하지 않고 `DEPS_PREPARE_PENDING` 과 exit 75 로
+#      끝낸다.** 설치 슬롯 대기(최대 90초)+설치+준비 슬롯 대기(최대 90초)+빌드가 한 호출에 다 쌓이면 Bash 도구 timeout
+#      상한(600000ms)을 넘어 하네스가 백그라운드로 옮기는 정지 사고가 난다(설계 wbs-web 리포 docs/superpowers/specs/2026-09-26-dflow-perf-audit-kit-design.md, 킷에는 미동봉).
+#      호출자가 다시 부르면 그때는 설치가 DEPS_SKIP 으로 끝나므로 준비만 돈다. `DEPS_BUSY`(exit 75)와 같은 뜻이다 — 실패가
+#      아니며 같은 호출을 다시 한다. 설치가 필요 없던 호출(이미 설치돼 있어 DEPS_SKIP)에서는 이 호출 안에서 바로 돈다.
+#    - 실패하면 `DEPS_PREPARE_FAIL exit <rc> <명령>` 경고만 내고 exit 는 설치 결과(0) 그대로다. 준비 빌드는 첫 게이트 실패를
+#      줄이는 최적화이고, 실패 원인은 게이트가 다시 보여 준다. 표식을 남기지 않으므로 다음 호출이 다시 시도한다.
+#    - 슬롯을 못 얻으면(HEAVY_BUSY) `DEPS_BUSY prepare` 와 exit 75 — 설치와 같이 다시 부르면 준비만 이어서 돈다.
+#
 # 출력 첫 단어: DEPS_GRADLE_JAR · DEPS_GRADLE_JAR_MISSING · DEPS_LINK · DEPS_SKIP · DEPS_CLONED · DEPS_CLONE_FAILED ·
 #   DEPS_CACHED · DEPS_SYNCED · DEPS_SYNC_FAILED · DEPS_INSTALLED · DEPS_FAILED(exit 는 설치 명령의 exit) ·
-#   DEPS_BUSY(exit 75, 다시 부른다)
+#   DEPS_BUSY(exit 75, 다시 부른다) · DEPS_PREPARE · DEPS_PREPARED · DEPS_PREPARE_SKIP · DEPS_PREPARE_PENDING(exit 75, 다시
+#   부르면 준비만 돈다) · DEPS_PREPARE_FAIL(경고, exit 0)
 set -u
 
 MAXDEPTH="${DEPS_MAXDEPTH:-4}"
@@ -64,11 +82,21 @@ HEAVY="$(cd "$(dirname "$0")" && pwd)/heavy.sh"
 BUSY_RC=75
 HBUSY=0
 
+# 이번 호출에서 heavy_install 을 실제로 돌렸는지(설치를 시도했는지)의 표식. 준비 빌드가 같은 호출 안에서 이어지면
+# 설치 슬롯 대기+설치+준비 슬롯 대기+빌드가 다 쌓여 Bash timeout 상한을 넘을 수 있다(머리 주석 4) — 그래서 이 표식이
+# 있으면 준비를 미루고 DEPS_PREPARE_PENDING 으로 끝낸다. 작업 트리 밖에 두어 DIRTY 검사에 걸리지 않고, EXIT 트랩으로 지운다.
+INSTALL_MARK=$(mktemp "${TMPDIR:-/tmp}/dflow-deps-install-mark.XXXXXX" 2>/dev/null) || INSTALL_MARK=""
+[ -n "$INSTALL_MARK" ] && trap 'rm -f "$INSTALL_MARK"' EXIT
+
 # 설치 명령을 heavy.sh 로 감싸 돌리고 그 exit 를 돌려준다. 슬롯을 못 얻었으면(HEAVY_BUSY) HBUSY=1 로 표시한다.
 # heavy.sh 가 없거나 실행할 수 없으면 그냥 돌린다(줄 세우기는 성능 보호다 — fail-open, heavy.sh 와 같은 태도).
+# 호출될 때마다(성공·실패·BUSY 무관) INSTALL_MARK 를 남긴다 — 이 함수를 부른다는 것 자체가 "설치 명령을 실제로
+# 돌렸다(또는 돌리려 했다)"는 뜻이라 가장 단순한 판정 지점이다. 캐시 복제(DEPS_CLONED)는 이 함수를 거치지 않으므로
+# 표식이 남지 않는다 — heavy.sh 슬롯 대기가 없어 시간 누적 위험이 없기 때문이다.
 heavy_install() {
   local lf rc
   HBUSY=0
+  [ -n "$INSTALL_MARK" ] && printf 1 >> "$INSTALL_MARK" 2>/dev/null
   if [ ! -x "$HEAVY" ]; then "$@"; return; fi
   lf=$(mktemp "${TMPDIR:-/tmp}/dflow-deps-heavy.XXXXXX" 2>/dev/null) || lf=""
   if [ -z "$lf" ]; then "$HEAVY" "$@"; return; fi
@@ -264,6 +292,54 @@ if [ -n "$sub_dirs" ]; then
   done <<EOF
 $sub_dirs
 EOF
+fi
+
+# ---- 4) 준비 빌드(prepare) ----
+# 설치가 모두 성공했을 때만 돈다(머리 주석 4). 표식은 워크트리마다의 git 디렉터리(--git-common-dir 가 아니다 —
+# 그러면 두 번째 워크트리가 자기 준비를 건너뛴다)에 둔다. 작업 트리 밖이라 DIRTY 검사에 걸리지 않는다.
+if [ "$status" -eq 0 ]; then
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || top=$(pwd)
+  gf="$top/.dflow-gates"
+  pcmd=""
+  if [ -f "$gf" ]; then
+    # 첫 필드가 정확히 prepare 인 첫 줄. # 주석·빈 줄은 무시하고 CR(Windows 줄끝)은 지운다. 명령 = 첫 TAB 뒤 전부
+    pcmd=$(tr -d '\r' < "$gf" | awk -F '\t' '
+      /^[ \t]*#/ || /^[ \t]*$/ { next }
+      $1 == "prepare" { sub(/^[^\t]*\t/, ""); print; exit }')
+    pcmd=$(printf '%s' "$pcmd" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  fi
+  if [ -n "$pcmd" ]; then
+    gd=$(git rev-parse --absolute-git-dir 2>/dev/null) || gd=""
+    mark="${gd:+$gd/dflow-prepare.done}"
+    h=$(printf '%s' "$pcmd" | cksum | cut -d' ' -f1)
+    if [ -n "$mark" ] && [ "$(cat "$mark" 2>/dev/null)" = "$h" ]; then
+      echo "DEPS_PREPARE_SKIP 이미 돌렸다: $pcmd"
+    elif [ -n "$INSTALL_MARK" ] && [ -s "$INSTALL_MARK" ]; then
+      # 이번 호출에서 실제로 설치를 했다(머리 주석 4) — 여기서 멈추고 다시 부르게 한다. 다음 호출은 설치가
+      # DEPS_SKIP 으로 끝나므로 곧장 준비만 돈다. DEPS_BUSY 와 같은 뜻(실패 아님, 재호출)이라 같은 exit 를 쓴다.
+      echo "DEPS_PREPARE_PENDING $pcmd"
+      exit "$BUSY_RC"
+    else
+      echo "DEPS_PREPARE $pcmd"
+      # 리포 루트에서 돈다(스크립트의 마지막 단계라 cd 를 되돌리지 않는다. 서브셸로 감싸면 HBUSY 가 밖으로 나오지 않는다)
+      cd "$top" 2>/dev/null
+      heavy_install bash -c "$pcmd"; rc=$?
+      if [ "$HBUSY" = 1 ]; then
+        # 슬롯을 못 얻었다 — 설치 명령과 같이 거기서 멈춘다. 다시 부르면 설치는 DEPS_SKIP 으로 넘기고 준비만 다시 돈다
+        echo "DEPS_BUSY prepare"; exit "$BUSY_RC"
+      elif [ "$rc" -eq 0 ]; then
+        if [ -n "$mark" ]; then
+          printf '%s\n' "$h" > "$mark.tmp.$$" 2>/dev/null && mv -f "$mark.tmp.$$" "$mark" 2>/dev/null
+          rm -f "$mark.tmp.$$" 2>/dev/null
+        fi
+        echo "DEPS_PREPARED $pcmd"
+      else
+        # 경고만 한다(exit 는 설치 결과 그대로) — 준비 빌드는 첫 게이트 실패를 줄이는 최적화다. 실패하면 게이트가 같은 원인을
+        # 보여 준다. 표식을 남기지 않으므로 다음 deps.sh 호출이 다시 시도한다.
+        echo "DEPS_PREPARE_FAIL exit $rc $pcmd"
+      fi
+    fi
+  fi
 fi
 
 exit "$status"

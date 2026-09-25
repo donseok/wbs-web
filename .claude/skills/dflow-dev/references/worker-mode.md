@@ -70,6 +70,11 @@ state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 �
 - 설치 규칙은 위 표와 같다(lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만,
   lockfile 이 없으면 설치하지 않는다). 공용 캐시 복제(npm, 캐시가 없으면 `npm ci`)·메인 체크아웃 복제(pnpm, `DFLOW_DEPS_MAIN_CLONE=1`)·yarn·
   postinstall·캐시 보존 같은 세부는 `scripts/deps.sh` 머리 주석이 정본이다. 스크립트가 하므로 워커가 따로 하지 않는다.
+- **준비 빌드**: 설치가 끝나면 `deps.sh` 가 리포 루트 `.dflow-gates` 의 `prepare<TAB><명령>` 줄(예: 워크스페이스 라이브러리
+  빌드)을 워크트리마다 한 번 돌린다 — 새 워크트리에 dist 가 없어 첫 게이트가 실패하지 않게 한다. `DEPS_PREPARE_FAIL` 은
+  경고다(exit 0) — 게이트가 같은 원인으로 실패하면 그 결과로 판정한다. 이번 호출에서 실제로 설치를 했으면 준비 빌드는
+  돌지 않고 `DEPS_PREPARE_PENDING` 과 exit 75 로 끝난다 — `DEPS_BUSY` 처럼 실패가 아니며, 다시 부르면 설치는 건너뛰고 준비
+  빌드만 돈다(한 호출이 10분을 넘지 않게). 이 호출은 Bash 도구의 timeout 을 300000~600000 으로 준다.
 - **행 H 서버 프로세스**: Build·Verify Phase 가 화면 작업의 브라우저 E2E 를 위해 서버를 띄울 때도 행 H 와
   같은 자리의 규칙이다 — `references/e2e.md` 「서버 프로세스」(정본)를 따른다. 리포의 서버 실행 스크립트
   (`be-run.sh`·`fe-run.sh` 류)를 쓰지 않고 빈 포트로 직접 띄우며, 끝나면 자기가 띄운 프로세스만 거둔다.
