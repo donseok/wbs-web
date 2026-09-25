@@ -15,6 +15,10 @@ import { firstLostLine, parseFixture } from './_preserve'
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
 const skill = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+// 드문 분기는 references/ 로 옮겼다(2026-09-25). 그 분기의 단언은 옮겨 간 파일을 읽는다
+const ref = (f: string) => readFileSync(join(ROOT, '.claude/skills/dflow-merge/references', f), 'utf8')
+const pushFail = ref('push-fail.md')
+const unapproved = ref('unapproved.md')
 const orig = parseFixture(readFileSync(join(ROOT, 'tests/skills/fixtures/dflow-merge.SKILL.orig.md'), 'utf8')).text
 
 /** 스펙 §6-1 수정 목록으로 의도적으로 바꾸는 원문 줄. 이 밖의 원문 줄은 같은 순서로 남아야 한다. */
@@ -119,12 +123,13 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
     expect(skill).toContain('"머지 실패(충돌)"')
     expect(skill).toContain('이 커밋을 **push 전에**')
     expect(skill).toContain('`git reset --keep <기록한 HEAD>`')
-    expect(skill).toContain('`non-fast-forward` 나 `fetch first`')
-    expect(skill).toContain('"push 실패(경합)"')
-    expect(skill).toContain('"push 실패(훅)"')
-    expect(skill).toContain('그 작업과 그 후손')
-    expect(skill).not.toContain('훅에 거부되든 경합으로 거부되든')
+    expect(pushFail).toContain('`non-fast-forward` 나 `fetch first`')
+    expect(pushFail).toContain('"push 실패(경합)"')
+    expect(pushFail).toContain('"push 실패(훅)"')
+    expect(pushFail).toContain('그 작업과 그 후손')
+    for (const d of [skill, pushFail]) expect(d).not.toContain('훅에 거부되든 경합으로 거부되든')
     expect(skill).toContain('`origin` 으로 리셋하지 않는다')
+    expect(skill).toContain('`references/push-fail.md` 를 읽어 거부 모양')
     expect(skill).toMatch(/git add "<후보 state\.json 경로>" && git commit -m "chore\(<TSK>\): phase=merged" \\\n\s*&& git push origin <기본브랜치>/)
     expect(skill).not.toMatch(/git add "\$\(dflow\.sh taskdir/) // 다시 서버를 부르지 않는다(1번에서 이미 찾은 경로를 재사용)
     expect(skill).not.toMatch(/git commit -m "chore\(<TSK>\): phase=merged"\s*\n\s*git push/) // add·commit 과 push 가 분리돼 있으면 실패해도 push 될 수 있다
@@ -151,7 +156,10 @@ describe('/dflow-merge --on-report 와 /dflow-team 자동 머지(2026-09-19)', (
   it('로컬 스캔이 승인 전 머지분을 다시 읽고, 재머지 없이 승인·반려만 판정한다', () => {
     expect(skill).toContain('select(.phase == "reported" or (.phase == "merged" and .unapproved == true))')
     expect(skill).toContain('절대 다시 머지하지 않는다')
-    expect(skill).toContain('"반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>)"')
+    expect(skill).toContain('`references/unapproved.md` 를 읽고')
+    expect(unapproved).toContain('절대 다시 머지하지 않는다')
+    expect(unapproved).toContain('"반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>)"')
+    expect(unapproved).toContain('"승인 반영(이미 머지됨)"')
   })
 
   it('플래그 없는 기본 동작은 approved 만 머지한다(원문 금지 줄 유지)', () => {

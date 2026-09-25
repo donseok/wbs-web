@@ -6,6 +6,7 @@ import { join } from 'node:path'
 describe('스킬 문서의 작업 폴더', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
   const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-merge/SKILL.md',
+    ...['resolve', 'merge-worktree', 'unapproved', 'push-fail', 'rationale'].map((r) => `dflow-merge/references/${r}.md`),
     'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
     'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
     'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']
@@ -145,6 +146,7 @@ describe('스킬 문서의 작업 폴더', () => {
 describe('들여쓴 bash 블록의 붙여넣기 안전성', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
   const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-merge/SKILL.md',
+    ...['resolve', 'merge-worktree', 'unapproved', 'push-fail', 'rationale'].map((r) => `dflow-merge/references/${r}.md`),
     'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
     'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
     'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']
@@ -165,7 +167,7 @@ describe('들여쓴 bash 블록의 붙여넣기 안전성', () => {
     expect(read('dflow-team/SKILL.md')).toContain('find "$(git rev-parse --show-toplevel)/$d" -mindepth 2 -maxdepth 2 -name state.json')
   })
   it('임시 머지 워크트리: $W 를 쓰는 뒤 호출은 가드 줄로 시작한다(빈 $W 면 호출한 체크아웃에서 머지·push·reset 된다)', () => {
-    const t = read('dflow-merge/SKILL.md')
+    const t = read('dflow-merge/references/merge-worktree.md')
     expect(t).toContain('W="$(git rev-parse --show-toplevel)/.claude/worktrees/dflow-merge"; [ -e "$W/.git" ] || { echo NO_MERGE_WT; exit 1; }')
     expect(t).not.toContain('별도 호출로 나누면 그 블록이 만든 실제 경로를 `<W>` 자리에 옮겨 적는다')
   })

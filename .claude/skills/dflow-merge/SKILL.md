@@ -119,24 +119,8 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    - 그 밖의 status: "건너뜀(서버 <status>)".
    - show 가 404(dflow.sh exit 7)이거나 그 밖의 이유로 실패: "건너뜀(조회 실패)".
 
-   **승인 전 머지분 판정**(1번 로컬 스캔의 넷째 칸이 `merged` 인 후보): 절대 다시 머지하지 않는다. 같은 show 로 가른다.
-   - `status=approved`: "승인 반영(이미 머지됨)". state.json 에서 `unapproved` 를 지우는 커밋 하나만 기본 브랜치에 올린다
-     (4번의 머지 자리·push 실패 처리 그대로, `git merge` 단계만 없다. 커밋 메시지 `chore(<TSK>): approved (승인 전 머지분)`).
-     이유: 표식이 남으면 매 스윕이 같은 작업을 다시 show 한다. 머지 자리의 state.json 에 표식이 이미 없으면
-     (`jq -e '.unapproved == true'` 가 거짓) 커밋하지 않고 건너뛴다. 호출한 체크아웃이 옛 커밋에 머물러 표식을 계속
-     읽어도 기본 브랜치에 빈 커밋이 쌓이지 않게 한다.
-   - 마지막 completion 리포트가 `review_action=reject`: "반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>)". state.json 은
-     고치지 않는다. 이유: 반려 재작업(`/dflow-dev` Phase 01 1번)은 로컬 `merged` 와 서버 `claimed` 로 반려를 알아보며, 승인
-     뒤 재작업처럼 기본 브랜치에서 새 agent 브랜치를 따 머지된 코드 위에 수정 커밋을 얹는다. 되돌리기(`git revert`)는
-     스윕이 하지 않는다. 그 위에 이미 다른 작업이 올라갔을 수 있어 사람이 고른다. 보고에 **그 위에 쌓였을 수 있는 작업**을
-     붙인다: 다른 승인 전 머지분 가운데, 그 작업의 첫 산출 커밋이 반려된 작업의 첫 산출 커밋을 조상으로 갖는 것이다.
-     ```bash
-     git log origin/<기본브랜치> --grep='DFlow-Order: <order>' --format=%H | tail -n 1   # 각 작업의 첫 산출 커밋
-     git merge-base --is-ancestor <반려된 작업의 첫 커밋> <다른 작업의 첫 커밋>        # 참이면 그 위에 쌓였을 수 있다
-     ```
-   - `status=reported`: "승인 대기(머지됨)". 보고만 한다.
-   - 그 밖의 status(`claimed` 인데 반려 리포트가 아님 등): "건너뜀(머지됨, 서버 <status>)".
-   - show 실패: "건너뜀(조회 실패)".
+   **승인 전 머지분 판정**(1번 로컬 스캔의 넷째 칸이 `merged` 인 후보): 절대 다시 머지하지 않는다. 그런 후보가 있으면
+   `references/unapproved.md` 를 읽고 같은 show 로 가른다(승인 반영·반려(머지됨)·승인 대기(머지됨)·건너뜀).
 3. **순서: 스택은 조상 먼저**: 대상이 여럿이면 브랜치 tip 이 아니라 후보 state.json 의 `branch_base` 로 조상
    관계를 판정해 조상부터 머지한다. 선행이 approved 가 아니어서 조상 브랜치를 머지할 수 없으면
    그 위의 후손도 이번엔 머지하지 않는다(선행을 건너뛰고 후손만 합치면 미승인 커밋이 main 에
@@ -239,21 +223,11 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
       `poll.sh` 의 반려 감지도 `reported|merged` 만 훑는다. 새 값을 쓰면 후속이 여전히 `skipped` 로 끝나고 반려도
       감지되지 않는다.
    5. `git push origin <기본브랜치>` 로 머지와 `merged` 커밋을 한 번에 올린다. push 가 실패하면 먼저
-      `git reset --keep <기록한 HEAD>` 로 되돌리고, 거부 모양으로 가른다.
-      - 출력에 `non-fast-forward` 나 `fetch first` 가 있으면 경합이다. "push 실패(경합)" 로 보고하고 스윕을
-        멈춘다. 다음 실행은 fetch 부터 다시 한다. 이유: 다른 스윕이 먼저 머지한 것이라 fetch 부터 다시 해야
-        후보가 맞다.
-      - 그런 문구 없이 1 로 끝나면 훅 거부다(로컬 pre-push 훅은 고정 문구 없이 훅 출력과
-        `failed to push some refs` 만 남긴다). "push 실패(훅)" 로 보고하고 그 작업과 그 후손(3번의 스택 관계)만
-        빼고 다음 후보로 간다. 이유: 훅이 막은 작업은 사람이 풀 때까지 매번 막히므로 그 한 건이 뒤의
-        승인분까지 막으면 안 되며, `/dflow-dev` Phase 01-가 의 원문도 이 작업만 건너뛰고 스윕을 계속했다.
-      - 그 밖의 실패(128 등 연결·권한 오류)는 "push 실패" 로 보고하고 스윕을 멈춘다. 원인을 모르는
-        실패에서 머지를 계속 시도하지 않는 것이 지금 동작이기 때문이다.
+      `git reset --keep <기록한 HEAD>` 로 되돌리고, `references/push-fail.md` 를 읽어 거부 모양(경합·훅·그 밖)으로
+      가른다. `origin` 으로 리셋하지 않는다.
 
-      `origin` 으로 리셋하지 않는다. 이유: 수동 사용자의 기본 브랜치에 있던 미push 커밋을 보호한다. 훅 거부를
-      우회하지 않는 것은 그대로다.
    `--no-ff` 고정 — 작업 단위 경계가 머지 커밋으로 남아야 추적이 된다. push 가 훅에 거부되면
-   우회 금지. 되돌리고 보고한 뒤 그 작업과 후손만 빼는 절차는 위 5단계다.
+   우회 금지. 되돌리고 보고한 뒤 그 작업과 후손만 빼는 절차는 `references/push-fail.md` 다.
 
    **트레일러 고정**: 이 스윕이 만드는 모든 머지 커밋에는 `DFlow-Order: <order>` 트레일러를 붙인다
    (`<order>` 는 그 후보 `<TASKS>/<TSK>/state.json` 의 `order`, 주문 UUID). 붙이는 방법은 커밋 방식마다
@@ -266,42 +240,9 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    선행 4건 TSK-03-07·03-09·03-11·03-12 가 origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건
    TSK-03-10·03-13·04-01 이 모두 막혔다).
 
-   **임시 머지 워크트리**: 호출한 체크아웃이 기본 브랜치에 있지 않을 때 쓴다. 스윕을 시작할 때 한 번 만들고
-   끝날 때 지운다. `<ROOT>` 는 호출한 체크아웃의 `git rev-parse --show-toplevel` 이다.
-   ```bash
-   W="<ROOT>/.claude/worktrees/dflow-merge"
-   ex=$(git rev-parse --git-path info/exclude); mkdir -p "$(dirname "$ex")"; touch "$ex"
-   grep -qxF '**/.claude/worktrees/' "$ex" || printf '%s\n' '**/.claude/worktrees/' >> "$ex"
-   git worktree remove --force "$W" 2>/dev/null; rm -rf "$W"; git worktree prune
-   git fetch origin && git worktree add --detach "$W" origin/<기본브랜치> || echo MERGE_WT_FAILED
-   echo "W=$W"
-   ```
-   - `MERGE_WT_FAILED` 면 이번 스윕은 아무것도 머지하지 않고 "머지 워크트리 생성 실패" 로 보고한다.
-   - **`$W` 를 쓰는 뒤 호출은 모두 아래 가드 줄로 시작한다.** Bash 호출 사이에는 셸 변수가 남지 않는다.
-     빈 `$W` 로 `git -C "" …` 를 부르면 git 은 호출한 체크아웃에서 돈다 — 사용자 브랜치에 머지하고, 그것을
-     `HEAD:<기본브랜치>` 로 push 하고, 실패하면 `reset --hard` 로 그 체크아웃을 되돌린다. 가드는 `$W` 를 같은
-     규칙(`<ROOT>` = 호출한 체크아웃의 최상위)으로 다시 구하고, 워크트리가 없으면 아무것도 하지 않고 멈춘다.
-     ```bash
-     W="$(git rev-parse --show-toplevel)/.claude/worktrees/dflow-merge"; [ -e "$W/.git" ] || { echo NO_MERGE_WT; exit 1; }
-     ```
-     `NO_MERGE_WT` 면 그 후보를 처리하지 않고 "머지 워크트리 없음" 으로 보고한 뒤 스윕을 멈춘다.
-   - `decisions.sh`(3·3-1단계)는 호출한 체크아웃 최상위에서 그 체크아웃의 스킬 경로로 부르고 `-C "$W"` 를 붙인다
-     (예: `.claude/skills/dflow-merge/scripts/decisions.sh renumber -C "$W" --tsk <TSK> --order <order>`). `<W>` 에는 스킬이
-     없을 수 있기 때문이다(gitignore 된 심링크로 배포한 리포).
-   - 후보마다 위 1~5를 `<W>` 에서 한다. 달라지는 것은 셋뿐이다. 설정 블록과 같은 호출 안에서 이어 돌 때만
-     가드 없이 `$W` 를 그대로 쓴다. 아래 `<W>`·`"$W"` 는 가드 줄이 구한 값이다.
-     1. 1단계는 `git -C "$W" fetch origin && git -C "$W" switch --detach origin/<기본브랜치>` 다. `pull` 대신
-        detach 하는 이유: `<W>` 는 브랜치를 잡지 않는다. 그 뒤 `git -C "$W" rev-parse HEAD` 를 머지 직전 HEAD 로 기록한다.
-     2. 4단계의 state.json 은 `<W>/<후보 state.json 경로>` 를 고쳐 `<W>` 에서 커밋한다(같은 경로 재사용 규칙).
-     3. 5단계는 `git -C "$W" push origin HEAD:<기본브랜치>` 다. 실패하면 `git -C "$W" reset --hard <기록한 HEAD>` 로
-        되돌리고 같은 규칙(경합·훅·그 밖)으로 가른다. `--keep` 대신 `--hard` 를 쓰는 이유: `<W>` 는 이 스윕만 쓰는
-        임시 트리라 지킬 미커밋 변경이 없다.
-   - 5번 뒷정리의 로컬 `git branch -d` 도 `git -C "$W"` 로 한다. `-d` 는 브랜치가 현재 HEAD 에 머지됐는지 보는데,
-     머지 커밋은 `<W>` 의 HEAD 에만 있기 때문이다.
-   - 스윕이 끝나면(멈춘 경우 포함) `git worktree remove --force "$W"` 로 지운다. 로컬 브랜치 저장소는 모든
-     워크트리가 함께 쓰므로 `<W>` 를 지워도 머지·삭제 결과는 남는다.
-   - 호출한 체크아웃은 건드리지 않는다. 팀장처럼 detached HEAD 로 도는 체크아웃은 스윕 뒤 스스로
-     `origin/<기본브랜치>` 로 다시 detach 해 최신을 따른다(`/dflow-team` 「4. 승인 스윕」).
+   **임시 머지 워크트리**: 호출한 체크아웃이 기본 브랜치에 있지 않으면(detached HEAD·다른 브랜치) 스윕을 시작할 때
+   `references/merge-worktree.md` 를 읽고 그대로 한다. 만들기·가드 줄·`<W>` 에서 달라지는 1·4·5단계·뒷정리·지우기가 거기 있다.
+   호출한 체크아웃은 건드리지 않는다.
 5. **뒷정리** (머지된 작업마다):
    - 머지된 `agent/` 브랜치를 지운다. 원격 agent 브랜치 삭제(`git push origin --delete agent/<id8>-<slug>`)는
      그대로 한다. 로컬 삭제(`git branch -d agent/<id8>-<slug>`)는 브랜치가 없거나(not found) 다른 워크트리가
