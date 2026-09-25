@@ -1,6 +1,7 @@
 // tests/skills/dflow-team.test.ts
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
@@ -494,7 +495,11 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
 
   it('프로세스 리허설 반영: 압축 뒤 첫 기상은 절차 정본을 다시 읽고, 고아 스캔이 남긴 워크트리는 parked 로 표시한다', () => {
     expect(s()).toContain('**압축 뒤 첫 기상**')
-    expect(s()).toContain('「2. 기상과 감시」「3. 결과 처리」「5-3. 입장 제어」「6. blocked」「7. 마감」 과 `references/events.md`')
+    // 2026-09-25: 재독 세트를 「팀장 상태」「2」「3」 으로 줄이고(그 밖은 그 절차를 처음 탈 때 그 절만 읽는다), 압축 신호를 적었다
+    expect(s()).toContain('이 파일의 「팀장 상태」「2. 기상과 감시」「3. 결과 처리」')
+    expect(s()).toContain('**압축 신호**')
+    expect(s()).toContain('폴링만 이어 가지 않는다')
+    expect(s()).toContain('압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
     const i = s().indexOf('- **고아 스캔**')
     expect(i).toBeGreaterThan(-1)
     const scan = s().slice(i, i + 3000)
@@ -519,5 +524,41 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     // pstart·Get-CimInstance(LEAD_SKIP_PERMISSIONS 감지)는 스펙 2026-09-16 §9·§10 으로 없어졌다
     expect(read('references/events.md')).not.toContain('$(hostname -s)')
     expect(read('references/events.md')).toContain('--arg host "$(hostname | cut -d. -f1)"')
+  })
+})
+
+describe('dflow-team 압축 뒤 복구(2026-09-25)', () => {
+  // dmes-standard 실측: 3차 압축 뒤 Skill 도구 재호출로 약 206K자가 통째로 다시 들어왔고, 4차 뒤에는 69턴 동안 재독 없이 폴링만 했다.
+  const s = () => read('SKILL.md')
+  const rereadCmd = () => {
+    const m = s().match(/^ {2}(sed -n '\/\^## 팀장 상태\/[^\n]*SKILL\.md)$/m)
+    expect(m, '「팀장 상태」 의 재독 명령 블록').toBeTruthy()
+    return m![1]
+  }
+
+  it('SKILL.md 머리에서 Skill 도구 재호출을 금지하고 재독 세트로 보낸다', () => {
+    const head = s().slice(0, 1500)
+    expect(head).toContain('**컨텍스트 압축 뒤에는 Skill 도구로 `/dflow-team` 을 다시 부르지 않는다**')
+    expect(head).toContain('`COMPACT_REREAD`')
+  })
+
+  it('wake.sh 가 매 기상 같은 재독 명령을 COMPACT_REREAD 줄로 띄운다', () => {
+    const w = read('scripts/wake.sh')
+    const line = w.split('\n').find((l) => l.includes('echo "COMPACT_REREAD'))
+    expect(line).toBeTruthy()
+    // echo "…" 안의 \\. 은 셸이 \. 로 푼다
+    const printed = spawnSync('bash', ['-c', line!.trim()], { encoding: 'utf8' }).stdout.trim()
+    expect(printed.startsWith('COMPACT_REREAD ')).toBe(true)
+    expect(printed.endsWith(rereadCmd())).toBe(true)
+    expect(printed).toContain('Skill 도구 재호출 금지')
+  })
+
+  it('재독 세트는 「팀장 상태」「2」「3」 뿐이고 크기에 상한이 있다(종전 규정 약 89K자)', () => {
+    const r = spawnSync('bash', ['-c', rereadCmd()], { cwd: ROOT, encoding: 'utf8' })
+    expect(r.status).toBe(0)
+    const out = r.stdout
+    for (const h of ['## 팀장 상태', '### 2-2. 감시 루프', '### 2-3. 기상마다 하는 일', '## 3. 결과 처리']) expect(out, h).toContain(h)
+    for (const h of ['## 1. 시작', '## 5. 팀원 spawn', '## 7. 마감']) expect(out, h).not.toContain('\n' + h + '\n')
+    expect(out.length).toBeLessThan(46000)
   })
 })

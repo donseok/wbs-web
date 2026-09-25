@@ -9,10 +9,11 @@ const section = (from: string, to: string) => { const i = S.indexOf(from); expec
 describe('dflow-team 자동 재시작 흐름', () => {
   it('참조와 압축 뒤 첫 기상에 restart.md 가 있다', () => {
     expect(S).toContain('`references/restart.md`(자동 재시작 판정·재투입·rate-limit 대기·중단 표식 정리)')
-    expect(S).toContain('「7. 마감」 과 `references/events.md`, `references/restart.md`(전부), `references/merge-conflict.md`, `references/backends.md` 의')
+    // 2026-09-25: 압축 뒤 재독 세트를 줄였다. restart.md 는 그 절차(TICK 판정·재투입 등)를 처음 탈 때 읽는다
+    expect(S).toContain('`references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
   })
   it('팀장 상태: 차단기는 team.lost 도 세고, 제외·고아 스캔 다섯째 조건·멈춤 사유를 더한다', () => {
-    const st = section('## 팀장 상태', '## 두 번째 팀장')
+    const st = section('## 팀장 상태:', '\n## 두 번째 팀장 (')
     expect(st).toContain('`team.lost` 는 `cause` 와 무관하게 실패 1건으로 센다')
     expect(st).toMatch(/- \*\*`team\.lost`\*\*:[^\n]*영구 제외/)
     expect(st).toContain('`PARKED`·`RL_WAIT`·`RL_DUE` 가 아니다')

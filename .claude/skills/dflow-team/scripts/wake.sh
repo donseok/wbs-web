@@ -6,7 +6,7 @@
 #   1. 잠금 소유 확인: owner 의 신원이 --owner 이고 PID 가 팀장 세션 PID 와 같을 때만 beat 를 갱신한다.
 #   2. 소유가 맞으면 lease holder 를 구해 좌석표 watch(STANDBY 신호)를 보내고 resume_requests 를 이 리포 바인딩으로 거른다.
 #   3. lease 갱신 프로세스의 beat 나이를 본다.
-#   4. events.md 「기록 명령」 절을 출력한다(이벤트는 이 출력의 블록으로만 기록한다). --no-events 면 뺀다.
+#   4. events.md 「기록 명령」 절과 압축 뒤 재독 명령 한 줄(COMPACT_REREAD)을 출력한다. --no-events 면 둘 다 뺀다.
 #
 # 출력 줄(글자 그대로):
 #   LOCK_OK                                   소유 확인·beat 갱신 성공
@@ -15,6 +15,7 @@
 #   HOLDER_FAILED                             lease holder 조회 실패로 watch 를 부르지 않았다(잠금은 유효하다)
 #   LOCK_LOST beat 쓰기 실패 | LOCK_LOST owner=<…> 내 PID=<pid>
 #   LEASE_KEEP_DEAD 마지막 갱신 <epoch>
+#   COMPACT_REREAD <안내> <명령>              압축 뒤 첫 기상이면 행동 전에 이 명령만 돌린다(SKILL.md 「팀장 상태」)
 # 늘 exit 0(사용법 오류만 2). 판정은 출력 줄로 한다.
 #
 # 팀장 세션 PID: --pid, 없으면 CLAUDE_PID, 없으면 이 스크립트를 부른 셸의 부모다. 스크립트 안의 $PPID 는 Bash 도구의
@@ -70,5 +71,7 @@ lb=$(cat "$LB" 2>/dev/null); lb=${lb:-0}
 [ $(( $(date +%s) - lb )) -lt 180 ] || echo "LEASE_KEEP_DEAD 마지막 갱신 ${lb}"
 if [ "$EVENTS" = 1 ]; then
   sed -n '/^## 기록 명령/,$p' "$EVENTS_MD"   # 이벤트 기록 명령의 정본. 이 출력의 블록으로만 기록한다
+  # 압축 뒤 재독 세트(SKILL.md 「팀장 상태」「2」「3」). 매 기상 새 문맥에 있게 해 기억에 기대지 않는다
+  echo "COMPACT_REREAD 컨텍스트 압축 뒤 첫 기상이면 행동 전에 이것만 돌린다(Skill 도구 재호출 금지): sed -n '/^## 팀장 상태/,/^## 두 번째 팀장/p;/^## 2\\. 기상과 감시/,/^## 4\\. 승인 스윕/p' .claude/skills/dflow-team/SKILL.md"
 fi
 exit 0

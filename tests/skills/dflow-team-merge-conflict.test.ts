@@ -19,7 +19,9 @@ describe('SKILL.md — 포인터 절과 바뀐 문구', () => {
     expect(TEAM).toContain('### 4-1. 머지 충돌 해소')
     expect(TEAM).toContain('### 5-2. 해소 spawn')
     expect(TEAM).toContain('cat .claude/skills/dflow-team/references/merge-conflict.md')
-    expect(TEAM).toContain('`references/merge-conflict.md`, `references/backends.md` 의')
+    // 2026-09-25: 압축 뒤에는 재독 세트 밖 문서를 그 절차를 처음 탈 때 읽는다(merge-conflict.md 머리에도 적었다)
+    expect(TEAM).toContain('`references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')).toContain('컨텍스트 압축 뒤에도 그때 다시 읽는다')
   })
   it('최종 판정 목록 두 곳에 resolved 가 있다', () => {
     expect(TEAM.split('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`)').length - 1).toBe(2)

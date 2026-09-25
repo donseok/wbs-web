@@ -279,9 +279,8 @@ describe('팀장 SKILL.md 의 입장 제어', () => {
     expect(resume.indexOf('0. **입장 제어**')).toBeLessThan(resume.indexOf('1. **손실 보고 한 줄을 먼저 낸다.**'))
     expect(sec).toContain('**집행은 spawn 블록 한 곳이다.**')
     expect(sec).toContain('SPAWN_DEFERRED_CAPACITY')
-    // 압축 뒤 재독 목록에 입장 제어가 든다
-    expect(TEAM).toMatch(/「5-3\. 입장 제어」「6\. blocked」/)
-    expect(TEAM).toContain('「입장 제어」「고아 정리 규칙」 을 Bash `cat` 으로 다시 읽고')
+    // 압축 뒤에는 「5-3」·backends.md 「입장 제어」 를 spawn 절차를 처음 탈 때 읽는다(2026-09-25 재독 세트 축소). 집행은 spawn 블록이 한다
+    expect(TEAM).toContain('`references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
   })
 
   it('기준값 설명이 capacity.sh 와 맞는다(load 2.0·heavy 대기·스왑 150% 안전망)', () => {

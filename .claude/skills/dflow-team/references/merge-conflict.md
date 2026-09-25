@@ -2,8 +2,8 @@
 
 > 설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-23-parallel-merge-conflict-design.md §4~§8(킷에는 미동봉).
 
-SKILL.md 「4-1. 머지 충돌 해소」·「5-2. 해소 spawn」 이 이 문서를 가리킨다. 컨텍스트 압축 뒤 첫 기상에서는 다른
-reference 와 함께 Bash `cat` 으로 다시 읽는다. 해소 워커 쪽 규칙은 `resolve-prompt.md` 다.
+SKILL.md 「4-1. 머지 충돌 해소」·「5-2. 해소 spawn」 이 이 문서를 가리킨다. 충돌 접수·해소 spawn·해소 결과·사람 머지 감지를
+다루는 기상에서 Bash `cat` 으로 읽는다(컨텍스트 압축 뒤에도 그때 다시 읽는다). 해소 워커 쪽 규칙은 `resolve-prompt.md` 다.
 
 ## 0. 상태와 불변식
 
