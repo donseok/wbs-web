@@ -1,6 +1,6 @@
 # 수정요청사항
 
-
+> 이 파일에는 항목마다 한두 줄만 적는다. 배경·절차·실측 같은 자세한 내용은 `docs/agent/` 등의 문서로 빼고 링크한다.
 
 ### Idea
 
@@ -10,35 +10,22 @@
 
 - 에이전트 진행 상황 테이블에서 에 에이전트 대신 각 단계별로 사용 모델로 변경
 - jev 를 써서 '에이전트 스킬 토큰 절약 작업', '개발 성능 관련 개선안' 의 스크립트 결정을 위해 써보자.
-
-
+- 팀장스킬 실행할 때 디폴트값
+  - 다음 영업일 아침 9시까지
+  - 인원수는 4명
+  - 대상은 해당유저의 WP 전체
+- WBS에서도 실행중인 에이전트가 있으면 작업명 뒤에 에이전트 아이콘을 붙여줘.
+- 에이전트가 5분 응답을 안할때 무응답 조건을 10분으로 늘리자.
+- 개발 스킬은 따로 마켓플레이스, 플러그인으로 등록하자.
 
 ## 에이전트 오피스 수정
 
-- 에이전트 보기 빈 팀원 자리를 소품으로도 표현(보류, 2026-09-19. "부재 사유 말풍선"은 staging 적용됨)
-  - 빈 의자 위·옆에 부재 사유에 맞는 소품을 얹는다: 김 나는 커피 컵, 담배 연기, 의자에 걸친 재킷, "회의 중" 팻말, 택배 상자, 도시락 봉지, 포스트잇 "곧 옴".
-  - 사유 데이터는 말풍선 안의 { id, text } 에 prop 필드만 더한다. 소품이 붙으니 사유 교체 주기는 길게(5\~15분). 잡담을 끄면 소품도 숨기고 빈 의자로 돌아간다.
-  - 새 이미지가 필요하다. 원화 시트(강아지·고양이·남자·봇·여자.png)에는 빈 의자 3장(대기·오프라인·완료)뿐이고 소품이 없다.
-    - 방법 1: scripts/sprites/props.py 픽셀 맵으로 소품을 그려 animate.py 로 empty\_&lt;소품&gt;.png 굽기. cup·STEAM 은 재사용, 재킷·상자·팻말·포스트잇·봉지는 새로. empty.png 는 원화에서 잘라 낸 그림이라 화풍이 어긋날 수 있어 눈으로 확인해야 한다.
-    - 방법 2: 이미지 생성으로 소품이 놓인 빈자리 시트를 새로 뽑아 잘라 정렬(화풍은 맞지만 품이 크다).
-    - 방법 3(시험용): 이모지나 lucide 아이콘을 CSS 로 겹치기. 이미지가 필요 없지만 픽셀 그림과 화풍이 다르고 OS 마다 이모지 모양이 다르다.
-    - 권장 순서: 방법 3 으로 싸게 시험하고 반응이 좋으면 방법 1·2 로 그림을 만든다.
-  - 바꿀 곳: props.py·animate.py·public/sprites/empty\_\*.png, Sprite.tsx(POSE 가명 또는 src 선택), seatState.ts(AnimName), RosterBoard.tsx.
-
-
+- 빈 팀원 자리를 소품으로도 표현(보류, 2026-09-19. "부재 사유 말풍선"은 staging 적용됨) — [상세](agent/2026-09-19-office-empty-seat-props.md)
 
 ## 일반 수정
 
-- SM 처리를 위한 WBS [설계](/Users/jji/project/wbs-web/docs/superpowers/specs/2026-09-21-sm-operations-design.md)
-  - 정보처리의뢰서 → 이슈(`sourceType: request`) → Task N건(이슈 1 : Task N, `issue_tasks`) → 기존 에이전트 루프. 루프 자체는 고치지 않는다.
-  - 이슈 → Task 분할은 **AI 자동 분할 + 결정적 관문 + 사후 교정**(2026-09-23 개정, 설계 §5.3). 초판의 "쪼개는 일은 사람이 한다" 를 뒤집었다.
-    - LLM 이 후보마다 제목·근거 인용·대상 시스템·Mega/Major·위임 여부를 낸다. 선례 `minute-issue-draft.ts`, 실행 기록은 0056 패턴(`issue_split_runs`).
-    - 관문은 모델 신뢰도가 아니라 규칙이다(매핑표 존재·분류 유효·담당자 유효·인용 실재·중복). 걸린 후보만 「확인 필요」 로 사람에게 간다.
-    - APS·MES 구분은 WBS 계층이 아니라 **대상 시스템 → 기본 담당 멤버 매핑표**가 정한다. 에이전트가 `assignee_member_id` 로 집으므로 팀이 아니라 멤버여야 하고, 슈퍼유저는 넣을 수 없다.
-    - `wbs_items` 쓰기 RLS 가 관리자 전용이라 service\_role 로 우회하지 않는다. 멤버가 등록한 의뢰서는 「관리자 반영 대기」 로 남는다. 위임 태그는 `applyDelegation` 경유.
-  - 사람 개입은 관문에 걸린 후보와 이슈 `resolved` 확정 두 곳뿐이다. 연결된 Task 가 전부 완료돼야 해결 후보로 올린다(단방향 동기화).
-  - 미착수. 마이그레이션 대상 넷(`request` 값·`issue_tasks`·`issue_split_runs`·매핑표)은 스테이징 리허설 필요.
-- 
+- SM 처리를 위한 WBS — 미착수, 설계 개정 대기(검토에서 치명 1건: 단건 생성 Task 에 `external_ref` 가 없어 루프가 멈춤) — [설계](superpowers/specs/2026-09-21-sm-operations-design.md) · [요약·검토](agent/2026-09-25-sm-design-review.md)
+- dmes-standard MDM 문서를 프로젝트별 폴더로 개편(1차 → `docs/mdm/dev/`, 개선 프로젝트는 `docs/mdm/<이름>/`) — 미착수 — [계획](agent/2026-09-25-mdm-project-folders.md)
 
 ## 에이전트 스킬
 
@@ -50,20 +37,12 @@
 
 ## 에이전트 스킬 토큰 절약 작업
 
-- 1차 작업(1\~8번·작은 항목)은 구현 완료 챕터로 옮겼다(2026-09-25 staging 9474997c). 남은 것:
-  - 1번의 `tests/skills` 문자열 단언 이전·fixture 갱신 절차(부분) / heartbeat 훅은 PC 마다 `kit/install.sh <리포> --hooks` 재설치 / 실운영에서 볼 것: Build 단위 상한은 자가 계수라 강제 안 됨·나누지 않은 큰 작업은 이어 띄우기 2회 뒤 실패·`TICK_SKIPPED`·beat·STANDBY 동작·Linux 에서 heartbeat `stat` 순서 수정(미실측, `dflow.sh:190` 에 같은 패턴 남음).
-  - 2차 묶음(staging 2b933b11): 첫 실제 spawn 때 팀원 대화 기록(jsonl)에서 MCP 0개 확인할 것.
-- 사용자 판단 대기: 상주 서버(dmes fe-run.sh 11.6GB·ddobak 2.9GB) 때문에 capacity 가 CAPACITY\_LOW(메모리 압박 warn)라 새 팀원 spawn 이 미뤄진다.
+- 1차 완료(staging 9474997c). 남은 것: 문자열 단언 이전 일부·PC별 훅 재설치·실운영 확인 항목·첫 spawn 때 MCP 0개 확인 — [상세](agent/2026-09-25-skill-token-saving.md)
+- 사용자 판단 대기: 상주 서버(dmes fe-run.sh·ddobak) 때문에 CAPACITY\_LOW 라 새 팀원 spawn 이 미뤄진다.
 
+## 개발 성능 관련 개선안
 
-## 개발 성능 관련 개선안 (효과가 큰 순서)
-
-- 1·3·5·6 은 구현 완료 챕터로 옮겼다(2026-09-25). 남은 2·4 는 dmes-standard 리포 작업이다(테스트 설정·`gradle.properties`, 스킬의 `--no-daemon` 은 E2E·방언 예시 문구뿐).
-
-2. MSSQL 컨테이너를 하나만 쓰기: Testcontainers 재사용(withReuse(true) + testcontainers.reuse.enable=true)을 쓰거나, 컨테이너 하나를 띄워 두고 워커마다 DB 를 나눠 쓰게 합니다. 이 작업은 dmes-standard 의 테스트 설정을 바꾸는 일입니다.
-4. Gradle 제한: --no-daemon 을 풀고 데몬을 재사용하게 합니다. 대신 --stop 은 계속 금지합니다(전에 전역 데몬을 세웠던 사고 때문입니다). 여기에 org.gradle.workers.max 와 테스트 fork 수, 힙 크기에 상한을 둡니다.
-
-
+- 남은 2(MSSQL 컨테이너 하나만 쓰기)·4(Gradle 데몬 재사용 + 상한)는 dmes-standard 리포 작업 — [상세](agent/2026-09-25-dev-performance.md)
 
 ---
 
@@ -80,33 +59,11 @@
 - 오른쪽 태스크 정보 사이드바에서 선행항목에서 진행 상태를 알려줘. 현재 태스크의 시작여부를 알수 있도록하고 선행항목을 클릭하면 해당 항목의 태스크 정보가 조회 되도록 해줘. 추가로 후행항목 표시도 하자. (완)
 - wbs 에서 Task 위에 마우스를 올리면 화살표가 잘 보이긴 한데 라인이 겹쳐져 있을 경우 표시가 잘 안난다. 화살표와 함께 각 테스크의 테두리에 표시가 되게 해줘. (완료)
 - 태스크 선택하면 나오는 우측 사이드바에서 위. 아래 버튼이 있어서 이전이나 이후로 바로 이동 할 수 있으면 좋겠다.
-
-- 태스크 정보 뷰에 대해 너무 복잡하다. (완)
-  - 변경이력은 자리 너무 많이 차지 한다. 각 항목별로 한줄로 ... 
-  - 변경이력 처음에는 최대 마지막 3개까지만 보이고 나머지는 접혀있는 것이 좋겠어.
-  - 명세항목 개선필요 
-  - 제일 처음 담당, 계획일정, 가중치, 산출물은 표형태로 단순하게
-  - 담당, 단계는  축약해서 높이를 줄이자.에이전트 스튜디오 구현 — 정리본 · 스프라이트 참조 이미지 · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13) · ⚠️ 착수 전 남은 확인 사항 필독 · 배경: 자율 러너 설계. **2026-09-14 착수** — 결정 1\~3 확정, v1 구현 스펙 2026-09-14-agent-office-v1-design.md(브랜치 `feat/agent-office`, 기점 staging). 좌석 식별 파일은 워크트리 루트 `.dflow-agent`.
-  - 팀장 스킬 /dflow-team 구현 — D'Flow 에서 내게 배정되고 agent 태그가 붙은 ready 작업을 상시 폴링해 팀원 슬롯(기본 3, 상한 4)에 나눠 주고, 끝나면 다음 작업을 보충한다. 팀원은 **자기 서브에이전트를 띄울 수 있는 독립 세션**이며(Orca=pane, 그 밖=에이전트 팀 `isolation: worktree`), 각자 워크트리에서 `/dflow-dev --worker` 를 돈다. 기존 스킬은 수동 동작이 퇴행하지 않는 조건에서 원문도 고친다. 사용법 `/dflow-team [인원] <종료시각> [모델]`. 문서: 스펙 · 계획(Task 1\~10, 테스트 71건) · 남은 확인 사항 · 검토 원문 `superpowers/specs/reviews/`. 착수는 명시 지시 대기, 실행은 subagent-driven(계획서 "실행 준비" 의 `feat/dflow-team` 워크트리부터).
-    - [ ] Task 1 `/dflow-dev` 원문 수정(claim 전 detach·exit 4 재시도·Phase 0-가 는 `/dflow-merge` 절차·reported 커밋·`api_base`)과 `--worker` 블록(행 A\~H), 보존 테스트
-    - [ ] Task 2 `/dflow-merge` 원격 후보·보고 분기·충돌 되돌림·push 순서·뒷정리
-    - [ ] Task 3 `references/worker-prompt.md` — 격리 확인·부트스트랩·인증 판정·`.result` 계약
-    - [ ] Task 4 `references/backends.md`·`events.md` — Orca·에이전트 팀 spawn·정리·이벤트
-    - [ ] Task 5 `SKILL.md` — 전제 검사·잠금·매 기상 재구성·poll 기동·결과 처리·승인 스윕·마감
-    - [ ] Task 6 킷 배포 목록·권한 allow 병합·설치 안내·가이드(머지 없음)
-    - [ ] Task 7 리허설 준비(bare 원격·스테이징 한정 PAT)와 A0 단독 실측(통과 전 Task 8·9 금지)
-    - [ ] Task 8 Orca 백엔드 리허설
-    - [ ] Task 9 에이전트 팀 백엔드 리허설과 권한 목록
-    - [ ] Task 10 main·staging 머지와 적용 확인(사람 확인 후)
-    - [ ] (후속) dev 플러그인(`~/project/dev-plugin`) hooks.json 로드 실패 수정 → tmux pane 백엔드
-    - [ ] (후속) 좌석표 S1 에 `.dflow-agent`→heartbeat\_agent, `blocked` 상태, 팀장 STANDBY 신호 반영 요청 (스펙 §9)위임/승인
-      - 위임.승인 페이지가 너무 허접하다. 체크 버튼도 너무 날것으로 보인다. 보기 좋은 데이터 테이블 형태로 보이게 해야 한다. (완료)
+- 태스크 정보 뷰 단순화 (완) · 위임.승인 페이지 데이터 테이블화 (완료) — 에이전트 스튜디오·팀장 스킬 초기 기록은 [상세](agent/2026-09-14-agent-office-team-skill-history.md)
 
 ## 에이전트 정보
 
 - 위임.승인, 에이전트 스튜디오는 업무 기준이라면 에이전트 정보를 표현하는 화면이 하나 필요하다. (완료)
-
-
 
 ## 에이전트 오피스 수정
 
@@ -122,84 +79,20 @@
 
 ## 에이전트 스킬
 
-- 에이전트의 설정 파일 변경 (완료, 2026-09-23 staging 5bde7d4e) — 설계: [2026-09-23 .dflow 설정 설계](superpowers/specs/2026-09-23-dflow-config-design.md)
-  - .env에서  .dflow 로 바꾸자.
-  - 개발 브랜치 항목 추가 : main이 아니라 개발용 커밋에 적용하도록 하자. 개발용 브랜치 설정을 .dflow 항목에 추가해야 한다.
-    - `.dflow` 에 정의한 기본 브랜치가 개발 브랜치 역할을 한다(2026-09-23). 에이전트 머지·스택 기점·반영 확인의 기준이 되고, 운영 브랜치는 승격으로만 들어간다. 강제 진행의 선행 조건.
-- 에이전트 작업중일때 취소를 할 수 있는 기능 (확인 완료, 2026-09-23 — 경로는 이미 있었고 남은 중단 표식 정리는 자동 재시작과 함께 staging 21d8a2e1 에 반영)
-- 강제 진행 기능 (기존 fp) (완료, 2026-09-23 staging 00923626 — 0103·계약 2.8, 스텁 제거는 후행 아래 sub task, 병목 N=3·T=4h, 스텁 잔존 배지) — 설계: [2026-09-23 강제 진행 설계](superpowers/specs/2026-09-23-force-progress-design.md)
-  - 배경: 의존에 걸린 선행 하나가 후속 여럿을 막는 병목. fp 는 「강제 진행」 이름만 있고 우회 구현이 없었으며 0096 에서 폐지됐다.
-  - 단계 값으로 되살리지 않고 **의존 간선 단위 면제**(`wbs_items.depends_waived`)로 둔다. 면제된 선행은 `predecessorReached` 가 참 → claim 게이트·착수 안전망·팀장 필터·행 G·대기 표시가 함께 열린다. 권한은 관리자·서브트리 관리자, 사유 필수.
-  - 선행 기능이 필요하면 후행이 선행 계약대로 **스텁/목**을 만든다(후행 소유 경로, `FORCE-STUB:` 표식). 선행 계약이 없으면 면제 불가.
-  - 스텁이 있어도 개발 브랜치(`.dflow` 기본 브랜치)에 머지되고 테스트가 돈다. 승인(`xx`)만 잠그고 `im` 까지 가므로 후속 체인은 계속 흐른다.
-  - 면제 시 「스텁 제거·실연결」 Task 자동 생성. 운영 브랜치 승격은 `FORCE-STUB` 0건일 때만. 선행 조건은 아래 `.dflow` 기본 브랜치 항목.
-- 하나의 레포에 2개의 팀장은 실행 안되도록 하자.  1레포 1팀장, 만약 다른 컴퓨터에 있으면 된다. (완료, 2026-09-23 staging a8eabc6d — 신원+프로젝트 서버 lease 0101·계약 2.5)
-- 팀원(`/dflow-dev --worker`)이 판단 분기마다 `blocked` 로 멈추지 않게 하자. 명백한 기본값이 없어도 합리적인 쪽을 골라 진행하고, 그 결정을 나중에 사람에게 알리는 방식으로 바꾼다. (완료 — 규칙 09-19 704dc2ff, 결정 전달은 2026-09-23 staging c091d5c9: 보고 필드 decisions·0102·계약 2.6) — 설계: [2026-09-23 워커 결정 보고 설계](superpowers/specs/2026-09-23-worker-decision-report-design.md)
-  - 배경(2026-09-19, mdm-dict-v2 TSK-01-02): spec 제약("판정 로직과 라우트는 넣지 않는다")과 미승인 선행 산출물(decisions.md)의 구현 배정이 충돌해 Design 직후 `blocked` 로 멈췄다. 슬롯이 점유된 채 사람 답을 기다리느라 흐름이 끊겼다.
-  - 현재 규칙: worker-prompt.md 「6. 판단 규칙」 이 "기본값이 없으면 blocked" 이다. 이것을 "합리적 선택 + 사후 통지" 로 바꾸고, `blocked` 는 되돌리기 어려운 결정(데이터 삭제·외부 공개·다른 Task 산출물 대폭 수정 등)에만 남긴다.
-  - 강구할 것: **작업자(담당자)에게 결정 사항을 남기는 방식.** 후보: design.md 「담당자 확인 필요 결정」 절 고정, done 요약·완료 리포트에 결정 목록 포함, D'Flow 작업에 별도 리포트 kind(예 `decision`) 추가, 좌석표·에이전트 스튜디오에 "확인 필요" 표지, 승인 화면에서 결정별 수락·반려. 승인하는 사람이 놓치지 않고 볼 수 있는 자리여야 한다.
-- 병렬 Task 머지 충돌로 팀 전체가 멈추는 문제를 풀자. 지금은 충돌 하나가 그 뒤 의존 사슬 전체를 세운다. 원인 분석: [2026-09-21 병렬 머지 충돌 분석](agent/2026-09-21-parallel-merge-conflict-analysis.md) (완료, 2026-09-23 staging d03fdf7a — 네 갈래 모두, 계약 2.7) — 설계: [2026-09-23 병렬 머지 충돌 설계](superpowers/specs/2026-09-23-parallel-merge-conflict-design.md)
-  - 배경(2026-09-21, mdm-dict-v2 팀장1·팀장2 동시 실행): 완료 보고된 agent 브랜치 6건(TSK-03-03·03-04·03-05·03-07·03-08·01-03)이 모두 main 과 충돌해 `/dflow-merge --on-report` 가 하나도 머지하지 못했다. 선행이 main 에 없으니 후속(TSK-03-09·03-06)은 워커 행 G 에서 `skipped 선행 승인 대기` 로 끝났고, 서버는 선행을 `reached=true` 로 보아 30분마다 다시 띄워 곧바로 skip 하는 공회전이 났다. 두 팀장 슬롯 8개가 전부 놀았다.
-  - 원인: 계약 Task(TSK-03-01)가 만든 공유 시험이 "빈 틀" 을 단정한다. `tests/routes-mount.test.js` 는 라우트 파일마다 `router.stack` 길이 0, `tests/domain-contracts.test.js` 는 `STUBS` 배열(아직 스텁이어야 할 함수)을 둔다. 기능 Task 마다 같은 줄을 고치게 되고, 각자 다른 방식(`IMPLEMENTED` 집합 vs `REGISTERED_ROUTES` 표)으로 고쳐 충돌 모양도 제각각이다. `src/server.js` 같은 공유 진입점도 같다.
-  - 현재 규칙: `/dflow-merge` 는 충돌하면 `--abort` 하고 "사람이 머지해야 함" 으로 넘긴다. 팀장은 풀지 않는다. 사람이 없는 무인 실행에서는 그 자리에서 전부 멈춘다.
-  - 강구할 것
-    - **WBS·계약 설계 단계에서 막기**: 계약 Task 가 공유 시험·공유 등록 파일을 만들 때, 기능 Task 가 파일 하나의 같은 줄을 고치지 않게 설계하도록 `/dflow-wbs`·계약 Task 규칙에 넣는다(예: 라우트마다 자기 시험 파일, 등록은 파일 목록 자동 수집, STUBS 대신 각 함수 시험이 스스로 판정).
-    - **머지 쪽에서 풀기**: 스윕이 충돌을 만나면 팀장이 충돌 해소 전용 팀원(또는 원래 워커)을 띄워 main 위로 rebase·해소·전체 시험 통과 뒤 다시 보고하게 한다. 해소 규약(예: "양쪽이 지운 스텁은 모두 지운다", "먼저 들어온 쪽의 등록 방식을 따른다")을 문서화한다.
-    - **공회전 막기**: 선행이 서버상 `reached` 여도 main 에 없으면(머지 충돌 대기) 팀장이 사전 검사에서 걸러 후속을 띄우지 않는다. 지금은 워커가 떠야 알게 된다.
-    - 충돌 대기 상태를 좌석표·에이전트 스튜디오에 "머지 충돌" 로 드러내 사람이 바로 알게 한다.
-- 팀원 멈추었을 때 자동 재시작 기능 (완료, 2026-09-23 staging 21d8a2e1) — 설계: [2026-09-23 자동 재시작 설계](superpowers/specs/2026-09-23-worker-auto-restart-design.md)
-- **운영 반영 시 주의(과제 B·C·D·E·H, 2026-09-23 staging 00923626 기준)**
-  - 순서: 운영 DB 에 `0101` → `0102` → `0103` 을 **먼저** 적용(`npm run db:apply --target prod`)하고, 그다음 staging → main 머지. 역순이면 새 코드가 없는 컬럼·함수를 읽어 허브·오피스·WBS 사이드바 조회가 실패하고, 새 스킬의 `lease acquire` 가 404 로 팀장이 시작되지 않는다.
-  - 롤백도 역순: 코드 revert(main) 가 먼저, `_rollback.sql` 은 그다음(0103 → 0102 → 0101).
-  - 커밋된 `.dflow` 의 `api_base` 가 **스테이징 URL** 이다. main 승격 전에 운영 URL 로 바꿀지 결정해야 한다. 그대로 가면 운영 브랜치에서 돈 에이전트가 스테이징 서버에 보고한다.
-  - main 반영 뒤 dflow-kit 재빌드(계약 2.8, 새 파일 `restart.md`·`merge-conflict.md`·`resolve-prompt.md`·`pred-reflected.sh`·`resolve-decide.sh` 포함)·각 PC `install.sh --hooks` 재설치. 구버전 스킬 팀장은 lease 를 잡지 않아 보호가 불완전하다.
-  - `src/components/app/*`(결재 배지) 변경이 들어 있다 — main push 전 G2(Preview) 확인.
-  - 운영 전 사람 리허설 남음: H(pane 강제 종료 → 재시작, 4번째 손실 멈춤, 60분 무응답), E(샘플 리포 충돌 → 해소 워커), D(관리자 계정으로 면제·해제·스텁 잔존 확인).
-  - 메인 체크아웃 로컬 `staging` 에 다른 세션(작업 폴더 scaffold)의 미푸시 커밋이 있다 — 그 세션 push 때 `dflow-team/SKILL.md`·`dflow.sh` 충돌 예상.
+- `.env` → `.dflow` 설정 전환·개발 브랜치 (완료, 09-23 staging 5bde7d4e) — [설계](superpowers/specs/2026-09-23-dflow-config-design.md)
+- 작업 중 취소 (확인 완료, 09-23)
+- 강제 진행 — 의존 간선 단위 면제 + 스텁 (완료, 09-23 staging 00923626) — [설계](superpowers/specs/2026-09-23-force-progress-design.md)
+- 1레포 1팀장 — 신원+프로젝트 lease (완료, 09-23 staging a8eabc6d)
+- 워커가 `blocked` 대신 합리적 선택 + 사후 결정 보고 (완료, 09-23 staging c091d5c9) — [설계](superpowers/specs/2026-09-23-worker-decision-report-design.md)
+- 병렬 머지 충돌 해소 (완료, 09-23 staging d03fdf7a) — [분석](agent/2026-09-21-parallel-merge-conflict-analysis.md) · [설계](superpowers/specs/2026-09-23-parallel-merge-conflict-design.md)
+- 팀원 자동 재시작 (완료, 09-23 staging 21d8a2e1) — [설계](superpowers/specs/2026-09-23-worker-auto-restart-design.md)
+- 위 항목의 배경·운영 반영 시 주의: [기록](agent/2026-09-23-agent-skill-worklog.md)
 
 ## 에이전트 스킬 토큰 절약 작업 (완료, 2026-09-25 staging 9474997c, main·킷 미반영)
 
-- **실측(2026-09-25 조사, dmes-standard 09-23\~24 팀 실행 jsonl, 2b933b11 이전 스킬)** — 가중치 입력 1·캐시 생성 1.25·캐시 읽기 0.1·출력 5.
-  - 비중: Build 서브에이전트 35% · 팀장 18% · Design 13% · Verify 11% · 팀원 메인 10% · 해소 워커 1%.
-  - 스킬 텍스트 몫은 Task 누적의 약 7%, 팀장 누적의 약 14%. 한국어는 실측 1글자 ≈ 0.84토큰.
-  - Build 가 큰 이유: design.md 를 10\~27회 다시 읽음(서브에이전트당 약 110K자)·소스 통째 읽기(180\~275K자). 누적은 호출 수의 제곱에 비례. 테스트 로그는 이미 tail 로 작다.
-  - BE·FE 로 나누기만 해서는 안 줄었다(TSK-08-02: 단위마다 200회 넘게 호출, 누적 88\~90M).
-  - ④ 빈 기상 절제는 작다: 변화 없는 기상 53건 = 팀장의 3\~6%(전체 약 1%). 캐시가 1시간 티어라 간격을 늘려도 재생성 손실은 거의 없다.
-  - 동작 문제: 팀장이 compact 4회 중 4번째 뒤 6시간(69턴) 스킬을 다시 읽지 않고 폴링만 했다. 3번째 뒤에는 Skill 도구 재호출로 약 206K자가 통째로 다시 들어왔다.
-  - 분석 스크립트: 09-25 세션 scratchpad `an.py`\~`an4.py`·`analyze.py`(임시).
-- **진행 결과(2026-09-25 staging 9474997c, main·킷 미반영)**: 아래 1\~8번과 작은 항목 3건 완료. 스킬 테스트 908건 통과.
-  - 상시 적재 크기: dflow-team SKILL.md 121K→약 82K자(목표 64K 미달, 「1. 시작」 은 남김) · dflow-dev SKILL.md 37K→25K · dev-discipline 28K→18.6K · dflow-merge SKILL.md 37K→17K · Phase 적재 Design 28K→4.5K, Build 단위 18K→6.1K, Verify 11K→4K.
-  - 통합 뒤 독립 검토 결함 11건 수정(Build 재시도 단위 범위·인계 상한 트레일러 세기·회수 이름 `-c<n>`·lead-state 출력 순서/HASH 상한/깨진 줄 `bad=`/`CONFLICT_CLEARED`·재독 범위에 「참조」「인자」·tick `--pid`·STALE 증거 등).
-  - 작은 항목: heartbeat 세션 절제(docs 스캔 전)·토큰 증분(44MB 기록 20초→0.5초) / poll 탈락 후보 캐시(`--tag-cache-cycles` 기본 3, 새 agent 태그 인식이 최대 3\~4주기 늦어짐)·spawn 때 docker-allow 가 poll show 재사용 / 방언 검증 `DIALECT_SKIP docs-only`(기준은 last\_pass 만).
-  - 추가: 주간 사용량 90%↑ 팀원 최대 2명·95%↑ 새 spawn 중지(`capacity.sh usage`, `DFLOW_CAP_WEEKLY_*`, 덤프 없으면 막지 않음).
-- **작업 순서(2026-09-25 개정, 효과가 큰 순서)** — 종전 "프롬프트 압축 먼저(dflow-team → dev → merge)" 를 뒤집었다.
-  1. 선행: 테스트 밖 문자열 의존 3곳(팀장 `OLD_DFLOW_DEV` 의 `--worker` grep, 팀장 `OLD_DFLOW_MERGE` 의 `origin/agent/*` grep, worker-prompt 「3」 의 `--worker` grep)을 frontmatter 같은 명시 표식으로 바꾼다. 이 글자가 빠지면 테스트는 전부 통과하는데 운영의 모든 워커가 멈춘다. `tests/skills` 문자열 단언 약 650\~720건은 "규칙이 어느 파일에 있는지" 검사로 옮기고, `fixtures/dflow-dev.SKILL.orig.md` 갱신 절차를 정한다.
-  2. Build 효율화(추정 −20\~30M/Task): dev-discipline Phase 02\~04 에 design.md 읽기 규율(전체는 한 번, 이후 절 grep) + ⑤ Build 분할 + 단위 상한(약 80회 또는 컨텍스트 250K). 셋을 같이 해야 효과가 난다. 마지막 단위가 연결 테스트를 맡는다. 고칠 곳: dflow-dev SKILL Phase 02\~05(서브에이전트 이름·TaskStop·state.json model·종료 4번 재시도), dev-discipline 「구현 단위」 신설·Phase 03 완료 조건·모델 배정·스위트 횟수 표, gate-economy·background-gate 테스트.
-  3. Phase 별 reference 분리: `references/phase-{design,build,verify}.md` + 공통 Phase 프롬프트 템플릿. Design 은 dev-discipline 28K 통째, Build 는 약 18K 를 읽는데 Phase 마다 4\~7K 로 고정한다. 오케스트레이터 몫도 약 24K → 8K 토큰. dev-discipline 의 두 번째 소비자(러너 킥오프) 계약도 같이 고친다.
-  4. 팀장 compact 뒤 복구 규칙: 필요한 절만 다시 읽고 Skill 도구 재호출(전체 재주입)은 금지. 토큰이자 동작 문제다.
-  5. dflow-team SKILL.md 압축(121K → 약 64K자, 팀장 누적 실효 7\~8%): 근거·이력 약 25K → `references/rationale.md`, 분기 전용 절 약 22K(실패 코드 해설·키 판정·연장·마감·5-1·두 번째 팀장)는 그 분기에서만 읽기, 중복 약 7K(입장 제어 4벌·서브에이전트 금지·tmux 규칙·`find_tmux` 두 벌) 정본화, 재구성 events 조회는 요약만 내는 `lead-state.sh` 로.
-  6. dflow-dev·dflow-merge 정리: 「--worker 팀원 모드」 12K → `references/worker-mode.md`, dflow-merge 「절차」 1번은 `sweep-check.sh` 출력 계약으로 대체하고 수동 `/dflow-dev` 01-가도 `SWEEP_NONE` 이면 dflow-merge 를 읽지 않는다.
-  7. 해소 워커 적재 축소: resolve-prompt 「0」 이 worker-prompt 전체(15K) 대신 「0」「1」 만 읽고, dflow-merge 「해소 머지」 는 `references/resolve.md` 로. 해소 1회 −12\~25K 토큰(비중 1% 라 후순위).
-  8. ④ 팀장 깨우기 절제 + 감시 루프 `scripts/tick.sh` 화: 효과는 팀장의 3\~6% 뿐이지만 루프 재작성 출력(실행당 71회·약 97K자)을 없앤다. 30분 기상에 기대는 규칙 여섯(잠금 beat 70분·STANDBY 70분·TICK 두 번 무응답·차단기 시험 spawn·마감 TICK 두 번·poll 없을 때 종료 시각)이 걸린다.
-  - 작은 항목(후순위): heartbeat 훅의 60초 절제 판정을 docs 스캔 앞으로 옮기고 토큰 사용량은 증분 계산 / poll 의 태그 조회 캐시·show 결과를 docker-allow `--json` 이 재사용 / 문서만 바뀐 머지는 방언 검증을 다음 스윕으로 이월. ⑥ 게이트 sha 캐시는 제외. ⑤ 2단계(팀원 1M 컨텍스트 끄기·compact 기준)는 1번 뒤 dmes Task 1\~2건 A/B 측정 후 묻는다.
-- **압축 방법(4·5·6번 공통)**
-  1. 규칙과 근거 분리: "이유:" 문단·사고 이력·실측 수치는 `references/rationale.md` 로, 판단이 애매할 때만 읽는다.
-  2. 중복 제거: 반복 규칙은 정본 한 곳, 나머지는 가리키기만 한다.
-  3. 드문 절은 references 로 빼서 필요한 순간에만 읽는다.
-  4. 출력 토큰(`SPAWN_DEFERRED_CAPACITY` 등)·명령은 글자 그대로. 셸 블록은 감시 루프·기상 블록만 스크립트로 바꾸고 나머지는 그대로 둔다.
-  5. 문장 단위 조사·서술어 생략은 일괄 적용하지 않는다(2026-09-25 실측). 새로 쓰거나 옮기는 문장에만 아래 표를 적용한다.
-     - 생략 가능: 역할이 분명한 `이/가`·`을/를`, 종결어미 → 명사형(`설치한다` → `설치`), 나열·설명 줄의 주제 `은/는`, 군더더기(`~라는 점`·`~하는 것이다`).
-     - 반드시 유지: 보조사 `만`·`도`·`까지`·`부터`, 범위의 `에`/`에서`·대상의 `에게`, 대조의 `은/는`, 양보 `-아도`, 허용 `-해도 된다`, 조건 `-면`.
-     - 기호(`X`·`→`·`OK`)는 표·목록 같은 짧은 줄에만 쓰고, LLM 이 바꾼 문장은 사람이 원문과 diff 로 검수한다.
-     - 근거: 규칙 17문장·질문 20개 블라인드 해석 시험(원문 대조군 20/20). 엄격 생략본은 sonnet·opus 모두 모호 2건(`그 호출만`→`그 호출`, `같은 host 에서`→`같은 host`, `공용 파일에 … 를`→`공용 파일 …` 에서 목적어가 뒤집힘). `-아도` 탈락은 양보를 원인으로 뒤집는다(`비어 있어도`→`비어 있어`). 기호 치환본은 20/20 이었지만 압축 LLM 이 "아무것도 띄우지 않고" 를 "무출력" 으로 바꿔 뜻을 틀었고, 시험 질문이 이것을 잡지 못했다. 절감은 표본 −12%(생략)·−19%(기호), 실제 SKILL.md 구간(코드 포함) −3%·−10.5%. 스킬 텍스트가 누적의 7\~14% 라 전체 효과는 약 1% 다. 시험 자료는 09-25 세션 scratchpad `cmp/`(임시).
-  - 동등성 보증: 압축 전 규칙 목록(금지·순서·조건 규칙, 출력 토큰, 명령)을 기계적으로 추출 → 압축 뒤 각 항목이 SKILL.md 또는 제때 읽히는 reference 에 남았는지 대조.
-    - 보조 가드: caveman-compress 의 `scripts/validate.py`(헤딩·코드 블록·인라인 코드·경로·URL·목록 수 보존 검사)를 재사용해 백틱 문자열(`--worker` 등) 누락을 잡는다. 의미는 검사하지 않는다. 압축 규칙 자체는 영어 기준이고 원본을 덮어쓰므로 쓰지 않는다.
-- **결정(권장안대로 진행)**: 언어는 한국어 유지 + 간결화 / ④ 는 (가) 빈 TICK 을 연속 한 번까지만 건너뜀 / 셸 블록은 감시 루프·기상 블록만 스크립트화.
-- **2차 묶음 완료분(2026-09-24 staging 2b933b11, main 미반영)**: ① Orca 팀원을 tmux 와 같은 준비 단계 + `orca terminal create --command ./.dflow-run` 으로 띄움 ② 팀원 전용 설정(켜진 플러그인 전부 끄기·`--no-chrome --strict-mcp-config`, 실측 첫 턴 65.3K→54.2K 토큰) ③ 끝난 Orca 탭 닫기·Orca 재투입 잠금 해제·머지된 워크트리 정리 조건. 1차 묶음(A\~J)은 staging 1d2b9b87.
+- 1\~8번·작은 항목 완료, 스킬 테스트 908건 통과. 상시 적재 dflow-team 121K→82K자 등. 실측·작업 순서·압축 방법(조사 생략 판정 포함) — [상세](agent/2026-09-25-skill-token-saving.md)
 
 ## 개발 성능 관련 개선안 (완료분, 2026-09-25)
 
-1. 무거운 검증을 PC 전체에서 줄 세우기: testAll, MSSQL 테스트, E2E 서버 같은 무거운 명령은 PC 전체에서 동시에 K개(예: 2개)까지만 돌게 하는 잠금 스크립트를 스킬에 넣습니다. 설계와 코딩은 6명이 병렬로 하고, 무거운 검증만 차례로 돌리는 방식입니다. 스킬만 고치면 되고 효과가 가장 큽니다. (구현됨: `dflow-dev/scripts/heavy.sh`)
-3. 자원에 맞춰 팀원 수 정하기: 팀장이 새 팀원을 띄우기 전에 여유 메모리나 스왑 상태를 보고, 부족하면 띄우지 않게 합니다. 이 장비라면 동시에 3명 정도가 적정해 보입니다. (구현됨: `dflow-team/scripts/capacity.sh`)
-5. 워커 세션을 가볍게 띄우기: 팀원 세션은 필요한 MCP 만 켜고 띄웁니다(예: --strict-mcp-config). E2E 용으로 띄운 서버는 끝나면 반드시 종료하는 규칙도 넣습니다. (구현됨: `--no-chrome --strict-mcp-config`, dflow-dev e2e.md 「서버 프로세스」)
-6. 주간 사용량에 따라 90% 이상이 되면 최대 2개만 실행하도록 제한하고 95% 이상이 되면 더 이상 할당이 되지 않도록 수정 (구현: `capacity.sh usage`, `DFLOW_CAP_WEEKLY_*`, staging 9474997c)
+- 1 무거운 검증 PC 전체 줄 세우기(`heavy.sh`) · 3 자원 기반 팀원 수(`capacity.sh`) · 5 워커 세션 경량화(`--no-chrome --strict-mcp-config`) · 6 주간 사용량 90%/95% 제한 — [상세](agent/2026-09-25-dev-performance.md)
+
