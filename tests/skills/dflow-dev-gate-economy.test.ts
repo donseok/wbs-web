@@ -170,7 +170,7 @@ describe('읽기 규율(design.md 는 한 번, 기록은 build-log.md)', () => {
 describe('Build 구현 단위(단위마다 서브에이전트, 상한과 인계)', () => {
   const units = BUILD.slice(BUILD.indexOf('## 구현 단위'), BUILD.indexOf('## TDD 와 변이 검증'))
   it('Design 이 표로 정하고(phase-design), Build 단위는 상한·인계로 끝난다(phase-build). 작은 작업은 B1 하나로 종전과 같다', () => {
-    expect(DESIGN).toContain('`단위 | 범위(파일·기능) | 새 테스트 | 담당 불변 규칙`')
+    expect(DESIGN).toContain('`단위 | 묶음 | 범위(파일·기능) | 새 테스트 | 담당 불변 규칙`')
     expect(DESIGN).toContain('**작은 작업은 표를 생략한다** — 단위 하나(B1)이며 종전 Build 와 같다.')
     expect(between(DISC, '### 구현 단위', '## Phase 05')).toContain('표가 없으면 단위 하나(B1)이며 종전 Build 와 같다')
     expect(units).toContain('**마지막 단위가 연결을 맡는다**')

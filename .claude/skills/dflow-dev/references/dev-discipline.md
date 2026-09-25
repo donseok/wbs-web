@@ -219,7 +219,8 @@ Phase 서브에이전트는 `references/phase-prompt.md` 템플릿으로 띄우�
 ### 구현 단위
 
 design.md `## 구현 단위` 표(phase-design.md 「구현 단위 표」)의 단위마다 새 Build 서브에이전트에 맡기고, 단위마다 상한을
-둔다(phase-build.md 「구현 단위」). 표가 없으면 단위 하나(B1)이며 종전 Build 와 같다.
+둔다(phase-build.md 「구현 단위」). 표가 없으면 단위 하나(B1)이며 종전 Build 와 같다. 같은 `묶음` 의 단위는 동시에 돈다
+(컴파일 범위가 다르고 서로 기대지 않는 단위만 — phase-design.md 「구현 단위 표」, 실행은 SKILL.md 「Phase 02~05」 「묶음」).
 
 ## Phase 05 — Refactor (선택)
 

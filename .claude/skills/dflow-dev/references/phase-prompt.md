@@ -12,7 +12,7 @@
 | `{TSK}`·`{PHASE}` | Task ID · `design`·`build`·`verify`·`refactor` |
 | `{TASK_DIR}` | `<TASKS>/<TSK>`(`dflow.sh taskdir <ref>`) |
 | `{ORDER}` | state.json 의 `order`(주문 전체 UUID) |
-| `{UNIT}` | (Build) `구현 단위 <단위>` 와 마지막 단위인지. 단위 하나면 `구현 단위 B1(마지막)` |
+| `{UNIT}` | (Build) `구현 단위 <단위>` 와 마지막 단위인지. 단위 하나면 `구현 단위 B1(마지막)`. 병렬 묶음(한 묶음에 단위 둘 이상)의 단위면 `구현 단위 <단위>(병렬 묶음 — 커밋·build-log 쓰기 없이 보고로 넘긴다)` |
 | `{AGENT_PROMPT}` | show 의 `item.agent_prompt`(Design 만. 뒤 Phase 는 design.md 머리의 인용을 본다) |
 | `{BASELINE}` | 기준선 수치(명령마다 총수·실패 수·실패 목록) |
 | `{VERIFY_CMDS}` | 기준선(Phase 01 4번)에서 **실제로 돌린** 명령 줄(`baseline.sh` 의 `--` 뒤) 글자 그대로 |
@@ -49,6 +49,7 @@
 공통 규칙
 1. 커밋: 파일명을 명시해 stage 한다(`git add -A` 금지). 모든 커밋에 `--trailer "DFlow-Order: {ORDER}"` 를 붙인다.
    산출물은 Phase(Build 는 구현 단위)가 끝나면 곧바로 커밋한다 — 커밋 없는 산출물을 Phase 경계 너머로 끌고 가지 않는다.
+   단, 병렬 묶음의 Build 단위는 phase-build.md 「병렬 묶음의 단위」 대로 커밋하지 않는다(오케스트레이터가 한다).
 2. 읽기(Build·Verify·Refactor): design.md 전체는 처음 한 번만 Read 하고, 그 뒤에는 `grep -n '^## '` 로 절을 찾아
    필요한 절만 `sed -n` 으로 읽는다. 구현 중 기록(변이 검증 기록·설계 이탈·인계)은 design.md 가 아니라 build-log.md 에
    쓴다(없으면 만들고 Task 문서로 커밋한다). design.md 를 고치는 것은 설계 자체가 바뀔 때와, 다른 스킬이 design.md 에서
@@ -57,7 +58,8 @@
    읽지 않는다 — Edit 뒤 확인도 바뀐 줄 주변만 본다.
 3. 병렬 조사: 병렬 조사가 필요하면 fork 를 쓰지 말고 부모 컨텍스트를 물려받지 않는 새 읽기 전용 서브에이전트(예: Explore)를
    띄워 조사 질문만 명시한다. 그 프롬프트에 '파일 편집·커밋·git 쓰기 금지, 결과는 보고로만 돌려줄 것'을 적는다.
-   design.md·소스·테스트·state.json 은 이 Phase 담당인 당신 혼자 쓴다.
+   design.md·소스·테스트·state.json 은 이 Phase 담당인 당신 혼자 쓴다. 병렬 묶음의 Build 단위는 design.md 표의 자기 단위
+   범위의 소스·테스트만 쓰고 state.json·build-log.md 는 쓰지 않는다.
 4. 포그라운드: 게이트·변이 검증 스윕·테스트를 run_in_background 로 띄우지 말고 포그라운드로 끝까지 돌린다(필요하면 Bash
    timeout 을 길게 준다). 결과는 보고에 담는다. 백그라운드로 띄웠다면 그 작업이 끝나 결과를 확인하기 전에는 턴을 끝내지
    않는다. Bash 의 timeout 은 최대 600000ms(10분)다 — 이보다 오래 걸리는 스윕은 나눠서 각 호출이 그 안에 끝나게 하고,

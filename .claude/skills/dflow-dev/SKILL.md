@@ -55,7 +55,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   `{ "tsk", "order", "api_base", "phase", "baseline": {"failures": N, "tests": M}, "last": {"phase","event"} }`
   `model`(선택)은 **지금 도는 Phase 서브에이전트의 모델**이다(아래 Phase 02~05). heartbeat 훅이 서버로 실어 좌석표 명찰이
   Phase 마다 바뀐다.
-  `build_unit`(선택)은 지금 도는 구현 단위(`B1`…)다. 단위가 몇 개든 `phase` 는 Build 동안 `build` 하나다.
+  `build_unit`(선택)은 지금 도는 구현 단위(`B1`…)다. 병렬 묶음이면 동시에 도는 단위를 쉼표로 잇는다(`"B1,B2"`).
+  단위가 몇 개든 `phase` 는 Build 동안 `build` 하나다.
   `phase` 값: `ready`·`design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.
   `ready` 는 `dflow.sh scaffold` 가 만든 초기값이다(주문 전 폴더 자리). 진행 중 phase 가 아니므로 스윕·재개 판정은 건너뛴다.
   `rejected` 는 서버가 반려를 통지한 상태다 — 승인 대기(reported)와 구분해야 스윕이 헛돌지 않는다.
@@ -301,6 +302,19 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
   이상이면 끝난 단위다(단위 커밋 규칙은 phase-build.md 「구현 단위」). 남은 단위부터 띄우고, 마지막 인계가 있으면
   build-log.md `## 인계 <단위>` 를 프롬프트에 넣는다.
 - 마지막 단위가 끝나면 Build 게이트를 돈다(아래 1번). Build 게이트 재시도(아래 4번)는 마지막 단위의 에이전트에 이어 붙인다.
+- **묶음**: 단위는 표의 `묶음` 순서대로 돈다(열이 없거나 비면 단위마다 다른 묶음 — 위 순차 절차 그대로). 한 묶음에 단위가
+  둘 이상이면(병렬 묶음) 그 단위들을 한 메시지에 동시에 띄우고, 모두 보고할 때까지 커밋하지 않는다 — 형제가 트리를 고치는
+  중의 커밋은 index 에서 부딪치고, 대상 리포의 커밋 훅(lint-staged 등)이 형제의 작업 중 파일을 건드린다. 프롬프트의 `{UNIT}` 은
+  병렬 표기로 채운다(phase-prompt.md 변수표). 병렬 단위는 git 에 쓰지 않고 보고로 넘긴다(phase-build.md 「병렬 묶음의 단위」).
+  각 단위는 보고를 받는 즉시 TaskStop 한다. 모두 보고하면:
+  1. 묶음 검사 — 단위들의 파일 목록이 서로 겹치지 않는다. 각 파일이 design.md 표의 그 단위 범위 안이다. 어기면 Build 실패다.
+  2. 단위마다 차례로 그 단위 파일만 stage 해 커밋한다. 보고의 변이 검증 기록 행·설계 이탈·인계 내용을 build-log.md 에 옮겨
+     같은 커밋에 싣는다. `UNIT_DONE` 은 `--trailer "DFlow-Unit: <단위> done"`, `UNIT_HANDOFF` 는
+     `--trailer "DFlow-Unit: <단위> handoff"` 를 붙인다(`DFlow-Order` 트레일러도). 트레일러가 같으므로 재개·인계 계수는 위와 같다.
+  3. 커밋 뒤 `git status --porcelain` 이 Task 문서 밖에서 비어 있어야 한다. 보고에서 빠진 파일이 남으면 Build 실패다.
+  4. 인계한 단위는 묶음 커밋 뒤 혼자 이어 띄운다(`-c<n>`, 병렬 표기 없이 — 스스로 커밋한다). 끝나면 다음 묶음으로 간다.
+  한 단위가 Build 실패(세 번째 인계, 둘 다 아닌 보고)면 형제의 보고를 기다려 끝난 단위는 커밋한 뒤 Build 실패로 멈춘다 — 재개가
+  끝난 단위를 다시 하지 않게. 재개할 때 묶음의 일부만 끝났으면 남은 단위만 같은 방식으로 띄운다(하나만 남으면 순차 표기).
 
 **띄우기 직전에 state.json 의 `model` 을 그 서브에이전트의 모델로 쓴다** — Agent 도구에 넘기는 값 그대로
 (`opus`·`sonnet`·`haiku`, 전체 id 를 넘겼으면 그 id). 커밋은 하지 않는다(다음 Phase 산출물 커밋에 같이 실린다).
