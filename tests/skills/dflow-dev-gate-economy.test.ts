@@ -119,6 +119,13 @@ describe('총수는 합계 줄로 읽는다(스위트를 나눠 도는 리포 �
     expect(base).toContain('리포 스크립트가 합계 줄을 내면 그 줄을 총수·실패 수로 읽고, 합계 줄이 없으면 모든 요약의 수를 더한다')
     expect(base).toContain('기준선(`baseline.sh note --tests`)과 게이트는 같은 방법으로 읽는다')
   })
+  it('콘솔에 총수가 안 나오는 러너는 junit-count.sh 로 세고, 모듈/full 범위와 --failed-file 을 명시한다', () => {
+    const base = flat(between(DISC, '## 게이트 기준선', '### 기준선 캐시'))
+    expect(base).toContain('**콘솔에 총수가 나오지 않는 러너(Gradle·Maven)는 명령이 끝난 직후 `junit-count.sh [<모듈 폴더>…]` 로 센다.**')
+    expect(base).toContain('모듈 게이트면 대응표의 그 모듈 폴더만 넘기고, full 이면 리포 최상위에서 센다')
+    expect(base).toContain('기준선과 게이트는 같은 폴더 인자로 센다')
+    expect(base).toContain('실패 이름은 `--failed-file` 로 뽑아 `baseline.sh note` 에 넘긴다')
+  })
 })
 
 describe('게이트 명령은 필요한 의존만 빌드하고 Task 도중에 바꾸지 않는다(2026-09-26 성능 감사)', () => {
