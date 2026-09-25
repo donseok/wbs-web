@@ -145,10 +145,14 @@ describe('HubStatusBar', () => {
 
 describe('ApprovalQueue — 결정 목록(과제 C)', () => {
   const DEC = { key: 'D2', question: '넣는가?', options: ['아니오', '예'], chosen: 0, rationale: '근거', on_reject: '방향' }
-  it('결정이 있으면 칩과 펼친 목록을 보이고 반려 안내가 결정 번호를 청한다', async () => {
+  it('결정이 있으면 칩과 접힌 목록을 보이고 반려 안내가 결정 번호를 청한다(2026-09-25 기본 접힘)', async () => {
     render({ queue: [{ ...Q[0], decisions: { state: 'ok', items: [DEC, { ...DEC, key: 'D3' }] } }] })
     expect(host.querySelector('[data-queue-decision-chip]')!.textContent).toBe('결정 2')
     expect(host.querySelectorAll('[data-decision]')).toHaveLength(2)
+    const fold = host.querySelector('[data-decisions="ok"]')!.closest('details')!
+    expect(fold).not.toBeNull()
+    expect(fold.hasAttribute('open')).toBe(false)
+    expect(fold.querySelector('summary')!.textContent).toBe('에이전트가 적은 결정 2건 · 승인 전 확인')
     await act(async () => { (host.querySelector('[data-queue-reject-open]') as HTMLButtonElement).click() })
     expect((host.querySelector('textarea') as HTMLTextAreaElement).placeholder).toBe('반려 사유 — 특정 결정이면 번호를 적어 주세요(예: D2 는 선택지 2로)')
   })

@@ -8,11 +8,11 @@ import { TAB_TONE, type TabTone } from '@/components/agent-hub/AgentTabs'
 export function OfficeNav({ floors, tone }: { floors: ReadonlyArray<{ id: string; name: string }>; tone: TabTone }) {
   const t = TAB_TONE[tone]
   return (
-    <nav aria-label="다른 스튜디오" className="flex flex-wrap items-center gap-1.5">
-      <span data-office-nav="all" aria-current="page" className={`chip ${t.on}`}>전체 스튜디오</span>
+    <nav aria-label="다른 오피스" className="flex flex-wrap items-center gap-1.5">
+      <span data-office-nav="all" aria-current="page" className={`chip ${t.on}`}>전체 오피스</span>
       {floors.map(f => (
         <Link key={f.id} href={`/p/${f.id}/agents/office`} data-office-nav={f.id}
-          title={`${f.name} 의 에이전트 스튜디오로 — 거기서 위임·승인 탭으로 갈 수 있습니다`}
+          title={`${f.name} 의 에이전트 오피스로 — 거기서 위임·승인 탭으로 갈 수 있습니다`}
           className={`chip ${t.off}`}>{f.name}</Link>
       ))}
       <Link href="/projects" data-office-nav="projects" className={`chip ${t.off}`}>프로젝트 목록</Link>

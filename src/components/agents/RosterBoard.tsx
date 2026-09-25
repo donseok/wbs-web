@@ -401,7 +401,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
         <section className="rounded-2xl border border-[#F0B068] bg-[color-mix(in_srgb,#F0B068_12%,var(--color-surface))] p-3">
           <h3 className="text-xs font-bold text-ink">결정이 필요합니다</h3>
           <p className="mt-1 whitespace-pre-wrap text-sm text-ink-muted">{seat.note ?? '에이전트가 사유를 남기지 않았습니다.'}</p>
-          <p className="mt-2 text-[11px] text-ink-subtle">답은 위임·승인 탭이나 에이전트 스튜디오의 이 좌석에서 합니다.</p>
+          <p className="mt-2 text-[11px] text-ink-subtle">답은 위임·승인 탭이나 에이전트 오피스의 이 좌석에서 합니다.</p>
         </section>
       )}
       {desk.kind === 'lead' && desk.watcher && (

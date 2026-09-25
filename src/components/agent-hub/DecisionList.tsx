@@ -51,3 +51,18 @@ export function DecisionList({ decisions, compact = false }: { decisions: Decisi
     </section>
   )
 }
+
+/**
+ * 카드에 얹는 접힌 결정 목록(2026-09-25 사용자 요청: 카드에서도 기본은 접는다) — 승인 큐 카드·오피스 상세가 쓴다.
+ * 머리에 건수와 「승인 전 확인」을 달아 열어 볼 이유를 남긴다. 미제출·형식 오류 문구는 한 줄이라 접지 않고, 0건은 아무것도 그리지 않는다.
+ */
+export function DecisionFold({ decisions, compact = false }: { decisions: DecisionsParse; compact?: boolean }) {
+  if (decisions.state !== 'ok') return <DecisionList decisions={decisions} compact={compact} />
+  if (decisions.items.length === 0) return null
+  return (
+    <details data-decisions-fold="" className="mt-2">
+      <summary className="cursor-pointer text-[11px] font-semibold text-brand">에이전트가 적은 결정 {decisions.items.length}건 · 승인 전 확인</summary>
+      <DecisionList decisions={decisions} compact={compact} />
+    </details>
+  )
+}
