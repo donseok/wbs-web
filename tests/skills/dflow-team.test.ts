@@ -319,6 +319,8 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     // 항목 형식(경로|해시|pane)은 그대로다. 팀장은 스크립트를 한 줄로 부른다
     expect(s()).toContain("-- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'")
     expect(s()).toContain('.claude/skills/dflow-team/scripts/tick.sh [--new-tick] [--may-skip]')
+    // --pid 가 없으면 tick.sh 가 ppid 로 추정해, 실행이 한 단계 더 감싸이면 LOCK_LOST 로 건너뛰기가 무력화된다(2026-09-25 검토)
+    expect(s()).toContain(`--until-label '<UNTIL_LABEL>' --pid "\${CLAUDE_PID:-$PPID}" \\\n  -- '<워크트리1>`)
   })
 
   // DFLOW_ENV_FILE=<MAIN>/.env 는 .dflow 전환(cdccee70)으로 DFLOW_CONFIG_DIR=<MAIN> 이, --interval 300 은 ab8ee46b 로 180 이 됐다.
@@ -504,8 +506,8 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
 
   it('프로세스 리허설 반영: 압축 뒤 첫 기상은 절차 정본을 다시 읽고, 고아 스캔이 남긴 워크트리는 parked 로 표시한다', () => {
     expect(s()).toContain('**압축 뒤 첫 기상**')
-    // 2026-09-25: 재독 세트를 「팀장 상태」「2」「3」 으로 줄이고(그 밖은 그 절차를 처음 탈 때 그 절만 읽는다), 압축 신호를 적었다
-    expect(s()).toContain('이 파일의 「팀장 상태」「2. 기상과 감시」「3. 결과 처리」')
+    // 2026-09-25: 재독 세트를 「참조」~「인자」「팀장 상태」「2」「3」 으로 줄이고(그 밖은 그 절차를 처음 탈 때 그 절만 읽는다), 압축 신호를 적었다
+    expect(s()).toContain('이 파일의 「참조」~「인자」「팀장 상태」「2. 기상과 감시」「3. 결과 처리」')
     expect(s()).toContain('**압축 신호**')
     expect(s()).toContain('폴링만 이어 가지 않는다')
     expect(s()).toContain('압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
@@ -540,7 +542,7 @@ describe('dflow-team 압축 뒤 복구(2026-09-25)', () => {
   // dmes-standard 실측: 3차 압축 뒤 Skill 도구 재호출로 약 206K자가 통째로 다시 들어왔고, 4차 뒤에는 69턴 동안 재독 없이 폴링만 했다.
   const s = () => read('SKILL.md')
   const rereadCmd = () => {
-    const m = s().match(/^ {2}(sed -n '\/\^## 팀장 상태\/[^\n]*SKILL\.md)$/m)
+    const m = s().match(/^ {2}(sed -n '\/\^\\\*\\\*참조\\\*\\\*\/[^\n]*SKILL\.md)$/m)
     expect(m, '「팀장 상태」 의 재독 명령 블록').toBeTruthy()
     return m![1]
   }
@@ -562,12 +564,12 @@ describe('dflow-team 압축 뒤 복구(2026-09-25)', () => {
     expect(printed).toContain('Skill 도구 재호출 금지')
   })
 
-  it('재독 세트는 「팀장 상태」「2」「3」 뿐이고 크기에 상한이 있다(종전 규정 약 89K자)', () => {
+  it('재독 세트는 「참조」~「인자」「팀장 상태」「2」「3」 뿐이고 크기에 상한이 있다(종전 규정 약 89K자)', () => {
     const r = spawnSync('bash', ['-c', rereadCmd()], { cwd: ROOT, encoding: 'utf8' })
     expect(r.status).toBe(0)
     const out = r.stdout
-    for (const h of ['## 팀장 상태', '### 2-2. 감시 루프', '### 2-3. 기상마다 하는 일', '## 3. 결과 처리']) expect(out, h).toContain(h)
+    for (const h of ['**참조**', '## 인자', '## 팀장 상태', '### 2-2. 감시 루프', '### 2-3. 기상마다 하는 일', '## 3. 결과 처리']) expect(out, h).toContain(h)
     for (const h of ['## 1. 시작', '## 5. 팀원 spawn', '## 7. 마감']) expect(out, h).not.toContain('\n' + h + '\n')
-    expect(out.length).toBeLessThan(40000) // 2026-09-25 압축 뒤 실측 약 37K자(종전 규정 약 89K자)
+    expect(out.length).toBeLessThan(50000) // 2026-09-25 실측 약 46K자(「참조」·「인자」 약 9K자 포함. 종전 규정 약 89K자)
   })
 })

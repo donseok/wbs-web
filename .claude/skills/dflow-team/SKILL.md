@@ -182,11 +182,11 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 - **압축 신호**: 하나라도 맞으면 압축 뒤다. (1) 대화가 "이전 대화에서 이어진다" 는 요약으로 시작한다. (2) 이 문서의 절 본문을
   글자 그대로 볼 수 없고 요약만 있다. (3) 슬롯 표·`<신원>`·`<host>`·`<UNTIL>` 같은 값을 대화에서 찾을 수 없다. 모르겠으면
   압축 뒤로 본다(재독은 싸다). 폴링만 이어 가지 않는다.
-- **할 일**: 행동하기 전에 재독 세트(이 파일의 「팀장 상태」「2. 기상과 감시」「3. 결과 처리」)를 아래 한 줄로 읽는다. 매 기상
+- **할 일**: 행동하기 전에 재독 세트(이 파일의 「참조」~「인자」「팀장 상태」「2. 기상과 감시」「3. 결과 처리」)를 아래 한 줄로 읽는다. 매 기상
   `wake.sh` 출력의 `COMPACT_REREAD` 줄이 같은 명령이다. Read 도구가 아니라 Bash `sed` 로 읽는다. Skill 도구로 `/dflow-team` 을
   다시 부르지 않는다.
   ```bash
-  sed -n '/^## 팀장 상태/,/^## 두 번째 팀장/p;/^## 2\. 기상과 감시/,/^## 4\. 승인 스윕/p' .claude/skills/dflow-team/SKILL.md
+  sed -n '/^\*\*참조\*\*/,/^## 두 번째 팀장/p;/^## 2\. 기상과 감시/,/^## 4\. 승인 스윕/p' .claude/skills/dflow-team/SKILL.md
   ```
 - 재독 세트 밖의 절(「4」~「7」·「좌석표 연동」·「금지」)과 `references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로
   읽는다(「참조」 표). 기억으로 절차를 밟지 않는다.
@@ -613,7 +613,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 대괄호는 선택 플래그 표기다.
 ```bash
 .claude/skills/dflow-team/scripts/tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] --tm '<진짜 tmux 절대경로 또는 빈 값>' \
-  --owner '<신원>/<host>/lead' --slots <N> --until-label '<UNTIL_LABEL>' \
+  --owner '<신원>/<host>/lead' --slots <N> --until-label '<UNTIL_LABEL>' --pid "${CLAUDE_PID:-$PPID}" \
   -- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'
 ```
 - `--` 뒤: 진행 중 슬롯(`blocked` 포함)마다 `'<.result 경로>|<마지막 처리 해시 또는 ->|<pane id 또는 ->'`(pane id 는 tmux
@@ -662,7 +662,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 
 모든 기상은 먼저 아래 한 줄(`scripts/wake.sh`, 기상 블록)을 돈다. 스크립트는 잠금 소유를 확인하고, 소유가 맞을 때만
 `beat` 를 갱신하고 좌석표에도 같은 신호(watch)를 보낸 뒤, lease 갱신 상태를 보고, 마지막으로 `references/events.md` 의
-「기록 명령」 절과 압축 뒤 재독 명령(`COMPACT_REREAD`)을 띄운다. `STALE` 은 그것만 하고 넘긴다. 잠금을 잃은 팀장은 새
+「기록 명령」 절과 압축 뒤 재독 명령(`COMPACT_REREAD`)을 띄운다. `STALE` 은 그것만 하고 넘긴다(출력에 `EVIDENCE` 줄이 있으면 직전 TICK 증거로 갱신한다). 잠금을 잃은 팀장은 새
 팀장의 잠금을 살아 있게 만들지 않는다(「1. 시작」 잠금 소유 판정).
 기상에서 이벤트를 기록할 때는 이 출력이 띄운 `references/events.md` 의 명령 블록을 그대로 쓴다.
 기억으로 재구성한 명령은 쓰지 않는다. events.md 의 가드가 인자가 비거나 필드가 빠진 줄을 `EVENT_ARGS_MISSING` 으로
@@ -935,9 +935,9 @@ Bash 호출의 변수는 남지 않는다). `.result` 가 없으면(`failed no-r
   백그라운드 손자의 완료가 오케스트레이터를 깨우지 못한다(「제1 제약」과 같은 구조가 Phase 한 단계 아래에서
   재발한 것, `/dflow-dev` SKILL.md 「Phase 종료마다 오케스트레이터가」 5번과 짝). 이때는 "무응답"으로 보고만
   하고 다음 `TICK` 을 기다리지 않는다 — **이 TICK 에서 곧바로** `send-keys -l --`(tmux) 또는 `orca
-  terminal`(backends.md, 「SendMessage 가 닿지 않을 때」와 같은 주입 경로)로 그 팀원 화면에 다음을 넣는다:
+  terminal`(`references/issues.md` 「SendMessage 가 닿지 않을 때」와 같은 주입 경로)로 그 팀원 화면에 다음을 넣는다:
   "[팀장 지시 <id8>] 서브에이전트 @<TSK>-<phase> 는 이미 끝났다(finished). 백그라운드 완료 알림은 오지 않는다 —
-  프로세스(`pgrep` 등)와 산출물(커밋·파일)을 직접 확인하고, 남은 작업이 없으면 게이트를 직접 돌려라."
+  프로세스(`pgrep` 등)와 산출물(커밋·파일)을 직접 확인하고, 남은 작업이 없으면 게이트를 직접 돌려라(구현 단위가 남았으면 다음 단위를 띄워라)."
   **자동 정리·자동 재시작과의 관계**: 주입이 오케스트레이터를 깨우면 다음 `TICK` 의 생존 증거(커밋·미커밋
   목록 등)가 바뀌어 "두 `TICK` 연속 무변화" 조건이 깨지므로, 위 무응답 자동 정리(`kill-pane`)도
   `references/restart.md` 「판정」 의 재시작 후보(`cause=no-response`, (나) 2회째)도 걸리지 않는다. 주입이 먹지

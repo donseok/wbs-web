@@ -193,8 +193,7 @@ Skill 도구가 `dflow-dev` 를 모르면 `.claude/skills/dflow-dev/SKILL.md` �
 
 ## 8. 서버 프로세스 규칙
 
-정본은 `.claude/skills/dflow-dev/references/dev-discipline.md` 「화면 작업의 브라우저 E2E」의
-「서버 프로세스」 절이다 — 규칙 본문 수정은 그 파일에서만 한다. 요지: 화면 작업·E2E 서버는 리포의 서버
+정본은 `.claude/skills/dflow-dev/references/e2e.md` 「서버 프로세스」 절이다 — 규칙 본문 수정은 그 파일에서만 한다. 요지: 화면 작업·E2E 서버는 리포의 서버
 실행 스크립트(`be-run.sh`·`fe-run.sh` 처럼 다른 인스턴스나 포트 점유 프로세스를 이름·포트 기준으로 정리하는
 스크립트)를 쓰지 않고 빈 포트로 직접 띄우며, 끝나면 자기가 띄운 프로세스(기동 시 기록한 PID, 필요하면 그
 포트의 리슨 프로세스)만 거둔다. 전역 `gradlew --stop`, 이름 기반 `pkill`·`killall`·`pgrep -f` 종료, 남의

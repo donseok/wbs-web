@@ -71,7 +71,7 @@ lb=$(cat "$LB" 2>/dev/null); lb=${lb:-0}
 [ $(( $(date +%s) - lb )) -lt 180 ] || echo "LEASE_KEEP_DEAD 마지막 갱신 ${lb}"
 if [ "$EVENTS" = 1 ]; then
   sed -n '/^## 기록 명령/,$p' "$EVENTS_MD"   # 이벤트 기록 명령의 정본. 이 출력의 블록으로만 기록한다
-  # 압축 뒤 재독 세트(SKILL.md 「팀장 상태」「2」「3」). 매 기상 새 문맥에 있게 해 기억에 기대지 않는다
-  echo "COMPACT_REREAD 컨텍스트 압축 뒤 첫 기상이면 행동 전에 이것만 돌린다(Skill 도구 재호출 금지): sed -n '/^## 팀장 상태/,/^## 두 번째 팀장/p;/^## 2\\. 기상과 감시/,/^## 4\\. 승인 스윕/p' .claude/skills/dflow-team/SKILL.md"
+  # 압축 뒤 재독 세트(SKILL.md 「참조」~「인자」「팀장 상태」「2」「3」). 매 기상 새 문맥에 있게 해 기억에 기대지 않는다
+  echo "COMPACT_REREAD 컨텍스트 압축 뒤 첫 기상이면 행동 전에 이것만 돌린다(Skill 도구 재호출 금지): sed -n '/^\\*\\*참조\\*\\*/,/^## 두 번째 팀장/p;/^## 2\\. 기상과 감시/,/^## 4\\. 승인 스윕/p' .claude/skills/dflow-team/SKILL.md"
 fi
 exit 0
