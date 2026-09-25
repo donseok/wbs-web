@@ -313,6 +313,8 @@ export type AgentOrderReport = {
   review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string
   /** 워커 결정 목록(0102). null = 제출 안 됨. 화면은 parseDecisions 로 읽는다. */
   decisions?: unknown
+  /** 그 단계를 돌린 모델(0105) — 보고 시점의 heartbeat_model. null = 모름(0105 이전 보고·heartbeat 없음). */
+  model?: string | null
 }
 export type AgentOrderStatus = {
   id: string; status: string
@@ -359,7 +361,7 @@ export async function getAgentOrderForItem(itemId: string): Promise<
 
   const { data: reports, error: repErr } = await sb
     .from('agent_work_reports')
-    .select('id, kind, percent, summary, links, agent, review_action, review_note, created_at, decisions')
+    .select('id, kind, percent, summary, links, agent, review_action, review_note, created_at, decisions, model')
     .eq('work_order_id', row.id)
     .order('created_at', { ascending: true })
   if (repErr) return { ok: false, error: `보고 조회 실패: ${repErr.message}` }

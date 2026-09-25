@@ -25,12 +25,15 @@ type Resp = { data?: unknown; error?: { message: string } | null }
 /** 전이 RPC 기본 응답 — 부수효과(스냅샷·도달 알림)가 없는 성공. 케이스마다 queues.rpc 로 덮는다. */
 const RPC_OK = { ok: true, order_status: 'reported', stage: 'im', actual_pct: null, stage_changed: false, actual_changed: false, reached_first: false, skipped: null }
 
+/** insert 에 실린 값 — 보고 행 모양을 확인한다(0105 model). */
+let inserts: Array<{ table: string; v: unknown }> = []
 function useAdmin(queues: Record<string, Resp[]>, users = [USER]) {
   const admin = {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'update', 'insert', 'delete', 'eq', 'in', 'limit']) b[k] = () => b
+      for (const k of ['select', 'update', 'delete', 'eq', 'in', 'limit']) b[k] = () => b
+      b.insert = (v: unknown) => { inserts.push({ table, v }); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) =>
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
@@ -64,6 +67,7 @@ beforeEach(() => {
   process.env.AGENT_API_ENABLED = 'true'
   process.env.AGENT_API_SECRET = SECRET
   vi.clearAllMocks()
+  inserts = []
 })
 
 describe('POST report', () => {
@@ -80,6 +84,25 @@ describe('POST report', () => {
     expect(admin.from.mock.calls.map(c => c[0])).not.toContain('wbs_items')
     expect(mocks.recordProgressSnapshot).not.toHaveBeenCalled()
   })
+  it('보고 행에 그 시점 heartbeat 모델을 남긴다(0105) — heartbeat 가 비워진 주문이면 넣지 않는다', async () => {
+    useAdmin({
+      agent_work_orders: [{ data: { ...CLAIMED, heartbeat_model: 'claude-opus-4-8', last_heartbeat_at: '2026-09-25T00:00:00Z' } }, { data: [{ id: ORDER_ID }] }],
+      agent_work_reports: [{ data: [{ id: 'r1' }] }],
+      ...member(),
+    })
+    expect((await reportPOST(post({ ...BASE, kind: 'progress', percent: 40 }), ctx)).status).toBe(200)
+    expect(inserts.find(i => i.table === 'agent_work_reports')?.v).toMatchObject({ model: 'claude-opus-4-8' })
+
+    inserts = []
+    useAdmin({
+      agent_work_orders: [{ data: { ...CLAIMED, heartbeat_model: 'claude-opus-4-8', last_heartbeat_at: null } }, { data: [{ id: ORDER_ID }] }],
+      agent_work_reports: [{ data: [{ id: 'r1' }] }],
+      ...member(),
+    })
+    expect((await reportPOST(post({ ...BASE, kind: 'progress', percent: 40 }), ctx)).status).toBe(200)
+    expect(inserts.find(i => i.table === 'agent_work_reports')?.v).not.toHaveProperty('model')
+  })
+
   it('progress 100 은 400 — 완료는 승인 경로로', async () => {
     const admin = useAdmin({ agent_work_orders: [{ data: CLAIMED }], ...member() })
     const res = await reportPOST(post({ ...BASE, kind: 'progress', percent: 100 }), ctx)
