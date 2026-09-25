@@ -78,6 +78,8 @@ describe('dflow-dev: 오케스트레이터가 서브에이전트 종료 뒤 오�
     expect(skill).toContain('그 프로세스가 아직 돌고 있으면 알림을 기다리지 말고')
     expect(skill).toContain('오케스트레이터가 포그라운드에서 그 프로세스가 끝날 때까지 직접 기다린 뒤')
     expect(skill).toContain('오지 않을 알림을 기다리며 입력 대기로 멈추지 않는다')
+    // 구현 단위가 여럿이면 마지막이 아닌 단위는 게이트 대신 다음 단위로 넘어간다
+    expect(skill).toContain('"게이트를 돌린다" 를 "그 단위 커밋을 확인하고 다음 단위를 띄운다" 로 읽는다')
     expect(skill).toContain('dmes-standard TSK-03-01')
   })
 })

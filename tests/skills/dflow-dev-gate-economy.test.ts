@@ -83,7 +83,7 @@ describe('heavy.sh 적용 범위: Gradle·Maven 은 단일 테스트도 감싼�
 
 describe('Build 게이트 실패는 1회 재시도한다', () => {
   it('SKILL.md Phase 종료 4번: 곧바로 failed 로 끝내지 않고 같은 Build 서브에이전트에 실패 목록을 넘긴다', () => {
-    expect(SKILL).toContain('**Build 게이트가 실패하면 곧바로\n   failed 로 끝내지 않고** 같은 Build 서브에이전트에 실패 목록')
+    expect(SKILL).toContain('**Build 게이트가 실패하면 곧바로\n   failed 로 끝내지 않고** 같은 Build 서브에이전트(구현 단위가 여럿이면 마지막 단위)에 실패 목록')
     expect(SKILL).toContain('SendMessage 가 안 되면(이미 회수됐거나 도구가 없다) 같은 Phase·같은 모델의 새 에이전트를 실패 목록과 함께 띄운다')
   })
   it('dev-discipline Build 절에도 같은 규칙이 있다', () => {
@@ -154,5 +154,33 @@ describe('읽기 규율(design.md 는 한 번, 기록은 build-log.md)', () => {
   it('SKILL.md 가 Verify 감사를 build-log.md 에서 하고 공통 프롬프트에 읽기 규율을 넣는다', () => {
     expect(SKILL).toContain('**Verify 의 감사 확인**: build-log.md 「변이 검증 기록」 표')
     expect(SKILL).toContain('**읽기 규율**(dev-discipline.md 「읽기 규율」)')
+  })
+})
+
+describe('Build 구현 단위(단위마다 서브에이전트, 상한과 인계)', () => {
+  const units = between(DISC, '## 구현 단위 (Build 나누기)', '## Phase 03')
+  it('dev-discipline 「구현 단위」: Design 이 표로 정하고, 작은 작업은 B1 하나로 종전과 같다', () => {
+    expect(units).toContain('`단위 | 범위(파일·기능) | 새 테스트 | 담당 불변 규칙`')
+    expect(units).toContain('**작은 작업은 표를 생략한다 — 단위 하나(B1)이며 종전 Build 와 같다.**')
+    expect(units).toContain('**마지막 단위가 연결을 맡는다**')
+    expect(units).toContain('**변이 검증 담당**')
+    expect(units).toContain('`UNIT_DONE <단위>`')
+    expect(units).toContain('`UNIT_HANDOFF <단위>`')
+    expect(units).toContain('도구 호출이 약 80회를 넘었거나')
+    expect(units).toContain('컨텍스트 250K 토큰(추정)')
+    expect(units).toContain('build-log.md `## 인계 <단위>`')
+    expect(between(DISC, '## Phase 02', '## 읽기 규율')).toContain('`## 구현 단위` 표를 더한다')
+    expect(between(DISC, '## Phase 03', '## Phase 04')).toContain('Build 전체는 마지막 단위(연결 테스트 포함)가 끝나야 완료다')
+    const model = DISC.split('\n').find((l) => l.startsWith('| Build |')) ?? ''
+    expect(model).toContain('구현 단위는 모두 같은 모델')
+  })
+  it('SKILL.md: 단위 하나면 <TSK>-build 그대로, 여럿이면 <TSK>-build-<단위>, 이어 띄우기는 2회까지, phase 는 build 하나', () => {
+    expect(SKILL).toContain('단위가 하나면 `<TSK>-build` 그대로다 — 이름·게이트·재시도가 종전과 같다')
+    expect(SKILL).toContain('`<TSK>-build-<단위>`')
+    expect(SKILL).toContain('이어 띄우기는 단위마다 2회까지다')
+    expect(SKILL).toContain('마지막 단위가 아니면 게이트 없이 곧바로\n  `TaskStop` 하고 다음 단위를 띄운다')
+    expect(SKILL).toContain('`build_unit`(선택)은 지금 도는 구현 단위')
+    expect(SKILL).toContain('단위가 몇 개든 `phase` 는 Build 동안 `build` 하나다')
+    expect(SKILL).toContain('띄우기 직전 state.json 의 `model` 과 `build_unit` 을 쓴다')
   })
 })
