@@ -49,7 +49,7 @@ describe('lead-state.sh — 재구성 보조 요약', () => {
     ])
     expect(get(out, 'RUN')[0]).toMatch(/ wp=WP-02,dict\/WP-03$/)
     expect(get(out, 'SLOT').map((l) => l.split(' ')[2])).toEqual(['new00002'])
-    expect(out.at(-1)).toBe('EVENTS window=2 total=4')
+    expect(get(out, 'EVENTS')).toEqual(['EVENTS window=2 total=4 bad=0'])
     expect(out.join('\n')).not.toContain('"event"')
   })
 
@@ -141,7 +141,60 @@ describe('lead-state.sh — 재구성 보조 요약', () => {
     const r = spawnSync('bash', [SCRIPT, '--events', ev], { cwd: repo, encoding: 'utf8' })
     expect(r.stdout).toMatch(/^SLOT 1 aaaa0001 /m)
     const none = spawnSync('bash', [SCRIPT, '--agent', A, '--repo', R, '--events', join(tmp, 'nope.jsonl')], { encoding: 'utf8' })
-    expect(none.stdout.trim().split('\n')).toEqual(['RUN start=- backend=- slots=- until=- until_label=- wp=-', 'EXCLUDE_PERM -', 'EXCLUDE_TEMP -', 'BREAKER 0', 'EVENTS window=0 total=0'])
+    expect(none.stdout.trim().split('\n')).toEqual(['RUN start=- backend=- slots=- until=- until_label=- wp=-', 'EVENTS window=0 total=0 bad=0', 'BREAKER 0', 'CONFLICT_CLEARED resolved=0 other=0', 'HASH_OMITTED 0', 'EXCLUDE_PERM -', 'EXCLUDE_TEMP -'])
     expect(readFileSync(SCRIPT, 'utf8')).toContain('실행 내내 쌓인 이벤트를 그대로')
+  })
+
+  // 2026-09-25 검토: 결과 수만큼 늘어나는 HASH 가 앞에 있어, 출력이 약 30K자를 넘으면 뒤의 제외·차단기·EVENTS 줄이 잘려 보이지 않았다
+  it('크기가 고정된 줄을 먼저 내고, HASH 는 SLOT 의 것은 모두·나머지는 최근 50개만 내며 생략 수를 앞줄에 낸다', () => {
+    const lines = [start(), spawnE('1', 'slot0001'), blocked('1', 'slot0001', { hash: 'HOLD' })] // 오래 blocked 인 슬롯
+    for (let i = 0; i < 120; i++) { const id = `r${String(i).padStart(7, '0')}`; lines.push(spawnE('2', id), result('2', id, 'done', { hash: `H${i}` })) }
+    lines.push(result('2', 'r0000003', 'done', { hash: 'H3b' })) // 오래된 경로를 다시 처리하면 최근이 된다
+    lines.push(line({ event: 'team.issue', id8: 'iiii0001', summary: '포트', decision: 'pending' }))
+    const out = run(lines)
+    const firstVar = out.findIndex((l) => /^(SLOT|LOST|WAIT_ANSWER|HASH|ISSUE_PENDING) /.test(l))
+    for (const k of ['RUN', 'EVENTS', 'BREAKER', 'CONFLICT_CLEARED', 'HASH_OMITTED', 'EXCLUDE_PERM', 'EXCLUDE_TEMP']) {
+      const i = out.findIndex((l) => l.startsWith(k + ' '))
+      expect(i, k).toBeGreaterThanOrEqual(0)
+      expect(i, k).toBeLessThan(firstVar)
+    }
+    const hashes = get(out, 'HASH')
+    expect(hashes).toContain(`HASH ${WT('slot0001')} TSK-slot0001 HOLD blocked id8=slot0001 slot=1`)
+    expect(hashes.filter((l) => !l.includes('slot0001'))).toHaveLength(50)
+    expect(hashes).toContain(`HASH ${WT('r0000003')} TSK-r0000003 H3b done id8=r0000003 slot=2`)
+    expect(hashes).toContain(`HASH ${WT('r0000119')} TSK-r0000119 H119 done id8=r0000119 slot=2`)
+    expect(hashes.some((l) => l.includes(' H70 '))).toBe(false)
+    expect(get(out, 'HASH_OMITTED')).toEqual(['HASH_OMITTED 70'])
+    // 생략된 경로는 --hash 로 따로 읽는다
+    const one = run(lines, ['--agent', A, '--repo', R, '--hash', WT('r0000010')])
+    expect(get(one, 'HASH')).toEqual([`HASH ${WT('r0000010')} TSK-r0000010 H10 done id8=r0000010 slot=2`])
+  })
+
+  it('깨진 줄(JSON 이 아니거나 객체가 아닌 줄)만 건너뛰고 그 뒤를 계속 읽으며, 건너뛴 수를 EVENTS 의 bad 로 낸다', () => {
+    const out = run([start(), '{"event":"team.spawn", 깨짐', '123', '"x"', '', spawnE('1', 'aaaa0001'), line({ event: 'team.issue', id8: 'dddd0004', summary: '뒤쪽', decision: 'pending' })])
+    expect(get(out, 'SLOT').map((l) => l.split(' ')[2])).toEqual(['aaaa0001'])
+    expect(get(out, 'ISSUE_PENDING')).toEqual(['ISSUE_PENDING dddd0004 뒤쪽'])
+    expect(get(out, 'EVENTS')).toEqual(['EVENTS window=3 total=3 bad=3'])
+  })
+
+  it('마지막 team.sweep 이후의 team.conflict cleared 를 해소 워커 resolved 뒤의 것과 그 밖의 것으로 나눠 센다', () => {
+    const cleared = (id8: string) => line({ event: 'team.conflict', id8, decision: 'cleared', files: '-' })
+    const base = [
+      start(),
+      result('1', 'old00001', 'resolved', { worktree: WT('old00001', '-resolve') }), cleared('old00001'),
+      line({ event: 'team.sweep', merged: '1', waiting: '0', rejected: '0', resolved: '1' }),
+    ]
+    expect(get(run(base), 'CONFLICT_CLEARED')).toEqual(['CONFLICT_CLEARED resolved=0 other=0'])
+    const out = run([
+      ...base,
+      result('1', 'aaaa0001', 'resolved', { worktree: WT('aaaa0001', '-resolve') }), cleared('aaaa0001'),
+      result('2', 'bbbb0002', 'resolved', { worktree: WT('bbbb0002', '-resolve') }), line({ event: 'team.conflict', id8: 'bbbb0002', decision: 'human', files: '-' }), // 조상 확인 실패
+      cleared('cccc0003'), // 사람 머지 감지·해소 건너뜀(REFLECTED)
+      start(), // 재시작해도 마지막 스윕 뒤를 센다
+      result('1', 'dddd0004', 'resolved', { worktree: WT('dddd0004', '-resolve') }), cleared('dddd0004'),
+    ])
+    expect(get(out, 'CONFLICT_CLEARED')).toEqual(['CONFLICT_CLEARED resolved=2 other=1'])
+    // 스윕이 한 번도 없으면 처음부터 센다
+    expect(get(run([start(), result('1', 'eeee0005', 'resolved'), cleared('eeee0005')]), 'CONFLICT_CLEARED')).toEqual(['CONFLICT_CLEARED resolved=1 other=0'])
   })
 })

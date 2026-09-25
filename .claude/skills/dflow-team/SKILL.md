@@ -225,11 +225,13 @@ done
 **보조**: `~/.dflow/events.jsonl` 에서 마지막 `team.start` 이후이고 `agent` 가 `<신원>/<host>/lead`, `repo` 가
 이 리포(`<MAIN>`)인 줄. **줄을 통째로 띄우지 않고** 아래 스크립트의 요약만 읽는다(이벤트를 그대로 띄우면 실행이 길수록
 불어난다). 스크립트는 아래 목록의 규칙대로 계산하며, 출력 줄
-(`RUN`·`SLOT`·`LOST`·`WAIT_ANSWER`·`HASH`·`EXCLUDE_PERM`·`EXCLUDE_TEMP`·`BREAKER`·`ISSUE_PENDING`·`EVENTS`)의 뜻은
-스크립트 머리에 있다.
+(`RUN`·`EVENTS`·`BREAKER`·`CONFLICT_CLEARED`·`HASH_OMITTED`·`EXCLUDE_*`·`ISSUE_PENDING`·`WAIT_ANSWER`·`LOST`·`SLOT`·`HASH`)의
+뜻은 스크립트 머리에 있다.
 ```bash
 .claude/skills/dflow-team/scripts/lead-state.sh --agent '<신원>/<host>/lead' --repo '<MAIN>'
 ```
+- `EVENTS` 의 `bad` 가 0 보다 크면 깨진 줄을 빼고 셌다는 뜻이다. 재구성 보고에 "events.jsonl 깨진 줄 <n>" 을 싣는다.
+  `HASH_OMITTED` 가 0 보다 크면 `HASH` 에 없는 경로의 해시는 같은 명령에 `--hash '<worktree>'` 를 붙여 따로 읽는다.
 - `RUN` 의 `wp`(`team.start` 의 `wp`, 없는 옛 줄은 전체 `-`)가 WP 범위다. poll 을 다시 띄울 때 `--wp` 에 넘긴다.
 - 종료 시각(`<UNTIL>`·`<UNTIL_LABEL>`)은 **마지막 `team.extend`** 의 `until`·`until_label` 이고, 없으면 `team.start` 의
   `until` 이다(`RUN` 의 `until`·`until_label`).
@@ -996,7 +998,7 @@ Bash 호출의 변수는 남지 않는다). `.result` 가 없으면(`failed no-r
   (「2-1」)이 맞으면 줄어든 `--exclude-temp` 로 poll 을 새로 띄운다. **푼 작업을 팀장이 직접 띄우지 않는다.** poll 이
   다시 돌려준 것만 띄운다(담당자 변경·다른 팀장의 점유를 거르는 곳이 poll 의 `--scope assigned` 조회다). 떠 있던 옛
   poll 이 옛 목록으로 한 번 더 돌아도 poll exit 0 처리의 대조와 spawn 전 확인이 같은 작업을 두 번 띄우지 않게 막는다(「2-3」 5번).
-- `team.sweep`(merged, waiting, rejected, resolved 개수)을 기록한다. `resolved` 는 직전 스윕 뒤 해소 워커의 `resolved` 가 조상 확인까지 통과한 수다(없으면 0). `merged` 에는 승인 전 머지를 포함하고, `waiting` 에는
+- `team.sweep`(merged, waiting, rejected, resolved 개수)을 기록한다. `resolved` 는 직전 스윕 뒤 해소 워커의 `resolved` 가 조상 확인까지 통과한 수이며, 기억으로 세지 않고 `lead-state.sh` 의 `CONFLICT_CLEARED resolved=` 를 쓴다. `merged` 에는 승인 전 머지를 포함하고, `waiting` 에는
   승인 대기(머지됨)를, `rejected` 에는 반려(머지됨)를 포함한다.
 - **방언 검증**: `/dflow-merge` 가 스윕 끝에 「방언 검증」 을 한 번 돌고(`.dflow`·`.dflow.local` 의 `dialect_check` 가 있을
   때만, 머지마다가 아니라 스윕마다 한 번) 결과 줄 `DIALECT_*` 를 보고에 싣는다. 팀장은 이렇게 처리한다. 방언 검증은

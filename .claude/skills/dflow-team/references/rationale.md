@@ -36,6 +36,9 @@ SKILL.md 에서 뺀 근거(이유)와 이력(날짜·실측·옛 방식)을 절�
 - 이유: 같은 신원이 다른 PC 에서 띄운 팀장의 워크트리를 이 팀장이 자기 것으로 읽지 않게 한다.
 - 빈 출력과 `1` 을 함께 `dead` 로 보는 이유: `remain-on-exit` 를 놓친 pane 은 흔적 없이 사라지는데, 그 팀원도 끝난 것이다.
 - 실행 내내 쌓인 이벤트를 그대로 띄우면 수십만 자로 불어난다(2026-09-24 dmes-standard 약 133K자). 스크립트는 아래 목록의 규칙대로 계산하며, 출력 줄 (`RUN`·`SLOT`·`LOST`·`WAIT_ANSWER`·`HASH`·`EXCLUDE_PERM`·`EXCLUDE_TEMP`·`BREAKER`·`ISSUE_PENDING`·`EVENTS`)의 뜻은 스크립트 머리에 있다.
+- `lead-state.sh` 출력 순서·상한(2026-09-25 검토): `HASH` 는 처리한 결과 줄 경로마다 한 줄이라 실행이 길수록 늘어난다. 그것이 앞에 있어 출력이 약 30K자를 넘으면 뒤의 `EXCLUDE_*`·`BREAKER`·`ISSUE_PENDING`·`EVENTS` 가 잘려 보이지 않았다. 그래서 크기가 고정된 줄을 먼저 낸다. `HASH` 를 "워크트리가 남은 것" 으로 거르지 않고 상한(SLOT 이 아닌 경로 최근 50개)을 둔 것은, 스크립트가 이벤트만 읽고 파일시스템을 보지 않기 때문이다. SLOT 의 해시를 상한에서 빼는 이유: 오래 `blocked` 인 슬롯의 해시가 빠지면 감시 루프가 처리 해시 없이 떠 같은 결과 줄로 거짓 `RESULT_READY` 를 낸다. 빠진 경로는 `--hash` 로 따로 읽는다.
+- `EVENTS` 의 `bad`: 예전에는 깨진 JSON 줄 하나에서 jq 가 멈춰 그 뒤 줄을 조용히 버리고 rc=0 으로 끝났다(조회 실패를 데이터 없음으로 위장). 깨진 줄은 누구의 줄인지 알 수 없어 파일 전체에서 센다.
+- `CONFLICT_CLEARED`: 압축 뒤에는 직전 스윕 뒤 해소 수(`team.sweep` 의 `resolved`)를 기억으로 복원할 수 없다. `cleared` 는 해소 건너뜀(REFLECTED)·사람 머지 감지에서도 남으므로, 같은 id8 의 `team.result resolved` 뒤에 온 것만 `resolved` 로 센다.
 - 이유: 실행 중 연장(「인자」)을 모르고 `team.start` 의 옛 시각으로 복원하면 곧바로 마감으로 간다 (2026-09-19 mdm-dict-v2: 23:00 → 다음 날 09:00 연장).
 - 해소 워커다(「5-2. 해소 spawn」). 워크트리는 `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`(두 백엔드 공통 — 2026-09-24부터. 옛 방식 Orca 워크트리는 `<MAIN>/dflow-<id8>-resolve`)이고 detached 라 브랜치가 없다.
 - 이유: 일시 제외가 풀려 다시 띄운 작업이 옛 `skipped` 로 다시 일시 제외되거나, 결과가 난 작업이 진행 중으로 남지 않게 한다.
