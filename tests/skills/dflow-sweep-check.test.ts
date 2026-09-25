@@ -166,6 +166,9 @@ describe('sweep-check.sh — 스윕 후보 사전 검사', { timeout: 60000 }, (
     writeFileSync(join(sd, 'dev.state'), `last_pass=${tip}\n`)
     r = check()
     expect(r.out.trim()).toBe('SWEEP_NONE')
+    // 문서뿐 이월(docs_only)도 판정한 것으로 본다 — last_pass 가 그대로여도 매 틱 다시 부르지 않는다
+    writeFileSync(join(sd, 'dev.state'), `last_pass=${'d'.repeat(40)}\ndocs_only=${tip}\n`)
+    expect(check().out.trim()).toBe('SWEEP_NONE')
     setConfig()
     expect(check().out.trim()).toBe('SWEEP_NONE') // 키가 없으면 방언 검증도 없다
   })

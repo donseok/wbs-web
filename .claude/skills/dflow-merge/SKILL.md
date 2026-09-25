@@ -221,7 +221,7 @@ description 의 사용법에도 노출하지 않는다. 반려되지 않은 `sta
 한 번, 마지막 머지 커밋(스윕 끝의 `origin/<기본브랜치>`)에서** 돌린다. 머지마다 돌리지 않는다. **도커 런타임을 켜지 않는다.**
 `--resolve` 는 이 절을 타지 않는다. 스윕은 시작의 `git fetch origin` 직후 `git rev-parse origin/<기본브랜치>` 를 `<스윕 전 sha>`
 로 기록해 두고, 6번 보고 직전에 `.claude/skills/dflow-work/scripts/dflow.sh config dialect_check` 를 본다. exit 0 에 빈 값이면
-이 단계는 없다(`DIALECT_NONE`). 그 밖에는 `references/dialect.md` 를 읽고 그 명령을 한 번 부른다.
+이 단계는 없다(`DIALECT_NONE`). 그 밖에는 `references/dialect.md` 를 읽고 그 명령을 한 번 부른다. `DIALECT_SKIP` 은 싣지 않는다.
 
 ## 결정 번호 매김
 
