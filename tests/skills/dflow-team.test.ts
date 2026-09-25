@@ -1,6 +1,6 @@
 // tests/skills/dflow-team.test.ts
 import { describe, expect, it } from 'vitest'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
@@ -148,7 +148,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   const s = () => read('SKILL.md')
 
   it('파일 넷이 정본 위치에 있고 킷 밖 경로와 zsh 에서 깨지는 셸 구문(따옴표 밖 docs/tasks glob, [ \\> ])을 적지 않는다', () => {
-    const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+    const merge = ['SKILL.md', ...readdirSync(join(ROOT, '.claude/skills/dflow-merge/references')).map((f) => `references/${f}`)].map((f) => readFileSync(join(ROOT, '.claude/skills/dflow-merge', f), 'utf8')).join('\n')
     for (const rel of ['SKILL.md', 'references/worker-prompt.md', 'references/backends.md', 'references/events.md']) {
       expect(existsSync(join(SKILL_DIR, rel)), rel).toBe(true)
       expect(read(rel), rel).not.toContain('~/project/')

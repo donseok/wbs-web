@@ -11,6 +11,7 @@ import { join } from 'node:path'
 const ROOT = process.cwd()
 const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/migration-check.sh')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+const MERGE_RESOLVE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/resolve.md'), 'utf8')
 const RESOLVE = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resolve-prompt.md'), 'utf8')
 const DISC = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 
@@ -159,7 +160,8 @@ describe('문서 계약 — 마이그레이션 버전 관문', () => {
     expect(step2).toBeLessThan(MERGE.indexOf('   3. `git merge --no-ff <머지 대상>`.'))
   })
   it('/dflow-merge --resolve: 머지 뒤 --staged 로 찾아 R9 로 풀고, 게이트에서 다시 본다', () => {
-    const r = MERGE.slice(MERGE.indexOf('## 해소 머지(`--resolve`)'), MERGE.indexOf('## 금지'))
+    const r = MERGE_RESOLVE.slice(MERGE_RESOLVE.indexOf('\n## 해소 머지\n'))
+    expect(r.indexOf('4. **머지·해소·stage**')).toBeGreaterThan(0)
     const four = r.slice(r.indexOf('4. **머지·해소·stage**'), r.indexOf('5. **게이트**'))
     const five = r.slice(r.indexOf('5. **게이트**'), r.indexOf('6. **기록·커밋**'))
     expect(four).toContain('migration-check.sh --staged')

@@ -9,7 +9,7 @@ import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
-const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-worktree.md'), 'utf8')
 const DEV = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
 const LEAD_WT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-worktree.sh')
 const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.sh')

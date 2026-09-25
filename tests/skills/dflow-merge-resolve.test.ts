@@ -9,6 +9,13 @@ import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+// 해소 머지 절은 해소 워커만 읽는 references/resolve.md 로 옮겼다(2026-09-25 토큰 절감). 경로와 제목 `## 해소 머지` 는 계약이다.
+const RES = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/resolve.md'), 'utf8')
+const resolveSection = () => {
+  const a = RES.indexOf('\n## 해소 머지\n')
+  if (a < 0) throw new Error('references/resolve.md 에 「## 해소 머지」 가 없다')
+  return RES.slice(a)
+}
 const section = (from: string, to: string) => {
   const a = MERGE.indexOf(from); const b = MERGE.indexOf(to, a + 1)
   if (a < 0 || b < 0) throw new Error(`절을 찾지 못했다: ${from}`)
@@ -29,8 +36,19 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
     expect(step3).toContain('"머지 실패(충돌)"')
     expect(MERGE).toContain('머지 실패(충돌) <파일,…>')
   })
+  it('해소 머지는 references/resolve.md 로 분리됐고, SKILL 은 --resolve 일 때만 그 파일을 읽게 한다', () => {
+    expect(RES).toMatch(/^## 해소 머지$/m) // 제목 계약
+    expect(RES).not.toContain('## 해소 머지(')
+    // 플래그 문단(맨 위)에서 바로 보낸다 — SKILL 을 처음부터 읽는 워커가 「절차」 1번부터 시작하지 않게
+    const flag = MERGE.slice(MERGE.indexOf('**`--resolve <ref>`(팀장이 띄운 해소 워커 전용)**'), MERGE.indexOf('## 절차'))
+    expect(flag).toContain('`references/resolve.md` 를 읽고')
+    // 옛 절 이름을 가리키는 참조가 깨지지 않게 머리 절을 남긴다
+    const stub = section('## 해소 머지(`--resolve`)', '## 금지')
+    expect(stub).toContain('`--resolve`(해소 워커)일 때만 `references/resolve.md` 를 읽고')
+    expect(stub).not.toContain('git -c rerere.enabled=true')
+  })
   it('해소 머지 절: 머지 자리는 호출한 워크트리, rerere 는 -c 로만, 트레일러 둘, push 경합 재시도 2회', () => {
-    const r = section('## 해소 머지(`--resolve`)', '## 금지')
+    const r = resolveSection()
     expect(r).toContain('머지 자리는 **호출한 워크트리 자신**')
     expect(r).toContain('RESOLVE_NOT_DETACHED')
     expect(r).toContain('RESOLVE_BASE_MOVED')
@@ -44,7 +62,7 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
     expect(r).not.toContain('git config rerere')
   })
   it('게이트 순서(2026-09-24): 해소·stage → 게이트 → 기록 → 커밋. 두 문서가 같은 순서를 말한다', () => {
-    const r = section('## 해소 머지(`--resolve`)', '## 금지')
+    const r = resolveSection()
     const PROMPT = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resolve-prompt.md'), 'utf8')
     const ORDER = '**해소·stage → 게이트 → 기록 → 커밋**'
     expect(r).toContain(ORDER)
