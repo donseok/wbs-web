@@ -688,6 +688,15 @@ export function WbsGanttSheet({
         ),
     [dependencies, hoveredDepItemId],
   )
+  // 선이 겹치면 화살표만으론 어느 바가 걸렸는지 안 보인다(2026-09-25) — 선행·후행 바에 테두리를 같이 두른다.
+  const hoveredDepRoles = useMemo(() => {
+    const roles = new Map<string, DepRole>()
+    for (const dep of hoveredDependencies) {
+      if (dep.successorId === hoveredDepItemId) roles.set(dep.predecessorId, 'pred')
+      if (dep.predecessorId === hoveredDepItemId) roles.set(dep.successorId, 'succ')
+    }
+    return roles
+  }, [hoveredDependencies, hoveredDepItemId])
   const itemById = useMemo(() => new Map(allFlatItems.map(item => [item.id, item])), [allFlatItems])
   const progressLensPathById = useMemo(() => {
     const paths = new Map<string, string[]>()
@@ -1878,6 +1887,7 @@ export function WbsGanttSheet({
                   {n.plannedStart && n.plannedEnd && (
                     <Bar
                       n={n} schedule={schedule} xOf={xOf} dayPx={dayPx}
+                      depRole={hoveredDepRoles.get(n.id)}
                       onHover={hovering => setHoveredDepItemId(
                         // 떠날 때 무조건 null 로 두면, 옆 바로 옮겨간 뒤 도착한 leave 가 새 hover 를 지운다.
                         prev => (hovering ? n.id : prev === n.id ? null : prev),
@@ -2214,17 +2224,26 @@ function DependencyOverlay({
 }
 
 /* ── 간트 바 ── */
+/** hover 중인 바와의 관계 — 선행은 점선, 후행은 실선 테두리. 간격 4px 은 크리티컬 ring(바깥 3px)과 겹치지 않게 한 값이다. */
+type DepRole = 'pred' | 'succ'
+const DEP_ROLE_OUTLINE: Record<DepRole, string> = {
+  pred: 'outline outline-2 outline-offset-4 outline-brand outline-dashed',
+  succ: 'outline outline-2 outline-offset-4 outline-brand outline-solid',
+}
+
 function Bar({
   n,
   schedule,
   xOf,
   dayPx,
+  depRole,
   onHover,
 }: {
   n: ComputedItem
   schedule?: TaskSchedule
   xOf: (d: string) => number
   dayPx: number
+  depRole?: DepRole
   /** 바 위에 마우스가 올라오고 내려갈 때 — 의존성 연결선 표시의 방아쇠. */
   onHover?: (hovering: boolean) => void
 }) {
@@ -2254,8 +2273,9 @@ function Bar({
     return (
       <>
         <div
-          className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''}`}
+          className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''} ${depRole ? DEP_ROLE_OUTLINE[depRole] : ''}`}
           style={{ left, width }}
+          data-dep-role={depRole}
           onMouseEnter={onHover ? () => onHover(true) : undefined}
           onMouseLeave={onHover ? () => onHover(false) : undefined}
         >
@@ -2280,8 +2300,9 @@ function Bar({
   return (
     <>
       <div
-        className="absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
+        className={`absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full ${depRole ? DEP_ROLE_OUTLINE[depRole] : ''}`}
         style={{ left, width }}
+        data-dep-role={depRole}
         onMouseEnter={onHover ? () => onHover(true) : undefined}
         onMouseLeave={onHover ? () => onHover(false) : undefined}
       >

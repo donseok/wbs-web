@@ -153,6 +153,20 @@ describe('WBS 간트 작업 의존성 — 바 hover 로만 연결선을 그린�
     expect(endY).toBeLessThan(successorCenterY)   // 막대 중심을 파고들지 않는다
   })
 
+  it('선이 겹쳐도 알아보도록 선행·후행 바에 테두리를 두르고, 벗어나면 지운다(2026-09-25)', async () => {
+    await render()
+    const roles = () => [0, 1, 2].map(i => barOf(i).getAttribute('data-dep-role'))
+    expect(roles()).toEqual([null, null, null])
+
+    await act(async () => { hover(barOf(1), 'mouseover') }) // B — 선행 A, 후행 C
+    expect(roles()).toEqual(['pred', null, 'succ'])
+    expect(barOf(0).className).toContain('outline-dashed')
+    expect(barOf(2).className).toContain('outline-solid')
+
+    await act(async () => { hover(barOf(1), 'mouseout') })
+    expect(roles()).toEqual([null, null, null])
+  })
+
   it('바를 벗어나면 선이 사라진다', async () => {
     await render()
     await act(async () => { hover(barOf(1), 'mouseover') })
