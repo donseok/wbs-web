@@ -54,7 +54,8 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(t).not.toContain('taskdir <ref>)` 로 이 작업의 작업 폴더')
   })
   it('taskdir 를 부르는 블록마다 넘기는 변수를 같은 블록 첫머리에서 자리표시로 묶는다', () => {
-    const t = read('dflow-team/SKILL.md')
+    // 2026-09-25: 「5-1」 의 절차는 dflow-team references/resume.md 로 옮겼다
+    const t = read('dflow-team/SKILL.md') + '\n' + read('dflow-team/references/resume.md')
     const blocks = [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
       .filter((b) => b.includes('dflow.sh taskdir'))
     const vars = blocks.map((b) => /dflow\.sh taskdir "\$(\w+)"/.exec(b)?.[1])
@@ -111,9 +112,9 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(t).not.toMatch(/:\$TASKS\//)
   })
   it('팀장 재개 spawn 이 TASK_DIR 을 슬롯 되돌리기보다 먼저 구한다', () => {
-    const t = read('dflow-team/SKILL.md')
-    const start = t.indexOf('### 5-1. 재개 spawn')
-    const section = t.slice(start, t.indexOf('## 6. blocked'))
+    const t = read('dflow-team/references/resume.md')
+    const start = t.indexOf('# /dflow-team 재개 spawn')
+    const section = t.slice(start)
     const taskDirIdx = section.indexOf('TASK_DIR` 을 구한다')
     const unparkIdx = section.indexOf('.dflow-agent` 를 되돌린다')
     expect(start).toBeGreaterThan(-1)
@@ -131,12 +132,12 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(t.slice(spawnStep4, spawnEnd)).not.toMatch(/\$TASK_DIR\b/)
     expect(t.slice(spawnStep4, spawnEnd)).toContain('TASK_DIR=<작업 폴더>')
 
-    // 「5-1. 재개 spawn」: 4번(TASK_DIR 을 구하는 곳) 이후, 5번부터는 $task_dir 을 다시 쓰지 않는다
-    const resumeStep5 = t.indexOf('5. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.**', spawnEnd)
-    const resumeEnd = t.indexOf('## 6. blocked')
+    // 「5-1. 재개 spawn」(references/resume.md): 4번(TASK_DIR 을 구하는 곳) 이후, 5번부터는 $task_dir 을 다시 쓰지 않는다
+    const r = read('dflow-team/references/resume.md')
+    const resumeStep5 = r.indexOf('5. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.**')
     expect(resumeStep5).toBeGreaterThan(-1)
-    expect(t.slice(resumeStep5, resumeEnd)).not.toMatch(/\$task_dir\b/)
-    expect(t.slice(resumeStep5, resumeEnd)).toContain('<4항에서 출력된 작업 폴더>')
+    expect(r.slice(resumeStep5)).not.toMatch(/\$task_dir\b/)
+    expect(r.slice(resumeStep5)).toContain('<4항에서 출력된 작업 폴더>')
   })
 })
 

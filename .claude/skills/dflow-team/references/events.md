@@ -10,7 +10,7 @@
 | 이벤트 | 시점(SKILL.md) | 추가 필드 |
 |---|---|---|
 | `team.start` | 「1. 시작」 5번 | `backend`, `slots`, `until`, `wp` |
-| `team.spawn` | 「5. 팀원 spawn」 6번, 「5-1. 재개 spawn」 7번, 「1. 시작」 5번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |
+| `team.spawn` | 「5. 팀원 spawn」 6번, `references/resume.md` 9항, 「1. 시작」 5번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |
 | `team.result` | 「3. 결과 처리」, 「1. 시작」 5번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |
 | `team.blocked` | 「3. 결과 처리」·「6. blocked」, 「1. 시작」 5번(이어받은 해시·답 대기 재기록) | `slot`, `id8`, `worktree`, `hash`, `reason` |
 | `team.answer` | 「6. blocked」 답 매칭, 「1. 시작」 5번(대기 중인 답 재기록) | `id8`, `answer` |

@@ -190,6 +190,9 @@ describe('dflow.sh doctor 의 키 표시(스펙 §4-3)', () => {
 describe('/dflow-team 키 판정(스펙 §6)', () => {
   const sk = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
   const help = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/help.md'), 'utf8')
+  // 2026-09-25: 키 판정의 묻기·저장·오류 문구는 references/args.md, 두 번째 팀장 절차는 references/second-lead.md 로 옮겼다
+  const args = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/args.md'), 'utf8')
+  const secondLead = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/second-lead.md'), 'utf8')
 
   it('키 판정은 「인자」 절에 있고 종료 시각 질문·전제 검사보다 앞이다', () => {
     const args = sk.indexOf('\n## 인자')
@@ -208,29 +211,31 @@ describe('/dflow-team 키 판정(스펙 §6)', () => {
     }
   })
   it('종료 시각이 주어져도 키 질문은 하고, 키를 묻는 호출에서는 WP 선택지를 서버에서 뽑지 않는다', () => {
-    expect(sk).toContain('**종료 시각이 인자로 주어져도 키 질문은 한다.**')
-    expect(sk).toContain('키를 묻는 호출에서는 WP 범위 선택지를 서버에서 뽑지 않고')
+    expect(args).toContain('**종료 시각이 인자로 주어져도 키 질문은 한다.**')
+    expect(args).toContain('키를 묻는 호출에서는 WP 범위 선택지를 서버에서 뽑지 않고')
   })
   it('고른 prefix 를 .env 끝에 더한다 — 첫 토큰이어도', () => {
-    expect(sk).toContain(`printf '\\nDFLOW_AS=%s\\n' '<prefix>' >> .env`)
-    expect(sk).toContain(`printf '\\nas=%s\\n' '<prefix>' >> .dflow.local`)
-    expect(sk).toContain('자동 선택한 키가 첫 토큰이어도')
+    expect(args).toContain(`printf '\\nDFLOW_AS=%s\\n' '<prefix>' >> .env`)
+    expect(args).toContain(`printf '\\nas=%s\\n' '<prefix>' >> .dflow.local`)
+    expect(args).toContain('자동 선택한 키가 첫 토큰이어도')
+    expect(sk).toContain('자동 선택이든 답이든 고른 prefix 를 저장한다')
   })
   it('조회 실패를 후보 없음으로 뭉개지 않는다', () => {
-    expect(sk).toContain('`auth`')
-    expect(sk).toContain('`unreachable`')
+    expect(args).toContain('`auth`')
+    expect(args).toContain('`unreachable`')
   })
   it('키는 워크트리마다 정하고, 다른 워크트리의 팀장이 쓰는 신원은 후보에서 뺀다', () => {
     expect(sk).toContain('  | .claude/skills/dflow-team/scripts/live-leads.sh --mark')
-    for (const s of ['`who`', '`in_use`', '`KEY_IN_USE`', '`NO_FREE_KEY`', '같은 계정의 키', '워크트리마다 따로']) {
+    for (const s of ['`who`', '`in_use`', '`KEY_IN_USE`', '`NO_FREE_KEY`', '워크트리마다 따로']) {
       expect(sk, s).toContain(s)
     }
+    expect(args).toContain('같은 계정의 키')
     // 키 판정은 전제 검사의 SAME_IDENTITY_LEAD 보다 앞에서, 사람에게 묻기 전에 같은 사실을 본다
     expect(sk.indexOf('`KEY_IN_USE`')).toBeGreaterThan(sk.indexOf('- **키 판정**'))
     expect(sk.indexOf('`KEY_IN_USE`')).toBeLessThan(sk.indexOf('- **종료 시각은 유일한 필수 인자다.**'))
   })
   it('두 번째 팀장 절과 help.md 가 DFLOW_AS 를 복사하지 않고 키 판정에 맡긴다고 적는다', () => {
-    const second = sk.slice(sk.indexOf('## 두 번째 팀장 (링크드 워크트리)'), sk.indexOf('\n## 0. 환경 감지'))
+    const second = secondLead
     expect(second).toContain('`DFLOW_AS` 줄은 빼고')
     expect(second).toContain('키 판정')
     expect(second).not.toContain('사람은 그 워크트리의 `.env` 에서 키를 고른 뒤')

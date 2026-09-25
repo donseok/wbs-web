@@ -177,5 +177,5 @@ jq -rs --arg a '<신원>/<host>/lead' --arg r '<MAIN>' '[.[] | select(.agent == 
 
 ## 7. 마감
 
-해소 워커도 다른 팀원과 같이 기다린다(「7. 마감」 2번). 마감은 남은 `merge_conflict` 표시를 지우지 않는다. 사람이 보아야
+해소 워커도 다른 팀원과 같이 기다린다(`references/closing.md` 2번). 마감은 남은 `merge_conflict` 표시를 지우지 않는다. 사람이 보아야
 하기 때문이다. 마감 보고에 충돌 목록(「5」 jq)을 함께 적는다.

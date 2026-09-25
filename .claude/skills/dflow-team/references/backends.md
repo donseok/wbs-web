@@ -35,7 +35,7 @@ case "$CAP" in CAPACITY_LOW*) echo SPAWN_DEFERRED_CAPACITY; exit 0 ;; esac
 - `CAPACITY_OK`·`CAPACITY_UNKNOWN` 이면 이어서 띄운다. 출력 줄 끝이 `notify=1` 이면 SKILL.md 「5-3」 의 한 줄 알림을 낸다.
 - 새 작업·해소의 spawn 블록(아래 「팀원 워크트리 준비」, 두 백엔드 공통)은 이 두 줄로 시작하므로 따로 부르지 않는다.
   merge-conflict.md 「2」 의 해소 spawn 도 그 블록을 그대로 돌리므로 여기에 걸린다(tmux·Orca 모두). 블록을 통째로
-  돌지 않는 자리 — 재개(SKILL.md 「5-1」 0항)와 재투입(restart.md 「재투입」) — 는 이 블록을 먼저 따로 돈다. 이유:
+  돌지 않는 자리 — 재개(`references/resume.md` 0항)와 재투입(restart.md 「재투입」) — 는 이 블록을 먼저 따로 돈다. 이유:
   그 둘은 워크트리를 새로 만들지 않고 있는 것을 이어 쓰므로, 준비 블록 전체를 다시 돌 필요가 없다(2026-09-24 이전에는
   Orca 의 `orca worktree create` 를 결과 JSON 과 한 호출로 묶으면 이 두 줄의 출력이 JSON 앞에 섞여 `jq` 해석이
   깨진다는 이유로 Orca spawn 도 따로 돌았으나, 이제 Orca spawn 도 `orca terminal create` 의 JSON 을 변수로 받아

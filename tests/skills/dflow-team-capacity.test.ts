@@ -275,7 +275,8 @@ describe('팀장 SKILL.md 의 입장 제어', () => {
     expect(R.slice(R.indexOf('## 재투입'))).toMatch(/\*\*입장 제어\*\*: `REINJECT_OK` 뒤[^\n]*backends\.md 「입장 제어」/)
     const five = TEAM.slice(TEAM.indexOf('## 5. 팀원 spawn'), TEAM.indexOf('### 5-1. 재개 spawn'))
     expect(five).toContain('**입장 제어는 spawn 블록이 집행한다**')
-    const resume = TEAM.slice(TEAM.indexOf('### 5-1. 재개 spawn'), TEAM.indexOf('### 5-2. 해소 spawn'))
+    // 2026-09-25: 「5-1」 절차는 references/resume.md 로 옮겼다
+    const resume = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resume.md'), 'utf8')
     expect(resume.indexOf('0. **입장 제어**')).toBeLessThan(resume.indexOf('1. **손실 보고 한 줄을 먼저 낸다.**'))
     expect(sec).toContain('**집행은 spawn 블록 한 곳이다.**')
     expect(sec).toContain('SPAWN_DEFERRED_CAPACITY')

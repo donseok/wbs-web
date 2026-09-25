@@ -10,6 +10,9 @@ const read = (rel: string) => readFileSync(join(SKILL_DIR, rel), 'utf8')
 // 감시 루프(「2-2」)와 기상 블록(「2-3」)은 2026-09-25 에 scripts/tick.sh·wake.sh 로 옮겼다(팀장이 루프를 매번 다시 쓰지 않게)
 const tick = () => read('scripts/tick.sh')
 const wake = () => read('scripts/wake.sh')
+// 분기 전용 절(2026-09-25): 전제 검사 결과별 처리·마감은 references 로 옮겼다
+const precheck = () => read('references/precheck.md')
+const closing = () => read('references/closing.md')
 
 // {ANSWER} 는 tmux 전환(스펙 2026-09-16 §9, 236a3a25)으로 없어졌고 {DEV_BRANCH} 가 .dflow 전환(cdccee70)으로 들어왔다
 const PLACEHOLDERS = ['{TSK}', '{ID8}', '{AGENT_ID}', '{MAIN_CHECKOUT}', '{BACKEND}', '{MODEL_FLAG}', '{DEV_BRANCH}']
@@ -153,11 +156,15 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
 
   it('파일 넷이 정본 위치에 있고 킷 밖 경로와 zsh 에서 깨지는 셸 구문(따옴표 밖 docs/tasks glob, [ \\> ])을 적지 않는다', () => {
     const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
-    for (const rel of ['SKILL.md', 'references/worker-prompt.md', 'references/backends.md', 'references/events.md']) {
+    // 2026-09-25: 분기 전용 절(인자 질문·전제 검사 결과·재개·마감·연장·두 번째 팀장)과 근거를 옮긴 문서도 같은 규칙을 지킨다
+    const DOCS = ['SKILL.md', 'references/worker-prompt.md', 'references/backends.md', 'references/events.md',
+      'references/args.md', 'references/precheck.md', 'references/resume.md', 'references/closing.md', 'references/extend.md',
+      'references/second-lead.md', 'references/rationale.md']
+    for (const rel of DOCS) {
       expect(existsSync(join(SKILL_DIR, rel)), rel).toBe(true)
       expect(read(rel), rel).not.toContain('~/project/')
     }
-    for (const [rel, t] of [...['SKILL.md', 'references/worker-prompt.md', 'references/backends.md', 'references/events.md'].map((r) => [r, read(r)]), ['dflow-merge', merge]]) {
+    for (const [rel, t] of [...DOCS.map((r) => [r, read(r)]), ['dflow-merge', merge]]) {
       expect(t, rel).not.toMatch(/[^'`]docs\/tasks\/\*/) // 매치가 없으면 zsh 가 no matches found 로 명령 전체를 죽인다
       expect(t, rel).not.toMatch(/\[ [^\]\n]*\\>/) // zsh 는 condition expected 로 실패한다
     }
@@ -213,7 +220,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) [ -n "${CLAUDE_PID:-}" ] || bad "NO_CLAUDE_PID Windows 의 \\$PPID 는 1 이라 팀장 세션을 가려내지 못한다" ;; esac')
     // LEAD_SKIP_PERMISSIONS 감지(ps -o command=·PRECHECK_OK 의 그 칸)는 스펙 2026-09-16 §9 로 없어졌다
     expect(s()).toContain('NOT_DEFAULT_BRANCH')
-    expect(s()).toContain('git ls-remote --symref origin HEAD')
+    expect(precheck()).toContain('git ls-remote --symref origin HEAD')
     expect(s()).toContain("hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g'")
     expect(s()).toContain('mkdir -p ~/.dflow')
   })
@@ -222,7 +229,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('bad AUTH')
     expect(s()).toContain('종료 코드로 판정하지 않는다')
     expect(s()).toContain('LEGACY_REPORTED')
-    expect(s()).toContain('수동 `/dflow-merge` 로 먼저 정리하라')
+    expect(precheck()).toContain('수동 `/dflow-merge` 로 먼저 정리하라')
     // .dflow-pid·.dflow-worker.log 는 .dflow-pane·.dflow-run 으로 바뀌었다(스펙 2026-09-16 §9)
     for (const p of ["'**/.claude/worktrees/'", "'/.dflow-agent'", "'/.dflow-pane'", "'/.dflow-prompt'", "'/.dflow-run'", "'**/tasks/*/.result'", "'/.claude/skills'"]) {
       expect(s(), p).toContain(p)
@@ -234,7 +241,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     // 킷 복사형 판정은 dflow-dev 로 좁힌다 — 일반 스킬만 추적하는 리포의 KIT_NOT_PUSHED 오탐(2026-09-23)
     expect(s()).toContain('tracked=$(git ls-files .claude/skills/dflow-dev | head -n 1)')
     expect(s()).toContain("sp='/.claude/skills/dflow-*'")
-    expect(s()).toContain('파일명을 명시해 먼저 커밋하라')
+    expect(precheck()).toContain('파일명을 명시해 먼저 커밋하라')
     // 기능 판정은 본문 문구가 아니라 표식 줄로 한다 — 문서를 압축·개정하다 문구가 빠져도 운영 워커가 멈추지 않게
     expect(s()).toContain("grep -q '^<!-- dflow-caps: worker ' .claude/skills/dflow-dev/SKILL.md || bad OLD_DFLOW_DEV")
     expect(s()).toContain("grep -q '^<!-- dflow-caps: remote-candidates ' .claude/skills/dflow-merge/SKILL.md || bad OLD_DFLOW_MERGE")
@@ -248,7 +255,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('git worktree list --porcelain')
     expect(s()).toContain('**깨어날 때마다**')
     // 매 기상: 소유(신원 + 세션 PID)를 확인한 뒤에만 beat 를 쓰고, 아니면 잠금 상실
-    expect(s()).toContain('{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true')
+    expect(closing()).toContain('{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true')
     expect(wake()).toContain('{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true')
     expect(wake()).toContain('if [ "$o_who" = "$OWNER" ] && [ -n "$LEAD_PID" ] && [ "$o_pid" = "$LEAD_PID" ]; then\n  date +%s > "$LOCK/beat"')
     expect(s()).toContain(".claude/skills/dflow-team/scripts/wake.sh --owner '<신원>/<host>/lead'")
@@ -430,25 +437,26 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   })
 
   it('마감: 대기 상한 TICK 두 번, 마지막 스윕, 살아 있는 팀원 워크트리 보존, agent 브랜치 남김, team.stop, 소유 판정으로 잠금 해제, 잠금 상실 마감', () => {
-    expect(s()).toContain('`TICK` 두 번까지만')
-    expect(s()).toContain('마지막 승인 스윕')
-    expect(s()).toContain('**살아 있는 팀원의 워크트리는 조건과 무관하게 지우지 않는다.**')
-    expect(s()).toContain('**agent 브랜치는 남긴다.**')
-    expect(s()).toContain('`team.stop`')
-    expect(s()).toContain(
+    expect(s()).toContain('cat .claude/skills/dflow-team/references/closing.md')
+    expect(closing()).toContain('`TICK` 두 번까지만')
+    expect(closing()).toContain('마지막 승인 스윕')
+    expect(closing()).toContain('**살아 있는 팀원의 워크트리는 조건과 무관하게 지우지 않는다.**')
+    expect(closing()).toContain('**agent 브랜치는 남긴다.**')
+    expect(closing()).toContain('`team.stop`')
+    expect(closing()).toContain(
       '[ "$o_pid" = "$LEAD_PID" ]; then\n     .claude/skills/dflow-work/scripts/dflow.sh lease release || { rm -f "$(git rev-parse --git-path dflow-team.lease)" "$(git rev-parse --git-path dflow-team.lease).beat"; echo "LEASE_RELEASE_FAILED 3분 뒤 스스로 풀린다"; }\n     rm -f "$(git rev-parse --git-path dflow-team.stop)"',
     )
-    expect(s()).not.toContain('fromdateiso8601') // events.jsonl 의 team.start 는 새 팀장의 것일 수 있다
-    expect(s()).not.toContain('rm -f "$(git rev-parse --git-path dflow-team.lock)"')
-    expect(s()).toContain('**잠금 상실 마감**')
+    expect(closing()).not.toContain('fromdateiso8601') // events.jsonl 의 team.start 는 새 팀장의 것일 수 있다
+    expect(closing()).not.toContain('rm -f "$(git rev-parse --git-path dflow-team.lock)"')
+    expect(closing()).toContain('**잠금 상실 마감**')
   })
 
   it('마감의 남은 에이전트 확인: 팀원·손자는 별도 프로세스라 세션 목록에 없고, 잠금 상실 마감은 팀원 pane 을 건드리지 않는다', () => {
-    expect(s()).toContain('**남은 에이전트 확인**')
-    expect(s()).toContain('ListAgents 를 다시 불러')
-    expect(s()).toContain('팀원 pane 은 건드리지 않고') // 146ea66d 계열 tmux 전환: 종전 '팀원 프로세스'
-    expect(s()).not.toContain('**손자 정리**')
-    expect(s()).not.toContain('is not running (status: completed)')
+    expect(closing()).toContain('**남은 에이전트 확인**')
+    expect(closing()).toContain('ListAgents 를 다시 불러')
+    expect(closing()).toContain('팀원 pane 은 건드리지 않고') // 146ea66d 계열 tmux 전환: 종전 '팀원 프로세스'
+    expect(closing()).not.toContain('**손자 정리**')
+    expect(closing()).not.toContain('is not running (status: completed)')
   })
 
   // 팀원 프로세스 spawn 의 nohup … & 예외는 스펙 2026-09-16 §9 로 없어졌다(이제 팀원 spawn 에도 & 를 쓰지 않는다).
@@ -458,7 +466,8 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   })
 
   it('좌석표 v1 계약: 팀장은 watch 를 시작·매 기상·마감에서 보내고 poll 은 DFLOW_WATCH=0 으로 watch 를 끈다', () => {
-    const t = s()
+    // 시작은 SKILL.md, 매 기상은 wake.sh(「2-3」), 마감은 references/closing.md 에 있다(2026-09-25)
+    const t = s() + '\n' + wake().replace('"$DFLOW" watch', '.claude/skills/dflow-work/scripts/dflow.sh watch') + '\n' + closing()
     const watchCalls = t.match(/dflow\.sh watch --agent/g) ?? []
     expect(watchCalls.length).toBeGreaterThanOrEqual(3)
     const stopCalls = [...t.matchAll(/dflow\.sh watch --agent[\s\S]{0,200}?--stop\b/g)]

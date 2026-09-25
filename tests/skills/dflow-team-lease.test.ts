@@ -7,6 +7,9 @@ const HELP = readFileSync('.claude/skills/dflow-team/references/help.md', 'utf8'
 // 감시 루프·기상 블록은 2026-09-25 에 scripts/tick.sh·wake.sh 로 옮겼다
 const TICK = readFileSync('.claude/skills/dflow-team/scripts/tick.sh', 'utf8')
 const WAKE = readFileSync('.claude/skills/dflow-team/scripts/wake.sh', 'utf8')
+// 「7. 마감」(잠금·lease 상실 마감 포함)은 2026-09-25 에 references/closing.md 로 옮겼다
+const CLOSING = readFileSync('.claude/skills/dflow-team/references/closing.md', 'utf8')
+const csection = (from: string, to: string) => CLOSING.slice(CLOSING.indexOf(from), to ? CLOSING.indexOf(to, CLOSING.indexOf(from) + 1) : undefined)
 const section = (from: string, to: string) => SKILL.slice(SKILL.indexOf(from), SKILL.indexOf(to, SKILL.indexOf(from) + 1))
 
 describe('dflow-team lease', () => {
@@ -56,16 +59,16 @@ describe('dflow-team lease', () => {
     // watch 호출 자체가 --holder "$(... lease holder)" 처럼 실패를 삼키는 부분 전개로 남아 있지 않다
     expect(s).not.toMatch(/--holder "\$\("\$DFLOW" lease holder\)"/)
     expect(WAKE).toContain('DFLOW="${DFLOW_SH:-.claude/skills/dflow-work/scripts/dflow.sh}"')
-    expect(SKILL).toMatch(/`HOLDER_FAILED`[^\n]*watch 를 아예 부르지 않은 것이다/)
+    expect(SKILL).toMatch(/`HOLDER_FAILED`[^\n]*watch 를 아예 부르지 않은 것/)
   })
   it('lease 상실 마감은 워커를 건드리지 않고, 6번 블록의 release 가 남의 lease 를 풀지 않는 이유를 적는다', () => {
-    const s = section('**lease 상실 마감**', '## 좌석표 연동')
+    const s = csection('**lease 상실 마감**', '')
     expect(s).toMatch(/워커[^\n]*건드리지 않는다/)
     expect(s).toMatch(/holder·generation 이 맞는 행만/)
     expect(s).toMatch(/새 claim·새 spawn·승인 스윕·머지를 하지 않는다/)
   })
   it('정상 마감은 lease release 를 부르고, 실패하면 상태 파일·beat 를 직접 지워 keep 을 멈춘다', () => {
-    const s = section('## 7. 마감', '**잠금 상실 마감**')
+    const s = csection('# /dflow-team 마감', '**잠금 상실 마감**')
     expect(s).toMatch(/dflow\.sh lease release/)
     expect(s).toMatch(
       /dflow\.sh lease release \|\| \{ rm -f "\$\(git rev-parse --git-path dflow-team\.lease\)" "\$\(git rev-parse --git-path dflow-team\.lease\)\.beat"; echo "LEASE_RELEASE_FAILED/,

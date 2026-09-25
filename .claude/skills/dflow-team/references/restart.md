@@ -192,7 +192,7 @@ esac
 
 ## 재투입
 
-SKILL.md 「5-1. 재개 spawn」 을 그대로 따르고 아래만 다르다.
+`references/resume.md`(SKILL.md 「5-1. 재개 spawn」)를 그대로 따르고 아래만 다르다.
 
 **재투입 전 확인**(모든 재투입 — 같은 기상의 `restart`, `RESTART_DUE`, `RL_DUE` — 에서 거두기 뒤·띄우기 전에 한 번).
 이번 기상의 `show` 로 서버가 `claimed`+`mine`+이 PC 인지, 워크트리의 `.dflow-pane` 이 가리키는 팀원이 살아 있지 않은지,
@@ -225,7 +225,7 @@ else echo "REINJECT_OK order=$o st=$st tries=$t"; fi
 사유 대응: `show-failed` → `서버 조회 실패`, `server <status>` → `서버 <status>`, `other-claim` → `다른 PC claim`,
 `live-pane` → `살아 있는 팀원`, `tries=` → `재시도 상한`. `live=unknown`(tmux 경로 없음)도 살아 있는 것으로 본다(fail-closed).
 
-**입장 제어**: `REINJECT_OK` 뒤, 5-1 의 무엇도 바꾸기 전에 backends.md 「입장 제어」 블록을 돈다(SKILL.md 「5-1」 0항과 같다).
+**입장 제어**: `REINJECT_OK` 뒤, 5-1 의 무엇도 바꾸기 전에 backends.md 「입장 제어」 블록을 돈다(`references/resume.md` 0항과 같다).
 `SPAWN_DEFERRED_CAPACITY` 면 띄우지 않고 슬롯만 비운다. `team.lost` 를 새로 쓰지 않는다 — 이미 쓴 `next=restart` 줄이
 재시작 대기(`RESTART_DUE`)로 남아 다음 기상에 이 절을 다시 탄다. 재시도로 세지 않으며 「멈춤」 으로 보내지도 않는다.
 
@@ -303,7 +303,7 @@ esac
 생략 모드로 돌고 포인터가 첫 입력으로 들어가며(리허설 워크트리가 이미 신뢰된 리포 아래라 폴더 신뢰 확인
 화면 자체는 뜨지 않았다) 새 탭의 핸들을 `.result.terminal.handle` 로 JSON 에 준다. 이 관문을 통과했으므로
 **Orca 도 이제 tmux 와 같은 방식으로 재투입한다**: 탭 닫기(위 「재시작 후보를 띄울지」 「거두기」)→
-`.dflow-run` 새로 쓰기 → `orca terminal create`(SKILL.md 「5-1. 재개 spawn」 7항, backends.md 「pane(Orca)」).
+`.dflow-run` 새로 쓰기 → `orca terminal create`(`references/resume.md` 7항, backends.md 「pane(Orca)」).
 `team.lost` 기록도 tmux 와 같게 한다(「판정」·「재시작 후보를 띄울지」 그대로). 「판정」 의 6번(`dead_status=127`)은
 Orca 에는 적용되지 않는다 — `pane_dead_status` 는 tmux 전용 값이므로 Orca 슬롯은 그 조건에 걸리지 않고 7번
 (pane 죽음, Orca 는 탭 죽음)으로 간다.
