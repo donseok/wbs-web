@@ -296,6 +296,16 @@ describe('install.sh --gradle-pc(리포와 함께) — 이 PC 안전망', () => 
     }
   })
 
+  it('init 스크립트는 C1 과 함께 ReservedCodeCacheSize=240m 을 넣되 리포 값이 있으면 덮지 않는다(CodeCache 부족 사고)', () => {
+    const g = readFileSync(join(ROOT, 'kit/gradle/dflow-test-jvm.gradle'), 'utf8')
+    expect(g).toContain("task.jvmArgs('-XX:TieredStopAtLevel=1')")
+    expect(g).toContain("def hasCodeCache = task.allJvmArgs.any { it.startsWith('-XX:ReservedCodeCacheSize') }")
+    expect(g).toContain("task.jvmArgs('-XX:ReservedCodeCacheSize=240m')")
+    const readme = readFileSync(join(ROOT, 'kit/README.md'), 'utf8')
+    expect(readme).toContain("jvmArgs '-XX:TieredStopAtLevel=1', '-XX:ReservedCodeCacheSize=240m'")
+    expect(readme).toContain('**`-XX:ReservedCodeCacheSize=240m` 을 빼지 않는다**')
+  })
+
   it('GRADLE_USER_HOME 이 없으면 만들고, init.d/dflow-test-jvm.gradle 을 설치한다', () => {
     const target = makeTarget()
     const guh = mkdtempSync(join(tmpdir(), 'dflow-guh2-'))

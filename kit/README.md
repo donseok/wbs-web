@@ -68,10 +68,13 @@ Gradle 리포(`gradlew` 또는 `settings.gradle(.kts)` 가 있는 폴더 — inc
      allprojects {
        tasks.withType(Test).configureEach {
          outputs.doNotCacheIf('테스트는 선언되지 않은 외부 입력을 읽을 수 있다') { true }
-         jvmArgs '-XX:TieredStopAtLevel=1'
+         jvmArgs '-XX:TieredStopAtLevel=1', '-XX:ReservedCodeCacheSize=240m'
        }
      }
      ```
+     **`-XX:ReservedCodeCacheSize=240m` 을 빼지 않는다** — C1 만 쓰면(`TieredStopAtLevel=1`) JVM 이 코드 캐시 기본값을
+     240MB 에서 48MB 로 줄여, 테스트가 많은 리포에서 무작위 클래스가 `VirtualMachineError: Out of space in CodeCache for
+     adapters` 로 실패한다(실측: 테스트 1060건에서 6건).
      **Test 태스크는 빌드 캐시에서 빼는 쪽을 기본으로 권한다** — 테스트가 작업 트리 밖 파일·환경 변수·상태가 있는
      DB 파일을 선언하지 않은 채 읽는 경우가 흔해, 캐시가 그 실패를 조용히 숨길 수 있기 때문이다(컴파일 태스크는
      캐시 대상에서 빼지 않는다). Test 를 캐시에서 빼는 방법(opt-out)은 위 스니펫의 `outputs.doNotCacheIf { true }`
@@ -101,6 +104,8 @@ Gradle 리포(`gradlew` 또는 `settings.gradle(.kts)` 가 있는 폴더 — inc
        `build.gradle` 이 이미 같은 플래그를 지정했으면(`allJvmArgs` 에 `-XX:TieredStopAtLevel` 로 시작하는 인자가
        있으면) 건너뛰고 리포 값을 그대로 둔다 — 같은 `-XX` 플래그가 두 번 와도 JVM 은 뒤의 값을 쓰므로 중복 자체는
        무해하지만, 어느 값이 적용되는지 헷갈리지 않도록 명시적으로 건너뛴다.
+     - 같은 조건에서 `-XX:ReservedCodeCacheSize=240m` 도 붙인다(리포가 값을 정했으면 건너뛴다). C1 만 쓰면 코드 캐시
+       기본값이 48MB 로 줄어 CodeCache 부족 오류가 나기 때문이다.
    - 킷 안의 원본은 `kit/gradle/dflow-test-jvm.gradle`.
 
 **되돌리는 법**: 리포 설정은 그 리포의 `gradle.properties` 에서 추가된 키 줄을 지우고 커밋한다. `--gradle-pc` 안전망은

@@ -51,7 +51,7 @@ install_gradle_pc() {
     echo "건너뜀: $gi (이미 있다 — 덮어쓰지 않았다)"
   else
     cp "$KIT_DIR/gradle/dflow-test-jvm.gradle" "$gi"
-    echo "설치: $gi — 모든 Test 태스크를 빌드 캐시에서 빼고, .dflow-agent 워크트리에서만 -XX:TieredStopAtLevel=1 을 붙인다"
+    echo "설치: $gi — 모든 Test 태스크를 빌드 캐시에서 빼고, .dflow-agent 워크트리에서만 -XX:TieredStopAtLevel=1 과 -XX:ReservedCodeCacheSize=240m 을 붙인다"
   fi
 }
 
@@ -185,7 +185,9 @@ if [ -f "$GC" ]; then
       esac
     done
     echo "  참고: 테스트 JVM -XX:TieredStopAtLevel=1(CPU 약 25%↓, 경과 시간은 측정상 동일)은 빌드 스크립트 수정이라"
-    echo "        자동 반영하지 않는다. Test 태스크를 빌드 캐시에서 빼는 것도 함께 권한다 — 선언되지 않은 외부 입력을"
+    echo "        자동 반영하지 않는다. 넣을 때는 -XX:ReservedCodeCacheSize=240m 을 반드시 함께 넣는다 — C1 만 쓰면 코드 캐시"
+    echo "        기본값이 48MB 로 줄어 테스트가 많은 리포에서 'Out of space in CodeCache' VirtualMachineError 가 난다."
+    echo "        Test 태스크를 빌드 캐시에서 빼는 것도 함께 권한다 — 선언되지 않은 외부 입력을"
     echo "        읽는 테스트가 흔해 캐시가 그 실패를 숨길 수 있기 때문이다. 캐시에서 빼는 방법은 outputs.doNotCacheIf"
     echo "        (또는 같은 뜻인 outputs.cacheIf { false })다 — 위험을 감수하고 Test 도 캐시하려면(opt-out) 그 줄을 지운다."
     echo "        스니펫 전문은 $KIT_DIR/README.md 「Gradle 권장 설정」 참고."
