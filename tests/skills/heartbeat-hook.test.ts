@@ -320,6 +320,73 @@ describe('heartbeat.sh — 심볼릭 링크된 <DOCS_DIR>', () => {
   })
 })
 
+// 절제 앞당김 — 같은 세션(session_id)이 60초 안에 다시 부르면 작업 폴더(docs) 스캔 없이 끝낸다.
+// 중단 표식이 하나라도 있으면 앞당긴 절제를 쓰지 않는다(표식 검사는 매 호출). 주문이 바뀌면(브랜치 전환) 곧바로 보낸다.
+describe('heartbeat.sh — 세션 절제(스캔 전)', () => {
+  const ORDER = '22222222-2222-4222-8222-222222222222'
+  const SID = '9f0c1d2e-3a4b-4c5d-8e6f-7a8b9c0d1e2f'
+  const CANCELLED = { FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"code":"cancelled"}' }
+  let findLog: string
+  function runS(env: Record<string, string> = {}) {
+    return execFileSync('sh', [HOOK], {
+      cwd: repo, input: JSON.stringify({ cwd: repo, tool_name: 'Bash', session_id: SID }), encoding: 'utf8',
+      env: { PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: home, CURL: join(tmp, 'fakecurl'), NODE_ENV: process.env.NODE_ENV, ...env },
+      stdio: ['pipe', 'pipe', 'ignore'],
+    })
+  }
+  const docsScans = () => (existsSync(findLog) ? readFileSync(findLog, 'utf8') : '').split('\n').filter(l => l.includes('/docs'))
+  beforeEach(() => {
+    // find 를 감싸 호출 인자를 남긴다 — 작업 폴더 스캔은 <top>/docs 를 넘기는 find 다.
+    const realFind = execFileSync('sh', ['-c', 'command -v find'], { encoding: 'utf8' }).trim()
+    findLog = join(tmp, 'find.log')
+    mkdirSync(join(tmp, 'bin'))
+    writeFileSync(join(tmp, 'bin/find'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${findLog}"\nexec "${realFind}" "$@"\n`, { mode: 0o755 })
+  })
+
+  it('같은 세션이 60초 안에 다시 부르면 작업 폴더를 스캔하지 않고 끝낸다. 절제 파일이 오래되면 다시 보낸다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    runS()
+    expect(sent()).toHaveLength(1)
+    expect(docsScans().length).toBeGreaterThan(0)          // 첫 호출은 스캔한다
+    rmSync(findLog)
+    runS()
+    expect(sent()).toHaveLength(1)
+    expect(docsScans()).toEqual([])                        // 두 번째는 스캔 전에 끝난다
+    const old = new Date(Date.now() - 120_000)
+    utimesSync(join(home, '.dflow/hb', ORDER), old, old)
+    runS()
+    expect(sent()).toHaveLength(2)
+  })
+  it('세션 절제 중에도 중단 표식이 생기면 매 호출 다시 세우고, 서버에는 보내지 않는다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    expect(JSON.parse(runS(CANCELLED)).continue).toBe(false)
+    expect(sent()).toHaveLength(1)
+    expect(JSON.parse(runS()).continue).toBe(false)
+    expect(JSON.parse(runS()).continue).toBe(false)
+    expect(sent()).toHaveLength(1)
+  })
+  it('다른 주문의 낡은 표식만 있어도 스캔은 하되(표식 검사), 이 주문은 절제한다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    mkdirSync(join(home, '.dflow/hb'), { recursive: true })
+    writeFileSync(join(home, '.dflow/hb/33333333-3333-4333-8333-333333333333.cancelled'), '')
+    expect(runS()).toBe('')
+    expect(runS()).toBe('')
+    expect(sent()).toHaveLength(1)
+  })
+  it('수동 세션이 60초 안에 다른 주문으로 옮기면(브랜치 전환) 새 주문으로 곧바로 보낸다', () => {
+    git('switch', '-q', '-c', 'agent/22222222-slug')
+    runS()
+    expect(sent()).toHaveLength(1)
+    expect(sent()[0]).toContain(`/work/${ORDER}/heartbeat`)
+    git('switch', '-q', '-c', 'agent/33333333-slug')
+    mkdirSync(join(repo, 'docs/tasks/TSK-02'), { recursive: true })
+    writeFileSync(join(repo, 'docs/tasks/TSK-02/state.json'), JSON.stringify({ tsk: 'TSK-02', order: '33333333-3333-4333-8333-333333333333', phase: 'prepare' }))
+    runS()
+    expect(sent()).toHaveLength(2)
+    expect(sent()[1]).toContain('/work/33333333-3333-4333-8333-333333333333/heartbeat')
+  })
+})
+
 // 사용 토큰(0104) — 훅이 대화 기록을 셸로 합쳐 싣는다. 계산은 백그라운드라 캐시 파일이 생긴 뒤의 다음 전송에 실린다.
 describe('heartbeat.sh — 사용 토큰(0104)', () => {
   const ORDER = '22222222-2222-4222-8222-222222222222'
@@ -389,6 +456,67 @@ describe('heartbeat.sh — 사용 토큰(0104)', () => {
     expect(sent()).toHaveLength(1)
     expect(body(0).tokens).toBeUndefined()
     expect(existsSync(join(home, '.dflow/hb', `${ORDER}.tok...`))).toBe(false)
+  })
+
+  // 증분 계산 — 지난번에 읽은 바이트 위치(<캐시>.idx)와 id 별 usage(<캐시>.map)를 두고 새로 붙은 부분만 읽는다.
+  const readCache = () => JSON.parse(readFileSync(cache(), 'utf8'))
+  const byModel = (c: { models: { model: string }[] }) => Object.fromEntries(c.models.map(m => [m.model, m]))
+  const dropState = () => { rmSync(`${cache()}.idx`, { force: true }); rmSync(`${cache()}.map`, { force: true }) }
+
+  it('증분 계산 결과가 처음부터 다시 읽은 결과와 같다(경계에 걸친 id·끝 줄 완성·새 서브에이전트)', () => {
+    runTok()
+    expect(existsSync(`${cache()}.idx`)).toBe(true)
+    expect(byModel(readCache())['claude-opus-4-8']).toMatchObject({ input: 5, output: 276 })
+    // 쓰는 중이던 끝 줄을 마저 쓰고, 지난번에 센 m2 의 뒤 줄(더 큰 output)과 새 m3 을 붙인다
+    writeFileSync(transcript, readFileSync(transcript, 'utf8')
+      + ',"model":"claude-opus-4-8","usage":{"input_tokens":7,"output_tokens":8,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"type":"assistant","timestamp":"2026-09-24T01:00:00.000Z"}\n'
+      + line('m2', 'claude-opus-4-8', [3, 50, 0, 2000]) + '\n'
+      + line('m3', 'claude-opus-4-8', [1, 1, 1, 1]) + '\n')
+    writeFileSync(join(tmp, 'proj', SID, 'subagents', 'agent-a2.jsonl'), line('n1', 'claude-sonnet-4-6', [5, 6, 7, 8]) + '\n')
+    age(); runTok()
+    const inc = readCache()
+    const by = byModel(inc)
+    expect(by['claude-opus-4-8']).toMatchObject({ input: 13, output: 325, cache_creation: 101, cache_read: 3001 })
+    expect(by['claude-haiku-4-5']).toMatchObject({ input: 4, output: 120, cache_creation: 0, cache_read: 900 })
+    expect(by['claude-sonnet-4-6']).toMatchObject({ input: 5, output: 6, cache_creation: 7, cache_read: 8 })
+    dropState(); age(); runTok()
+    expect(readCache()).toEqual(inc)
+  })
+
+  it('이미 읽은 부분은 다시 읽지 않는다(크기가 같으면 새로 읽을 것이 없다)', () => {
+    runTok()
+    const before = readCache()
+    // 지문 영역(앞 256바이트) 밖의 m2 줄 숫자를 같은 길이로 바꾼다 — 증분이면 보이지 않는다
+    const src = readFileSync(transcript, 'utf8')
+    const at = src.indexOf('"id":"m2"')
+    expect(at).toBeGreaterThan(256)
+    writeFileSync(transcript, src.replace('"input_tokens":3,', '"input_tokens":9,'))
+    age(); runTok()
+    expect(readCache()).toEqual(before)
+  })
+
+  it('대화 기록이 줄었으면(compact 등) 처음부터 다시 센다', () => {
+    runTok()
+    writeFileSync(transcript, line('z1', 'claude-opus-4-8', [1, 1, 1, 1]) + '\n')
+    age(); runTok()
+    const by = byModel(readCache())
+    expect(by['claude-opus-4-8']).toMatchObject({ input: 1, output: 1, cache_creation: 1, cache_read: 1 })
+    expect(by['claude-haiku-4-5']).toMatchObject({ input: 4, output: 120 })
+  })
+
+  it('대화 기록이 다른 파일로 바뀌었으면(앞머리 지문이 다르면) 크기가 커도 처음부터 다시 센다', () => {
+    runTok()
+    const pad = JSON.stringify({ type: 'user', message: { content: 'x'.repeat(2000) } })
+    writeFileSync(transcript, [pad, line('z1', 'claude-opus-4-8', [2, 2, 2, 2])].join('\n') + '\n')
+    age(); runTok()
+    expect(byModel(readCache())['claude-opus-4-8']).toMatchObject({ input: 2, output: 2, cache_creation: 2, cache_read: 2 })
+  })
+
+  it('서브에이전트 기록이 사라졌으면 처음부터 다시 센다', () => {
+    runTok()
+    rmSync(join(tmp, 'proj', SID, 'subagents', 'agent-a1.jsonl'))
+    age(); runTok()
+    expect(byModel(readCache())['claude-haiku-4-5']).toBeUndefined()
   })
 
   it('캐시가 깨져 있으면 싣지 않는다(전송은 그대로)', () => {
