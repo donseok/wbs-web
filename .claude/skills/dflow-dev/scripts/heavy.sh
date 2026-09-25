@@ -14,6 +14,11 @@
 #                             held = 살아 있는 일반 슬롯 보유 수, waiting = 일반 슬롯을 기다리는 heavy.sh 수(아래 대기 표식).
 #                             이 줄은 기계가 읽는다(dflow-team capacity.sh) — 형식을 바꾸지 않는다. 사람이 볼 세부(ram·dir·
 #                             보유 명령, 도커 슬롯의 `HEAVY_DOCKER docker=<n> held=<n> waiting=<n> <보유>` 줄)는 stderr 로 낸다.
+#   heavy.sh snapshot         팀장 lease 갱신(dflow-lease.sh)이 읽는 기계 출력. stdout 에 탭 구분 줄, 늘 exit 0:
+#                               PC	<K>	<held>	<waiting>	<load1|->	<cpus|->
+#                               RUN	<start>	<kind run|hold>	<pool general|docker>	<cwd>	<cmd>   살아 있는 보유(도커 풀은 pid 로 한 줄)
+#                               WAIT	<start>	<pool>	<cwd>	<cmd>                            살아 있는 대기 표식
+#                             cwd 로 팀원 워크트리(dflow-<id8>)를 알아본다. 설계 docs/superpowers/specs/2026-09-26-heavy-work-office-bubble-design.md
 #   heavy.sh --pool docker <명령> [인자…]
 #                             도커를 쓰는 명령(Testcontainers·docker compose·방언 검증). PC 전역 **도커 슬롯**(기본 1개)과
 #                             일반 슬롯 하나를 **함께** 잡는다. 도커 명령도 무거운 명령이라 일반 슬롯 수(K)에 들어가야
@@ -48,7 +53,7 @@
 # 회수는 <DIR>/slot-<i>.reclaim mkdir 뮤텍스 안에서 owner 를 다시 읽고 확인한 뒤에만 지운다.
 #
 # 대기 표식: 슬롯을 기다리는 동안 <DIR>/wait-<pid>(pid = 기다리는 heavy.sh 자신의 $$) 파일을 둔다. 안에 pid·pool
-# (general|docker)·start·pstart·cmd. 슬롯을 얻거나, 포기하거나(BUSY), 신호로 끝나면 지운다(trap). SIGKILL 처럼 지우지
+# (general|docker)·start·pstart·cwd·cmd. 슬롯을 얻거나, 포기하거나(BUSY), 신호로 끝나면 지운다(trap). SIGKILL 처럼 지우지
 # 못하고 죽은 표식은 status 가 소유 PID 생존(+ lstart)을 확인해 무시하고 지운다.
 #
 # 출력(stderr): HEAVY_WAIT · HEAVY_SLOT · HEAVY_REUSE · HEAVY_RECLAIM · HEAVY_BUSY · HEAVY_ACQUIRED · HEAVY_RELEASED
@@ -108,7 +113,7 @@ wait_mark() { # $1 pool $2 cmd
   local t="$DIR/.wtmp.$$" p c
   [ -z "$WAITF" ] || return 0
   p=$(pstart "$$"); c=$(printf '%s' "$2" | tr '\n' ' ')
-  if { echo "pid=$$"; echo "pool=$1"; echo "start=$(now)"; echo "pstart=${p:--}"; echo "cmd=$c"; } > "$t" 2>/dev/null &&
+  if { echo "pid=$$"; echo "pool=$1"; echo "start=$(now)"; echo "pstart=${p:--}"; echo "cwd=$PWD"; echo "cmd=$c"; } > "$t" 2>/dev/null &&
     mv -f "$t" "$DIR/wait-$$" 2>/dev/null; then
     WAITF="$DIR/wait-$$"
   else
@@ -402,6 +407,44 @@ cmd_status() {
   exit 0
 }
 
+# 탭·줄바꿈은 공백으로 — snapshot 필드가 밀리지 않게
+tabless() { printf '%s' "$1" | tr '\t\n' '  '; }
+snap_run() { # $1 슬롯 폴더 $2 pool
+  printf 'RUN\t%s\t%s\t%s\t%s\t%s\n' "$(field "$1" start)" "$(field "$1" kind)" "$2" \
+    "$(tabless "$(field "$1" cwd)")" "$(tabless "$(field "$1" cmd | sed 's/^\[docker\] //')")"
+}
+cmd_snapshot() {
+  local i d f pid load cpus seen=' '
+  load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')
+  [ -n "$load" ] || load=$(awk '{print $1}' /proc/loadavg 2>/dev/null)
+  case "$load" in ''|*[!0-9.]*) load=- ;; esac
+  cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null) || cpus=
+  case "$cpus" in ''|*[!0-9]*) cpus=- ;; esac
+  printf 'PC\t%s\t%s\t%s\t%s\t%s\n' "$K" "$(count_held slot "$K")" "$(count_waiting general)" "$load" "$cpus"
+  # 도커 슬롯 먼저 — 같은 pid 가 쥔 일반 슬롯은 건너뛰어 한 줄로 합친다
+  for i in $(seq 1 "$KD"); do
+    d="$DIR/docker-$i"
+    [ -f "$d/owner" ] || continue
+    stale "$d" && continue
+    pid=$(field "$d" pid); seen="$seen$pid "
+    snap_run "$d" docker
+  done
+  for i in $(seq 1 "$K"); do
+    d="$DIR/slot-$i"
+    [ -f "$d/owner" ] || continue
+    stale "$d" && continue
+    case "$seen" in *" $(field "$d" pid) "*) continue ;; esac
+    snap_run "$d" general
+  done
+  for f in "$DIR"/wait-*; do
+    [ -f "$f" ] || continue
+    wait_dead "$f" && continue
+    printf 'WAIT\t%s\t%s\t%s\t%s\n' "$(wfield "$f" start)" "$(wfield "$f" pool)" \
+      "$(tabless "$(wfield "$f" cwd)")" "$(tabless "$(wfield "$f" cmd)")"
+  done
+  exit 0
+}
+
 POOL=general
 case "${1:-}" in
   --pool) POOL="${2:-}"; shift 2 2>/dev/null || shift $# ;;
@@ -411,7 +454,7 @@ case "$POOL" in
   general) ;;
   docker)
     case "${1:-}" in
-      acquire|release|status|'') echo "사용법: heavy.sh --pool docker <명령> [인자…] (도커 풀은 명령 실행만 받는다)" >&2; exit 2 ;;
+      acquire|release|status|snapshot|'') echo "사용법: heavy.sh --pool docker <명령> [인자…] (도커 풀은 명령 실행만 받는다)" >&2; exit 2 ;;
       --) shift ;;
     esac
     cmd_run_docker "$@" ;;
@@ -422,7 +465,8 @@ case "${1:-}" in
   acquire) shift; cmd_acquire "$@" ;;
   release) shift; cmd_release ;;
   status)  cmd_status ;;
+  snapshot) cmd_snapshot ;;
   --)      shift; cmd_run "$@" ;;
-  '')      echo "사용법: heavy.sh [--pool docker] <명령> [인자…] | acquire <이름> | release | status" >&2; exit 2 ;;
+  '')      echo "사용법: heavy.sh [--pool docker] <명령> [인자…] | acquire <이름> | release | status | snapshot" >&2; exit 2 ;;
   *)       cmd_run "$@" ;;
 esac

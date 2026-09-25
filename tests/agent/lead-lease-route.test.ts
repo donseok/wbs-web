@@ -110,6 +110,53 @@ describe('POST /agent/lead/lease', () => {
     const res = await post({ op: 'renew', holder: H, leases: [{ project_id: P1, generation: 4 }, { project_id: P2, generation: 1 }] })
     expect(await res.json()).toEqual({ ok: true, expires_at: '2026-09-23T00:03:00Z', lost: [P2] })
   })
+  describe('renew — 무거운 작업(heavy, 0106)', () => {
+    const heavy = { pc: { k: 2, held: 1, waiting: 0, load: 3.5, cpus: 10 },
+      orders: [{ id8: 'abcdef12', state: 'run', kind: 'run', pool: 'general', since: 1790000000, pos: null, n: 1, cmd: 'npm test' }] }
+    const okRenew = () => ({ 'rpc:lead_lease_renew': [{ data: [{ project_id: P1, ok: true, expires_at: '2026-09-23T00:03:00Z' }] }] })
+    const body = (extra: Record<string, unknown> = {}) => ({ op: 'renew', holder: H, leases: [{ project_id: P1, generation: 4 }], ...extra })
+
+    it('renew 가 성공하면 lead_lease_heavy 로 PC 요약·주문을 넘긴다', async () => {
+      const calls: Array<[string, unknown]> = []
+      useAdmin({ ...base(), ...okRenew(), 'rpc:lead_lease_heavy': [{ data: 1 }] }, calls)
+      const res = await post(body({ heavy }))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ ok: true, expires_at: '2026-09-23T00:03:00Z', lost: [] })
+      expect(calls.map(c => c[0])).toEqual(['lead_lease_renew', 'lead_lease_heavy'])
+      expect(calls[1][1]).toEqual({ p_user: 'u-1', p_holder: H, p_pc: heavy.pc, p_orders: heavy.orders })
+    })
+    it('heavy 기록이 실패해도(0106 전 서버 등) renew 응답은 그대로 200', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      useAdmin({ ...base(), ...okRenew(), 'rpc:lead_lease_heavy': [{ error: { message: 'function does not exist' } }] })
+      const res = await post(body({ heavy }))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ ok: true, expires_at: '2026-09-23T00:03:00Z', lost: [] })
+      expect(err).toHaveBeenCalled()
+      err.mockRestore()
+    })
+    it('heavy 형식이 틀리면 renew 만 하고 로그를 남긴다', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const calls: Array<[string, unknown]> = []
+      useAdmin({ ...base(), ...okRenew() }, calls)
+      const res = await post(body({ heavy: { pc: 'x', orders: [] } }))
+      expect(res.status).toBe(200)
+      expect(calls.map(c => c[0])).toEqual(['lead_lease_renew'])
+      expect(err).toHaveBeenCalled()
+      err.mockRestore()
+    })
+    it('heavy 가 없으면(옛 킷) heavy 기록을 부르지 않는다', async () => {
+      const calls: Array<[string, unknown]> = []
+      useAdmin({ ...base(), ...okRenew() }, calls)
+      await post(body())
+      expect(calls.map(c => c[0])).toEqual(['lead_lease_renew'])
+    })
+    it('renew 가 전부 lost 면 heavy 를 적지 않는다', async () => {
+      const calls: Array<[string, unknown]> = []
+      useAdmin({ ...base(), 'rpc:lead_lease_renew': [{ data: [{ project_id: P1, ok: false, expires_at: null }] }] }, calls)
+      await post(body({ heavy }))
+      expect(calls.map(c => c[0])).toEqual(['lead_lease_renew'])
+    })
+  })
   it('release — 풀린 행 수를 돌려준다', async () => {
     const calls: Array<[string, unknown]> = []
     useAdmin({ ...base(), 'rpc:lead_lease_release': [{ data: 1 }] }, calls)

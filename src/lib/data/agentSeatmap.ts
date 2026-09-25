@@ -14,7 +14,7 @@ export const DONE_WINDOW_MS = 7 * 24 * 3600_000
 /** 보고 말풍선 재료의 창 — 하루 넘은 보고는 말풍선으로 띄울 일이 없다. */
 const REPORT_WINDOW_MS = 24 * 3600_000
 
-const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note, heartbeat_model, resume_requested_at, resume_requested_host'
+const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note, heartbeat_model, heartbeat_heavy, resume_requested_at, resume_requested_host'
 const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_member_id, tags, depends, model, stub_for, depends_waived, planned_start, stage, external_ref'
 
 function must<T>(what: string, r: { data: T | null; error: { message: string } | null }): T {
@@ -72,7 +72,7 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
         .order('created_at', { ascending: false }).limit(500).then(r => must<ReportRow[]>('최근 보고', r))
       : Promise.resolve([] as ReportRow[]),
     (() => {
-      const lq = admin.from('agent_lead_leases').select('user_id, project_id, host, agent, renewed_at, expires_at')
+      const lq = admin.from('agent_lead_leases').select('user_id, project_id, host, agent, renewed_at, expires_at, heavy')
         .not('holder', 'is', null).gt('expires_at', new Date(nowMs).toISOString()).in('project_id', projIds)
       return lq.then(r => must<LeaseRow[]>('팀장 lease', r))
     })(),

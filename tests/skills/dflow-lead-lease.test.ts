@@ -134,6 +134,83 @@ describe('lease renew·release', () => {
   })
 })
 
+// 무거운 작업 표시(docs/superpowers/specs/2026-09-26-heavy-work-office-bubble-design.md §2-3). heavy.sh 는 실물을 쓰고
+// 슬롯 폴더는 HOME(임시)의 ~/.dflow/locks/heavy 다.
+describe('lease renew — 무거운 작업(heavy)', () => {
+  const heavyDir = () => join(tmp, 'home/.dflow/locks/heavy')
+  const slot = (name: string, o: Record<string, string | number>) => {
+    mkdirSync(join(heavyDir(), name), { recursive: true })
+    writeFileSync(join(heavyDir(), name, 'owner'),
+      Object.entries({ pstart: '-', host: 'h', kind: 'run', ...o }).map(([k, v]) => `${k}=${v}`).join('\n') + '\n')
+  }
+  const renewBody = () => sent().filter(b => b.op === 'renew').at(-1)
+  const WT = () => join(tmp, 'repo/.claude/worktrees/dflow-abcdef12')
+
+  it('팀원 워크트리의 슬롯을 id8 로 싣고, 명령의 워크트리·홈 경로와 비밀 값은 가린다', () => {
+    run(['lease', 'acquire'])
+    const home = join(tmp, 'home')
+    slot('slot-1', { pid: process.pid, start: 1790000000, cwd: `${WT()}/sub`,
+      cmd: `${WT()}/gradlew test --init ${home}/x.gradle MY_TOKEN=abc` })
+    const r = run(['lease', 'renew'])
+    expect(r.status).toBe(0)
+    expect(r.stdout.trim()).toBe('LEASE_OK')
+    const hv = renewBody().heavy
+    expect(hv.pc).toEqual(expect.objectContaining({ held: 1, waiting: 0 }))
+    expect(typeof hv.pc.k).toBe('number')
+    expect(hv.orders).toEqual([{ id8: 'abcdef12', state: 'run', kind: 'run', pool: 'general', since: 1790000000, pos: null, n: 1,
+      cmd: './gradlew test --init ~/x.gradle MY_TOKEN=***' }])
+    expect(JSON.stringify(renewBody())).not.toContain(tmp)
+  })
+
+  it('팀원 워크트리가 아닌 슬롯(다른 리포·사람 세션)은 주문에 싣지 않고 PC 요약에만 든다', () => {
+    run(['lease', 'acquire'])
+    slot('slot-1', { pid: process.pid, start: 1, cwd: '/elsewhere/proj', cmd: 'npm test' })
+    run(['lease', 'renew'])
+    expect(renewBody().heavy.orders).toEqual([])
+    expect(renewBody().heavy.pc.held).toBe(1)
+  })
+
+  it('같은 워크트리에 둘이면(병렬 묶음·E2E 서버) 실행을 대기보다, 먼저 시작한 것을 앞세우고 n 에 건수', () => {
+    run(['lease', 'acquire'])
+    const now = Math.floor(Date.now() / 1000)
+    slot('slot-1', { pid: process.pid, start: now - 10, cwd: WT(), cmd: 'npm run build' })
+    slot('slot-2', { pid: process.pid, start: now - 100, kind: 'hold', cwd: `${WT()}-resolve`, cmd: 'hold e2e' })
+    writeFileSync(join(heavyDir(), `wait-${process.pid}`), `pid=${process.pid}\npool=general\nstart=${now}\npstart=-\ncwd=${WT()}\ncmd=npm test\n`)
+    run(['lease', 'renew'])
+    const o = renewBody().heavy.orders
+    expect(o).toHaveLength(1)
+    expect(o[0]).toEqual(expect.objectContaining({ id8: 'abcdef12', state: 'run', kind: 'hold', since: now - 100, n: 3 }))
+  })
+
+  it('대기만 있으면 state=wait 와 PC 전체 일반 풀 대기 순번(pos)', () => {
+    run(['lease', 'acquire'])
+    const w = (pid: number, start: number, cwd: string) =>
+      writeFileSync(join(heavyDir(), `wait-${pid}`), `pid=${pid}\npool=general\nstart=${start}\npstart=-\ncwd=${cwd}\ncmd=npm test\n`)
+    mkdirSync(heavyDir(), { recursive: true })
+    w(process.pid, 200, WT())
+    w(process.ppid, 100, '/elsewhere')
+    run(['lease', 'renew'])
+    expect(renewBody().heavy.orders).toEqual([expect.objectContaining({ id8: 'abcdef12', state: 'wait', pos: 2, n: 1 })])
+    expect(renewBody().heavy.pc.waiting).toBe(2)
+  })
+
+  it('heavy.sh 가 없거나 깨져도 renew 는 LEASE_OK — heavy 만 빠진다(lease 를 잃지 않는다)', () => {
+    run(['lease', 'acquire'])
+    const gone = run(['lease', 'renew'], { DFLOW_HEAVY_SH: join(tmp, 'no-such-heavy.sh') })
+    expect(gone.stdout.trim()).toBe('LEASE_OK')
+    expect(renewBody().heavy).toBeUndefined()
+    const bad = join(tmp, 'bad-heavy.sh')
+    writeFileSync(bad, '#!/bin/sh\necho "PC\tnot\tjson{"\nexit 3\n', { mode: 0o755 })
+    const broken = run(['lease', 'renew'], { DFLOW_HEAVY_SH: bad })
+    expect(broken.status).toBe(0)
+    expect(broken.stdout.trim()).toBe('LEASE_OK')
+    expect(renewBody().heavy).toBeUndefined()
+    const garbage = join(tmp, 'garbage-heavy.sh')
+    writeFileSync(garbage, '#!/bin/sh\nprintf "%s" "{{{"\n', { mode: 0o755 })
+    expect(run(['lease', 'renew'], { DFLOW_HEAVY_SH: garbage }).stdout.trim()).toBe('LEASE_OK')
+  })
+})
+
 describe('lease keep', () => {
   it('팀장 PID 가 없으면 release 하고 0 으로 끝난다', () => {
     run(['lease', 'acquire'])

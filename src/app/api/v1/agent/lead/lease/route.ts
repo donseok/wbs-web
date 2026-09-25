@@ -5,6 +5,7 @@ import {
   requireScope, resolveAgentPrincipal,
 } from '@/lib/agent/externalApi'
 import { parseLeaseBody } from '@/lib/agent/leadLease'
+import type { HeavyReport } from '@/lib/domain/heavyWork'
 
 /**
  * 팀장 lease — 신원+프로젝트당 /dflow-team 팀장 하나. 스펙 2026-09-23-dflow-lead-lease-design.md §5.
@@ -15,6 +16,19 @@ export const dynamic = 'force-dynamic'
 
 interface AcquireRow { project_id: string; ok: boolean; generation: number; host: string | null; agent: string | null; expires_at: string | null }
 interface RenewRow { project_id: string; ok: boolean; expires_at: string | null }
+
+/**
+ * 무거운 작업 표시(0106, 스펙 2026-09-26-heavy-work-office-bubble-design.md §2-4). renew 가 성공한 뒤에만 부른다.
+ * 실패(0106 전 서버의 함수 없음 포함)는 로그만 남긴다 — 표시 기능이 lease 갱신을 실패시키면 팀장이 멈춘다.
+ */
+async function recordHeavy(admin: ReturnType<typeof createAdminClient>, userId: string, holder: string, heavy: HeavyReport) {
+  try {
+    const { error } = await admin.rpc('lead_lease_heavy', { p_user: userId, p_holder: holder, p_pc: heavy.pc, p_orders: heavy.orders })
+    if (error) console.error('[agent-api] lease heavy 기록 실패:', error.message)
+  } catch (e) {
+    console.error('[agent-api] lease heavy 기록 실패:', e instanceof Error ? e.message : e)
+  }
+}
 
 export async function POST(req: NextRequest) {
   let raw: unknown
@@ -66,6 +80,8 @@ export async function POST(req: NextRequest) {
       if (error) { console.error('[agent-api] lease renew 실패:', error.message); return apiInternalError() }
       const rows = (data ?? []) as RenewRow[]
       const kept = rows.filter(r => r.ok && r.expires_at).map(r => r.expires_at as string).sort()
+      if (parsed.heavyError) console.error('[agent-api] lease renew heavy 형식 오류 — heavy 만 버린다:', parsed.heavyError)
+      if (parsed.heavy && kept.length > 0) await recordHeavy(admin, principal.userId, parsed.holder, parsed.heavy)
       return NextResponse.json({ ok: true, expires_at: kept[0] ?? null, lost: rows.filter(r => !r.ok).map(r => r.project_id) })
     }
 

@@ -498,3 +498,26 @@ describe('assembleSeatmap — 반려로 claimed 가 된 주문의 남은 merge_c
     expect(m.attention.map(a => [a.state, a.mergeConflict ?? false])).toEqual([['REJECTED', false]])
   })
 })
+
+describe('무거운 작업 표시(0106)', () => {
+  const lease = (expInMs: number, heavy: unknown = null): LeaseRow => ({
+    user_id: 'u1', project_id: P1, host: 'mbp', agent: 'u1/mbp/lead', renewed_at: ago(30_000),
+    expires_at: new Date(NOW + expInMs).toISOString(), heavy,
+  })
+  const hv = { state: 'run', kind: 'run', pool: 'general', since: Math.floor((NOW - 180_000) / 1000), pos: null, n: 1, cmd: 'npm run test', by: 'u1' }
+  const seatOf = (m: ReturnType<typeof assembleSeatmap>) => m.floors[0].zones[0].seats[0]
+  it('적은 팀장의 lease 가 살아 있으면 좌석에 무거운 작업을 싣는다', () => {
+    const s = seatOf(assembleSeatmap(rows({ orders: [order({ heartbeat_heavy: hv })], leases: [lease(120_000)] }), NOW))
+    expect(s.heavy).toEqual(expect.objectContaining({ state: 'run', label: '전체 테스트', sinceMs: NOW - 180_000 }))
+  })
+  it('lease 가 만료됐으면 남은 값을 믿지 않는다', () => {
+    const s = seatOf(assembleSeatmap(rows({ orders: [order({ heartbeat_heavy: hv })], leases: [lease(-1000)] }), NOW))
+    expect(s.heavy).toBeNull()
+  })
+  it('팀장 칩에 PC 부하 게이지를 싣는다(아무것도 안 돌면 null)', () => {
+    const busy = assembleSeatmap(rows({ leases: [lease(120_000, { k: 2, held: 2, waiting: 1, load: 9, cpus: 10 })] }), NOW)
+    expect(busy.floors[0].leads[0].heavy).toEqual({ text: '🔥 2/2 · ⏳ 1 · load 9', hot: true })
+    const idle = assembleSeatmap(rows({ leases: [lease(120_000, { k: 2, held: 0, waiting: 0, load: 1, cpus: 10 })] }), NOW)
+    expect(idle.floors[0].leads[0].heavy).toBeNull()
+  })
+})

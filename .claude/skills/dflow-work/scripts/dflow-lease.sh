@@ -65,11 +65,50 @@ lease_acquire() {
   printf 'LEASE_OK %s\n' "$(grep -c . "$_sf")"
 }
 
+# 무거운 작업 표시(wbs-web docs/superpowers/specs/2026-09-26-heavy-work-office-bubble-design.md §2) — heavy.sh snapshot 을
+# renew 의 heavy({pc, orders})로 바꾼다. 팀원 워크트리(.claude/worktrees/dflow-<id8>[-resolve]) 의 슬롯만 주문에 싣고,
+# 명령의 워크트리 경로는 ".", 홈은 "~", *TOKEN*·*SECRET*·*KEY*·*PASS*·*PAT* 값은 "***" 로 가린다(홈 경로를 서버에 보내지 않는다).
+# 무엇이 실패해도 빈 출력이다 — heavy 쪽 실패가 renew 를 실패시키면 lease_keep 이 3회 만에 팀장을 멈춘다.
+lease_heavy_json() {
+  _hv="${DFLOW_HEAVY_SH:-$(dirname "$0")/../../dflow-dev/scripts/heavy.sh}"
+  [ -f "$_hv" ] || return 0
+  _snap=$(bash "$_hv" snapshot 2>/dev/null) || return 0
+  printf '%s\n' "$_snap" | jq -Rnc --arg home "${HOME:-}" '
+    def num: if . == null or . == "-" then null else (tonumber? // null) end;
+    def wt: (capture("^(?<wt>.*/\\.claude/worktrees/dflow-(?<id8>[0-9a-f]{8})(-resolve)?)(/|$)") // null);
+    def clean($w): (if $w then split($w) | join(".") else . end)
+      | (if $home != "" then split($home) | join("~") else . end)
+      | gsub("(?<k>[A-Za-z0-9_]*(TOKEN|SECRET|KEY|PASS|PAT)[A-Za-z0-9_]*)=[^ ]*"; "\(.k)=***"; "i")
+      | .[0:200];
+    [inputs | select(. != "") | split("\t")] as $rows
+    | ([$rows[] | select(.[0] == "PC")] | first) as $pc
+    | if $pc == null then empty else
+      ([$rows[] | select(.[0] == "WAIT" and .[2] == "general") | .[1] | num | select(. != null)]) as $ws
+      | { pc: {k: ($pc[1] | num), held: ($pc[2] | num), waiting: ($pc[3] | num), load: ($pc[4] | num), cpus: ($pc[5] | num)},
+          orders: ([ $rows[]
+            | if .[0] == "RUN" then {state: "run", since: (.[1] | num), kind: .[2], pool: .[3], cwd: .[4], cmd: .[5]}
+              elif .[0] == "WAIT" then {state: "wait", since: (.[1] | num), kind: "run", pool: .[2], cwd: .[3], cmd: .[4]}
+              else empty end
+            | (.cwd // "" | wt) as $m | select($m != null)
+            | . as $o
+            | $o + {id8: $m.id8, cmd: ($o.cmd // "" | clean($m.wt)),
+                    pos: (if $o.state == "wait" and $o.pool == "general" and $o.since != null
+                          then ([$ws[] | select(. < $o.since)] | length) + 1 else null end)}
+            | del(.cwd) ]
+            | group_by(.id8)
+            | map((sort_by((if .state == "run" then 0 else 1 end), (.since // 0)) | .[0]) + {n: length})
+            | .[0:50]) }
+      end' 2>/dev/null || true
+}
+
 lease_renew() {
   _sf=$(lease_state_file) || die 2 "LEASE_STATE git 리포 안에서 실행하라"
   [ -s "$_sf" ] || { printf 'LEASE_NONE\n'; exit 2; }
   _h=$(lease_holder) || die 6 "LEASE_HOLDER PC ID 나 리포 경로를 정하지 못했다"
-  _json=$(jq -nc --arg h "$_h" --argjson l "$(lease_refs_json "$_sf")" '{op:"renew", holder:$h, leases:$l}')
+  _hj=$(lease_heavy_json)
+  _json=$(jq -nc --arg h "$_h" --argjson l "$(lease_refs_json "$_sf")" --arg hv "$_hj" \
+    '{op:"renew", holder:$h, leases:$l}
+     + (($hv | try fromjson catch null) as $x | if ($x | type) == "object" then {heavy: $x} else {} end)')
   _body=$(TOKEN="$TOK" api_raw POST /api/v1/agent/lead/lease "$_json") || exit $?
   _lost=$(printf '%s' "$_body" | jq -r '.lost | join(" ")')
   [ -z "$_lost" ] || { printf 'LEASE_LOST %s\n' "$_lost"; exit 4; }

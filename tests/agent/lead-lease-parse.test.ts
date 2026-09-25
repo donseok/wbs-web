@@ -28,4 +28,19 @@ describe('parseLeaseBody', () => {
         .toEqual({ op, holder: H, leases: [{ project_id: P1, generation: 3 }] })
     }
   })
+  // 무거운 작업 표시(2026-09-26) — renew 에만 선택으로 싣는다. 틀려도 renew 는 받아들인다(lease 를 잃지 않게).
+  const heavy = { pc: { k: 2, held: 1, waiting: 0, load: 3.5, cpus: 10 },
+    orders: [{ id8: 'abcdef12', state: 'run', kind: 'run', pool: 'general', since: 1790000000, pos: null, n: 1, cmd: 'npm test' }] }
+  it('renew 의 heavy 는 검사해 싣는다', () => {
+    expect(parseLeaseBody({ op: 'renew', holder: H, leases: [{ project_id: P1, generation: 3 }], heavy }))
+      .toEqual({ op: 'renew', holder: H, leases: [{ project_id: P1, generation: 3 }], heavy })
+  })
+  it('heavy 가 틀리면 renew 는 그대로, heavy 대신 heavyError', () => {
+    const r = parseLeaseBody({ op: 'renew', holder: H, leases: [{ project_id: P1, generation: 3 }], heavy: { pc: 1, orders: [] } })
+    expect(r).toEqual({ op: 'renew', holder: H, leases: [{ project_id: P1, generation: 3 }], heavyError: expect.stringContaining('heavy') })
+  })
+  it('release 는 heavy 를 보지 않는다', () => {
+    expect(parseLeaseBody({ op: 'release', holder: H, leases: [{ project_id: P1, generation: 3 }], heavy }))
+      .toEqual({ op: 'release', holder: H, leases: [{ project_id: P1, generation: 3 }] })
+  })
 })

@@ -8,6 +8,7 @@ import {
   DEFAULT_BOTTLENECK, blockedSinceMs, bottleneckText, findBottlenecks, lastRefSegment, stubPendingByItem,
   type BlockedSuccessor, type BottleneckSettings, type StubPendingEntry,
 } from './forceProgress'
+import { heavyGauge, seatHeavyOf, type SeatHeavy } from './heavyWork'
 
 export interface OrderRow {
   id: string; project_id: string; wbs_item_id: string | null; status: OrderStatus
@@ -20,6 +21,8 @@ export interface OrderRow {
   resume_requested_host?: string | null
   /** 마지막 heartbeat 가 말한 실행 모델(0100). last_heartbeat_at 이 null 이면(재위임으로 비워진 행) 무효. */
   heartbeat_model?: string | null
+  /** 무거운 작업(0106) — 팀장 lease 갱신이 적는다. 적은 팀장(by)의 lease 가 죽었으면 무효(seatHeavyOf). */
+  heartbeat_heavy?: unknown
 }
 export interface ItemRow {
   id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null; tags: string[] | null
@@ -52,6 +55,8 @@ export interface ProjectRow { id: string; name: string }
 export interface LeaseRow {
   user_id: string; project_id: string; host: string | null; agent: string | null
   renewed_at: string | null; expires_at: string
+  /** 팀장 PC 의 무거운 작업 요약(0106). 옛 픽스처는 비워 둔다. */
+  heavy?: unknown
 }
 /** 층 프로젝트의 로스터 행 — 담당자 이름과 PAT 계정(user_id) 매칭 재료. */
 export interface MemberRow { id: string; project_id: string; user_id: string | null; name: string }
@@ -103,6 +108,8 @@ export interface Seat {
   /** 승인 대기(reported) 주문의 최신 completion 에 딸린 결정 수(과제 C). 그 밖의 상태·구 CLI 보고는 null.
    *  말풍선과 달리 승인될 때까지 칩으로 계속 보인다. 옛 시험 픽스처가 비워 둘 수 있게 선택 필드다. */
   decisionCount?: number | null
+  /** 무거운 작업(0106) — 긴 게이트 동안 PostToolUse heartbeat 가 없어도 팀장 lease 갱신이 알려 준다. 선택 필드(옛 픽스처). */
+  heavy?: SeatHeavy | null
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher {
@@ -118,6 +125,8 @@ export interface LeadLease {
   mine: boolean; ownerName: string | null
   /** 본인 lease 이거나 이 층 관리자. 서버 액션이 같은 판정(canReleaseLeadLease)을 다시 한다. */
   canRelease: boolean
+  /** 팀장 PC 의 무거운 작업 게이지(0106). 아무것도 돌지 않거나 모르면 null. 선택 필드(옛 픽스처). */
+  heavy?: { text: string; hot: boolean } | null
 }
 export interface Floor {
   id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[]; leads: LeadLease[]
@@ -323,6 +332,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const aliveRows = rows.watchers.filter(w => isWatcherAlive(w.last_seen_at, nowMs))
   const watchersOf = (pid: string) => aliveRows.filter(w => w.project_id === null || w.project_id === pid)
 
+  // 살아 있는 팀장 lease — 층 머리 칩과, 좌석의 무거운 작업 값을 믿을지(적은 팀장이 살아 있나)에 쓴다.
+  const liveLeases = (rows.leases ?? []).filter(l => Date.parse(l.expires_at) > nowMs)
   // 층 → 구역 → 책상. 구역 키는 부모 항목 id, 부모가 없으면 고정 키 둘.
   const floorMap = new Map<string, Map<string, Zone>>()
   const done = new Map<string, number>()
@@ -336,6 +347,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights, reportByOrder.get(o.id),
       ownerOf(o.claimed_by_user_id, viewerId, ownerName(o.project_id)))
     seat.stubPending = o.wbs_item_id ? (stubsByItem.get(o.wbs_item_id) ?? []) : []
+    seat.heavy = seatHeavyOf(o.heartbeat_heavy, { status: o.status, projectId: o.project_id }, liveLeases)
     if (seat.state === 'READY' && item) {
       const m = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
       seat.waitReason = deriveWaitReason({
@@ -379,14 +391,13 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     .sort((a, b) => a.agent.localeCompare(b.agent))
 
   // lease 는 mine 필터로 거르지 않는다 — 「팀장 해제」는 남의 lease(다른 PC 에 남은 내 신원, 또는 관리자가 보는 남의 것)가 대상이다.
-  const liveLeases = (rows.leases ?? []).filter(l => Date.parse(l.expires_at) > nowMs)
   const leadsOf = (pid: string): LeadLease[] => liveLeases
     .filter(l => l.project_id === pid)
     .map(l => {
       const owner = ownerOf(l.user_id, viewerId, ownerName(l.project_id))
       // canRelease 는 mine 필터로 대체되지 않는다 — opts.viewer 가 없으면 fail-closed(서버 액션 canReleaseLeadLease 와 같은 축).
       const canRelease = !!opts.viewer?.userId && (opts.viewer.userId === l.user_id || opts.viewer.adminProjectIds.has(pid))
-      return { userId: l.user_id, host: l.host, agent: l.agent, renewedAt: l.renewed_at, expiresAt: l.expires_at, mine: owner.mine, ownerName: owner.name, canRelease }
+      return { userId: l.user_id, host: l.host, agent: l.agent, renewedAt: l.renewed_at, expiresAt: l.expires_at, mine: owner.mine, ownerName: owner.name, canRelease, heavy: heavyGauge(l.heavy) }
     })
     .sort((a, b) => (a.agent ?? '').localeCompare(b.agent ?? ''))
 

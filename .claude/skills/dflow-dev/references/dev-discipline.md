@@ -311,6 +311,9 @@ Flyway 의 `V<버전>__<설명>.sql` 처럼 파일명이 곧 버전인 마이그
   `DFLOW_BASELINE_WAIT` 를 줄인다(못 기다리면 `BASELINE_BUSY` 로 곧 끝나 다시 부르면 된다).
 - **K**: 기본 max(1, ⌊RAM_GB / 8⌋) — 16GB 면 2, 32GB 면 4. 사람이 `DFLOW_HEAVY_SLOTS` 로 덮는다. 워커는 이 값을
   바꾸지 않는다. `heavy.sh status` 가 `HEAVY_STATUS slots=K held=N waiting=M` 과 지금 슬롯을 쥔 명령을 보여 준다.
+- **오피스 표시**: `/dflow-team` 팀장의 lease 갱신(`dflow.sh lease keep`, 60초)이 `heavy.sh snapshot` 을 읽어 팀원
+  워크트리(`dflow-<id8>`)의 실행·대기를 서버에 싣는다 — 오피스 좌석에 「🔥 무거운 작업 중」 말풍선, 팀장 칩에 슬롯 게이지.
+  워커가 할 일은 없다(감싸 돌리기만 하면 된다). 명령 줄은 워크트리·홈 경로와 `*TOKEN*=` 류 값을 가려 보낸다.
 - **E2E 서버는 서버를 띄울 때 슬롯을 붙잡고(`heavy.sh acquire`), 서버를 끌 때 푼다(`heavy.sh release`).** 절차는
   `references/e2e.md` 「E2E 서버 슬롯」 이다(E2E 를 도는 Phase 서브에이전트가 읽는다).
 - **도커 슬롯**: 도커를 쓰는 명령(허용된 워커·수동 세션의 Testcontainers·docker compose, 팀장의 방언 검증)은

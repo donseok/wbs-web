@@ -19,6 +19,13 @@ export function LeadChip({ lead, onRelease, projectLabel, hideHost }: { lead: Le
   return (
     <span className={css.lead} data-lead={lead.userId} title={`${lead.agent ?? ''} · 갱신 ${at}`}>
       {who}{projectLabel ? ` · ${projectLabel}` : ''}{hideHost ? '' : ` · ${lead.host ?? '-'}`} · 갱신 {at}
+      {lead.heavy && (
+        // 이 팀장 PC 의 무거운 명령 슬롯(보유/K)·대기·load(2026-09-26). 슬롯이 다 찼거나 load 가 코어 수를 넘으면 붉게.
+        <span data-lead-heavy={lead.heavy.hot ? 'hot' : 'ok'} className={lead.heavy.hot ? css.leadHeavyHot : css.leadHeavy}
+          title="무거운 명령 슬롯 보유/전체 · 순번 대기 · 1분 평균 부하">
+          {lead.heavy.text}
+        </span>
+      )}
       {lead.canRelease && onRelease && !confirming && (
         <button type="button" className={css.leadRelease} disabled={busy} onClick={() => setConfirming(true)}>팀장 해제</button>
       )}

@@ -1,6 +1,7 @@
 // src/lib/agent/leadLease.ts
 // 팀장 lease 요청 본문 파싱 — 순수. 스펙 docs/superpowers/specs/2026-09-23-dflow-lead-lease-design.md §5.
 import { isUuidLike } from '@/lib/domain/agentWork'
+import { parseHeavyReport, type HeavyReport } from '@/lib/domain/heavyWork'
 
 export const LEAD_LEASE_MAX_PROJECTS = 20
 const LABEL_MAX = 120
@@ -10,7 +11,8 @@ export const HOLDER_RE = /^[0-9a-f-]{36}:[0-9]{1,12}$/
 export interface LeaseRef { project_id: string; generation: number }
 export type LeaseOp =
   | { op: 'acquire'; projects: string[]; holder: string; host: string; agent: string; takeover: boolean }
-  | { op: 'renew' | 'release'; holder: string; leases: LeaseRef[] }
+  | { op: 'renew'; holder: string; leases: LeaseRef[]; heavy?: HeavyReport; heavyError?: string }
+  | { op: 'release'; holder: string; leases: LeaseRef[] }
 
 const label = (v: unknown): string | null => {
   if (typeof v !== 'string') return null
@@ -51,5 +53,9 @@ export function parseLeaseBody(raw: unknown): LeaseOp | { error: string } {
     }
     leases.push({ project_id: o.project_id, generation: o.generation })
   }
-  return { op: b.op, holder, leases }
+  if (b.op === 'release' || b.heavy === undefined || b.heavy === null) return { op: b.op, holder, leases }
+  // 무거운 작업 표시(2026-09-26) — 틀려도 renew 는 받아들이고 heavy 만 버린다. 거절하면 팀장 lease_keep 이
+  // 3회 만에 LEASE_UNREACHABLE 로 멈춘다(표시 기능 하나가 팀장을 죽이면 안 된다).
+  const hv = parseHeavyReport(b.heavy)
+  return hv.ok ? { op: 'renew', holder, leases, heavy: hv.value } : { op: 'renew', holder, leases, heavyError: hv.error }
 }

@@ -3,6 +3,7 @@
 // 대사는 nowMs 로 돌리므로(8초마다 다음 줄) 서버·클라이언트가 같은 줄을 고른다. 작업 PC 마다 시작 줄이 다르다.
 import { fnv1a32 } from './seatState'
 import type { RosterDesk, RosterHost } from './agentRoster'
+import type { Seat } from './seatmap'
 // 대사는 officeChatter.lines.json 한 곳에 상황별(팀원 있을 때 · 없을 때 · 공통 …)로 모은다.
 // 그 안의 주제 묶음(키)은 자유롭게 늘려도 되고, 여기서 묶음을 모두 합쳐 쓴다.
 import LINES from './officeChatter.lines.json'
@@ -196,6 +197,48 @@ export function awayReason(deskKey: string, nowMs: number): string {
   if (n > 1 && g === groupAt(slot - 1)) g = (g + 1) % n
   const lines = AWAY_GROUPS[g]
   return lines[hash(`${deskKey}|l|${slot}`) % lines.length]
+}
+
+/**
+ * 무거운 작업 말풍선(2026-09-26 사용자 요청 "무거운 작업중 : 어떤 작업") — 설계 2026-09-26-heavy-work-office-bubble-design.md §3.
+ * 경과 시간 단계별 한마디(sub)는 잡담이라 chatter=false 면 빠지고, 머리말·작업 이름은 업무라 남는다.
+ */
+const HEAVY = LINES['무거운 작업 중']
+export const HEAVY_TIER_LINES: Readonly<Record<'warm' | 'hot' | 'hotter' | 'scream', readonly string[]>> = {
+  warm: HEAVY['예열 (1분 전)'], hot: HEAVY['달아오름 (1~5분)'], hotter: HEAVY['뜨끈 (5~10분)'], scream: HEAVY['비명 (10분 넘게)'],
+}
+const HEAVY_WAIT_GROUPS = groupsOf(LINES['무거운 작업 대기'])
+export const HEAVY_WAIT_LINES: readonly string[] = HEAVY_WAIT_GROUPS.flat()
+/** 열기 막대가 가득 차는 경과 — 전체 테스트 한 판이 대개 이 안에 끝난다. */
+export const HEAVY_FULL_MS = 10 * 60_000
+
+function heavyTier(elapsedMs: number): keyof typeof HEAVY_TIER_LINES {
+  return elapsedMs < 60_000 ? 'warm' : elapsedMs < 5 * 60_000 ? 'hot' : elapsedMs < HEAVY_FULL_MS ? 'hotter' : 'scream'
+}
+
+export function heavyBubble(seat: Pick<Seat, 'orderId' | 'heavy'>, nowMs: number, chatter = true):
+  { kind: 'heavy' | 'heavyWait'; opener: string; text: string; sub?: string; meter?: number; detail: string } | null {
+  const h = seat.heavy
+  if (!h) return null
+  const name = `${h.label}${h.docker ? ' 🐳' : ''}`
+  const more = h.more > 0 ? ` 외 ${h.more}건` : ''
+  if (h.state === 'wait') {
+    const ahead = h.pos === null ? '' : h.pos <= 1 ? ' · 다음 차례' : ` · 앞에 ${h.pos - 1}명`
+    return {
+      kind: 'heavyWait', opener: `⏳ 무거운 작업 순번 대기${h.pos === null ? '' : ` · ${h.pos}번째`}`,
+      text: `${name}${more}${ahead}`, detail: h.cmd,
+      ...(chatter ? { sub: pick(HEAVY_WAIT_GROUPS, `${seat.orderId}|hw`, nowMs) } : {}),
+    }
+  }
+  const elapsed = h.sinceMs === null ? null : Math.max(0, nowMs - h.sinceMs)
+  const mins = elapsed === null ? null : Math.floor(elapsed / 60_000)
+  return {
+    kind: 'heavy',
+    opener: `🔥 무거운 작업 중${mins === null ? '' : mins < 1 ? ' · 방금 시작' : ` · ${mins}분째`}`,
+    text: `${name}${more}`, detail: h.cmd,
+    ...(elapsed === null ? {} : { meter: Math.min(1, elapsed / HEAVY_FULL_MS) }),
+    ...(chatter ? { sub: pick([HEAVY_TIER_LINES[heavyTier(elapsed ?? 0)]], `${seat.orderId}|h`, nowMs) } : {}),
+  }
 }
 
 /** 빈자리 말풍선 — 팀원 한마디처럼 세 칸에 한 칸만 띄운다. 자리마다 박자가 어긋나 한꺼번에 뜨지 않는다. */
