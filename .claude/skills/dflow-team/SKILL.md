@@ -318,17 +318,19 @@ done
   `1` 을 함께 `dead` 로 보는 이유: `remain-on-exit` 를 놓친 pane 은 흔적 없이 사라지는데, 그 팀원도 끝난 것이다.
 
 **보조**: `~/.dflow/events.jsonl` 에서 마지막 `team.start` 이후이고 `agent` 가 `<신원>/<host>/lead`, `repo` 가
-이 리포(`<MAIN>`)인 줄.
+이 리포(`<MAIN>`)인 줄. **줄을 통째로 띄우지 않고** 아래 스크립트의 요약만 읽는다. 실행 내내 쌓인 이벤트를 그대로 띄우면
+수십만 자로 불어난다(2026-09-24 dmes-standard 약 133K자). 스크립트는 아래 목록의 규칙대로 계산하며, 출력 줄
+(`RUN`·`SLOT`·`LOST`·`WAIT_ANSWER`·`HASH`·`EXCLUDE_PERM`·`EXCLUDE_TEMP`·`BREAKER`·`ISSUE_PENDING`·`EVENTS`)의 뜻은
+스크립트 머리에 있다.
 ```bash
-jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .repo == $r)' ~/.dflow/events.jsonl 2>/dev/null \
-  | awk '/"event":"team.start"/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}'
+.claude/skills/dflow-team/scripts/lead-state.sh --agent '<신원>/<host>/lead' --repo '<MAIN>'
 ```
-- 첫 줄 `team.start` 의 `wp` 가 이번 실행의 WP 범위다(`-` 면 전체). poll 을 다시 띄울 때 `--wp` 에 그대로 넘긴다.
+- `RUN` 의 `wp`(첫 줄 `team.start` 의 `wp`)가 이번 실행의 WP 범위다(`-` 면 전체). poll 을 다시 띄울 때 `--wp` 에 그대로 넘긴다.
   이 필드가 없는 옛 줄은 전체로 읽는다.
 - 종료 시각(`<UNTIL>`·`<UNTIL_LABEL>`)은 **마지막 `team.extend`** 의 `until`·`until_label` 이고, 없으면 `team.start` 의
-  `until` 이다. 이유: 실행 중 연장(「인자」)을 모르고 `team.start` 의 옛 시각으로 복원하면 곧바로 마감으로 간다
+  `until` 이다(`RUN` 의 `until`·`until_label`). 이유: 실행 중 연장(「인자」)을 모르고 `team.start` 의 옛 시각으로 복원하면 곧바로 마감으로 간다
   (2026-09-19 mdm-dict-v2: 23:00 → 다음 날 09:00 연장).
-- `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다. 아직 브랜치를 만들지 않은 Phase 01
+- `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다(`SLOT`). 아직 브랜치를 만들지 않은 Phase 01
   의 팀원도 이것으로 id8 을 안다.
 - `spawn_kind` 가 `resolve` 인 `team.spawn` 도 같게 잇는다. 해소 워커다(「5-2. 해소 spawn」). 워크트리는
   `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`(두 백엔드 공통 — 2026-09-24부터. 옛 방식 Orca 워크트리는
@@ -350,9 +352,9 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 - **`team.lost`**: id8 의 마지막 이벤트(`team.spawn`·`team.blocked`·`team.result`·`team.lost` 중)가 `team.lost` 면 영구 제외
   (진행 중)다. 재시작 대기 목록·rate-limit 대기·보류는 `references/restart.md` 「이벤트로 본 상태」 블록으로 복원한다.
   이 블록은 `team.start` 로 자르지 않는다.
-- `team.blocked` 중 그 뒤에 같은 id8 의 `team.answer` 가 없는 것이 답을 기다리는 질문이다. 두 백엔드
-  공통이다.
-- `team.issue` 중 id8 마다 **마지막** 것의 `decision` 이 `pending` 인 것이 아직 지시를 보내지 않은 이슈다
+- `team.blocked` 중 그 뒤에 같은 id8 의 `team.answer` 가 없는 것이 답을 기다리는 질문이다(`WAIT_ANSWER`. 그 뒤에 같은 id8 의
+  결과·spawn·손실이 온 것은 이미 끝난 질문이라 뺀다). 두 백엔드 공통이다.
+- `team.issue` 중 id8 마다 **마지막** 것의 `decision` 이 `pending` 인 것이 아직 지시를 보내지 않은 이슈다(`ISSUE_PENDING`)
   (「2-4. 팀원 이슈 보고 처리」). 압축 뒤 첫 기상에서 이 목록을 복원해 곧바로 2·3번(판단·추가 지시)을
   마무리한다 — 사람에게 넘긴 채 잊지 않는다.
 
