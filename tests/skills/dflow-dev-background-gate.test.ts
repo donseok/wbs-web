@@ -25,7 +25,8 @@ describe('dflow-dev: Phase 서브에이전트 공통 프롬프트의 포그라�
     expect(p).toContain('게이트·변이 검증 스윕·테스트를 run_in_background 로 띄우지 말고 포그라운드로 끝까지 돌린다(필요하면 Bash timeout 을 길게 준다)')
     expect(p).toContain('결과는 보고에 담는다')
     expect(p).toContain('띄웠다면 그 작업이 끝나 결과를 확인하기 전에는 턴을 끝내지 않는다')
-    expect(dflowDev()).toContain('dmes-standard TSK-03-01')
+    // 사고 이력은 실행 중에 읽지 않는 rationale.md 로 옮겼다
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/rationale.md'), 'utf8')).toContain('dmes-standard TSK-03-01')
   })
 
   it('dev-discipline.md 가 정본 절을 갖고, 두 소비자(dflow-dev·무인 러너) 공통이라고 밝힌다', () => {
@@ -79,9 +80,9 @@ describe('dflow-dev: 오케스트레이터가 서브에이전트 종료 뒤 오�
     expect(skill).toContain('그 프로세스가 아직 돌고 있으면 알림을 기다리지 말고')
     expect(skill).toContain('오케스트레이터가 포그라운드에서 그 프로세스가 끝날 때까지 직접 기다린 뒤')
     expect(skill).toContain('오지 않을 알림을 기다리며 입력 대기로 멈추지 않는다')
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/rationale.md'), 'utf8')).toContain('2026-09-24 dmes-standard TSK-03-01')
     // 구현 단위가 여럿이면 마지막이 아닌 단위는 게이트 대신 다음 단위로 넘어간다
     expect(skill).toContain('"게이트를 돌린다" 를 "그 단위 커밋을 확인하고 다음 단위를 띄운다" 로 읽는다')
-    expect(skill).toContain('dmes-standard TSK-03-01')
   })
 })
 

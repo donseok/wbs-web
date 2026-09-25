@@ -35,7 +35,7 @@ describe('Verify 모델은 처음부터 sonnet', () => {
 
 describe('워커는 Refactor 를 건너뛴다', () => {
   it('dev-discipline Phase 05 가 워커를 무인 모드로 묶고, supervised 는 커밋이 없으면 게이트를 생략한다', () => {
-    const p05 = between(DISC, '## Phase 05', '## 전체 스위트 실행 횟수')
+    const p05 = between(DISC, '## Phase 05', '## 모델 배정')
     expect(p05).toContain('무인 모드에서는 이 Phase 를 실행하지 않는다')
     expect(p05).toContain('`/dflow-team` 팀원(`/dflow-dev` 「--worker」 I)')
     expect(p05).toContain('Refactor 가 커밋을 남기지 않았으면(고칠 것이 없었다) Refactor 게이트를 돌리지 않는다')
@@ -128,8 +128,8 @@ describe('변이 검증은 Build 한 곳, Verify 는 감사', () => {
     expect(verify).toContain('`git status --porcelain` 도 Task 문서 밖에서 비어 있으면')
     expect(SKILL).toContain('`git status --porcelain` 도 Task 문서 밖에서 비어 있으면')
   })
-  it('예상 효과 표가 추정임을 밝힌다', () => {
-    const eff = between(DISC, '## 전체 스위트 실행 횟수', '## 모델 배정')
+  it('예상 효과 표가 추정임을 밝힌다(순수 이력이라 rationale.md 로 옮겼다)', () => {
+    const eff = ref('rationale.md').split('### 전체 스위트 실행 횟수')[1] ?? ''
     expect(eff).toContain('**추정**')
     expect(eff).toContain('| 합계 | 약 12~17 | 약 2~3 |')
   })

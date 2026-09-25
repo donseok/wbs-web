@@ -13,9 +13,8 @@ API 시험만으로는 화면의 JavaScript(DOM 바인딩·이벤트·fetch 호�
 - 시험은 `tests/e2e/`(프로젝트 관례가 있으면 그것)에 둔다. 서버는 임시 포트와 임시 데이터로 띄우고
   시험이 끝나면 치운다. 개발 서버나 공유 DB 에 기대지 않는다.
 - **브라우저 설치는 스캐폴드(초기화) 작업의 몫이다.** 의존성 설치 한 번으로 브라우저까지 갖춰지게
-  한다(npm 이면 `playwright` devDependency + `postinstall: playwright install chromium`). 이유: 팀원
-  워크트리는 새로 만들어져 lockfile 로만 설치하므로(`/dflow-dev` 「--worker」 H), 설치 절차가 리포에
-  없으면 모든 화면 작업이 `failed deps` 로 끝난다. 스캐폴드가 이것을 빠뜨렸는데 화면 작업이 왔으면
+  한다(npm 이면 `playwright` devDependency + `postinstall: playwright install chromium`). 팀원 워크트리는 lockfile 로만
+  설치하므로(`/dflow-dev` 「--worker」 H) 리포에 설치 절차가 있어야 한다. 스캐폴드가 이것을 빠뜨렸는데 화면 작업이 왔으면
   그 작업에서 추가하고 build-log.md 「설계 이탈」 에 적는다.
 - **통합 작업(itest)** 의 관통 시나리오도 API 가 아니라 브라우저로 돈다.
 - 화면 작업은 시험 중 화면별 스크린샷을 `<TASKS>/<TSK>/screens/*.png`(`<TASKS>/<TSK>` = `dflow.sh taskdir <ref>`) 로 남겨 커밋한다. 모양은
@@ -38,9 +37,6 @@ API 시험만으로는 화면의 JavaScript(DOM 바인딩·이벤트·fetch 호�
 화면 작업·E2E 에 쓰는 서버는 **리포의 서버 실행 스크립트를 쓰지 않고 직접 띄운다.** `be-run.sh`·
 `fe-run.sh` 처럼 다른 인스턴스나 포트를 점유한 프로세스를 이름·포트 기준으로 정리하는 스크립트
 (`pgrep -f`·`pkill`·`killall`·전역 `gradlew --stop` 등)는 같은 머신의 다른 체크아웃 서버까지 죽인다.
-실측: dmes-standard 팀원이 자기 워크트리에서 `./be-run.sh --mdm` 을 돌리자 그 스크립트의
-`pgrep -f be-run.sh` 가 메인 체크아웃의 서버까지 찾아 TERM 했고, cleanup 의 `gradlew --stop` 이 전역
-Gradle 데몬까지 세웠다. `fe-run.sh` 류도 포트를 점유한 프로세스를 정리하므로 같은 위험이 있다.
 
 - 빈 포트를 직접 골라 띄운다. 예: `./gradlew :api:bootRun --no-daemon --args='--server.port=<빈 포트>'`
   (`--no-daemon` 으로 사용자 전역 Gradle 데몬을 공유·터치하지 않는다), `next dev --port <빈 포트>`.
@@ -49,19 +45,16 @@ Gradle 데몬까지 세웠다. `fe-run.sh` 류도 포트를 점유한 프로세�
   때 비어 있었다고 확인하고 골랐으므로, 지금 그 포트의 점유자는 자신의 프로세스뿐이다.
 - 금지: 전역 `gradlew --stop`, 이름 기반 `pkill`·`killall`·`pgrep -f` 종료, 남의 포트를 점유한 프로세스
   종료.
-- 이 규칙은 수동·워커 두 소비자 모두에 적용된다. 워커 쪽 요약과 사고 배경은
-  `.claude/skills/dflow-team/references/worker-prompt.md` 「8」에도 있지만, 규칙 본문의 정본은 이 절이다
-  — 수정은 여기서만 한다.
+- 이 규칙은 수동·워커 두 소비자 모두에 적용된다. 워커 쪽 요약은 `.claude/skills/dflow-team/references/worker-prompt.md`
+  「8」에도 있지만 규칙 본문의 정본은 이 절이다 — 수정은 여기서만 한다.
 
 ## E2E 서버 슬롯
 
-**E2E 서버는 서버를 띄울 때 슬롯을 붙잡고, 서버를 끌 때 푼다.** 서버는 시험 명령보다 오래 떠 있고 메모리를 가장
-많이 차지하므로 줄 세우기(dev-discipline.md 「무거운 명령 줄 세우기」)에서 빼면 사고의 큰 몫이 그대로 남는다.
+**E2E 서버는 서버를 띄울 때 슬롯을 붙잡고, 서버를 끌 때 푼다**(dev-discipline.md 「무거운 명령 줄 세우기」).
 1. 서버를 띄우기 직전 `.claude/skills/dflow-dev/scripts/heavy.sh acquire e2e-<TSK>` 를 부른다. `HEAVY_ACQUIRED` 를
    확인한다(`HEAVY_BUSY` 면 다시 부른다). 소유자는 이 세션(`CLAUDE_PID`)이다.
 2. 서버는 「서버 프로세스」 규칙대로 빈 포트에 직접 띄운다. 백엔드와 프런트를 함께 띄워도 슬롯은 하나다. 이
-   세션의 시험 명령은 `heavy.sh` 로 감싸도 붙잡은 슬롯을 다시 쓴다(`HEAVY_REUSE`). 두 번째 슬롯을 기다리지 않으므로,
-   서버와 시험이 슬롯을 따로 잡아 K=2 에서 팀원끼리 서로 막는 교착이 생기지 않는다.
+   세션의 시험 명령은 `heavy.sh` 로 감싸도 붙잡은 슬롯을 다시 쓴다(`HEAVY_REUSE`) — 두 번째 슬롯을 기다리지 않는다.
 3. **E2E 가 끝나면 성공·실패·중단과 상관없이 서버를 반드시 종료한다**(「서버 프로세스」 의 거두기 규칙). 그다음
    `.claude/skills/dflow-dev/scripts/heavy.sh release` 로 슬롯을 푼다. 서버를 켜 둔 채 다음 Phase 로 넘기지 않는다.
    Phase 서브에이전트는 끝나기 전에 자기가 띄운 서버를 끄고 슬롯을 푼다.
