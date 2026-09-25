@@ -40,6 +40,7 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 | `references/resume.md` | 재개 spawn(「5-1」) 때 |
 | `references/restart.md` | TICK 판정·결과 줄 없는 `PANE_DEAD`·재투입·rate-limit 대기·중단 표식 정리 때 |
 | `references/merge-conflict.md` | 머지 충돌 접수·해소 spawn·해소 결과·사람 머지 감지 때 |
+| `references/issues.md` | 팀원의 SendMessage 이슈 보고가 도착했을 때(「2-4」) |
 | `references/closing.md` | 「7. 마감」 에 들어설 때(잠금 상실·lease 상실 마감 포함) |
 | `references/events.md` | 기록 명령 절은 매 기상 `wake.sh` 가 띄운다. 이벤트 표는 필드가 궁금할 때 |
 
@@ -171,13 +172,10 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 
 ## 팀장 상태: 메모리는 캐시다
 
-팀장이 다루는 상태는 슬롯 표(슬롯 번호, `AGENT_ID`, TSK, id8, 워크트리 경로, 터미널 핸들 또는 pane id,
-시작 시각, 직전 생존 증거), 대기 큐(ready 인데 슬롯이 없어 아직 못 준 id8), 영구 제외
-목록(failed·반려·진행 중), 일시 제외 목록(선행·spec 사유), 선행 대기 목록(사전 검사의 선행 미충족, id8 과 그
-선행 ref), 답을 기다리는 `blocked` 작업, 결과 줄 경로별
-마지막 처리 해시, 차단기 상태, 감지된 백엔드다. **답을 받아 팀원 화면에 넣는 일은 한 번의 기상 안에서
-끝내며 중간 상태를 남기지 않는다.** `team.answer` 는 답을 넣은 뒤에 기록하므로, 넣기 직전에 압축되면 재구성이
-그 작업을 다시 답 대기로 보고 통지한다(사람이 한 번 더 답한다).
+상태: 슬롯 표(슬롯 번호·`AGENT_ID`·TSK·id8·워크트리·pane id 또는 터미널 핸들·시작 시각·직전 생존 증거), 대기 큐(슬롯이 없어
+못 준 ready id8), 영구 제외(failed·반려·진행 중), 일시 제외(선행·spec 사유), 선행 대기(사전 검사의 선행 미충족 id8 과 선행 ref),
+답을 기다리는 `blocked`, 결과 줄 경로별 마지막 처리 해시, 차단기, 백엔드. **답을 받아 팀원 화면에 넣는 일은 한 번의 기상 안에서
+끝내며 중간 상태를 남기지 않는다**(`team.answer` 는 넣은 뒤 기록한다. 그 사이 압축되면 다시 통지되고 사람이 한 번 더 답한다).
 세션 메모리의 이 값들은 캐시일 뿐이며, 팀장은 **깨어날 때마다** 아래 정본에서 다시 만든다.
 
 **압축 뒤 첫 기상**: 요약은 절차의 정본이 아니다.
@@ -218,15 +216,11 @@ git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w;
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$w" "${b:--}" "${r:--}" "${p:--}" "$alive"
 done
 ```
-- `FAIL TASKS_DIRS`: `config tasks-dirs` 가 실패하거나(exit≠0) 빈 값을 내면 재구성을 멈춘다. 계속하면 빈 `$dd` 로
-  `find "$w/"` 가 워크트리 루트 두 단계 아래 전부를 훑어 엉뚱한 파일을 `.result` 로 오판한다.
-- 루트 `.dflow-agent` 값이 `<신원>/<host>/w` 로 시작하는 워크트리가 팀원 워크트리이고, 값의 슬롯 번호가 그
-  워크트리의 슬롯이다. 값이 `<신원>/<host>/parked` 인 워크트리는 슬롯이 아니며 고아 스캔만 본다.
-- 그 워크트리 안의 `<TASKS>/*/.result` 가 팀원의 결과다.
-- 그 워크트리의 브랜치 이름 `agent/<id8>-…`(있으면)과 워크트리 이름 `dflow-<id8>`(두 백엔드 공통)이 작업을
-  알려 준다.
-- tmux 백엔드의 `.dflow-pane`(팀장이 spawn 때 쓴 pane id, backends.md)이 팀원 pane 의 생존을 알려 준다.
-  마지막 칸이 `alive` 면 살아 있고, `dead` 면 죽었거나 pane 이 사라졌으며(빈 출력도 `dead` 다), `-` 면 Orca 팀원이다.
+- `FAIL TASKS_DIRS`(`config tasks-dirs` 실패·빈 값)면 재구성을 멈춘다(빈 폴더로 워크트리 전체를 훑어 오판한다).
+- `.dflow-agent` 가 `<신원>/<host>/w<slot>` 인 워크트리가 그 슬롯의 팀원 워크트리, `<신원>/<host>/parked` 는 슬롯이
+  아니며 고아 스캔만 본다. 그 안의 `<TASKS>/*/.result` 가 결과이고, 브랜치 `agent/<id8>-…`·워크트리 이름 `dflow-<id8>` 이
+  작업을 알려 준다.
+- 마지막 칸(`.dflow-pane` 의 tmux pane): `alive` 면 살아 있고, `dead` 면 죽었거나 사라졌으며(빈 출력도 `dead`), `-` 면 Orca 팀원이다.
 
 **보조**: `~/.dflow/events.jsonl` 에서 마지막 `team.start` 이후이고 `agent` 가 `<신원>/<host>/lead`, `repo` 가
 이 리포(`<MAIN>`)인 줄. **줄을 통째로 띄우지 않고** 아래 스크립트의 요약만 읽는다(이벤트를 그대로 띄우면 실행이 길수록
@@ -236,24 +230,20 @@ done
 ```bash
 .claude/skills/dflow-team/scripts/lead-state.sh --agent '<신원>/<host>/lead' --repo '<MAIN>'
 ```
-- `RUN` 의 `wp`(첫 줄 `team.start` 의 `wp`)가 이번 실행의 WP 범위다(`-` 면 전체). poll 을 다시 띄울 때 `--wp` 에 그대로 넘긴다.
-  이 필드가 없는 옛 줄은 전체로 읽는다.
+- `RUN` 의 `wp`(`team.start` 의 `wp`, 없는 옛 줄은 전체 `-`)가 WP 범위다. poll 을 다시 띄울 때 `--wp` 에 넘긴다.
 - 종료 시각(`<UNTIL>`·`<UNTIL_LABEL>`)은 **마지막 `team.extend`** 의 `until`·`until_label` 이고, 없으면 `team.start` 의
   `until` 이다(`RUN` 의 `until`·`until_label`).
-- `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다(`SLOT`). 아직 브랜치를 만들지 않은 Phase 01
-  의 팀원도 이것으로 id8 을 안다.
-- `spawn_kind` 가 `resolve` 인 `team.spawn` 도 같게 잇는다. 해소 워커다(「5-2. 해소 spawn」). 워크트리는
-  `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`(옛 방식 Orca 워크트리는 `<MAIN>/dflow-<id8>-resolve`)이고 detached 라
-  브랜치가 없다. **해소 워커 판별은 워크트리 이름 접미사 `-resolve` 로 한다**(재기록이 `spawn_kind` 를 `readopt` 로
-  덮는다. `merge-conflict.md` 「0」). 결과는 `references/merge-conflict.md`
-  「4. 해소 결과 처리」 표로 처리한다. 고아 스캔에서는 backends.md 「고아 정리 규칙」 2-1번으로 가르며 "재개 가능" 으로
-  보내지 않는다. 워커 자동 재시작(H)의 대상도 아니다.
+- `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다(`SLOT`. 브랜치 전인 Phase 01 팀원도 id8 을 안다).
+- `spawn_kind` 가 `resolve` 인 줄은 해소 워커다(「5-2. 해소 spawn」, 워크트리 `<MAIN>/.claude/worktrees/dflow-<id8>-resolve`,
+  detached). **해소 워커 판별은 워크트리 이름 접미사 `-resolve` 로 한다**(재기록이 `spawn_kind` 를 `readopt` 로 덮는다.
+  `merge-conflict.md` 「0」). 결과는 `references/merge-conflict.md` 「4. 해소 결과 처리」 표로 처리하고, 고아 스캔에서는
+  backends.md 「고아 정리 규칙」 2-1번으로 가르며 "재개 가능" 으로 보내지 않는다. 워커 자동 재시작(H)의 대상도 아니다.
 - `team.result`·`team.blocked` 로 이미 판정한 작업, 제외 목록(`skipped` 는 일시, `failed`·`failed no-result`·
   `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit` 은 제외
   없음), 차단기 상태(끝에서부터 연속한 `failed…` 수. `failed not-assignee`·`cancelled`·해소 워커의 내용 실패(`references/merge-conflict.md` 「6. 차단기」)는 세지도 끊지도 않고 건너뛴다. `team.lost` 는 `cause` 와 무관하게 실패 1건으로 센다. 단 `next=wait` 인 `team.lost` 는 세지도 끊지도 않는다), 결과 줄 경로별 마지막 처리 해시(경로는
   `<worktree>/<TASKS>/<tsk>/.result`)를 복원한다.
 - 단 사유가 `선행 미충족(사전 검사:` 로 시작하는 `skipped` 는 일시 제외가 아니라 **선행 대기**다. 선행 대기 목록은
-  기억이 아니라 「2-3」 의 선행 대기 블록 출력으로 복원한다(2시간이 지난 것과 선행이 이미 `done` 난 것은 그 블록이 뺀다).
+  「2-3」 의 선행 대기 블록 출력으로 복원한다.
 - 제외 목록은 id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다. 마지막이 `team.spawn` 이나
   `team.blocked` 면 진행 중(영구 제외)이고, `team.result` 면 위 status 별 제외다. `team.answer` 는 제외를 바꾸지
   않는다.
@@ -277,8 +267,8 @@ done
   가려낸다. tmux pane 이 죽었으면(`dead`) 살아 있지 않으며, `.result` 가 있으면 결과 처리로, 없으면 죽은 pane
   화면 폴백과 고아 스캔으로 간다(「3. 결과 처리」). 팀장 세션이 새로 떠도 살아 있는 tmux 팀원은 원래 슬롯
   번호로 흡수한다(tmux 서버는 팀장과 따로 돈다).
-- 대기 큐는 재구성하지 않는다. 비어 있어도 다음 poll 이 같은 ready 를 다시 찾는다. `blocked` 작업은 대기
-  큐에 넣지 않는다. 그 팀원이 슬롯을 계속 잡은 채 자기 화면에서 답을 기다리기 때문이다.
+- 대기 큐는 재구성하지 않는다(다음 poll 이 같은 ready 를 다시 찾는다). `blocked` 작업은 대기 큐에 넣지 않는다(그 팀원이
+  슬롯을 잡은 채 답을 기다린다).
 - **결과 중복 방지**: 결과 줄은 그 줄의 해시로 식별한다. `.result` 경로마다 events.jsonl 의 `team.result`·
   `team.blocked` 에서 마지막으로 처리한 해시(경로별 마지막 처리 해시)를 유도하고, 현재 줄의 해시와 비교해
   해시가 다를 때만 처리한다. 집계는 order 로 중복을 없앤다. 줄과 해시는 한 번의 Bash 호출로 함께 읽는다.
@@ -624,44 +614,39 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
   --owner '<신원>/<host>/lead' --slots <N> --until-label '<UNTIL_LABEL>' \
   -- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'
 ```
-- `--` 뒤에는 진행 중 슬롯(`blocked` 포함)마다 `'<.result 경로>|<그 경로의 마지막 처리 해시 또는 ->|<pane id 또는 ->'` 를
-  작은따옴표로 넣는다. pane id 는 tmux 팀원의 `.dflow-pane` 첫 줄, Orca 팀원은 `-` 다. 진행 중 슬롯이 없으면 `--` 뒤를
-  비운다. 경로에 공백이나 작은따옴표가 든 워크트리는 지원하지 않는다.
-- `--tm` 은 전제 검사가 낸 `TM` 을 **리터럴 절대경로**로 쓴다(Orca 백엔드면 `''`). 루프는 별도 셸이라 변수를 물려받지 않고,
-  PATH 에는 Orca shim 이 있을 수 있다. 세대·종료·lease 상실 파일 경로는 스크립트가 git 에 직접 묻는다.
-- `--new-tick` 은 시작과 `TICK` 기상 때만 붙인다. 다음 TICK 을 지금+1800초로 새로 정한다. 그 밖의 교체에서는 붙이지 않아
-  세대 파일의 값을 그대로 쓴다(루프를 자주 바꿔도 TICK 이 밀리지 않고, 압축 뒤에도 그 값을 되찾는다).
-- `--until` 은 `<UNTIL>` 이 `none` 이 아닐 때 붙인다. `--slots`·`--until-label` 은 좌석표 watch 에 싣는 값이다(아래 건너뛰기).
-- 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)`(한 줄 `<세대> <다음 TICK epoch 초> <건너뛴
-  TICK 수>`)로 한다. 스크립트는 기동할 때 세대를 올리고, 옛 루프는 `STALE` 로 끝난다. 압축으로 태스크 id 를 잃어도 루프가
-  겹쳐 같은 결과를 두 번 처리하지 않는다. 새 루프 없이 끝내기만 할 때(「7. 마감」)는 `tick.sh --retire` 다.
-- 교체 시점: 진행 중 슬롯의 경로·처리 해시·pane id 집합이 바뀔 때와 루프가 끝나 있을 때 새로 띄운다(두 백엔드 공통).
-  컨텍스트 압축 뒤 루프가 떠 있는지 모르면 새로 띄운다.
-- 루프는 기동 즉시 넘겨받은 경로를 한 번 전수 검사한 뒤 20초 간격으로 감시한다. 루프를 바꾸는 사이에 도착한
-  `.result` 를 놓치지 않기 위해서다.
+- `--` 뒤: 진행 중 슬롯(`blocked` 포함)마다 `'<.result 경로>|<마지막 처리 해시 또는 ->|<pane id 또는 ->'`(pane id 는 tmux
+  팀원의 `.dflow-pane` 첫 줄, Orca 는 `-`). 없으면 비운다. 공백·작은따옴표가 든 경로는 지원하지 않는다.
+- `--tm` 은 전제 검사의 `TM` 을 **리터럴 절대경로**로 쓴다(Orca 면 `''`. 별도 셸이라 변수를 못 물려받고 PATH 에 Orca shim 이
+  있을 수 있다). 세대·종료·lease 상실 파일 경로는 스크립트가 git 에 묻는다.
+- `--new-tick` 은 시작과 `TICK` 기상 때만 붙인다(다음 TICK = 지금+1800초). 그 밖의 교체는 세대 파일의 값을 그대로 써서
+  TICK 이 밀리지 않는다. `--until` 은 `<UNTIL>` 이 `none` 이 아닐 때 붙인다.
+- 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)`(`<세대> <다음 TICK epoch 초> <건너뛴 TICK
+  수>`)로 한다. 기동하면 세대를 올리고 옛 루프는 `STALE` 로 끝난다(압축으로 태스크 id 를 잃어도 겹치지 않는다). 새 루프 없이
+  끝내기만 할 때(「7. 마감」)는 `tick.sh --retire` 다.
+- 진행 중 슬롯의 경로·처리 해시·pane id 집합이 바뀔 때와 루프가 끝나 있을 때 새로 띄운다. 압축 뒤 떠 있는지 모르면
+  새로 띄운다. 루프는 기동 즉시 전수 검사한 뒤 20초 간격으로 본다(교체 사이에 온 `.result` 를 놓치지 않는다).
 
 출력의 **마지막 줄**이 기상 사유다. 위에서부터 먼저 걸린 하나다.
 
 | 마지막 줄 | 뜻 |
 |---|---|
 | `STALE` | 세대가 바뀌었다(새 루프가 떴거나 `--retire`) |
-| `STOP_REQUESTED` | 종료 파일이 생겼다(「인자」 종료 요청). 결과보다 먼저 본다: 멈추라고 한 뒤 새 결과로 spawn 을 이어 가지 않는다. 결과 줄은 마감에서 그대로 처리된다 |
-| `LEASE_LOST <사유>` | lease 상실 표식(`dflow-team.lease-lost`)이 생겼다. 종료 요청 다음, 결과보다 먼저 본다: 밀려난 팀장이 새 결과로 spawn·스윕을 이어 가지 않는다 |
-| `RESULT_READY <경로…>` | 결과 줄의 해시가 넘겨받은 해시와 다르다. **줄 전체를 비교한다.** status 만 보면 답을 받은 팀원이 다시 `blocked` 가 됐을 때 깨지 않는다. 줄에 따옴표가 든 질문이 올 수 있어 해시를 넘긴다 |
-| `PANE_DEAD <경로…>` | tmux 팀원의 pane 이 새 결과 줄 없이 죽었거나 사라졌다(빈 출력도 죽음이다). 결과 줄이 새로 있으면 `RESULT_READY` 가 먼저다 |
-| `TICK` | 다음 TICK 시각이 지났다. 한가한 구간에도 승인 스윕 판정(「4-0」)과 무응답 점검을 한다 |
+| `STOP_REQUESTED` | 종료 파일이 생겼다(「인자」 종료 요청). 결과보다 먼저 본다(멈추라고 한 뒤 새 결과로 spawn 을 잇지 않는다. 결과 줄은 마감에서 처리된다) |
+| `LEASE_LOST <사유>` | lease 상실 표식(`dflow-team.lease-lost`). 종료 요청 다음, 결과보다 먼저 본다 |
+| `RESULT_READY <경로…>` | 결과 줄의 해시가 넘겨받은 해시와 다르다. **줄 전체를 비교한다**(status 만 보면 답을 받은 팀원이 다시 `blocked` 가 돼도 깨지 않는다) |
+| `PANE_DEAD <경로…>` | tmux 팀원 pane 이 새 결과 줄 없이 죽었거나 사라졌다. 결과 줄이 새로 있으면 `RESULT_READY` 가 먼저다 |
+| `TICK` | 다음 TICK 시각이 지났다(한가해도 승인 스윕 판정 「4-0」 과 무응답 점검을 한다) |
 
-**변화 없는 TICK 건너뛰기**(`--may-skip`): 붙이면 TICK 시각에 아래가 모두 참일 때 TICK 을 내지 않고 **한 번만** 건너뛴다.
-`TICK_SKIPPED at=<epoch> next=<epoch>` 줄을 남기고 루프를 계속하며, 건너뛴 다음 TICK 은 반드시 낸다(건너뛴 수는 세대 파일에
-남아 루프를 바꿔도 이어지고 `--new-tick` 이 0 으로 되돌린다). 그래서 팀장 기상 간격은 최대 60분이다.
+**변화 없는 TICK 건너뛰기**(`--may-skip`): TICK 시각에 아래가 모두 참이면 TICK 을 내지 않고 **한 번만** 건너뛴다
+(`TICK_SKIPPED at=<epoch> next=<epoch>` 줄을 남기고 계속한다). 건너뛴 다음 TICK 은 반드시 낸다(건너뛴 수는 세대 파일에 남아
+루프를 바꿔도 이어지고 `--new-tick` 이 0 으로 되돌린다). 그래서 팀장 기상 간격은 최대 60분이다.
 - 진행 중 슬롯(결과 줄이 `blocked` 인 것은 뺀다)마다 생존 증거(「3」 의 셋과 heartbeat)가 루프를 띄운 때와 달라졌고 서버
   status 는 그대로다. 한 슬롯이라도 증거가 그대로면(팀원 무응답 30분) 깨운다. 재지 못해도 깨운다.
-- 승인 후보(`sweep-check.sh`)와 그 서버 status 가 그대로다. 사람의 승인·반려는 건너뛰지 않고 깨운다. 판정 불가면 깨운다.
+- 승인 후보(`sweep-check.sh`)와 그 서버 status 가 그대로다(사람의 승인·반려는 깨운다). 판정 불가면 깨운다.
 - 종료 시각이 지나지 않았다(poll 이 떠 있지 않을 때의 종료 시각 확인). 형식을 읽지 못하면 깨운다.
 - `scripts/wake.sh`(「2-3」)가 `LOCK_OK` 를 내고 재개 요청 조회가 성공했으며 이 리포의 요청이 없다. `LOCK_LOST`·
   `WATCH_FAILED`·`HOLDER_FAILED`·`LEASE_KEEP_DEAD` 면 깨운다. 건너뛸 때도 이 호출이 잠금 `beat` 와 좌석표 STANDBY 를
-  갱신한다. 대가로, 루프를 띄운 뒤 멈춘 팀장은 한 TICK(30분) 늦게 드러난다.
-
+  갱신한다(대가로, 루프를 띄운 뒤 멈춘 팀장은 한 TICK(30분) 늦게 드러난다).
 건너뛸 때는 진행 슬롯마다 `EVIDENCE <id8> ct=<…> report=<…> heartbeat=<…> phase=<…> dirty=<…> status=<…>` 줄도 남긴다.
 다음 TICK 에서 이 값이 그 슬롯의 "직전 TICK" 증거다(「3」 생존 증거).
 
@@ -824,47 +809,10 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 
 ### 2-4. 팀원 이슈 보고 처리
 
-팀원이 작업 중 사고·환경 문제·판단이 필요한 이슈를 겪으면 SendMessage 로 이 세션에 직접 이슈 보고를
-보낸다(worker-prompt.md 「9. 이슈 보고」). **감시 루프는 cross-session 메시지로 깨지 않으므로, 메시지가
-도착한 턴에서 곧바로** 아래 1~3 을 처리한다. **사람에게 보고만 하고 턴을 끝내는 것은 금지한다**(팀원과 팀장이 서로를
-기다리며 교착한다).
-
-메시지 형식은 첫 줄 `[이슈 <TSK> <id8>] <요약>` 이고, 이어서 경위·지금까지 한 조치·선택지(있으면)·기본안이
-온다(worker-prompt.md 「9」와 짝).
-
-1. **저장**: `docs/dflow-team/issues.md`(「3. 결과 처리」 문제 기록과 같은 파일, 커밋하지 않는다)에 원문
-   요약을 항목 하나로 붙이고, `team.issue` 이벤트(`id8`, `summary`, `decision`)를 events.jsonl 에 남긴다
-   (`references/events.md`). 처음 저장할 때 `decision` 은 `pending` 이다. 이 이벤트는 재구성 대상이다
-   (「팀장 상태」 「보조」).
-2. **판단**: 팀장이 최선의 선택을 스스로 한다. 판단 재료는 스킬 규칙, 리포 가이드(CLAUDE.md 등), 메모리,
-   다른 팀원 상황이다. 사람에게 묻는 것은 사람만 정할 수 있는 것(운영 배포, 되돌리기 어려운 외부 작업,
-   요구사항 해석)에 한정하며, 그때도 팀원에게는 먼저 기본안으로 계속할지 그 단계만 미룰지를 지시한다 —
-   팀원을 답 없이 세워 두지 않는다.
-3. **추가 지시**: 판단한 내용을 `[팀장 지시 <id8>] …` 형식으로 SendMessage 로 보낸다. `to` 는 그 이슈
-   메시지의 `from` 이다. 지시에는
-   할 일, 하지 말 것, 팀장이 따로 맡는 조치를 적는다. 보낸 뒤 `team.issue` 를 `decision` 을 채워(실제 결정
-   요약, `pending` 아님) 같은 id8 로 다시 기록한다 — id8 마다 **마지막** `team.issue` 의 `decision` 이
-   `pending` 인 것이 아직 지시를 보내지 않은 이슈다. 답장 없는 이슈를 남기지 않는다.
-4. **전파**: 같은 문제가 다른 팀원에게도 생길 수 있으면 살아 있는 다른 팀원에게도 같은 지시를 SendMessage
-   로 보낸다. 새로 띄우는 팀원에게는 포인터나 worker-prompt.md 규칙에 반영될 때까지, 팀장이 이 events 를
-   판단 재료로 들고 있는다.
-5. **근본 조치**: 리포 코드 문제는 팀장이 직접 고치거나 빌드·시험으로 확인하지 않는다(머리말 「팀장 역할」). 이슈를
-   보고한 팀원에게 그 브랜치에서 고치라고 3번 지시로 넘긴다. **예외 — 개발 브랜치 자체가 깨져 여러 팀원이 같은 실패를
-   보면** 무인 운영이 사람의 답을 기다리며 통째로 멈추지 않도록 팀장이 최소 수정(깨진 곳만, 기능 추가 금지)을 해 개발
-   브랜치에 커밋한다. 확인 빌드·시험은 반드시 `heavy.sh` 로 감싸고, 수정 내용과 근거를 사람에게 보고한다. 원인이 한
-   Task 의 머지라면 수정 대신 그 머지의 revert 를 먼저 고른다. 환경 문제는 설정(`.dflow`·`.dflow.local`·권한 목록)과 스킬 스크립트 호출 범위에서만
-   팀장이 조치한다. 스킬 문제는 스킬 개선 요청으로 넘긴다. 결과를 issues.md 에 남긴다.
-
-**되돌릴 수 없는 조치는 미룬다**: 팀원은 이슈를 보고한 뒤에도 되돌릴 수 있는 작업은 기본안대로 계속한다.
-`push`·`done`·외부 상태 변경처럼 되돌릴 수 없는 것만 팀장 지시를 기다리며 미룬다(worker-prompt.md 「9」).
-팀장이 10분 안에 지시를 보내지 못하면 팀원은 `.result` 의 `blocked` 로 정규 경로로 넘어간다 — 그러면 이
-절이 아니라 「6. blocked」 로 처리한다.
-
-**SendMessage 가 닿지 않을 때**: backends.md 는 tmux 팀원의 `CLAUDE_CODE_MESSAGING_SOCKET`·`TOKEN` 을
-일부러 벗긴다(「팀원 환경을 벗기는 이유」) — 그래서 SendMessage 가 양쪽 다 실패할 수 있다. 팀원 쪽은
-실패해도 `.issues` 와 10분 규칙(worker-prompt.md 「9」)으로 넘어간다. 팀장 쪽에서 SendMessage 가 실패하면
-1번(저장)은 그대로 하고, `send-keys -l --`(tmux, backends.md 「생존·화면·답·회수」) 또는 `orca terminal`
-로 같은 지시를 그 팀원 화면에 직접 넣는다.
+팀원이 SendMessage 로 이슈 보고(첫 줄 `[이슈 <TSK> <id8>] <요약>`, worker-prompt.md 「9」)를 보내면 **도착한 턴에서 곧바로**
+`references/issues.md` 를 Bash `cat` 으로 읽고 그 1~5(저장·판단·`[팀장 지시 <id8>]` 추가 지시·전파·근본 조치)를 한다. 감시 루프는
+cross-session 메시지로 깨지 않는다. **사람에게 보고만 하고 턴을 끝내는 것은 금지한다**(팀원과 팀장이 서로를 기다리며
+교착한다). 팀장이 10분 안에 지시를 보내지 못하면 팀원은 `.result` 의 `blocked` 로 넘어가며, 그때는 「6. blocked」 로 처리한다.
 
 ## 3. 결과 처리
 

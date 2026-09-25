@@ -311,7 +311,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(tick()).toContain('echo TICK')
     expect(tick()).toContain('[ "$(date +%s)" -ge "$TICK_AT" ]')
     expect(tick()).toContain("sum=$(printf '%s\\n' \"$cur\" | cksum | cut -d' ' -f1)")
-    expect(s()).toContain('**줄 전체를 비교한다.**')
+    expect(s()).toContain('**줄 전체를 비교한다**')
     expect(s()).toContain('run_in_background')
     // tmux 팀원은 pane_dead 로 죽음을 감지한다(146ea66d, 종전 PID). 결과 줄이 새로 있으면 RESULT_READY 가 먼저다
     expect(tick()).toContain('[ "$d" = 0 ] || dead="$dead $f"')
@@ -568,6 +568,6 @@ describe('dflow-team 압축 뒤 복구(2026-09-25)', () => {
     const out = r.stdout
     for (const h of ['## 팀장 상태', '### 2-2. 감시 루프', '### 2-3. 기상마다 하는 일', '## 3. 결과 처리']) expect(out, h).toContain(h)
     for (const h of ['## 1. 시작', '## 5. 팀원 spawn', '## 7. 마감']) expect(out, h).not.toContain('\n' + h + '\n')
-    expect(out.length).toBeLessThan(46000)
+    expect(out.length).toBeLessThan(40000) // 2026-09-25 압축 뒤 실측 약 37K자(종전 규정 약 89K자)
   })
 })
