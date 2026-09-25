@@ -31,7 +31,7 @@ describe('AgentTabs', () => {
     expect(tab('hub').textContent).toBe('위임·승인')
     expect(tab('office').getAttribute('href')).toBe('/p/p1/agents/office')
     expect(tab('office').getAttribute('aria-current')).toBeNull()
-    expect(tab('office').textContent).toBe('에이전트 스튜디오')
+    expect(tab('office').textContent).toBe('에이전트 오피스')
   })
   it('스튜디오 경로에서는 에이전트 스튜디오가 활성', () => {
     nav.pathname = '/p/p1/agents/office'

@@ -201,7 +201,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   const roster = useRoster(map)
   const tools = (
     <>
-      {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 스튜디오</Link>}
+      {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
       <div className={css.viewSeg} role="group" aria-label="보기">
         <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
         <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
@@ -326,7 +326,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   return (
     <AgentFrame
       {...(projectId !== undefined ? { projectId } : { nav: tone => <OfficeNav floors={floorsNav} tone={tone} /> })}
-      projectName={projectName ?? '전체 프로젝트'} title={projectId !== undefined ? '에이전트 스튜디오' : '에이전트 스튜디오 · 전체'}
+      projectName={projectName ?? '전체 프로젝트'} title={projectId !== undefined ? '에이전트 오피스' : '에이전트 오피스 · 전체'}
       lede={hero.lede} tiles={hero.tiles}
       tools={<div className={css.toolsLight}>{tools}</div>}>
       <div className={css.root}>

@@ -57,6 +57,10 @@ describe('상세 패널 결정 목록', () => {
     expect(getReportDecisions).toHaveBeenCalledTimes(1)
     expect(getReportDecisions).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111')
     expect(host.querySelector('[data-decision="D1"]')).not.toBeNull()
+    // 기본은 접혀 있다(2026-09-25 사용자 요청).
+    const fold = host.querySelector('[data-decisions="ok"]')!.closest('details')!
+    expect(fold).not.toBeNull()
+    expect(fold.hasAttribute('open')).toBe(false)
   })
   it('조회 실패는 빈 목록이 아니라 오류 문구와 재시도 — 재시도하면 다시 읽는다', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})

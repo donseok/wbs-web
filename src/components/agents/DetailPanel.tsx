@@ -161,7 +161,8 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
       {opError && <p className={css.opError} data-op-error="">{opError}</p>}
 
       <div className={css.actions}>
-        <Link href={`/p/${seat.projectId}/wbs`}>WBS 에서 열기</Link>
+        {/* 그 작업의 사이드바까지 바로 연다(2026-09-25 사용자 요청) — 에이전트 보기(RosterBoard)와 같은 focus·open 딥링크. */}
+        <Link href={seat.itemId ? `/p/${seat.projectId}/wbs?focus=${seat.itemId}&open=1` : `/p/${seat.projectId}/wbs`} data-detail-wbs-link="">WBS 에서 열기</Link>
       </div>
     </div>
   )

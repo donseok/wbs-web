@@ -115,6 +115,19 @@ describe('DetailPanel — 강제 진행(스펙 2026-09-23)', () => {
   })
 })
 
+describe('DetailPanel — WBS 에서 열기(2026-09-25)', () => {
+  it('작업이 있는 좌석은 그 작업의 사이드바까지 여는 딥링크다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'ACTIVE' })} nowMs={NOW} {...OPS} />))
+    const a = host.querySelector('[data-detail-wbs-link]')!
+    expect(a.textContent).toBe('WBS 에서 열기')
+    expect(a.getAttribute('href')).toBe('/p/p1/wbs?focus=i1&open=1')
+  })
+  it('작업이 없는 좌석은 WBS 화면으로만 간다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'ACTIVE', itemId: null })} nowMs={NOW} {...OPS} />))
+    expect(host.querySelector('[data-detail-wbs-link]')!.getAttribute('href')).toBe('/p/p1/wbs')
+  })
+})
+
 describe('DetailPanel — 머지 충돌 인용(2026-09-23)', () => {
   it('phase 가 merge_conflict 이고 note 가 있으면 "머지 충돌: <note>" 를 인용한다', () => {
     act(() => root.render(<DetailPanel seat={seat({ state: 'WAIT', phase: 'merge_conflict', heartbeatPhase: 'merge_conflict', note: '충돌 2개(src/a.ts…) · 해소 중 w2 1/3' })} nowMs={NOW} {...OPS} />))

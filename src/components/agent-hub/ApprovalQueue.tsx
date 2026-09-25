@@ -6,7 +6,7 @@ import { useState } from 'react'
 import type { AgentHub, HubQueueEntry } from '@/lib/domain/agentHub'
 import { runHubProcessOp, type HubProcessOp } from '@/app/actions/agentHub'
 import { NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE } from './labels'
-import { DecisionList } from './DecisionList'
+import { DecisionFold } from './DecisionList'
 
 type Props = {
   queue: HubQueueEntry[]
@@ -69,8 +69,8 @@ function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEnt
         </p>
       )}
       {q.summary && <p className="mt-1 whitespace-pre-wrap text-xs text-ink">{q.summary}</p>}
-      {/* 승인자의 일이 이것을 읽는 것이라 접지 않는다(과제 C). */}
-      <DecisionList decisions={q.decisions} />
+      {/* 기본은 접는다(2026-09-25 사용자 요청) — 머리의 건수·「승인 전 확인」과 결정 칩이 열어 볼 이유를 남긴다. */}
+      <DecisionFold decisions={q.decisions} />
       {q.links.length > 0 && (
         <ul className="mt-1 flex flex-wrap gap-2 text-[11px]">
           {q.links.map((l, i) => <li key={i}><a href={l.url} target="_blank" rel="noreferrer" className="text-brand underline-offset-2 hover:underline">{l.label ?? l.url}</a></li>)}

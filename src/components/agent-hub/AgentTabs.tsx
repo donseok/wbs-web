@@ -9,7 +9,7 @@ export type AgentTabKey = 'hub' | 'office'
 export function agentTabs(projectId: string): ReadonlyArray<{ key: AgentTabKey; href: string; label: string }> {
   const base = `/p/${projectId}/agents`
   return [
-    { key: 'office', href: `${base}/office`, label: '에이전트 스튜디오' },
+    { key: 'office', href: `${base}/office`, label: '에이전트 오피스' },
     { key: 'hub', href: base, label: '위임·승인' },
   ]
 }

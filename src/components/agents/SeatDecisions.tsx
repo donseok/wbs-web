@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { getReportDecisions } from '@/app/actions/agentWork'
 import { parseDecisions, type DecisionsParse } from '@/lib/domain/agentWork'
-import { DecisionList } from '@/components/agent-hub/DecisionList'
+import { DecisionFold } from '@/components/agent-hub/DecisionList'
 
 type Load = { kind: 'loading' } | { kind: 'ok'; parsed: DecisionsParse } | { kind: 'error' }
 
@@ -38,5 +38,5 @@ export function SeatDecisions({ orderId }: { orderId: string }) {
       </p>
     )
   }
-  return <DecisionList decisions={load.parsed} compact />
+  return <DecisionFold decisions={load.parsed} compact />
 }
