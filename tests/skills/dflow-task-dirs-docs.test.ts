@@ -1,17 +1,17 @@
 // 스킬 문서의 작업 폴더를 <DOCS_DIR>/tasks 로 통일(docs/superpowers/specs/2026-09-23-dflow-task-scaffold-design.md §6).
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 describe('스킬 문서의 작업 폴더', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
-  const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-dev/references/phase-prompt.md',
-    'dflow-dev/references/phase-design.md', 'dflow-dev/references/phase-build.md', 'dflow-dev/references/phase-verify.md',
-    'dflow-dev/references/phase-refactor.md', 'dflow-dev/references/e2e.md', 'dflow-dev/references/rationale.md', 'dflow-dev/references/worker-mode.md', 'dflow-merge/SKILL.md',
-    ...['resolve', 'merge-worktree', 'unapproved', 'push-fail', 'dialect', 'script-details', 'rationale'].map((r) => `dflow-merge/references/${r}.md`),
-    'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
-    'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
-    'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']
+  // 스킬 본문과 references 전부(2026-09-25 토큰 절감으로 규칙이 references 로 흩어졌다 — 새 파일이 검사에서 빠지지 않게 목록을 파일 시스템에서 만든다)
+  const FILES = ['dflow-dev', 'dflow-merge', 'dflow-team', 'dflow-work'].flatMap((d) => [
+    `${d}/SKILL.md`,
+    ...(existsSync(join(process.cwd(), '.claude/skills', d, 'references')) ? readdirSync(join(process.cwd(), '.claude/skills', d, 'references')).filter((f) => f.endsWith('.md')).map((f) => `${d}/references/${f}`) : []),
+  ]).concat(['dflow-work/README.md'])
+    // 원래 검사 밖이던 문서 셋은 옛 dflow.sh 호환 폴백(`echo docs/tasks`)과 예시로 이 경로를 적는다
+    .filter((f) => !['dflow-team/references/merge-conflict.md', 'dflow-team/references/restart.md', 'dflow-team/references/resolve-prompt.md'].includes(f))
   it('고정 경로 docs/tasks 가 남아 있지 않다(워커의 옛 팀장 호환 폴백 한 곳만 예외)', () => {
     const FALLBACK = '`docs/tasks/{TSK}`'
     for (const f of FILES) expect(read(f).replaceAll(FALLBACK, ''), f).not.toMatch(/docs\/tasks/)
@@ -148,13 +148,13 @@ describe('스킬 문서의 작업 폴더', () => {
 // 들여쓴 here-doc 은 종결자(`     EOF`)가 인식되지 않아 뒤를 전부 삼키고 exit 0 으로 끝난다.
 describe('들여쓴 bash 블록의 붙여넣기 안전성', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
-  const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-dev/references/phase-prompt.md',
-    'dflow-dev/references/phase-design.md', 'dflow-dev/references/phase-build.md', 'dflow-dev/references/phase-verify.md',
-    'dflow-dev/references/phase-refactor.md', 'dflow-dev/references/e2e.md', 'dflow-dev/references/rationale.md', 'dflow-dev/references/worker-mode.md', 'dflow-merge/SKILL.md',
-    ...['resolve', 'merge-worktree', 'unapproved', 'push-fail', 'dialect', 'script-details', 'rationale'].map((r) => `dflow-merge/references/${r}.md`),
-    'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
-    'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
-    'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']
+  // 스킬 본문과 references 전부(2026-09-25 토큰 절감으로 규칙이 references 로 흩어졌다 — 새 파일이 검사에서 빠지지 않게 목록을 파일 시스템에서 만든다)
+  const FILES = ['dflow-dev', 'dflow-merge', 'dflow-team', 'dflow-work'].flatMap((d) => [
+    `${d}/SKILL.md`,
+    ...(existsSync(join(process.cwd(), '.claude/skills', d, 'references')) ? readdirSync(join(process.cwd(), '.claude/skills', d, 'references')).filter((f) => f.endsWith('.md')).map((f) => `${d}/references/${f}`) : []),
+  ]).concat(['dflow-work/README.md'])
+    // 원래 검사 밖이던 문서 셋은 옛 dflow.sh 호환 폴백(`echo docs/tasks`)과 예시로 이 경로를 적는다
+    .filter((f) => !['dflow-team/references/merge-conflict.md', 'dflow-team/references/restart.md', 'dflow-team/references/resolve-prompt.md'].includes(f))
   it('목록 안(들여쓴) 코드 블록에 here-doc 이 없다', () => {
     for (const f of FILES) {
       for (const m of read(f).matchAll(/^( +)```[a-z]*\n([\s\S]*?)^\1```/gm))
