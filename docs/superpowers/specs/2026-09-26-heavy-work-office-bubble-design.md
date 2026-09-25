@@ -59,25 +59,31 @@ Linux `/proc/loadavg`, 못 읽으면 `-`.
 
 - 주문별로 하나: 실행이 대기보다 먼저, 그중 가장 먼저 시작한 것. `n` 은 그 워크트리의 건수.
 - `pos` 는 대기일 때 PC 전체 일반 풀 대기 중 시작 순번(1부터).
-- **가림**(lease 설계가 홈 경로를 서버에 보내지 않는 것과 같은 축): cwd 의 워크트리 접두는 명령에서 `.` 으로,
-  `$HOME` 은 `~` 로, `(TOKEN|SECRET|KEY|PASS|PAT)[A-Z_]*=값` 은 `=***` 로, 길이는 200자로 자른다.
+- **가림은 허용 목록**(lease 설계가 홈 경로를 서버에 보내지 않는 것과 같은 축. 리뷰에서 금지 목록 정규식의 빈틈 — URL 속
+  비밀번호·`--token 값`·`Bearer`·따옴표 값·Windows 경로 — 이 나와 바꿨다): 경로는 마지막 조각만, `a=b`·`a='…'` 는 `a=***`,
+  URL 은 `<url>`, 비밀 류 플래그(`--token`·`-H`·`-u`·`Bearer` …) 바로 뒤 토큰은 `***`, 영숫자·`_.:+,-` 밖의 글자가 든 토큰은
+  `***`, 190 코드포인트로 자른다. 서버(`sanitizeHeavyCmd`)가 같은 규칙을 한 번 더 건다.
 - **lease 를 잃지 않는다**: heavy 를 만들다 무엇이 실패해도(heavy.sh 없음·jq 실패) `heavy` 를 빼고 renew 는 그대로 간다.
   `lease_keep` 은 renew 비정상 종료 3회면 팀장을 멈추므로, heavy 쪽 실패가 renew 종료 코드로 번지면 안 된다.
+  `snapshot)` 분기가 없는 옛 heavy.sh 는 부르지 않는다(모르는 인자를 무거운 명령으로 보고 슬롯을 240초까지 기다린다).
 
 ### 2-4. 서버
 
-- 파서(`parseLeaseBody`)는 renew 의 `heavy` 를 선택으로 받는다. 형식이 틀리면 **renew 는 받아들이고 heavy 만 버린다**
-  (로그). 옛 서버는 모르는 필드를 무시하므로 새 킷 → 옛 서버도 안전하다.
-- 라우트는 renew RPC 가 성공한 뒤 `lead_lease_heavy` 를 **별도 try** 로 부른다. 실패(0106 전 서버의 함수 없음 포함)는
-  로그만 남기고 renew 응답은 그대로 준다.
+- 파서(`parseLeaseBody`)는 renew 의 `heavy` 를 선택으로 받는다. PC 요약·배열 모양이 틀리면 **renew 는 받아들이고 heavy 만
+  버린다**(로그). 틀린 주문 항목은 그 항목만 건너뛴다. 옛 서버는 모르는 필드를 무시하므로 새 킷 → 옛 서버도 안전하다.
+- 라우트는 renew RPC 가 성공한 뒤 `lead_lease_heavy` 를 **별도 try** 로 부른다. heavy 가 없거나 틀린 renew(옛 킷·snapshot
+  실패)도 `pc=null, orders=[]` 로 불러 비운다 — 안 그러면 옛 값이 lease 가 사는 동안 「N분째」 로 계속 늘어난다. 실패(0106 전
+  서버의 함수 없음 포함)는 로그만 남기고 renew 응답은 그대로 준다. 함수는 `lock_timeout 2s` — renew 응답이 기다리므로.
 - `lead_lease_heavy(p_user, p_holder, p_pc, p_orders)`(0106):
   - 대상 프로젝트 = `user_id = p_user and holder = p_holder and expires_at >= now()` 인 lease 행.
   - 그 행들의 `heavy = p_pc`(값이 다를 때만).
-  - 주문: `status = 'claimed'`, 대상 프로젝트, `left(id::text, 8) = id8` 이 **하나일 때만**. 값에 `by = p_user` 를 더해
+  - 주문: `status = 'claimed'`, 대상 프로젝트, `claimed_by_user_id = p_user`(팀원은 팀장과 같은 PAT 신원으로 claim 한다 —
+    한 프로젝트에 두 신원의 팀장이 있어도 남의 좌석에 쓰지 않는다), `left(id::text, 8) = id8` 이 **하나일 때만**. 값에 `by = p_user` 를 더해
     `heartbeat_heavy` 에 쓴다(`is distinct from` 일 때만 — 매분 같은 값을 다시 쓰지 않는다).
   - 비우기: 대상 프로젝트에서 `heartbeat_heavy->>'by' = p_user` 인데 이번 목록에 없는 주문은 null.
   - `agent_work_orders` 에는 updated_at 트리거가 없다(확인함) — heavy 쓰기는 좌석 생존 판정(`lastSignalMs`)을 바꾸지 않는다.
-- 팀장이 죽거나 lease 를 반납하면 값이 남지만, 화면은 **`by` 의 lease 가 살아 있는(expires_at > now) 주문만** 믿는다.
+- 팀장이 죽거나 lease 를 반납하면 값이 남지만, 화면은 **`by` 의 lease 가 살아 있고(expires_at > now) 점유 신원이 `by` 인
+  주문만** 믿는다. 같은 신원이 새 팀장으로 lease 를 다시 잡으면 첫 renew(≤60초)가 비우기 전까지 옛 값이 잠깐 보일 수 있다.
 
 ## 3. 화면
 

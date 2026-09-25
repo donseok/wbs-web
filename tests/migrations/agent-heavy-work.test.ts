@@ -14,6 +14,10 @@ describe('0106 무거운 작업 표시', () => {
     expect(up).toMatch(/left\(o\.id::text, 8\) = w\.id8 and o\.status = 'claimed' and o\.project_id = any\(v_proj\)/)
     expect(up).toMatch(/having count\(\*\) = 1/)
   })
+  it('이 신원이 점유한 주문에만 쓰고, 행 잠금은 짧게 포기한다(renew 응답이 기다린다)', () => {
+    expect(up).toMatch(/and o\.claimed_by_user_id = p_user/)
+    expect(up).toMatch(/set lock_timeout = '2s'/)
+  })
   it('같은 값은 다시 쓰지 않고, 이 팀장이 적었는데 목록에 없는 주문은 비운다', () => {
     expect(up.match(/is distinct from/g)?.length).toBeGreaterThanOrEqual(2)
     expect(up).toMatch(/heartbeat_heavy->>'by' = p_user::text/)

@@ -347,7 +347,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights, reportByOrder.get(o.id),
       ownerOf(o.claimed_by_user_id, viewerId, ownerName(o.project_id)))
     seat.stubPending = o.wbs_item_id ? (stubsByItem.get(o.wbs_item_id) ?? []) : []
-    seat.heavy = seatHeavyOf(o.heartbeat_heavy, { status: o.status, projectId: o.project_id }, liveLeases)
+    seat.heavy = seatHeavyOf(o.heartbeat_heavy, { status: o.status, projectId: o.project_id, claimedByUserId: o.claimed_by_user_id }, liveLeases)
     if (seat.state === 'READY' && item) {
       const m = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
       seat.waitReason = deriveWaitReason({

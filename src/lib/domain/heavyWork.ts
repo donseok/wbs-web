@@ -4,7 +4,10 @@
 // 여기서는 그 본문을 검사하고, 화면이 믿을 값만 골라 사람 말로 바꾼다.
 
 export const HEAVY_MAX_ORDERS = 50
-export const HEAVY_CMD_MAX = 200
+/** 저장·표시하는 명령 길이(코드포인트). 셸(dflow-lease.sh)도 190 으로 자른다. */
+export const HEAVY_CMD_KEEP = 190
+/** 받는 명령 원문의 상한(UTF-16 길이) — 이보다 길면 그 항목만 버린다. */
+export const HEAVY_CMD_MAX = 2000
 
 export interface HeavyPc { k: number | null; held: number | null; waiting: number | null; load: number | null; cpus: number | null }
 export interface HeavyOrder {
@@ -33,7 +36,37 @@ function parseOrder(o: unknown): HeavyOrder | null {
   if (!natOrNull(o.since, EPOCH_MAX) || !natOrNull(o.pos, 10_000)) return null
   if (typeof o.n !== 'number' || !Number.isInteger(o.n) || o.n < 1 || o.n > 99) return null
   if (typeof o.cmd !== 'string' || o.cmd.length > HEAVY_CMD_MAX) return null
-  return { id8: o.id8, state: o.state, kind: o.kind, pool: o.pool, since: o.since, pos: o.pos, n: o.n, cmd: o.cmd }
+  return { id8: o.id8, state: o.state, kind: o.kind, pool: o.pool, since: o.since, pos: o.pos, n: o.n, cmd: sanitizeHeavyCmd(o.cmd) }
+}
+
+const SECRET_FLAG = /^-{1,2}[A-Za-z0-9_-]*(token|secret|key|pass|pwd|auth|header|cookie|cred)[A-Za-z0-9_-]*$|^(-H|-u|bearer|basic)$/i
+function heavyTok(t: string): string | null {
+  if (t === '<url>') return t
+  if (t.includes('://')) return '<url>'
+  if (t.includes('=')) {
+    const k = t.split('=')[0]
+    return /^-{0,2}[A-Za-z_][A-Za-z0-9_.-]*$/.test(k) ? `${k}=***` : '***'
+  }
+  const base = t.split('/').pop()!.split('\\').pop()!
+  if (!base) return null
+  return /^[A-Za-z0-9_.:+,-]+$/.test(base) ? base : '***'
+}
+
+/**
+ * 명령 가림(허용 목록) — 셸(dflow-lease.sh lease_heavy_json 의 clean)과 같은 규칙을 서버가 한 번 더 건다(옛·잘못된 킷 대비).
+ * 경로는 마지막 조각만(홈·워크트리 경로가 남지 않는다), `a=b`·`a='…'` 는 `a=***`, URL 은 `<url>`, 비밀 류 플래그(--token·-H·
+ * Bearer …) 바로 뒤 토큰은 `***`, 영숫자·`_.:+,-` 밖의 글자가 든 토큰은 `***`. 같은 입력에 두 번 걸어도 결과가 같다.
+ */
+export function sanitizeHeavyCmd(cmd: string): string {
+  const toks = cmd.replace(/=("[^"]*"|'[^']*')/g, '=***').replace(/["'`]/g, ' ').split(/\s+/).filter(Boolean)
+  const out: string[] = []
+  let hide = false
+  for (const t of toks) {
+    if (hide) out.push('***')
+    else { const v = heavyTok(t); if (v !== null) out.push(v) }
+    hide = SECRET_FLAG.test(t)
+  }
+  return Array.from(out.join(' ')).slice(0, HEAVY_CMD_KEEP).join('')
 }
 
 function parsePc(p: unknown): HeavyPc | null {
@@ -52,10 +85,10 @@ export function parseHeavyReport(raw: unknown): { ok: true; value: HeavyReport }
     return { ok: false, error: `heavy.orders 는 ${HEAVY_MAX_ORDERS}개 이하 배열이어야 합니다.` }
   }
   const orders: HeavyOrder[] = []
+  // 틀린 항목은 그 항목만 건너뛴다 — 하나 때문에 PC 게이지까지 통째로 버리지 않는다.
   for (const o of raw.orders) {
     const v = parseOrder(o)
-    if (!v) return { ok: false, error: 'heavy.orders 항목 형식이 올바르지 않습니다.' }
-    orders.push(v)
+    if (v) orders.push(v)
   }
   return { ok: true, value: { pc, orders } }
 }
@@ -88,12 +121,14 @@ export function heavyLabel(raw: string, kind: 'run' | 'hold'): string {
  * 팀장이 죽으면 값이 남지만 lease 가 만료돼 저절로 무효가 된다.
  */
 export function seatHeavyOf(
-  raw: unknown, order: { status: string; projectId: string },
+  raw: unknown, order: { status: string; projectId: string; claimedByUserId: string | null },
   liveLeases: ReadonlyArray<{ user_id: string; project_id: string }>,
 ): SeatHeavy | null {
   if (order.status !== 'claimed' || !isObj(raw)) return null
   const { state, kind, pool, since, pos, n, cmd, by } = raw
   if ((state !== 'run' && state !== 'wait') || typeof by !== 'string') return null
+  // 팀원은 팀장과 같은 신원으로 claim 한다(0106 함수와 같은 축) — 남이 점유한 좌석의 값은 믿지 않는다.
+  if (order.claimedByUserId !== by) return null
   if (!liveLeases.some(l => l.user_id === by && l.project_id === order.projectId)) return null
   const c = typeof cmd === 'string' ? cmd : ''
   return {

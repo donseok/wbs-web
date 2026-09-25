@@ -134,21 +134,22 @@ describe('POST /agent/lead/lease', () => {
       expect(err).toHaveBeenCalled()
       err.mockRestore()
     })
-    it('heavy 형식이 틀리면 renew 만 하고 로그를 남긴다', async () => {
+    it('heavy 형식이 틀리면 renew 는 그대로, 로그를 남기고 옛 값을 비운다', async () => {
       const err = vi.spyOn(console, 'error').mockImplementation(() => {})
       const calls: Array<[string, unknown]> = []
       useAdmin({ ...base(), ...okRenew() }, calls)
       const res = await post(body({ heavy: { pc: 'x', orders: [] } }))
       expect(res.status).toBe(200)
-      expect(calls.map(c => c[0])).toEqual(['lead_lease_renew'])
+      expect(calls[1]).toEqual(['lead_lease_heavy', { p_user: 'u-1', p_holder: H, p_pc: null, p_orders: [] }])
       expect(err).toHaveBeenCalled()
       err.mockRestore()
     })
-    it('heavy 가 없으면(옛 킷) heavy 기록을 부르지 않는다', async () => {
+    it('heavy 가 없어도(옛 킷·snapshot 실패) 비우기로 부른다 — 옛 값이 lease 가 사는 동안 남지 않게', async () => {
       const calls: Array<[string, unknown]> = []
       useAdmin({ ...base(), ...okRenew() }, calls)
       await post(body())
-      expect(calls.map(c => c[0])).toEqual(['lead_lease_renew'])
+      expect(calls.map(c => c[0])).toEqual(['lead_lease_renew', 'lead_lease_heavy'])
+      expect(calls[1][1]).toEqual({ p_user: 'u-1', p_holder: H, p_pc: null, p_orders: [] })
     })
     it('renew 가 전부 lost 면 heavy 를 적지 않는다', async () => {
       const calls: Array<[string, unknown]> = []

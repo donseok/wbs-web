@@ -48,7 +48,9 @@ const envFor = (env: Record<string, string>) => ({
   XDG_CACHE_HOME: join(tmp, 'cache'), FAKE_LOG: log,
   DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
   DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: TOKEN, DFLOW_PROJECT_MAP: `a=${P1},b=${P2}`,
-  DFLOW_LEASE_INTERVAL: '1', DFLOW_LEASE_STEP: '1', ...env,
+  DFLOW_LEASE_INTERVAL: '1', DFLOW_LEASE_STEP: '1',
+  // 무거운 작업 수집은 끈다(keep 시험의 1초 루프를 느리게 한다). heavy 시험만 실물 heavy.sh 를 켠다.
+  DFLOW_HEAVY_SH: join(tmp, 'heavy-off.sh'), ...env,
 })
 function run(args: string[], env: Record<string, string> = {}) {
   return spawnSync('sh', [DFLOW, ...args], { cwd: repo, encoding: 'utf8', env: envFor(env) })
@@ -144,6 +146,7 @@ describe('lease renew — 무거운 작업(heavy)', () => {
       Object.entries({ pstart: '-', host: 'h', kind: 'run', ...o }).map(([k, v]) => `${k}=${v}`).join('\n') + '\n')
   }
   const renewBody = () => sent().filter(b => b.op === 'renew').at(-1)
+  const HV = { DFLOW_HEAVY_SH: join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh') }
   const WT = () => join(tmp, 'repo/.claude/worktrees/dflow-abcdef12')
 
   it('팀원 워크트리의 슬롯을 id8 로 싣고, 명령의 워크트리·홈 경로와 비밀 값은 가린다', () => {
@@ -151,21 +154,21 @@ describe('lease renew — 무거운 작업(heavy)', () => {
     const home = join(tmp, 'home')
     slot('slot-1', { pid: process.pid, start: 1790000000, cwd: `${WT()}/sub`,
       cmd: `${WT()}/gradlew test --init ${home}/x.gradle MY_TOKEN=abc` })
-    const r = run(['lease', 'renew'])
+    const r = run(['lease', 'renew'], HV)
     expect(r.status).toBe(0)
     expect(r.stdout.trim()).toBe('LEASE_OK')
     const hv = renewBody().heavy
     expect(hv.pc).toEqual(expect.objectContaining({ held: 1, waiting: 0 }))
     expect(typeof hv.pc.k).toBe('number')
     expect(hv.orders).toEqual([{ id8: 'abcdef12', state: 'run', kind: 'run', pool: 'general', since: 1790000000, pos: null, n: 1,
-      cmd: './gradlew test --init ~/x.gradle MY_TOKEN=***' }])
+      cmd: 'gradlew test --init x.gradle MY_TOKEN=***' }])
     expect(JSON.stringify(renewBody())).not.toContain(tmp)
   })
 
   it('팀원 워크트리가 아닌 슬롯(다른 리포·사람 세션)은 주문에 싣지 않고 PC 요약에만 든다', () => {
     run(['lease', 'acquire'])
     slot('slot-1', { pid: process.pid, start: 1, cwd: '/elsewhere/proj', cmd: 'npm test' })
-    run(['lease', 'renew'])
+    run(['lease', 'renew'], HV)
     expect(renewBody().heavy.orders).toEqual([])
     expect(renewBody().heavy.pc.held).toBe(1)
   })
@@ -176,7 +179,7 @@ describe('lease renew — 무거운 작업(heavy)', () => {
     slot('slot-1', { pid: process.pid, start: now - 10, cwd: WT(), cmd: 'npm run build' })
     slot('slot-2', { pid: process.pid, start: now - 100, kind: 'hold', cwd: `${WT()}-resolve`, cmd: 'hold e2e' })
     writeFileSync(join(heavyDir(), `wait-${process.pid}`), `pid=${process.pid}\npool=general\nstart=${now}\npstart=-\ncwd=${WT()}\ncmd=npm test\n`)
-    run(['lease', 'renew'])
+    run(['lease', 'renew'], HV)
     const o = renewBody().heavy.orders
     expect(o).toHaveLength(1)
     expect(o[0]).toEqual(expect.objectContaining({ id8: 'abcdef12', state: 'run', kind: 'hold', since: now - 100, n: 3 }))
@@ -189,7 +192,7 @@ describe('lease renew — 무거운 작업(heavy)', () => {
     mkdirSync(heavyDir(), { recursive: true })
     w(process.pid, 200, WT())
     w(process.ppid, 100, '/elsewhere')
-    run(['lease', 'renew'])
+    run(['lease', 'renew'], HV)
     expect(renewBody().heavy.orders).toEqual([expect.objectContaining({ id8: 'abcdef12', state: 'wait', pos: 2, n: 1 })])
     expect(renewBody().heavy.pc.waiting).toBe(2)
   })
@@ -200,14 +203,39 @@ describe('lease renew — 무거운 작업(heavy)', () => {
     expect(gone.stdout.trim()).toBe('LEASE_OK')
     expect(renewBody().heavy).toBeUndefined()
     const bad = join(tmp, 'bad-heavy.sh')
-    writeFileSync(bad, '#!/bin/sh\necho "PC\tnot\tjson{"\nexit 3\n', { mode: 0o755 })
+    writeFileSync(bad, '#!/bin/sh\n# snapshot)\necho "PC\tnot\tjson{"\nexit 3\n', { mode: 0o755 })
     const broken = run(['lease', 'renew'], { DFLOW_HEAVY_SH: bad })
     expect(broken.status).toBe(0)
     expect(broken.stdout.trim()).toBe('LEASE_OK')
     expect(renewBody().heavy).toBeUndefined()
     const garbage = join(tmp, 'garbage-heavy.sh')
-    writeFileSync(garbage, '#!/bin/sh\nprintf "%s" "{{{"\n', { mode: 0o755 })
+    writeFileSync(garbage, '#!/bin/sh\n# snapshot)\nprintf "%s" "{{{"\n', { mode: 0o755 })
     expect(run(['lease', 'renew'], { DFLOW_HEAVY_SH: garbage }).stdout.trim()).toBe('LEASE_OK')
+  })
+
+  it('snapshot 을 모르는 옛 heavy.sh 는 부르지 않는다 — 모르는 인자를 무거운 명령으로 보고 슬롯을 기다리게 된다', () => {
+    run(['lease', 'acquire'])
+    const old = join(tmp, 'old-heavy.sh')
+    writeFileSync(old, '#!/bin/sh\nsleep 30\n', { mode: 0o755 })
+    const t0 = Date.now()
+    const r = run(['lease', 'renew'], { DFLOW_HEAVY_SH: old })
+    expect(r.stdout.trim()).toBe('LEASE_OK')
+    expect(Date.now() - t0).toBeLessThan(15_000)
+    expect(renewBody().heavy).toBeUndefined()
+  })
+
+  it('비밀 값은 허용 목록으로 가린다 — URL·띄어 준 플래그 값·Bearer·따옴표 값·Windows 경로', () => {
+    run(['lease', 'acquire'])
+    const cmd = [
+      'DATABASE_URL=postgres://u:hunter2@db/x npm test --token s3cr3t -H "Authorization: Bearer abc.def"',
+      "API_TOKEN='a b c' DB_PWD=pw1 C:\\Users\\hong\\proj\\gradlew.bat build",
+    ].join(' ')
+    slot('slot-1', { pid: process.pid, start: 1, cwd: WT(), cmd })
+    run(['lease', 'renew'], HV)
+    const sent = renewBody().heavy.orders[0].cmd as string
+    for (const leak of ['hunter2', 's3cr3t', 'abc.def', 'pw1', 'hong', 'b c']) expect(sent, leak).not.toContain(leak)
+    expect(sent).toContain('npm test --token ***')
+    expect(sent).toContain('gradlew.bat build')
   })
 })
 

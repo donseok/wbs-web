@@ -66,20 +66,30 @@ lease_acquire() {
 }
 
 # 무거운 작업 표시(wbs-web docs/superpowers/specs/2026-09-26-heavy-work-office-bubble-design.md §2) — heavy.sh snapshot 을
-# renew 의 heavy({pc, orders})로 바꾼다. 팀원 워크트리(.claude/worktrees/dflow-<id8>[-resolve]) 의 슬롯만 주문에 싣고,
-# 명령의 워크트리 경로는 ".", 홈은 "~", *TOKEN*·*SECRET*·*KEY*·*PASS*·*PAT* 값은 "***" 로 가린다(홈 경로를 서버에 보내지 않는다).
+# renew 의 heavy({pc, orders})로 바꾼다. 팀원 워크트리(.claude/worktrees/dflow-<id8>[-resolve]) 의 슬롯만 주문에 싣는다.
+# 명령은 허용 목록으로 가린다(홈 경로·비밀 값을 서버에 보내지 않는다): 경로는 마지막 조각만, `a=b` 는 `a=***`, URL 은 `<url>`,
+# 비밀 류 플래그(--token·-H·Bearer …) 바로 뒤 토큰은 `***`, 영숫자·`_.:+,-` 밖의 글자가 든 토큰은 `***`. 서버(heavyWork.ts
+# sanitizeHeavyCmd)가 같은 규칙을 한 번 더 건다.
 # 무엇이 실패해도 빈 출력이다 — heavy 쪽 실패가 renew 를 실패시키면 lease_keep 이 3회 만에 팀장을 멈춘다.
+# `snapshot)` 분기가 없는 옛 heavy.sh 는 부르지 않는다 — 모르는 인자를 무거운 명령으로 보고 슬롯을 최대 240초 기다린다.
 lease_heavy_json() {
   _hv="${DFLOW_HEAVY_SH:-$(dirname "$0")/../../dflow-dev/scripts/heavy.sh}"
-  [ -f "$_hv" ] || return 0
+  [ -f "$_hv" ] && grep -q 'snapshot)' "$_hv" 2>/dev/null || return 0
   _snap=$(bash "$_hv" snapshot 2>/dev/null) || return 0
-  printf '%s\n' "$_snap" | jq -Rnc --arg home "${HOME:-}" '
+  printf '%s\n' "$_snap" | jq -Rnc '
     def num: if . == null or . == "-" then null else (tonumber? // null) end;
     def wt: (capture("^(?<wt>.*/\\.claude/worktrees/dflow-(?<id8>[0-9a-f]{8})(-resolve)?)(/|$)") // null);
-    def clean($w): (if $w then split($w) | join(".") else . end)
-      | (if $home != "" then split($home) | join("~") else . end)
-      | gsub("(?<k>[A-Za-z0-9_]*(TOKEN|SECRET|KEY|PASS|PAT)[A-Za-z0-9_]*)=[^ ]*"; "\(.k)=***"; "i")
-      | .[0:200];
+    def secretflag: test("^-{1,2}[A-Za-z0-9_-]*(token|secret|key|pass|pwd|auth|header|cookie|cred)[A-Za-z0-9_-]*$"; "i")
+      or test("^(-H|-u|bearer|basic)$"; "i");
+    def tok: if test("://") then "<url>"
+      elif test("=") then (split("=")[0] | if test("^-{0,2}[A-Za-z_][A-Za-z0-9_.-]*$") then . + "=***" else "***" end)
+      else (split("/") | last | split("\\") | last)
+        | if . == "" then empty elif test("^[A-Za-z0-9_.:+,-]+$") then . else "***" end
+      end;
+    def clean: gsub("=(\"[^\"]*\"|\u0027[^\u0027]*\u0027)"; "=***") | gsub("[\"\u0027`]"; " ") | [splits("\\s+") | select(. != "")]
+      | reduce .[] as $t ({out: [], hide: false};
+          {out: (.out + (if .hide then ["***"] else [$t | tok] end)), hide: ($t | secretflag)})
+      | .out | join(" ") | .[0:190];
     [inputs | select(. != "") | split("\t")] as $rows
     | ([$rows[] | select(.[0] == "PC")] | first) as $pc
     | if $pc == null then empty else
@@ -91,7 +101,7 @@ lease_heavy_json() {
               else empty end
             | (.cwd // "" | wt) as $m | select($m != null)
             | . as $o
-            | $o + {id8: $m.id8, cmd: ($o.cmd // "" | clean($m.wt)),
+            | $o + {id8: $m.id8, cmd: ($o.cmd // "" | clean),
                     pos: (if $o.state == "wait" and $o.pool == "general" and $o.since != null
                           then ([$ws[] | select(. < $o.since)] | length) + 1 else null end)}
             | del(.cwd) ]
