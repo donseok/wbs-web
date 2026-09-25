@@ -12,12 +12,11 @@ SKILL.md 「4-1. 머지 충돌 해소」·「5-2. 해소 spawn」 이 이 문서
 - **충돌 목록**: 표시를 풀어야 할 id8 이다. `team.conflict` 이벤트로 남기며, id8 마다 마지막 `decision` 이 `cleared` 가
   아닌 것이다(「5」 의 jq).
 - **해소 슬롯**: 워크트리 이름이 `-resolve` 로 끝나는 슬롯이다(`<MAIN>/.claude/worktrees/dflow-<id8>-resolve`,
-  두 백엔드 공통 — 2026-09-24부터. 옛 방식 Orca 워크트리는 `<MAIN>/dflow-<id8>-resolve`). `spawn_kind` 로 가르지
-  않는 이유: 팀장을 다시 띄우면 「1. 시작」 5번이 살아 있는 슬롯을
-  `spawn_kind: readopt` 로 다시 적어 `resolve` 가 사라진다. 그 줄은 `orig_kind` 에 원래 종류를 싣지만(events.md), 옛 줄에는
-  없으므로 판별의 정본은 워크트리 이름이다. 이 판별을 해소 결과 처리(「4」)·차단기(「6」)·동시 해소 상한이 모두 쓴다.
+  두 백엔드 공통. 옛 방식 Orca 워크트리는 `<MAIN>/dflow-<id8>-resolve`). `spawn_kind` 로 가르지 않는다(팀장을 다시 띄우면
+  「1. 시작」 5번이 `spawn_kind: readopt` 로 다시 적는다. `orig_kind` 는 옛 줄에 없다). 판별의 정본은 워크트리 이름이며
+  해소 결과 처리(「4」)·차단기(「6」)·동시 해소 상한이 모두 쓴다.
 - **동시 해소 상한**은 `max(1, ⌊인원/2⌋)` 이다. 세는 대상은 위 판별(워크트리 접미사 `-resolve`)로 고른 해소 슬롯이며, 답을 기다리는 `blocked` 해소 워커도 센다. 넘치는 것은 해소 큐에 남긴다.
-  이유: `blocked` 해소 워커는 슬롯을 쥔다. 상한이 없으면 충돌이 많은 밤에 모든 슬롯이 사람을 기다리며 선다.
+  (`blocked` 해소 워커가 슬롯을 쥐므로, 상한이 없으면 충돌이 많은 밤에 모든 슬롯이 사람을 기다리며 선다.)
 - **해소는 이 신원의 주문(`mine`)만 한다.** 같은 신원+프로젝트의 팀장은 lease 가 하나로 묶는다.
 - `LEASE_LOST` 마감·잠금 상실 마감·「7. 마감」 에 들어선 뒤에는 해소를 새로 띄우지 않는다(spawn 이기 때문이다). 떠 있는
   해소 워커는 워커와 같이 끝까지 한다.
@@ -82,9 +81,7 @@ SKILL.md 「4-1. 머지 충돌 해소」·「5-2. 해소 spawn」 이 이 문서
      블록의(입장 제어 줄 다음) `WT="<MAIN>/.claude/worktrees/dflow-<id8>"` 를
      `WT="<MAIN>/.claude/worktrees/dflow-<id8>-resolve"` 로 쓰고, `<포인터 한 줄>` 을 아래 4번의 해소 포인터로 쓰고,
      이름표를 `w<slot> · 해소 <TSK> <id8>` 로 붙인다. 그 뒤의 `.dflow-pane` 기록·**폴더 신뢰 확인 루프**는 같다.
-   - **Orca**(2026-09-24부터 — 옛 방식은 `orca worktree create --name dflow-<id8>-resolve --agent claude
-     --no-parent --base-branch origin/<개발브랜치> --prompt "<포인터 한 줄>" --json` 으로 브랜치 워크트리를 만들고
-     해소 워커가 부트스트랩 끝에서 `origin/<개발브랜치>` 로 detach 했다): tmux 와 같은 블록을 같은 `WT`
+   - **Orca**: tmux 와 같은 블록을 같은 `WT`
      치환(`-resolve` 접미)으로 그대로 돈 뒤(입장 제어 두 줄 포함이므로 따로 부르지 않는다), `chmod +x
      "$WT/.dflow-run"` 줄 뒤를 backends.md 「pane(Orca)」 대로 `orca terminal create --worktree "path:$WT"
      --title 'w<slot> · 해소 <TSK> <id8>' --command ./.dflow-run --json` 으로 잇는다. 결과 핸들을 `$WT/.dflow-pane`
@@ -165,8 +162,7 @@ jq -rs --arg a '<신원>/<host>/lead' --arg r '<MAIN>' '[.[] | select(.agent == 
 ## 6. 차단기
 
 해소 워커의 **내용 실패** `failed gate`·`failed push-race`·`failed push-hook`·`failed push-other`·`failed not-detached`·`failed dirty-dev-state` 는
-`not-assignee` 처럼 **세지도 끊지도 않는다.** 이유: 의미 충돌 두 건이 연달아 `failed gate` 가 되면 차단기가 새 spawn 을
-모두 멈춘다. 이 설계가 풀려던 정지를 다시 만드는 셈이다. **환경 실패**(`rate-limit`·`no-result`·`deps`·`permission`·
+`not-assignee` 처럼 **세지도 끊지도 않는다**(의미 충돌 두 건으로 차단기가 걸리면 해소가 풀려던 정지가 되돌아온다). **환경 실패**(`rate-limit`·`no-result`·`deps`·`permission`·
 부트스트랩 실패 값)만 워커와 같이 센다. 실패가 아닌 결과(`resolved`·`skipped`·`blocked`)는 워커와 같이 연속 수를
 0으로 되돌린다. 재구성에서 해소 워커인지는 id8 마다 마지막 `team.spawn` 의 워크트리 이름으로 가른다(「0」). `readopt`
 줄이 `spawn_kind` 를 덮어도 워크트리와 `orig_kind` 가 남으므로, 팀장을 다시 띄운 뒤에도 해소 워커의 내용 실패가

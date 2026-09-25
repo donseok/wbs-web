@@ -72,6 +72,25 @@
 - `team.sweep`: 네 필드 모두 개수(숫자)다. `resolved` 는 직전 스윕 뒤 해소 머지가 조상 확인까지 통과한 수다.
 - `team.conflict`: `decision` 은 `queued`(해소 큐에 넣음)·`human`(사람 몫)·`cleared`(표시 해제) 중 하나, `files` 는 충돌 파일 목록(쉼표로 이음, 모르면 `-`)이다. id8 마다 마지막 `decision` 이 `cleared` 가 아니면 충돌 목록에 남는다(merge-conflict.md 「5」).
 
+### 가드(기록 명령의 설명)
+
+- 첫 `jq` 는 줄을 만들고 둘째 `jq` 는 가드다. 둘은 `&&` 로 잇는다. 이유: 파이프로 이으면 첫 `jq` 가 컴파일
+  오류(`--arg` 하나를 빠뜨리고 필터에 `$slot` 이 남은 경우)로 죽어도 가드가 빈 입력을 받아 0 으로 끝나
+  `EVENT_ARGS_MISSING` 이 나오지 않는다. `&&` 이면 첫 `jq` 의 실패가 곧바로 `|| echo` 로 간다.
+- 가드는 공통 다섯 필드(`ts`·`host`·`repo`·`event`·`agent`) 가운데 하나라도 비거나, `phase` 가 `team` 이
+  아니거나, `host` 가 이 PC 의 호스트 이름(`hostname` 의 첫 점 앞부분) 과 다르거나, 위 표의 이벤트별 추가 필드
+  가운데 하나라도 없거나 비면(`reason` 은 비어도 된다. `done` 결과 줄에는 사유가 없을 수 있다) 줄을 붙이지
+  않고 `EVENT_ARGS_MISSING` 을 낸다. 모르는 값은 `""` 가 아니라 `-` 로 쓴다. 이유: 압축 뒤 기억으로 재구성한
+  명령은 인자가 비거나 추가 필드를 빠뜨리고 `host` 를 슬러그로 쓰며, 그런 줄로는 재구성이 슬롯·해시·제외
+  목록을 복원하지 못한다. 이 출력이 보이면 이 문서의 명령 블록을 다시 띄워(SKILL.md 「2-3」 의 마지막 명령)
+  그대로 다시 실행한다. 기록 실패는 팀장 절차를 멈추지 않는다.
+- `repo` 는 팀장 체크아웃의 절대경로다. 재구성이 이 값으로 이 리포의 줄만 거른다. 이름만 쓰면 같은 이름의
+  클론 둘이 섞인다.
+- `<주문 전체 UUID>` 는 show 응답의 `.order.id` 다. 모르면 `-`.
+- `slot` 은 문자열(`2` 또는 `-`)로 쓴다. `team.start` 의 `slots` 와 `team.sweep` 의 네 필드는 `--argjson` 숫자이고,
+  `team.spawn` 의 `spawn_kind` 는 `--arg` 문자열이며 `new`·`resume`·`readopt`·`resolve` 밖의 값을 쓰지 않는다. 다른 값을
+  쓰면 가드는 통과하지만 재시도 계산이 그 줄을 세지 않는다.
+
 ## 기록 명령
 
 결과 줄에서 해시와 사유를 뽑는다(`team.result`·`team.blocked`).
@@ -80,9 +99,12 @@ l=$(head -n 1 '<.result 경로>')
 hash=$(printf '%s\n' "$l" | cksum | cut -d' ' -f1)
 reason=$(printf '%s\n' "$l" | cut -d' ' -f7-)
 ```
-한 줄을 jq 로 만들어 붙인다. 사유·답에 따옴표가 들어가도 JSON 이 깨지지 않게, 문자열은 모두 `--arg` 로 넘기고
-숫자만 `--argjson` 으로 넘긴다. 아래는 `team.result` 예이며, 다른 이벤트는 첫 `jq` 의 마지막 두 줄(인자와 추가
-객체)만 위 표의 필드로 바꾼다.
+한 줄을 jq 로 만들어 붙인다. 문자열은 모두 `--arg`, 숫자(`team.start` 의 `slots`, `team.sweep` 의 네 필드)만 `--argjson` 으로
+넘긴다(`slot` 은 문자열 `2` 또는 `-`). 모르는 값은 `""` 가 아니라 `-` 로 쓴다. 아래는 `team.result` 예이며, 다른 이벤트는 첫
+`jq` 의 마지막 두 줄(인자와 추가 객체)만 이 문서 「이벤트」 표의 필드로 바꾼다. `EVENT_ARGS_MISSING` 이 나오면 줄이 붙지
+않았다: 이 절의 블록을 그대로 다시 실행한다(기록 실패는 팀장 절차를 멈추지 않는다). `repo` 는 팀장 체크아웃의 절대경로,
+`<주문 전체 UUID>` 는 show 응답의 `.order.id`(모르면 `-`)다. `team.spawn` 의 `spawn_kind` 는
+`new`·`resume`·`readopt`·`resolve` 밖의 값을 쓰지 않는다.
 ```bash
 mkdir -p ~/.dflow && line=$(jq -nc \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg host "$(hostname | cut -d. -f1)" --arg repo '<MAIN_CHECKOUT>' \
@@ -110,19 +132,3 @@ mkdir -p ~/.dflow && line=$(jq -nc \
   --arg id8 '<id8>' --arg summary '<이슈 보고 첫 줄의 요약부>' --arg decision '<pending 또는 결정 요약>' \
   '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {id8:$id8,summary:$summary,decision:$decision}') \
 ```
-- 첫 `jq` 는 줄을 만들고 둘째 `jq` 는 가드다. 둘은 `&&` 로 잇는다. 이유: 파이프로 이으면 첫 `jq` 가 컴파일
-  오류(`--arg` 하나를 빠뜨리고 필터에 `$slot` 이 남은 경우)로 죽어도 가드가 빈 입력을 받아 0 으로 끝나
-  `EVENT_ARGS_MISSING` 이 나오지 않는다. `&&` 이면 첫 `jq` 의 실패가 곧바로 `|| echo` 로 간다.
-- 가드는 공통 다섯 필드(`ts`·`host`·`repo`·`event`·`agent`) 가운데 하나라도 비거나, `phase` 가 `team` 이
-  아니거나, `host` 가 이 PC 의 호스트 이름(`hostname` 의 첫 점 앞부분) 과 다르거나, 위 표의 이벤트별 추가 필드
-  가운데 하나라도 없거나 비면(`reason` 은 비어도 된다. `done` 결과 줄에는 사유가 없을 수 있다) 줄을 붙이지
-  않고 `EVENT_ARGS_MISSING` 을 낸다. 모르는 값은 `""` 가 아니라 `-` 로 쓴다. 이유: 압축 뒤 기억으로 재구성한
-  명령은 인자가 비거나 추가 필드를 빠뜨리고 `host` 를 슬러그로 쓰며, 그런 줄로는 재구성이 슬롯·해시·제외
-  목록을 복원하지 못한다. 이 출력이 보이면 이 문서의 명령 블록을 다시 띄워(SKILL.md 「2-3」 의 마지막 명령)
-  그대로 다시 실행한다. 기록 실패는 팀장 절차를 멈추지 않는다.
-- `repo` 는 팀장 체크아웃의 절대경로다. 재구성이 이 값으로 이 리포의 줄만 거른다. 이름만 쓰면 같은 이름의
-  클론 둘이 섞인다.
-- `<주문 전체 UUID>` 는 show 응답의 `.order.id` 다. 모르면 `-`.
-- `slot` 은 문자열(`2` 또는 `-`)로 쓴다. `team.start` 의 `slots` 와 `team.sweep` 의 네 필드는 `--argjson` 숫자이고,
-  `team.spawn` 의 `spawn_kind` 는 `--arg` 문자열이며 `new`·`resume`·`readopt`·`resolve` 밖의 값을 쓰지 않는다. 다른 값을
-  쓰면 가드는 통과하지만 재시도 계산이 그 줄을 세지 않는다.

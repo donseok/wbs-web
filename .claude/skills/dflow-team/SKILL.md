@@ -1116,6 +1116,7 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
      (`default` 면 빈 값). 두 백엔드 모두 같은 값을 `.dflow-run` 의 `claude` 호출에도 붙인다(backends.md).
 5. **띄우기 직전** `references/restart.md` 「중단 표식 정리」 블록을 돈다(`order` 는 show 필터의 `order`, `st` 는 `status`).
    `CANCEL_MARK_RM_FAILED` 면 띄우지 않고 그 id8 을 일시 제외에 넣어 사유를 보고한다. 이어서 backends.md 의 해당 절 명령 그대로 띄운다.
+   backends.md 는 통째로 읽지 않고 그 머리 「읽는 법」 의 `sed` 명령으로 spawn 절만 읽는다(Orca 는 「pane(Orca)」 도).
    - **pane(tmux)**: 팀장 체크아웃에서
      `git worktree add --detach <MAIN>/.claude/worktrees/dflow-<id8> origin/<기본브랜치>` 로 워크트리를 만들고
      `.dflow.local`(레거시 `.env`)·스킬 링크를 건 뒤, 포인터를 `<워크트리>/.dflow-prompt` 에, 실행 스크립트를 `<워크트리>/.dflow-run`
