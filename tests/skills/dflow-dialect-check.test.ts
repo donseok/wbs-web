@@ -11,6 +11,8 @@ import { join } from 'node:path'
 const ROOT = process.cwd()
 const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/dialect-check.sh')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+// 방언 검증의 명령·결과 줄 상세는 스윕 보고 직전에만 읽는 references/dialect.md 로 옮겼다(2026-09-25)
+const DIALECT = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/dialect.md'), 'utf8')
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 const EXAMPLE = readFileSync(join(ROOT, '.claude/skills/dflow-work/dflow.example'), 'utf8')
 const LOCAL_EXAMPLE = readFileSync(join(ROOT, '.claude/skills/dflow-work/dflow.local.example'), 'utf8')
@@ -229,9 +231,10 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
 
 describe('방언 검증 문서 계약', () => {
   it('/dflow-merge 에 「방언 검증」 절이 있고 스윕 끝에 한 번만, --resolve 는 제외다', () => {
-    const sec = MERGE.slice(MERGE.indexOf('## 방언 검증'))
+    const sec = MERGE.slice(MERGE.indexOf('## 방언 검증'), MERGE.indexOf('## 결정 번호 매김'))
     expect(MERGE).toContain('## 방언 검증')
-    expect(sec).toContain('.claude/skills/dflow-merge/scripts/dialect-check.sh run --dev <기본브랜치> --sweep-base <스윕 전 sha>')
+    expect(sec).toContain('`references/dialect.md` 를 읽고')
+    expect(DIALECT).toContain('.claude/skills/dflow-merge/scripts/dialect-check.sh run --dev <기본브랜치> --sweep-base <스윕 전 sha>')
     expect(sec).toContain('머지마다 돌리지 않는다')
     expect(sec).toContain('`--resolve` 는 이 절을 타지 않는다')
     expect(sec).toContain('도커 런타임을 켜지 않는다')
@@ -252,9 +255,8 @@ describe('방언 검증 문서 계약', () => {
     expect(events).toContain('id8 가 `dialect` 인 줄은 팀원 이슈가 아니라 방언 검증 기록이다')
   })
   it('/dflow-merge 는 실행 불가·시그널 exit 를 실패로 기록하지 않는다고 적는다', () => {
-    const sec = MERGE.slice(MERGE.indexOf('## 방언 검증'))
-    expect(sec).toContain('exit 126·127·128 이상')
-    expect(sec).toContain('`DIALECT_ERROR exit=<n> <sha> notify=<0|1> log=<로그>`')
+    expect(DIALECT).toContain('exit 126·127·128 이상')
+    expect(DIALECT).toContain('`DIALECT_ERROR exit=<n> <sha> notify=<0|1> log=<로그>`')
   })
   it('예시 설정에 dialect_check 가 있고, PC 전용 값은 .dflow.local 에 두라고 안내한다', () => {
     expect(EXAMPLE).toContain('# dialect_check=')

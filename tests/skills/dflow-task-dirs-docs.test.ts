@@ -6,7 +6,7 @@ import { join } from 'node:path'
 describe('스킬 문서의 작업 폴더', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
   const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-merge/SKILL.md',
-    ...['resolve', 'merge-worktree', 'unapproved', 'push-fail', 'rationale'].map((r) => `dflow-merge/references/${r}.md`),
+    ...['resolve', 'merge-worktree', 'unapproved', 'push-fail', 'dialect', 'script-details', 'rationale'].map((r) => `dflow-merge/references/${r}.md`),
     'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
     'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
     'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']
@@ -146,7 +146,7 @@ describe('스킬 문서의 작업 폴더', () => {
 describe('들여쓴 bash 블록의 붙여넣기 안전성', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
   const FILES = ['dflow-dev/SKILL.md', 'dflow-dev/references/dev-discipline.md', 'dflow-merge/SKILL.md',
-    ...['resolve', 'merge-worktree', 'unapproved', 'push-fail', 'rationale'].map((r) => `dflow-merge/references/${r}.md`),
+    ...['resolve', 'merge-worktree', 'unapproved', 'push-fail', 'dialect', 'script-details', 'rationale'].map((r) => `dflow-merge/references/${r}.md`),
     'dflow-team/SKILL.md', 'dflow-team/references/worker-prompt.md', 'dflow-team/references/backends.md',
     'dflow-team/references/events.md', 'dflow-work/SKILL.md', 'dflow-work/README.md',
     'dflow-work/references/troubleshooting.md', 'dflow-work/references/api-contract.md']
