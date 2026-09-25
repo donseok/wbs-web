@@ -139,3 +139,20 @@ describe('토큰 규칙', () => {
     expect(SKILL).toContain('dev-discipline.md 는 전체를 읽지 말고 이\n프롬프트가 인용한 절만 읽는다')
   })
 })
+
+describe('읽기 규율(design.md 는 한 번, 기록은 build-log.md)', () => {
+  it('dev-discipline 에 읽기 규율 절이 있고 Build·Verify·Refactor 가 그 절을 따른다', () => {
+    const rule = between(DISC, '## 읽기 규율', '## Phase 03')
+    expect(rule).toContain('**design.md 전체는 Phase 마다 처음 한 번만 Read 한다.**')
+    expect(rule).toContain("grep -n '^## '")
+    expect(rule).toContain('`<TASKS>/<TSK>/build-log.md`')
+    expect(rule).toContain('`## 담당자 확인 필요 결정`·`## 도커 금지로 생략한 검증`')
+    expect(rule).toContain('`offset`·`limit`')
+    expect(between(DISC, '## Phase 03', '## Phase 04')).toContain('build-log.md `## 설계 이탈`')
+    expect(between(DISC, '## Phase 04', '## Phase 05')).toContain('build-log.md 「변이 검증 기록」 표의 행마다')
+  })
+  it('SKILL.md 가 Verify 감사를 build-log.md 에서 하고 공통 프롬프트에 읽기 규율을 넣는다', () => {
+    expect(SKILL).toContain('**Verify 의 감사 확인**: build-log.md 「변이 검증 기록」 표')
+    expect(SKILL).toContain('**읽기 규율**(dev-discipline.md 「읽기 규율」)')
+  })
+})
