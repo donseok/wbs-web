@@ -10,7 +10,8 @@ set -u
 # additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
 # 2.6: 완료 보고 decisions(과제 C). 2.7: 팀장 머지 충돌 표시(heartbeat --clear-merge-conflict).
 # 2.8: 강제 진행 — 의존 면제·스텁 제거 작업(stub-check, 과제 D).
-CONTRACT_VERSION=2.8
+# 2.9: 설계 단계 ds — claim --design-first·build-start, heartbeat phase wait_pred(설계 선행).
+CONTRACT_VERSION=2.9
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"
@@ -30,7 +31,13 @@ usage() {
                          --any-project 는 필터를 끈다(진단용)
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
   taskdir <ref>          주문의 작업 폴더(<DOCS_DIR>/tasks/<TSK>, 리포 최상위 기준)
-  claim <ref>            주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH)
+  claim <ref> [--design-first]
+                         주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH).
+                         --design-first(계약 2.9): 선행이 구현 중이어도 설계부터 잡는다(단계 ds). 미충족 선행이 있으면
+                         DESIGN_FIRST_UNMET <JSON 배열> 한 줄을 더 낸다. 너무 이른 선행이면 exit 4 + stderr DESIGN_FIRST_TOO_EARLY
+  build-start <ref>      설계를 마치고 구현으로 넘긴다(ds→ip, 계약 2.9). 선행 미충족이면 exit 4(claim 과 같다),
+                         옛 서버(404)면 stderr BUILD_START_UNSUPPORTED 에 exit 0
+  contract-ge <x.y>      서버 계약 버전이 x.y 이상이면 exit 0, 아니면 1(숫자 비교 — 2.10 > 2.9). 조회 실패는 그 exit
   progress <ref> <pct 0-99> <요약>
   heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id] [--model m] [--clear-merge-conflict]
                          진행 중 신호(보고 행 없음). --agent 기본값은 워크트리 루트 .dflow-agent 첫 줄
@@ -349,6 +356,9 @@ check_project() { # $1=전체 UUID
 }
 
 cmd_claim() {
+  _df=''
+  case "${2:-}" in '') ;; --design-first) _df=1 ;; *) usage ;; esac
+  [ $# -le 2 ] || usage
   _id=$(resolve_ref "$1")
   check_project "$_id"
   # ① show 로 선행 evidence 를 먼저 받아 로컬 검사 — 통과 전에는 claim 자체를 하지 않는다(결정 C-②).
@@ -361,10 +371,61 @@ cmd_claim() {
   # 신원을 맞춰야 좌석표가 claimed_by 와 heartbeat_agent 를 같은 에이전트로 합친다
   # (src/lib/domain/seatmap.ts:180 — 서로 다르면 신원 없는 별도 좌석으로 갈라진다).
   _label=$(agent_id_default)
-  _resp=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/claim" \
-    "$(jq -nc --arg a "$_label" '{agent:$a}')") || exit $?
+  if [ -z "$_df" ]; then
+    _resp=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/claim" \
+      "$(jq -nc --arg a "$_label" '{agent:$a}')") || exit $?
+  else
+    # 설계 선행(계약 2.9) — 옛 서버는 design_first 를 모르고 무시한다(선행 미충족이면 종전 403 → exit 4).
+    # 거부 본문은 종전처럼 stderr 로 내되, 너무 이른 선행(design_first_too_early)이면 알아보기 쉬운 표식 한 줄을 더한다.
+    _err="$CACHE_DIR/dflow_claim_err.$$"; mkdir -p "$CACHE_DIR"
+    _resp=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/claim" \
+      "$(jq -nc --arg a "$_label" '{agent:$a, design_first:true}')" 2>"$_err"); _rc=$?
+    cat "$_err" >&2
+    if [ "$_rc" -ne 0 ]; then
+      if [ "$_rc" -eq 4 ] && [ "$(jq -r '.reason // empty' "$_err" 2>/dev/null)" = design_first_too_early ]; then
+        printf 'DESIGN_FIRST_TOO_EARLY %s\n' "$(jq -c '.unmet // []' "$_err" 2>/dev/null)" >&2
+      fi
+      rm -f "$_err"; exit "$_rc"
+    fi
+    rm -f "$_err"
+  fi
   write_spec_cache "$_resp"
   printf 'claimed %s\n' "$(printf '%s' "$_id" | cut -c1-8)"
+  # 미충족 선행이 있을 때만 알린다 — 없으면(선행 충족·옛 서버) 종전 claim 과 같은 출력이다.
+  if [ -n "$_df" ]; then
+    _unmet=$(printf '%s' "$_resp" | jq -c 'if .design_first == true then (.unmet // []) else [] end' 2>/dev/null) || _unmet='[]'
+    [ "${_unmet:-[]}" = '[]' ] || printf 'DESIGN_FIRST_UNMET %s\n' "$_unmet"
+  fi
+}
+
+# 설계를 마치고 구현으로 넘긴다(계약 2.9, 단계 ds→ip). 점유자 본인만 부른다 — claim·progress 와 같은 신원 산출.
+# 선행 미충족은 403 dependency_not_met(api_raw 가 exit 4 로 바꾼다 — claim 의 선행 대기와 같은 코드).
+# 옛 서버에는 이 경로가 없어 404 다. 본문이 JSON 이 아닐 수 있으므로(HTML 404) 읽지 않고 표식만 낸 뒤 성공으로 넘긴다 —
+# 옛 서버의 claim 은 이미 ip 로 보냈다.
+cmd_build_start() {
+  _id=$(resolve_ref "$1")
+  _err="$CACHE_DIR/dflow_bs_err.$$"; mkdir -p "$CACHE_DIR"
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/build-start" \
+    "$(jq -nc --arg a "$(agent_id_default)" '{agent:$a}')" 2>"$_err"); _rc=$?
+  if [ "$_rc" -eq 7 ]; then
+    rm -f "$_err"
+    printf 'BUILD_START_UNSUPPORTED 서버에 build-start 가 없다(계약 < 2.9) — 구현으로 넘어간다\n' >&2
+    return 0
+  fi
+  cat "$_err" >&2; rm -f "$_err"
+  [ "$_rc" -eq 0 ] || exit "$_rc"
+  printf 'build-started %s\n' "$(printf '%s' "$_id" | cut -c1-8)"
+}
+
+# 서버 계약 버전이 인자 이상인가. 문자열로 견주면 2.10 이 2.9 보다 작게 나온다 — 칸마다 숫자로 본다.
+cmd_contract_ge() {
+  case "$1" in [0-9]*.[0-9]*) ;; *) usage ;; esac
+  _me=$(TOKEN="$TOK" api_raw GET /api/v1/agent/me) || exit $?
+  _cv=$(printf '%s' "$_me" | jq -r '.contract_version // empty' 2>/dev/null)
+  [ -n "$_cv" ] || die 6 "계약 버전 확인 불가 — /me 응답에 contract_version 이 없다"
+  awk -v a="$_cv" -v b="$1" 'BEGIN { split(a, x, "."); split(b, y, ".")
+    for (i = 1; i <= 2; i++) { if (x[i] + 0 > y[i] + 0) exit 0; if (x[i] + 0 < y[i] + 0) exit 1 }
+    exit 0 }'
 }
 
 # 주문의 작업 폴더(리포 최상위 기준 상대경로). 스킬 문서의 <TASKS>/<TSK> 가 이 값이다.
@@ -777,6 +838,8 @@ case "$CMD" in
        show) [ $# -ge 1 ] || usage; cmd_show "$@" ;;
        taskdir) [ $# -ge 1 ] || usage; cmd_taskdir "$@" ;;
        claim) [ $# -ge 1 ] || usage; cmd_claim "$@" ;;
+       build-start) [ $# -eq 1 ] || usage; cmd_build_start "$@" ;;
+       contract-ge) [ $# -eq 1 ] || usage; cmd_contract_ge "$@" ;;
        progress) [ $# -ge 3 ] || usage; cmd_progress "$@" ;;
        heartbeat) [ $# -ge 1 ] || usage; cmd_heartbeat "$@" ;;
        watch) cmd_watch "$@" ;;

@@ -1,5 +1,6 @@
 // tests/skills/dflow-claim-identity.test.ts
-// claim · progress · done · release 가 heartbeat(agent_id_default)와 같은 신원 산출을 쓰는지 검사한다.
+// claim · build-start · progress · done · release 가 heartbeat(agent_id_default)와 같은 신원 산출을 쓰는지 검사한다.
+// build-start(계약 2.9)는 점유자 본인만 부른다 — 재개로 새로 띄운 팀원도 같은 워크트리의 .dflow-agent 로 같은 산출을 쓴다.
 // 2026-09-20: claim 이 claude-<host> 를 보내면 좌석 신원이 heartbeat_agent(=agent_id_default)와
 // 어긋나(src/lib/domain/seatmap.ts:180) 첫 heartbeat 전까지 「신원 없는 에이전트」로 따로 나오던
 // 버그의 회귀 가드. dflow.sh 를 가짜 curl 로 실제 실행하고, POST 본문의 agent 필드를 캡처해 검사한다.
@@ -50,6 +51,7 @@ case "$url" in
   *"/agent/work/${WORK_ID}/claim") code=200; body='{"id":"${WORK_ID}","item":{}}' ;;
   *"/agent/work/${WORK_ID}/report") code=200; body='{"status":"ok"}' ;;
   *"/agent/work/${WORK_ID}/release") code=200; body='{"status":"released"}' ;;
+  *"/agent/work/${WORK_ID}/build-start") code=200; body='{"ok":true}' ;;
   *"/agent/work/${WORK_ID}") code=200; body='{"id":"${WORK_ID}","depends_evidence":[]}' ;;
   *) code=200; body='{}' ;;
 esac
@@ -108,30 +110,32 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(tmp, { recursive: true, force: true }))
 
-describe('dflow.sh claim/progress/done/release 신원 — heartbeat(agent_id_default)와 일치', () => {
-  it('.dflow-agent 가 없으면 넷 다 claude-<host> 를 보낸다(종전 동작 유지)', () => {
+describe('dflow.sh claim/build-start/progress/done/release 신원 — heartbeat(agent_id_default)와 일치', () => {
+  it('.dflow-agent 가 없으면 다섯 다 claude-<host> 를 보낸다(종전 동작 유지)', () => {
     const expected = `claude-${slug(hostShort())}`
 
     expect(run(['claim', WORK_ID]).status).toBe(0)
+    expect(run(['build-start', WORK_ID]).status).toBe(0)
     expect(run(['progress', WORK_ID, '10', '진행']).status).toBe(0)
     expect(run(['done', WORK_ID, '완료']).status).toBe(0)
     expect(run(['release', WORK_ID]).status).toBe(0)
 
     const agents = capturedAgents()
-    expect(agents).toHaveLength(4)
+    expect(agents).toHaveLength(5)
     for (const a of agents) expect(a).toBe(expected)
   })
 
-  it('.dflow-agent 가 있으면 넷 다 그 신원을 보낸다 — heartbeat 와 같은 산출', () => {
+  it('.dflow-agent 가 있으면 다섯 다 그 신원을 보낸다 — heartbeat 와 같은 산출', () => {
     writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
 
     expect(run(['claim', WORK_ID]).status).toBe(0)
+    expect(run(['build-start', WORK_ID]).status).toBe(0)
     expect(run(['progress', WORK_ID, '10', '진행']).status).toBe(0)
     expect(run(['done', WORK_ID, '완료']).status).toBe(0)
     expect(run(['release', WORK_ID]).status).toBe(0)
 
     const agents = capturedAgents()
-    expect(agents).toHaveLength(4)
+    expect(agents).toHaveLength(5)
     for (const a of agents) expect(a).toBe('hong/mbp/w2')
   })
 })

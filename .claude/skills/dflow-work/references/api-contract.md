@@ -1,6 +1,25 @@
-# D'Flow Agent API 계약 v2.8
+# D'Flow Agent API 계약 v2.9
 
-`contract_version: "2.8"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다. v2.5는 팀장 lease 를 더했다. v2.6은 완료 보고의 결정 목록(`decisions`)을 더했다. v2.7은 heartbeat 에 팀장의 머지 충돌 표시를 더했다. v2.8은 강제 진행(간선 면제·스텁 제거 작업)을 더했다.
+`contract_version: "2.9"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다. v2.5는 팀장 lease 를 더했다. v2.6은 완료 보고의 결정 목록(`decisions`)을 더했다. v2.7은 heartbeat 에 팀장의 머지 충돌 표시를 더했다. v2.8은 강제 진행(간선 면제·스텁 제거 작업)을 더했다. v2.9는 설계 단계 `ds` 와 설계 선행(claim `design_first`·`build-start`)을 더했다.
+
+## v2.9 변경점 (2026-09-26)
+
+- 단계 `ds`(설계 중, en `Designing`)가 `as` 와 `ip` 사이에 들어간다(`as → ds → ip → im → xx`, 0107). 크레딧 키 `ds` 기본 10.
+  `ds` 는 선행 충족(`reached`)이 아니다(`im`·`xx` 그대로). 사람의 단계 지정·wbs.md import 도 `ds` 를 받는다.
+- claim 본문 `design_first: true`(선택): 선행이 미충족이어도 claim 한다. 단 미충족 선행이 **모두 `ip`** 여야 한다 — `as`·`ds`·미착수
+  선행이 하나라도 있으면 403 `dependency_not_met` 에 `reason: "design_first_too_early"`(`unmet[]` 동반). 성공하면 단계 `ds`·크레딧 ds 이고
+  응답에 `design_first: true`, `unmet: [{external_ref, stage}]` 가 붙는다(선행이 모두 충족이면 `unmet` 은 빈 배열). 플래그 없는 claim 은
+  종전과 글자 그대로 같다(단계 `ip`). 옛 서버는 이 필드를 무시한다.
+- POST `/api/v1/agent/work/{id}/build-start`(신규, 본문 `{agent}`): 점유자 본인·주문 `claimed`. 선행이 모두 `reached` 면 단계 `ds → ip`·
+  크레딧 ip 로 200 `{ok:true,…}`. 이미 `ip` 이상이면 아무것도 바꾸지 않고 `ok`(멱등). 선행 미충족이면 403 `dependency_not_met` + `unmet[]`.
+  옛 서버는 404(본문이 JSON 이 아닐 수 있다).
+- heartbeat `phase` 에 `wait_pred`(설계 완료·선행 대기)를 더한다. 좌석은 claimed ∧ `wait_pred` 면 침묵과 무관하게 WAIT·선행 대기다.
+  옛 서버는 400 으로 거부할 뿐이다. 킷 heartbeat 훅은 진행 중 phase 만 보내므로 `wait_pred` 는 `/dflow-dev` 가
+  `dflow.sh heartbeat <ref> --phase wait_pred` 로 직접 보낸다.
+- CLI: `dflow.sh claim <ref> --design-first`(미충족 선행이 있으면 `DESIGN_FIRST_UNMET <JSON 배열>` 한 줄, 너무 이르면 exit 4 + stderr
+  `DESIGN_FIRST_TOO_EARLY <JSON>`), `dflow.sh build-start <ref>`(403 `dependency_not_met` 은 exit 4, 404 는 stderr `BUILD_START_UNSUPPORTED`
+  에 exit 0), `dflow.sh contract-ge <x.y>`(서버 계약이 그 이상이면 exit 0, 칸마다 숫자 비교).
+- 설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-26-dflow-parallel-token-design.md §6(킷에는 미동봉).
 
 ## v2.8 변경점 (2026-09-23)
 
@@ -145,6 +164,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 | POST `/api/v1/agent/work/{id}/claim` | legacy·pat | PAT: `claimed_by_user_id` 서버 유도 기록. 배정 항목은 담당자만(403 `not_assignee`) |
 | POST `/api/v1/agent/work/{id}/release` | legacy·pat | 소유 판정: PAT=claimed_by_user_id, legacy=claimed_by 라벨. 교차 403 `not_claim_owner` |
 | POST `/api/v1/agent/work/{id}/report` | legacy·pat | 위와 같음 + PAT는 `evidence` 객체 허용 · PAT completion 은 `decisions` 배열 허용(v2.6) |
+| POST `/api/v1/agent/work/{id}/build-start` | legacy·pat | 설계 끝 → 구현(v2.9, `ds→ip`, 멱등). 소유 판정은 release·report 와 같다. 선행 미충족 403 `dependency_not_met` |
 | GET `/api/v1/agent/me` | **pat 전용** | legacy 호출 400 `identity_required` |
 | GET `/api/v1/agent/work/mine?scope=&limit=` | **pat 전용** | scope: `available`(기본)·`claimed`·`all`·`assigned` |
 | POST `/api/v1/wbs/import` | **pat 전용** | export JSON upsert. 스코프 `work:claim` 필요 |
@@ -156,10 +176,10 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 ```json
 { "ok": true, "user_email": "a@b.c", "token_name": "맥북 에어", "token_prefix": "OxMb1D1097Qz",
   "scopes": ["work:read"], "kind": "user_pat",
-  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.8",
+  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.9",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.8"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.9"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
 `projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
@@ -240,7 +260,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 전이 권한: 사람 전용 = assign/unassign/set_stage/approve/unapprove/reject/rework · 에이전트 = claim/completion/release(본인 점유). 사람의 중단은 전이 사건이 아니라 위임 해제(주문 `cancelled`) + set_stage `as` 다.
 에이전트 API에 사람 전용 사건 없음(도입 시 403 `human_gate`).
 
-UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업 중 · `im`=검수 대기 · `xx`=완료 · 미지정=미착수.
+UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ds`=설계 중(v2.9) · `ip`=작업 중 · `im`=검수 대기 · `xx`=완료 · 미지정=미착수.
 
 ### 단계 전이 사건 표 (v2.3 — 정본은 설계 §3.4)
 
@@ -252,7 +272,8 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업
 |---|---|---|---|---|
 | 배정·위임 ON | (발행 조건은 현행) | `null`→`as` (stage 가 null 일 때만) | 표.as | 사람 |
 | 배정 해제 | 불변 | `as`→`null` (as 일 때만) | 불변 | 사람 |
-| claim | `ready`→`claimed` | `ip` | 표.ip | 에이전트 |
+| claim | `ready`→`claimed` | `ip`(`design_first` 면 `ds`, v2.9) | 표.ip(`ds` 면 표.ds) | 에이전트 |
+| build_start(v2.9) | 불변(`claimed`) | `ds`→`ip`(이미 `ip` 이상이면 불변) | 표.ip | 에이전트(본인 점유) |
 | progress 보고 | 불변 | 불변 | **불변**(보고 행만) | 에이전트 |
 | completion 보고 | `claimed`→`reported` | `im` | 표.im | 에이전트 |
 | 승인 | `reported`→`approved` | `xx` | 100 | 사람 |
@@ -282,7 +303,7 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업
 | 403 | `not_claim_owner` | 점유 소유자 아님(교차 소유 포함) |
 | 403 | `insufficient_scope` | PAT 스코프 부족 |
 | 403 | `not_assignee` | 배정 항목을 타인이 claim |
-| 403 | `dependency_not_met` | 선행(depends) 미충족 claim — `reached:false`(v2.3, 결정 C — `unmet[]` 동반) |
+| 403 | `dependency_not_met` | 선행(depends) 미충족 claim·build-start — `reached:false`(v2.3, 결정 C — `unmet[]` 동반). `design_first` claim 에서 미충족 선행이 `ip` 가 아니면 `reason:"design_first_too_early"`(v2.9) |
 | 404 | — | 꺼짐/미등록/비멤버/없음(의도적 비구분) |
 | 409 | `conflict` | CAS 충돌·상태 불일치 |
 | 409 | `cancelled` | 사람이 중단한 주문(heartbeat·progress·completion). 워커는 재시도하지 말고 멈춘다 — 2026-09-19 |

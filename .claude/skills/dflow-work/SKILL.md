@@ -109,6 +109,12 @@ git fetch origin && git switch -c agent/<주문id8>-<slug> origin/<기본브랜�
 main·staging 위에서 구현을 진행하지 말 것 — done 의 push 검증은 현재 브랜치를 그대로 쓰므로
 브랜치를 안 만들면 main push 사고로 이어진다.
 
+**설계 선행(계약 2.9)**: `dflow.sh claim <ref> --design-first` 는 선행이 구현 중(`ip`)이어도 설계부터 잡는다(단계 `ds`).
+미충족 선행이 있으면 `DESIGN_FIRST_UNMET <JSON 배열>` 한 줄이 더 나오고, 선행이 아직 착수 전이면 exit 4 에 stderr
+`DESIGN_FIRST_TOO_EARLY` 다. 설계를 마치면 `dflow.sh build-start <ref>` 로 구현(`ip`)으로 넘긴다 — 선행이 아직이면 exit 4,
+옛 서버면 stderr `BUILD_START_UNSUPPORTED` 에 exit 0 이다. 서버가 지원하는지는 `dflow.sh contract-ge 2.9`(exit 0 이면 지원)로 본다.
+흐름 정본은 `/dflow-dev` SKILL.md 「설계 선행」 이다.
+
 ### 작업 폴더 조회
 
 ```bash
@@ -150,6 +156,7 @@ dflow.sh progress <순번> <0-99> "<요약>"
 - 담당자 결정 대기 직전: `dflow.sh heartbeat <id8> --phase blocked --note "<질문>"`. 좌석표에 손 든 사람과 질문이 뜬다.
   답을 받은 뒤의 첫 heartbeat(훅이든 명시든, `--phase` 가 blocked 가 아닌 것)가 이 상태를 푼다.
 - Phase 경계를 명시하고 싶을 때: `--phase prepare|design|build|verify|refactor|rejected|reported`(`prepare` = Phase 01 준비).
+- 설계를 마치고 선행을 기다리며 멈추기 직전: `--phase wait_pred`(계약 2.9). 훅은 이 값을 보내지 않으므로 직접 부른다.
 `--model` 은 지금 도는 Phase 서브에이전트의 모델(좌석표 명찰·등급). 훅은 state.json 의 `model` 을 싣는다 — 생략하면 서버 값을 그대로 둔다.
 `--agent` 기본값은 워크트리 루트 `.dflow-agent` 첫 줄, 없으면 `claude-<host>`. 값이 `*/parked` 면 보내지 않는다.
 claimed 가 아니면 exit 4, 사람이 중단한 주문(`cancelled`)이면 exit 10, 소유자가 아니면 exit 5. progress·done 도 같다.

@@ -82,10 +82,10 @@ describe('/dflow-merge — 개발 브랜치 = 운영 브랜치면 스텁 머지 
   })
 })
 
-describe('계약 문서 v2.8', () => {
+describe('계약 문서 v2.8(변경점 절 유지, 버전은 2.9)', () => {
   it('waived 필드와 reached 관계를 적는다', () => {
     expect(contract).toContain('## v2.8 변경점')
     expect(contract).toContain('`depends_evidence[].waived`')
-    expect(sh).toMatch(/^CONTRACT_VERSION=2\.8$/m)
+    expect(sh).toMatch(/^CONTRACT_VERSION=2\.9$/m)
   })
 })

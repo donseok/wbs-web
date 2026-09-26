@@ -215,7 +215,7 @@ describe('상한·계약 버전 — 서버 상수와 같다', () => {
     const cli = (src.match(/^CONTRACT_VERSION=([\d.]+)$/m) ?? [])[1]
     const server = (readFileSync(join(ROOT, 'src/lib/agent/externalApi.ts'), 'utf8').match(/AGENT_CONTRACT_VERSION = '([\d.]+)'/) ?? [])[1]
     const doc = readFileSync(join(ROOT, '.claude/skills/dflow-work/references/api-contract.md'), 'utf8')
-    expect(cli).toBe('2.8')
+    expect(cli).toBe('2.9')
     expect(server).toBe(cli)
     expect(doc).toContain(`# D'Flow Agent API 계약 v${cli}`)
     expect(doc).toContain('## v2.6 변경점')
