@@ -35,7 +35,13 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
 
    **설계 검토 대기** — 위와 같은 조건에서 그 브랜치 tip 의 state.json 이 `phase=wait_review`(설계만으로 멈춤)면 claim·격리를 하지 않는다.
    범위가 `build` 가 아니면 이어 가지 않는다 — supervised 는 `"{TSK} 설계 검토 대기 — design.md 를 검토한 뒤 /dflow-dev {TSK} --scope build
-   로 이어 간다"` 로 알리고 끝낸다. 범위가 `build` 면 `orch/design-first.md` 「3」 재개를 그대로 타되 둘이 다르다:
+   로 이어 간다"` 로 알리고 끝낸다. 범위가 `build` 면 `orch/design-first.md` 「3」 재개를 그대로 타되 넷이 다르다:
+   - 「3」 0 의 switch 대신 **사람이 고친 설계를 받아 온다.** 사람은 검토하며 design.md 를 고쳐 origin 에 올린다. `git fetch origin` 뒤
+     로컬 `agent/<주문id8>-*` 가 없으면 「3」 0 그대로 origin 에서 만든다. 있으면 그 브랜치로 switch 하고, 로컬이 origin 의 조상이면
+     `git merge --ff-only origin/<그 브랜치>` 로 맞추고, origin 이 로컬의 조상이면 그대로 둔다. 둘 다 아니면(갈라짐) 이어 가지 않고
+     두 끝의 sha 를 적어 보고하고 멈춘다(`phase` 는 `wait_review` 그대로).
+   - state.json `scope` 를 `build` 로 바꾼다(다음 커밋에 실린다). `design` 이 남으면 인자 없이 다시 돌리거나 검토 모드로 Design 을 다시
+     띄울 때 또 설계만 하고 멈춘다.
    - 3 의 1 에서 선행이 미충족이라 다시 멈추면, 멈춤 절차 4·5 전에 state.json `phase` 를 `wait_pred` 로 바꿔 파일명을 명시해 커밋하고
      push 한다. 검토는 끝났고 이제 선행만 기다리므로 선행이 풀리면 팀장이 자동으로 이어 가는 것이 맞다.
    - 3 의 6(`build-start`) 앞에 **Design 게이트를 늘 다시 돈다** — 사람이 검토하며 design.md 를 고쳤을 수 있다. 통과하지 못하면 Build 로
@@ -52,7 +58,7 @@ ready 갈래에서 범위가 `build` 면 **claim 전에** 사람이 쓴 설계�
    Design 단계에서는 Design 서브에이전트를 띄우지 않고 곧바로 Design 게이트를 돈다(`orch/design.md`).
 <!-- worker:begin -->
 `--worker` 면 보고 대신 `.result` 를 쓰고 끝낸다: 1 은 `skipped design_missing`, 2 는 `skipped design_invalid <빠진 절>`, 「설계 검토
-대기」 에서 범위가 `build` 가 아니면 `design_review`(형식 정본은 worker-prompt.md).
+대기」 에서 범위가 `build` 가 아니면 `design_review`, 갈라짐이면 `failed diverged <로컬 sha> <origin sha>`(형식 정본은 worker-prompt.md).
 <!-- worker:end -->
 
 **다음 단계**: ready 는 `orch/base.md` → `orch/claim.md`, 반려는 `orch/rework.md`, 설계 선행 재개는 `orch/design-first.md` 「3」, 그 밖의 재개는 state.json `phase` 의 단계 지도 행.

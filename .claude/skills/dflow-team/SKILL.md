@@ -290,6 +290,8 @@ done
   걸리지 않은 것이 뒤로 간다.
   0. **설계 완료 대기**: `<TASKS>/*/state.json` 이 `phase=wait_pred` 면 정리·멈춤으로 보내지 않는다. `references/design-ahead.md`
      2번(재개 판정)을 통과할 때만 2번으로 보내고, 아니면 그대로 둔다(재시작·재개 후보가 아니다).
+     `phase=wait_review`(설계만·검토 대기)도 재시작·재개 후보가 아니다. 결과 줄이 없으면 restart.md 「판정」 4-2 대로 `design_review` 로
+     거두고, 이어 가기는 `references/scope.md` 「2」 만 한다.
   1. **정리 가능**: backends.md 「고아 정리 규칙」 대로 깨끗하고(미커밋 변경 없음) HEAD 가 `origin/<그 브랜치>`
      와 같다. 그 규칙대로 지운다.
   2. **재개 가능**: 아래가 모두 참이다. 「5-1. 재개 spawn」 의 대상이며 `.dflow-agent` 를 `parked` 로 바꾸지

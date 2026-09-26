@@ -55,6 +55,12 @@ describe('구현부터(--scope build)', () => {
     expect(s).toContain('state.json `phase` 를 `wait_pred` 로 바꿔')
     expect(s).toContain('**Design 게이트를 늘 다시 돈다**')
   })
+  it('검토 대기 재개는 origin 의 사람 수정을 받아 오고(갈라지면 멈춤), scope 를 build 로 바꾼다', () => {
+    expect(s).toContain('**사람이 고친 설계를 받아 온다.**')
+    expect(s).toContain('로컬이 origin 의 조상이면 `git merge --ff-only origin/<그 브랜치>` 로 맞추고')
+    expect(s).toContain('둘 다 아니면(갈라짐) 이어 가지 않고')
+    expect(s).toContain('state.json `scope` 를 `build` 로 바꾼다')
+  })
   it('Design 서브에이전트를 띄우지 않고, 설계 폴더는 재claim 격리하지 않으며, scope 를 state.json 에 적는다', () => {
     expect(flat(devOrch('design'))).toContain('범위가 `build` 면(`orch/start.md` 「구현부터」·「설계 검토 대기」) Design 서브에이전트를 띄우지 않는다')
     const c = flat(devOrch('claim'))

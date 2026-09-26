@@ -178,6 +178,19 @@ describe('규율 절 읽기(sections.sh)와 안내 본문 크기', () => {
     for (const n of new Set(names)) expect(run(disc, n).code, n).toBe(0)
   })
 
+  it('단계 파일·안내 본문·worker-mode 에 적힌 sections.sh 호출이 모두 해석된다(제목이 바뀌면 절감이 소리 없이 사라진다)', () => {
+    const texts = [...Object.values(devFiles()), readFileSync(join(DEV_DIR, 'references/worker-mode.md'), 'utf8')].join('\n')
+      .replace(/\n> ?/g, ' ').replace(/\s+/g, ' ')
+    const calls = [...texts.matchAll(/sections\.sh \.claude\/skills\/dflow-dev\/references\/([a-z-]+\.md)((?: '[^']+')+)/g)]
+    expect(calls.length).toBeGreaterThanOrEqual(5)
+    for (const [, file, args] of calls) {
+      if (file === 'dev-discipline.md' && args.includes('<절 제목')) continue // 「규율 읽기」 의 사용법 예시
+      const titles = [...args.matchAll(/'([^']+)'/g)].map((m) => m[1])
+      const r = run(join(DEV_DIR, 'references', file), ...titles)
+      expect(r.code, `${file} ${titles.join(' ')}\n${r.out.slice(-200)}`).toBe(0)
+    }
+  })
+
   it('착수 때 dev-discipline 을 한꺼번에 읽게 하는 옛 지시가 없다', () => {
     for (const [name, text] of Object.entries(devFiles())) expect(text, name).not.toContain('시작할 때 읽는 것')
   })
