@@ -959,3 +959,803 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
+## Task 2: 상태 공간 모델 이식 — 실제 designGate 함수로 불변식 전수 검사
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-09-26-design-state-model/model5.py`(P16 스위치)
+- Create: `tests/domain/design-gate-model.test.ts`
+
+**Interfaces:**
+- Consumes: Task 1 의 `canBuildStart`·`canClaim`·`canRelease`·`canReportCompletion`·`designButtons`·`designScreen`·`isMine`·`nextAgentAction`·`runnerFree`·`workerAlive`, 타입 `ClaimScope`·`ItemFacts`·`OrderFacts`·`PredsState`
+- Produces: 없음(검사만). 이후 Task 가 designGate 를 고치면 이 테스트가 불변식을 다시 확인한다.
+
+계획 단계에서 Python 모델로 이 설정을 먼저 돌렸다. 12절 수정안을 모두 켜고 P16 까지 더하면 전이 중 위반 0종, 두 구현자 0, 판단↔관문 어긋남 0, 도달 상태 340,206개(약 20초)였다. P16 이 없으면 "워커가 도는 중 사람이 `dflow.sh done` → 반려 → 재작업 워커" 경로로 두 구현자가 3,312 상태 나왔다.
+
+- [ ] **Step 1: Python 모델에 P16 스위치를 더한다**
+
+`docs/superpowers/specs/2026-09-26-design-state-model/model5.py` 에서 `FIX_CLAIM_PCT100=0,` 줄 바로 아래에 한 줄을 더한다:
+
+```python
+    FIX_DONE_NO_LIVE_OTHER=0, # 계획 P16: 완료 보고는 살아 있는 다른 세션(heartbeat_agent 가 다르고 5분 안)이 있으면 거부
+```
+
+같은 파일의 `if V['MANUAL_DONE'] and s.ord == 'claimed':` 블록을 아래처럼 바꾼다(둘째 줄 다음에 한 줄 추가):
+
+```python
+    if V['MANUAL_DONE'] and s.ord == 'claimed':
+        r = s.dst != 'review' and (not V['FIX_DONE_AT_IP'] or s.stage == 'ip')
+        if V['FIX_DONE_NO_LIVE_OTHER'] and (running(s.wA) or running(s.wB)): r = False
+```
+
+파일 머리 주석의 실행 예시 목록 끝에 한 줄을 더한다:
+
+```python
+#   python3 model5.py PASS=2 SLIM=0 QUIET=0 LEAD_MOVES=0 IMPORT=0 MANUAL_PCT=1 BLOCKED=0 RELEASE_STOPS_WORKER=1 MANUAL_DONE=1 FIX_DONE_AT_IP=1 FIX_HB_REPORT_RUNNER=1 FIX_CONFLICT_EXIT=1 FIX_CLAIM_PCT100=1 REOPEN_NONHUMAN_CLEARS_RUNNER=1 FIX_TAKE_ON_RESUME=1 FIX_DONE_NO_LIVE_OTHER=1 ASSIGN_SETS_AS=0 → 340,206 (구현 계획서 판 — 위반 0, 두 구현자 0. tests/domain/design-gate-model.test.ts 가 옮긴 판)
+```
+
+- [ ] **Step 2: Python 판이 위반 0 인지 다시 확인한다**
+
+Run: `cd docs/superpowers/specs/2026-09-26-design-state-model && python3 model5.py PASS=2 SLIM=0 QUIET=0 LEAD_MOVES=0 IMPORT=0 MANUAL_PCT=1 BLOCKED=0 RELEASE_STOPS_WORKER=1 MANUAL_DONE=1 FIX_DONE_AT_IP=1 FIX_HB_REPORT_RUNNER=1 FIX_CONFLICT_EXIT=1 FIX_CLAIM_PCT100=1 REOPEN_NONHUMAN_CLEARS_RUNNER=1 FIX_TAKE_ON_RESUME=1 FIX_DONE_NO_LIVE_OTHER=1 ASSIGN_SETS_AS=0 | grep -E "도달 상태 수|전이 중 위반|두 워커|어긋남"`
+Expected:
+```
+도달 상태 수: 340206
+## 전이 중 위반 0 종
+## ⑤ 두 워커가 같은 주문에서 build-start 뒤(구현 중): 0 상태
+## ① 판단(5.3)·mine → 관문(5.2) 어긋남(정적, 도달 상태 × PC): 0
+```
+
+- [ ] **Step 3: TS 모델 테스트를 쓴다**
+
+`tests/domain/design-gate-model.test.ts`:
+
+```ts
+// tests/domain/design-gate-model.test.ts — 설계 상태 상태 공간 모델(BFS).
+// docs/superpowers/specs/2026-09-26-design-state-model/model5.py 를 옮겼다(그 파일 머리의 "구현 계획서 판" 실행 줄과 같은 틀).
+// 켠 것: 스펙 12절 수정안(Y1 완료 보고·heartbeat 의 runner, Y2 완료 보고는 ip 에서만, Y7 claimed 아님은 워커 종료,
+//   L5 사람 초안은 full 에도, L6 실적 100 관문, L9 되돌림은 runner 를 비움, Y11 fetch·push 실패는 일시 제외),
+//   계획 P7(재개 때 build-start 로 runner 넘겨받기)·P16(살아 있는 다른 세션이 있으면 완료 보고 거부)·L8(위임은 단계를 건드리지 않음).
+// 끈 것: 조용한 워커·BLOCKED·팀장 PC 이동·import. PC 둘, 동시 워커 둘, 사람의 수기 실적 100·수동 done 은 켠다.
+// 관문·판단·mine·버튼·화면 판정은 실제 designGate 함수를 부르고, 전이(스펙 4.1 사건 표의 결과)는 이 파일이 따로 적는다 —
+// 전이까지 designGate 에서 가져오면 자기 자신과 대조하는 셈이 된다.
+// 위반이 나오면 먼저 Python 판과 같은 전이인지 대조한다. 옮김 오류가 아니면 designGate 를 고친다.
+import { describe, expect, it } from 'vitest'
+import {
+  canBuildStart, canClaim, canRelease, canReportCompletion, designButtons, designScreen, isMine, nextAgentAction, runnerFree,
+  workerAlive, type ClaimScope, type ItemFacts, type OrderFacts, type PredsState,
+} from '@/lib/domain/designGate'
+
+type Ord = 'none' | 'ready' | 'claimed' | 'reported' | 'approved' | 'cancelled'
+type PC = 'A' | 'B'
+type WScope = 'full' | 'design' | 'build' | 'rework' | 'legacy'
+type Worker = { sc: WScope; step: 0 | 1; own: 'L' | 'H' } | null
+type Res = null | 'diedL' | 'diedH' | 'result'
+type S = {
+  mode: 'auto' | 'review' | 'human'; tag: boolean; ord: Ord; dst: 'none' | 'review' | 'accepted'
+  cs: null | 'legacy' | 'full' | 'design' | 'build'; stage: string; pct: number; rw: boolean
+  hbph: null | 'work' | 'wait'; hbage: 0 | 1; runner: PC | null; rage: 0 | 1; preds: 'met' | 'ok' | 'no'; hd: boolean
+  wA: Worker; wB: Worker; wtA: boolean; wtB: boolean; resA: Res; resB: Res; excl: null | 'temp' | 'perm'; pend: boolean
+}
+
+const NOW = Date.parse('2026-09-27T12:00:00Z')
+const iso = (min: number) => new Date(NOW - min * 60_000).toISOString()
+const AT1 = iso(1), AT10 = iso(10), AT31 = iso(31)
+const PCS: readonly PC[] = ['A', 'B']
+const LEAD: PC = 'A'
+const MAXW = 2
+const CRED: Record<string, number> = { as: 0, ds: 10, dd: 20, ip: 30, rw: 50, im: 80, xx: 100 }
+const ACTIVE: ReadonlySet<Ord> = new Set(['ready', 'claimed', 'reported'])
+const geIp = (st: string) => st === 'ip' || st === 'im' || st === 'xx'
+const workerLabel = (x: PC) => `u/pc${x.toLowerCase()}/w1`
+const humanLabel = (x: PC) => `claude-pc${x.toLowerCase()}`
+const w = (s: S, x: PC) => (x === 'A' ? s.wA : s.wB)
+const wt = (s: S, x: PC) => (x === 'A' ? s.wtA : s.wtB)
+const resOf = (s: S, x: PC) => (x === 'A' ? s.resA : s.resB)
+const other = (x: PC): PC => (x === 'A' ? 'B' : 'A')
+const mx = (p: number, k: string) => Math.max(p, CRED[k])
+
+function setw(s: S, x: PC, p: { w?: Worker; wt?: boolean; res?: Res }): S {
+  const t = { ...s }
+  if (p.w !== undefined) { if (x === 'A') t.wA = p.w; else t.wB = p.w }
+  if (p.wt !== undefined) { if (x === 'A') t.wtA = p.wt; else t.wtB = p.wt }
+  if (p.res !== undefined) { if (x === 'A') t.resA = p.res; else t.resB = p.res }
+  return t
+}
+const wk = (x: Worker) => (x === null ? '-' : `${x.sc}.${x.step}.${x.own}`)
+const key = (s: S) => `${s.mode}|${+s.tag}|${s.ord}|${s.dst}|${s.cs ?? '-'}|${s.stage}|${s.pct}|${+s.rw}|${s.hbph ?? '-'}|${s.hbage}|`
+  + `${s.runner ?? '-'}|${s.rage}|${s.preds}|${+s.hd}|${wk(s.wA)}|${wk(s.wB)}|${+s.wtA}|${+s.wtB}|${s.resA ?? '-'}|${s.resB ?? '-'}|${s.excl ?? '-'}|${+s.pend}`
+
+// ---- 판단 재료(designGate 입력) ----
+const PREDS: Record<S['preds'], PredsState> = { met: 'met', ok: 'ahead', no: 'blocked' }
+const item = (s: S): ItemFacts => ({
+  mode: s.mode, stage: s.stage, actualPct: s.pct, delegated: s.tag, hasApprovedOrder: s.ord === 'approved', preds: PREDS[s.preds],
+})
+function hbAgent(s: S): string | null {
+  if (s.runner !== null && w(s, s.runner) !== null) return workerLabel(s.runner)
+  if (s.wA !== null) return workerLabel('A')
+  if (s.wB !== null) return workerLabel('B')
+  return s.runner === null ? null : workerLabel(s.runner)
+}
+const order = (s: S): OrderFacts => ({
+  status: s.ord === 'none' ? 'cancelled' : s.ord,
+  designState: s.dst === 'none' ? null : s.dst,
+  claimScope: (s.cs ?? 'legacy') as ClaimScope,
+  runner: s.runner === null ? null : workerLabel(s.runner),
+  runnerSeenAt: s.runner === null ? null : s.rage === 1 ? AT31 : AT10,
+  lastHeartbeatAt: s.hbph === null ? null : s.hbage === 1 ? AT10 : AT1,
+  heartbeatPhase: s.hbph === null ? null : s.hbph === 'wait' ? 'wait_review' : 'build',
+  heartbeatAgent: s.hbph === null ? null : hbAgent(s),
+  claimedBy: s.ord === 'claimed' ? workerLabel(s.runner ?? LEAD) : null,
+  claimedByUserId: s.ord === 'claimed' ? 'u' : null,
+})
+const action = (s: S) => (s.ord === 'none' ? 'none' : nextAgentAction(item(s), order(s), NOW).action)
+const mine = (s: S, x: PC, lead: boolean) => s.ord !== 'none'
+  && isMine(order(s), { userId: 'u', label: lead ? workerLabel(x) : humanLabel(x), lead, filtersPass: lead ? s.tag : true }, NOW)
+const activeOf = (s: S) => {
+  if (!ACTIVE.has(s.ord)) return null
+  const o = order(s)
+  return { status: o.status, designState: o.designState, runner: o.runner, lastHeartbeatAt: o.lastHeartbeatAt, heartbeatPhase: o.heartbeatPhase, designNote: null }
+}
+const reportOk = (s: S, caller: string) => canReportCompletion({ stage: s.stage, isLeaf: true }, order(s), caller, NOW) === null
+const unapproved = (s: S) => s.dst === 'review' || ((s.mode === 'review' || s.mode === 'human') && s.dst !== 'accepted')
+const wscope = (s: S): WScope => (s.rw && s.stage === 'ip')
+  ? 'rework' : ({ design: 'design', full: 'full', legacy: 'full', build: 'build' } as const)[s.cs ?? 'legacy']
+
+// ---- 4.1 사건의 결과(전이) ----
+function norm(s: S): S {  // 살아 있는 워커는 heartbeat 를 계속 보낸다(claimed 에서만 받는다)
+  if (s.ord !== 'claimed') return s
+  let t = s
+  if (t.wA !== null || t.wB !== null) t = { ...t, hbph: 'work', hbage: 0 }
+  if (t.runner !== null && w(t, t.runner) !== null) t = { ...t, rage: 0 }
+  if (t.runner === null && t.rage !== 0) t = { ...t, rage: 0 }
+  return t
+}
+function issue(t: S): S {  // D26 발행. 단계·실적은 건드리지 않는다(L8)
+  if (ACTIVE.has(t.ord) || t.ord === 'approved' || geIp(t.stage) || t.pct >= 100) return t
+  return { ...t, ord: 'ready', dst: 'none', cs: null, rw: false, hbph: null, hbage: 0, runner: null, rage: 0,
+    wA: null, wB: null, wtA: false, wtB: false, resA: null, resB: null, excl: null, pend: false }
+}
+function cancel(t: S): S {  // D14 — RPC cancel 사건
+  if (t.ord !== 'ready' && t.ord !== 'claimed') return t
+  const back = t.ord === 'claimed' || t.stage === 'dd'
+  return { ...t, ord: 'cancelled', dst: 'none', cs: null, runner: null, rage: 0, stage: back ? 'as' : t.stage, pct: back ? 0 : t.pct,
+    rw: false, hbph: null, hbage: 0, wA: null, wB: null, wtA: false, wtB: false, resA: null, resB: null, pend: false }
+}
+function reopen(s: S): S | null {  // design_reopen — dd ∧ accepted 에서만, 방식과 관계없이 runner 를 비운다(L9)
+  if (!(s.stage === 'dd' && s.dst === 'accepted')) return null
+  if (s.mode === 'human') {
+    const t: S = { ...s, stage: 'as', dst: 'none', pct: 0 }
+    return s.ord === 'claimed' ? { ...t, ord: 'ready', cs: null, runner: null, rage: 0, hbph: null, hbage: 0, pend: false } : t
+  }
+  return { ...s, dst: 'review', runner: null, rage: 0 }
+}
+function designDone(s: S): S | null {
+  if (s.ord !== 'claimed' || (s.stage !== 'ds' && s.stage !== 'dd')) return null
+  const becameReview = s.dst === 'none' && (s.mode === 'review' || s.cs === 'design')
+  const t: S = { ...s, stage: 'dd', dst: becameReview ? 'review' : s.dst, pct: mx(s.pct, 'dd'), hbph: 'wait', hbage: 0, pend: false }
+  return becameReview ? { ...t, runner: null, rage: 0 } : t
+}
+function claim(s: S, sc: 'full' | 'design' | 'build', x: PC, own: 'L' | 'H'): S {
+  const st = sc === 'build' ? 'dd' : 'ds'
+  const t: S = { ...s, ord: 'claimed', cs: sc, stage: st, pct: mx(s.pct, st), runner: x, rage: 0, hbph: 'work', hbage: 0,
+    rw: false, pend: false, excl: own === 'L' ? null : s.excl }
+  return setw(t, x, { w: { sc, step: 0, own }, wt: true, res: null })
+}
+function resumeVariants(s: S, x: PC, own: 'L' | 'H'): S[] {
+  const ws = wscope(s)
+  const steps: (0 | 1)[] = geIp(s.stage) && ws !== 'rework' ? [0, 1] : [0]
+  const free = runnerFree(order(s), own === 'L' ? workerLabel(x) : humanLabel(x), NOW)
+  return steps.map(step => free
+    ? { ...setw(s, x, { w: { sc: ws, step, own }, wt: true, res: null }), runner: x, rage: 0 as const }  // P7
+    : setw(s, x, { res: 'result' }))                                                                   // exit 12
+}
+function endWorker(t: S, x: PC, res: Res, own: 'L' | 'H', p: { wt?: boolean; excl?: 'temp' | 'perm' } = {}): S {
+  let u = setw(t, x, { w: null, res, ...(p.wt !== undefined ? { wt: p.wt } : {}) })
+  if (own === 'L' && p.excl !== undefined && x === LEAD) u = { ...u, excl: p.excl }
+  return u
+}
+
+const VIOL: string[] = []
+const viol = (kind: string, s: S, lbl: string) => { if (VIOL.length < 50) VIOL.push(`${kind} — ${lbl} | ${key(s)}`) }
+
+function transitions(s: S): S[] {
+  const out: S[] = []
+  const add = (t: S | null) => { if (t !== null) out.push(norm(t)) }
+  // ---- 사람(웹) ----
+  add(s.tag ? cancel({ ...s, tag: false }) : issue({ ...s, tag: true }))
+  if (s.dst === 'none' && s.ord !== 'claimed' && s.ord !== 'reported' && s.ord !== 'approved') {
+    for (const m of ['auto', 'review', 'human'] as const) if (m !== s.mode) add({ ...s, mode: m })
+  }
+  const btn = designButtons(item(s), activeOf(s))
+  if (btn.includes('accept')) add({ ...s, dst: 'accepted', cs: 'build' })
+  if (btn.includes('confirm')) {
+    const t: S = { ...s, stage: 'dd', dst: 'accepted', pct: mx(s.pct, 'dd') }
+    if (t.pct < s.pct) viol('I6 실적 역행', s, '설계 확정')
+    add(t)
+  }
+  if (btn.includes('reopen')) add(reopen(s))
+  if (s.ord === 'reported') {
+    add({ ...s, ord: 'approved', stage: 'xx', pct: 100 })
+    add({ ...s, ord: 'claimed', stage: 'ip', pct: CRED.rw, rw: true, hbph: 'work', hbage: 1, runner: null, rage: 0 })
+  }
+  if (s.ord === 'approved') {
+    add({ ...s, ord: 'claimed', stage: 'ip', pct: CRED.rw, rw: true, hbph: 'work', hbage: 1, runner: null, rage: 0 })
+    add({ ...s, ord: 'reported', stage: 'im', pct: 80 })
+  }
+  add({ ...s, hd: !s.hd })
+  if (!s.tag && s.ord !== 'claimed' && s.ord !== 'reported') {  // 사람의 단계 지정(dd 는 없다)·수기 실적
+    for (const st of ['as', 'ds', 'ip', 'im', 'xx']) add({ ...s, stage: st, pct: CRED[st] })
+    if (s.pct !== 100) add({ ...s, pct: 100 })
+  }
+  // ---- 사람(CLI) ----
+  if (s.ord === 'claimed' && canRelease({ stage: s.stage }, order(s)) === null) {
+    add({ ...s, ord: 'ready', stage: 'as', pct: 0, cs: null, runner: null, rage: 0, hbph: null, hbage: 0, pend: false, rw: false, wA: null, wB: null })
+  }
+  const nlive = (s.wA !== null ? 1 : 0) + (s.wB !== null ? 1 : 0)
+  for (const x of PCS) {
+    if (w(s, x) !== null || nlive >= MAXW) continue
+    if (s.ord === 'ready') {
+      for (const sc of ['full', 'design', 'build'] as const) {
+        if ((sc === 'design' || sc === 'full') && s.hd) continue   // 6.3·L5 claim 전 확인 → skipped
+        if (sc === 'build' && !s.hd) continue
+        if (canClaim(item(s), order(s).designState, sc, sc === 'full' && s.preds !== 'met') === null) add(claim(s, sc, x, 'H'))
+      }
+    } else if (s.ord === 'claimed' && mine(s, x, false)) {
+      for (const t of resumeVariants(s, x, 'H')) add(t)
+    }
+  }
+  if (s.ord === 'claimed') {
+    for (const x of PCS) {
+      if (!reportOk(s, humanLabel(x))) continue
+      if (unapproved(s)) viol('I4 완료 보고(미승인 설계)', s, `수동 done@${x}`)
+      if (s.wA?.step === 1 || s.wB?.step === 1) viol('I5 완료 보고(워커가 구현 중)', s, `수동 done@${x}`)
+      add({ ...s, ord: 'reported', stage: 'im', pct: mx(s.pct, 'im'), runner: null, rage: 0, rw: false })
+    }
+  }
+  // ---- 환경 ----
+  for (const p of ['met', 'ok', 'no'] as const) if (p !== s.preds) add({ ...s, preds: p })
+  if (s.ord === 'claimed') {
+    const live = s.wA !== null || s.wB !== null
+    if (!live && s.hbage === 0 && s.hbph !== null) add({ ...s, hbage: 1 })
+    if (s.runner !== null && s.rage === 0 && w(s, s.runner) === null) add({ ...s, rage: 1, hbage: live ? s.hbage : 1 })
+  }
+  if (s.excl === 'temp') add({ ...s, excl: null })
+  // ---- 팀장(PC A 고정) ----
+  if (s.excl === null && w(s, LEAD) === null && nlive < MAXW) {
+    const a = action(s)
+    if (s.ord === 'ready' && (a === 'full' || a === 'design' || a === 'build') && mine(s, LEAD, true)) {
+      if (a === 'build' && s.mode === 'human' && !s.hd) add(reopen(s))           // 6.2 띄우기 전 검사
+      else if ((a === 'design' || a === 'full') && s.hd) add({ ...s, excl: 'temp' })  // 6.2·L5 사람 초안 → 멈춤(30분)
+      else if (wt(s, LEAD)) add({ ...s, excl: 'perm' })                          // worktree add 실패
+      else {
+        const r = canClaim(item(s), order(s).designState, a, a === 'full' && s.preds !== 'met')
+        if (r !== null) { viol('I1 claim 거부', s, `팀장 action=${a} → ${r.code}`); add({ ...s, excl: 'temp' }) }
+        else add(claim(s, a, LEAD, 'L'))
+      }
+    } else if (s.ord === 'claimed' && mine(s, LEAD, true)) {
+      if (a === 'skip') {
+        const row2 = geIp(s.stage) || workerAlive(order(s), NOW)
+        if (row2 && wt(s, LEAD) && resOf(s, LEAD) === 'diedL') for (const t of resumeVariants(s, LEAD, 'L')) add(t)
+      } else if (a === 'full' || a === 'design' || a === 'build') {
+        if (wscope(s) !== a) viol('I1 범위 불일치', s, `팀장 action=${a} 워커 ${wscope(s)}`)
+        for (const t of resumeVariants(s, LEAD, 'L')) add(t)
+      }
+    }
+  }
+  if (s.pend && s.ord === 'claimed' && s.dst === 'none' && wt(s, LEAD) && w(s, LEAD) === null) {  // 6.3 끝나지 않은 멈춤 이어받기
+    const t = designDone(s)
+    if (t !== null) add(setw(t, LEAD, { wt: false }))
+  }
+  // ---- 워커 ----
+  for (const x of PCS) {
+    const wx = w(s, x)
+    if (wx === null) continue
+    const { sc, step, own } = wx
+    if (s.ord === 'cancelled') { add(endWorker(s, x, 'result', own)); continue }                    // exit 10
+    if (s.ord !== 'claimed') { add(endWorker(s, x, 'result', own, { wt: false })); continue }       // Y7
+    add(endWorker(s, x, own === 'L' ? 'diedL' : 'diedH', own))                                        // 결과 없이 죽음
+    if (!runnerFree(order(s), workerLabel(x), NOW)) { add(endWorker(s, x, 'result', own)); continue } // heartbeat 409 runner_active(Y1)
+    if (sc === 'design') {
+      if ((s.stage === 'ds' || s.stage === 'dd') && (s.dst === 'none' || s.dst === 'review')) {
+        add(endWorker(designDone(s)!, x, 'result', own, { wt: false }))                                // 설계만 멈춤
+        if (!s.pend) {
+          add(endWorker(s, x, 'result', own, { excl: 'temp' }))                                        // push 실패 → skipped(Y11)
+          add(endWorker({ ...s, pend: true }, x, 'result', own))                                       // design-done 네트워크 실패
+        }
+      }
+      continue
+    }
+    if (step === 0) {
+      if (sc === 'build' && s.stage === 'dd') {
+        add(endWorker(s, x, 'result', own, { excl: 'temp' }))                                          // fetch 실패 → skipped(Y11)
+        const ro = reopen(s)
+        if (ro !== null && ((s.mode === 'human' && !s.hd) || (s.mode !== 'human' && s.dst === 'accepted'))) {
+          add(endWorker(ro, x, 'result', own, { wt: false }))                                          // 게이트 불통·선행 계약 바뀜
+        }
+      }
+      if ((sc === 'build' || sc === 'full' || sc === 'legacy') && geIp(s.stage)) add(endWorker(s, x, 'result', own, { excl: 'perm' }))
+      const r = canBuildStart(item(s), order(s), sc, workerLabel(x), NOW)
+      if (r === null) {
+        let t: S = s
+        if (s.stage === 'ds' || s.stage === 'dd') t = { ...t, stage: 'ip', pct: mx(s.pct, 'ip') }
+        if (t.pct < s.pct) viol('I6 실적 역행', s, 'build-start')
+        if (unapproved(s)) viol('I4 build-start 통과(미승인 설계)', s, `워커@${x} ${sc}`)
+        if (w(s, other(x))?.step === 1) viol('I5 build-start 통과(다른 PC 워커가 구현 중)', s, `워커@${x} ${sc}`)
+        add(setw({ ...t, runner: x, rage: 0 }, x, { w: { sc, step: 1, own } }))
+      } else if (r.status === 403) add(endWorker(designDone(s) ?? s, x, 'result', own))              // 선행 대기 멈춤
+      else add(endWorker(s, x, 'result', own, { excl: 'temp', wt: false }))                            // exit 11·12 → skipped
+    } else {
+      if (reportOk(s, workerLabel(x))) {
+        if (unapproved(s)) viol('I4 완료 보고(미승인 설계)', s, `워커@${x} ${sc}`)
+        if (w(s, other(x))?.step === 1) viol('I5 완료 보고(다른 PC 워커도 구현 중)', s, `워커@${x} ${sc}`)
+        add(endWorker({ ...s, ord: 'reported', stage: 'im', pct: mx(s.pct, 'im'), runner: null, rage: 0, rw: false }, x, 'result', own))
+      }
+      add(endWorker(s, x, 'result', own, { excl: 'perm' }))                                            // 설계 변경 필요·게이트 불통
+    }
+  }
+  return out
+}
+
+function explore() {
+  const ids = new Map<string, number>()
+  const states: S[] = []
+  const succ: number[][] = []
+  const intern = (s: S) => {
+    const k = key(s)
+    let id = ids.get(k)
+    if (id === undefined) { id = states.length; ids.set(k, id); states.push(s); succ.push([]) }
+    return id
+  }
+  for (const mode of ['auto', 'review', 'human'] as const) for (const ord of ['none', 'ready'] as const) {
+    intern({ mode, tag: false, ord, dst: 'none', cs: null, stage: 'as', pct: 0, rw: false, hbph: null, hbage: 0, runner: null, rage: 0,
+      preds: 'met', hd: false, wA: null, wB: null, wtA: false, wtB: false, resA: null, resB: null, excl: null, pend: false })
+  }
+  for (let h = 0; h < states.length; h++) {
+    const arr = succ[h]
+    for (const t of transitions(states[h])) arr.push(intern(t))
+  }
+  return { states, succ }
+}
+
+/** ① 도달 상태마다 판단(action·mine)이 낸 범위를 관문이 받아 주는가(스펙 5.1 ①). */
+function staticChecks(states: readonly S[]): string[] {
+  const bad: string[] = []
+  for (const s of states) {
+    const a = action(s)
+    if (a !== 'full' && a !== 'design' && a !== 'build') continue
+    for (const x of PCS) {
+      if (!mine(s, x, true)) continue
+      if (s.ord === 'ready') {
+        if ((a === 'build' && s.mode === 'human' && !s.hd) || ((a === 'design' || a === 'full') && s.hd)) continue
+        const r = canClaim(item(s), order(s).designState, a, a === 'full' && s.preds !== 'met')
+        if (r !== null) bad.push(`ready action=${a} → claim ${r.code} | ${key(s)}`)
+      } else if (s.ord === 'claimed') {
+        const ws = wscope(s)
+        if (ws !== a) { bad.push(`claimed action=${a} ≠ 워커 범위 ${ws} | ${key(s)}`); continue }
+        if (ws === 'design') { if (s.stage !== 'ds' && s.stage !== 'dd') bad.push(`claimed design 단계 ${s.stage} | ${key(s)}`); continue }
+        const r = canBuildStart(item(s), order(s), ws, workerLabel(x), NOW)
+        if (r !== null && !(r.status === 403 && a === 'full')) bad.push(`claimed action=${a} → build-start ${r.code} | ${key(s)}`)
+      }
+    }
+  }
+  return bad
+}
+
+/** ② 앞으로 갈 길 — 모든 전이를 허용했을 때 완료(approved)로 가지 못하는 상태(표식 없는 빈·취소 상태는 뺀다). */
+function cannotFinish(states: readonly S[], succ: readonly number[][]): S[] {
+  const n = states.length
+  const start = new Int32Array(n + 1)
+  for (const arr of succ) for (const t of arr) start[t + 1]++
+  for (let i = 0; i < n; i++) start[i + 1] += start[i]
+  const rev = new Int32Array(start[n])
+  const fill = start.slice(0, n)
+  for (let u = 0; u < n; u++) for (const t of succ[u]) rev[fill[t]++] = u
+  const seen = new Uint8Array(n)
+  const q: number[] = []
+  for (let i = 0; i < n; i++) if (states[i].ord === 'approved') { seen[i] = 1; q.push(i) }
+  for (let h = 0; h < q.length; h++) {
+    const t = q[h]
+    for (let j = start[t]; j < start[t + 1]; j++) { const u = rev[j]; if (!seen[u]) { seen[u] = 1; q.push(u) } }
+  }
+  return states.filter((s, i) => !seen[i] && !((s.ord === 'none' || s.ord === 'cancelled') && !s.tag))
+}
+
+/** ③ 화면 판정 탐침 — 6차 검토가 찾은 "화면 문구가 사실과 다른 도달 상태" 중 12절이 고친 넷. */
+function screenProbes(states: readonly S[]): string[] {
+  const bad: string[] = []
+  for (const s of states) {
+    const row = designScreen({ item: item(s), active: activeOf(s), lastReview: s.rw ? 'reject' : null, nowMs: NOW })?.row ?? 0
+    const live = s.wA !== null || s.wB !== null
+    const progressed = geIp(s.stage) || s.pct >= 100
+    if (s.ord === 'ready' && s.tag && progressed && row === 0) bad.push(`8행 없음(진행된 항목의 ready) | ${key(s)}`)
+    if (s.ord === 'claimed' && s.stage === 'ds' && s.dst === 'none' && s.preds === 'no' && !live && s.hbage === 1 && row !== 12) {
+      bad.push(`L14 「선행 대기(설계 중 멈춤)」 없음 | ${key(s)}`)
+    }
+    if (row === 5 && live) bad.push(`L2 재작업 워커가 도는데 「재작업 대기」 | ${key(s)}`)
+    if (row === 7 && s.tag && progressed) bad.push(`7행 「위임 안 됨」인데 표식·진행됨 | ${key(s)}`)
+  }
+  return bad
+}
+
+describe('설계 상태 모델 — 도달 상태 전수(스펙 5.1)', () => {
+  it('판단↔관문 0 · 미승인 구현 0 · 두 구현자 0 · 실적 역행 0 · 완료로 가는 길 · 화면 문구', () => {
+    const { states, succ } = explore()
+    expect(states.length).toBeGreaterThan(100_000)
+    expect(VIOL.slice(0, 5)).toEqual([])
+    expect(staticChecks(states).slice(0, 5)).toEqual([])
+    expect(cannotFinish(states, succ).slice(0, 5).map(key)).toEqual([])
+    expect(screenProbes(states).slice(0, 5)).toEqual([])
+    expect(states.filter(s => s.ord === 'claimed' && s.wA?.step === 1 && s.wB?.step === 1).length).toBe(0)
+  }, 300_000)
+})
+```
+
+- [ ] **Step 4: 모델 테스트를 돌린다**
+
+Run: `npx vitest run tests/domain/design-gate-model.test.ts`
+Expected: PASS(1 test). 도는 시간은 수십 초다. 실패하면 첫 위반 줄의 상태 키를 읽고, Step 2 의 Python 판에서 같은 전이가 어떻게 되는지 대조한다. 모델을 옮기다 생긴 차이면 이 파일을 고치고, 규칙 차이면 `designGate.ts` 를 고친 뒤 Task 1 표 테스트도 다시 돌린다.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add docs/superpowers/specs/2026-09-26-design-state-model/model5.py tests/domain/design-gate-model.test.ts
+git commit -m "test(design-state): 상태 공간 모델을 실제 designGate 함수로 옮겨 불변식을 전수 검사한다
+
+판단↔관문 어긋남·미승인 구현·두 구현자·실적 역행이 도달 상태 전체에서 0 이고, 모든 상태가 완료로 갈 길이 있는지 본다.
+계획 P16(살아 있는 다른 세션이 있으면 완료 보고 거부) 스위치를 Python 모델에도 더했다.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 3: 단계 `dd`·사람이 고를 수 있는 단계·크레딧 dd
+
+**Files:**
+- Modify: `src/lib/domain/stageLabels.ts`, `src/lib/domain/agentWork.ts:8-9`, `src/lib/domain/stageCredits.ts`
+- Modify: `src/lib/i18n/dict/wbs.ts:235-240`, `src/lib/i18n/dict/wbs.en.ts:219-224`, `src/lib/i18n/dict/settings.ts:166-171`, `src/lib/i18n/dict/settings.en.ts:169-174`(그리고 두 settings 사전의 `settings.creditPvEvBuildStart` 옆)
+- Modify: `src/components/settings/StageCreditSlider.tsx:24-60`, `src/components/wbs/shared.tsx:144-151`, `src/components/wbs/WbsAssigneeStagePanel.tsx:18-37`, `src/components/agent-hub/DelegationTable.tsx:458`, `src/components/agent-hub/labels.ts:79`, `src/app/actions/agentHub.ts:20,128,159`, `src/app/actions/wbsAssign.ts:9,340`, `src/lib/agent/wbsImport.ts:6,92`
+- Test: `tests/domain/stage-labels.test.ts`, `tests/domain/stage-credits.test.ts`, `tests/domain/predecessor-reached.test.ts:26`
+
+**Interfaces:**
+- Consumes: 없음
+- Produces:
+  - `STAGE_CODES = ['as','ds','dd','ip','im','xx']`, `STAGE_LABEL_KO.dd = '설계 완료'`
+  - `HUMAN_STAGE_CODES = ['as','ds','ip','im','xx']`(사람의 set_stage·import 가 받는 단계 — dd 없음), `isHumanStageCode(v): v is HumanStageCode`
+  - `STAGE_ORDER = ['as','ds','dd','ip','im','xx']`
+  - `CREDIT_KEYS = ['as','ds','dd','ip','rw','im','xx']`, `DEFAULT_STAGE_CREDITS.default.dd = 20`, `creditForKey('dd', credits)` 는 표에 dd 가 없으면 `max(ds, min(20, ip-5))`
+  - `EVENT_CREDIT` 에 `design_done: 'dd'`, `design_accept: 'dd'`
+
+- [ ] **Step 1: 실패하는 테스트로 고친다**
+
+`tests/domain/stage-labels.test.ts` 첫 `it` 과 i18n `it` 을 이렇게 바꾸고, 사람 단계 테스트를 더한다:
+
+```ts
+  it('코드는 as·ds·dd·ip·im·xx 여섯 — fp 없음, dd(설계 완료)는 ds 와 ip 사이(0108)', () => {
+    expect([...STAGE_CODES]).toEqual(['as', 'ds', 'dd', 'ip', 'im', 'xx'])
+    expect(isStageCode('dd')).toBe(true)
+    expect(isStageCode('fp')).toBe(false)
+    expect(isStageCode(null)).toBe(false)
+  })
+  it('i18n ko 사전과 같다', () => {
+    expect(wbsKo['wbs.stageAs']).toBe(STAGE_LABEL_KO.as)
+    expect(wbsKo['wbs.stageDs']).toBe(STAGE_LABEL_KO.ds)
+    expect(wbsKo['wbs.stageDd']).toBe(STAGE_LABEL_KO.dd)
+    expect(wbsKo['wbs.stageIp']).toBe(STAGE_LABEL_KO.ip)
+    expect(wbsKo['wbs.stageIm']).toBe(STAGE_LABEL_KO.im)
+    expect(wbsKo['wbs.stageXx']).toBe(STAGE_LABEL_KO.xx)
+    expect(wbsKo['wbs.stageNoneOption']).toBe(STAGE_NONE_LABEL_KO)
+  })
+  it('사람이 고를 수 있는 단계에는 dd 가 없다 — dd 는 design_done·design_accept 로만 생긴다(스펙 7절)', () => {
+    expect([...HUMAN_STAGE_CODES]).toEqual(['as', 'ds', 'ip', 'im', 'xx'])
+    expect(isHumanStageCode('dd')).toBe(false)
+    expect(isHumanStageCode('ds')).toBe(true)
+    expect(stageLabelKo('dd')).toBe('설계 완료')
+  })
+```
+
+import 줄에 `HUMAN_STAGE_CODES, isHumanStageCode` 를 더하고, 파일 끝 en 테스트에 `expect(wbsEn['wbs.stageDd']).toBe('Design done')` 을 더한다.
+
+`tests/domain/predecessor-reached.test.ts:26` 을 `expect([...STAGE_ORDER]).toEqual(['as', 'ds', 'dd', 'ip', 'im', 'xx'])` 로 바꾼다.
+
+`tests/domain/stage-credits.test.ts` 는 이렇게 고친다:
+- 모든 표 리터럴에 `dd` 를 넣는다(예: `{ as: 0, ds: 10, dd: 20, ip: 30, rw: 50, im: 80, xx: 100 }`).
+- 키 순서 테스트: `expect([...CREDIT_KEYS]).toEqual(['as', 'ds', 'dd', 'ip', 'rw', 'im', 'xx'])`, 기본값 `{ as: 0, ds: 10, dd: 20, ip: 30, rw: 50, im: 80, xx: 100 }`.
+- "채운 ds 가 이웃 간격을 어기면 거부한다(ip 20 미만인 옛 표)" 테스트를 아래로 바꾼다(D18 — ds·dd 는 간격 규칙에서 빠진다):
+
+```ts
+  it('ds·dd 는 간격 규칙에서 빠진다 — ip 10 인 옛 표도 채운 값(ds 10·dd 10)으로 받는다(D18)', () => {
+    expect(validateStageCredits({ default: { as: 0, ip: 10, rw: 50, im: 80, xx: 100 } }))
+      .toEqual({ ok: true, credits: { default: { as: 0, ds: 10, dd: 10, ip: 10, rw: 50, im: 80, xx: 100 } } })
+  })
+  it('dd 가 없는 표는 min(20, ip-5) 로 채우되 ds 보다 작아지지 않는다(D18)', () => {
+    expect(validateStageCredits({ default: { as: 0, ds: 10, ip: 30, rw: 50, im: 80, xx: 100 } }))
+      .toEqual({ ok: true, credits: DEFAULT_STAGE_CREDITS })
+    expect(validateStageCredits({ default: { as: 0, ds: 10, ip: 20, rw: 50, im: 80, xx: 100 } }))
+      .toMatchObject({ ok: true, credits: { default: { dd: 15 } } })
+    expect(validateStageCredits({ default: { as: 0, ds: 25, ip: 30, rw: 50, im: 80, xx: 100 } }))
+      .toMatchObject({ ok: true, credits: { default: { dd: 25 } } })
+  })
+  it('as ≤ ds ≤ dd ≤ ip 를 어기면 거부한다', () => {
+    expect(validateStageCredits({ default: { as: 0, ds: 20, dd: 15, ip: 30, rw: 50, im: 80, xx: 100 } })).toMatchObject({ ok: false })
+    expect(validateStageCredits({ default: { as: 0, ds: 10, dd: 35, ip: 30, rw: 50, im: 80, xx: 100 } })).toMatchObject({ ok: false })
+  })
+```
+
+- 거부 표 목록에서 `['ds 간격 10 미만', { as: 0, ds: 25, ip: 30, … }]` 행을 지운다(이제 유효하다). 나머지 행에는 `dd: 20` 을 넣는다(`'ds 가 정수 아님'` 행은 `dd: 20` 을 넣어도 ds 때문에 거부된다).
+- 사건 매핑 테스트의 기대값에 `design_done: 'dd', design_accept: 'dd'` 를 더한다.
+- `creditForKey` 에 dd 테스트를 더한다:
+
+```ts
+  it('dd 가 없는 옛 표에서 dd 는 max(ds, min(20, ip-5)) — RPC 채움과 같은 식(P12)', () => {
+    const old = { default: { as: 0, ds: 10, ip: 40, rw: 50, im: 80, xx: 100 } } as unknown as Parameters<typeof creditForKey>[1]
+    expect(creditForKey('dd', old)).toBe(20)
+    expect(creditForKey('dd', { default: { as: 0, ds: 10, ip: 20, rw: 50, im: 80, xx: 100 } } as never)).toBe(15)
+    expect(creditForKey('dd', null)).toBe(20)
+  })
+```
+
+- `clampCredit` 테스트의 표를 `{ as: 0, ds: 10, dd: 20, ip: 30, rw: 50, im: 80, xx: 100 }` 로 바꾸고 기대값을 새 규칙으로 고친다:
+
+```ts
+  it('5 단위로 스냅하고, 핵심 사슬(as·ip·rw·im·xx)은 10 간격, ds·dd 는 순서만 지킨다(D18)', () => {
+    expect(clampCredit(42, 'ip', t)).toBe(40)   // rw(50) - 10
+    expect(clampCredit(3, 'ip', t)).toBe(20)    // max(as+10, dd)
+    expect(clampCredit(27, 'ds', t)).toBe(20)   // dd 이하
+    expect(clampCredit(-3, 'ds', t)).toBe(0)    // as 이상(간격 없음)
+    expect(clampCredit(40, 'dd', t)).toBe(30)   // ip 이하
+    expect(clampCredit(5, 'dd', t)).toBe(10)    // ds 이상
+    expect(clampCredit(18, 'as', t)).toBe(10)   // min(ds, ip-10)
+    expect(clampCredit(95, 'im', t)).toBe(90)   // xx(100) - 10
+  })
+```
+
+- `normalizeStageCredits` 테스트: ds·dd 둘 다 없으면 `{ as: 0, ds: 10, dd: 20, ip: 40, rw: 50, im: 80, xx: 100 }`, ds 만 있으면(15) dd 는 `max(15, min(20, 30-5))` = 20.
+
+- [ ] **Step 2: 테스트가 실패하는지 본다**
+
+Run: `npx vitest run tests/domain/stage-labels.test.ts tests/domain/stage-credits.test.ts tests/domain/predecessor-reached.test.ts`
+Expected: FAIL(dd 없음, HUMAN_STAGE_CODES 없음 등)
+
+- [ ] **Step 3: 도메인과 사전을 고친다**
+
+`src/lib/domain/stageLabels.ts` 전체:
+
+```ts
+/**
+ * 단계 코드·라벨 정본(스펙 2026-09-15 §3.2) — 한 벌만. fp 는 0096 에서 ip 로 이관돼 어휘에 없다.
+ * ds(설계 중)는 0107, dd(설계 완료)는 0108 에서 들어왔다(설계 상태 스펙 D6) — 진행 중 단계(ds·ip) 뒤에 끝남·대기 단계(dd·im)가 짝을 이룬다.
+ * i18n ko 사전(wbs.stage*)은 이 값과 같아야 한다(tests/domain/stage-labels.test.ts 가 고정).
+ * 허브 표·대기 사유 문구처럼 i18n 을 쓰지 않는 서버 문구는 이 모듈을 쓴다.
+ */
+export const STAGE_CODES = ['as', 'ds', 'dd', 'ip', 'im', 'xx'] as const
+export type StageCode = (typeof STAGE_CODES)[number]
+
+/** 사람이 단계 선택(set_stage)·import 로 넣을 수 있는 단계 — dd 는 design_done·design_accept 로만 생긴다(스펙 7절). */
+export const HUMAN_STAGE_CODES = ['as', 'ds', 'ip', 'im', 'xx'] as const
+export type HumanStageCode = (typeof HUMAN_STAGE_CODES)[number]
+
+export const STAGE_LABEL_KO: Readonly<Record<StageCode, string>> = {
+  as: '할당됨', ds: '설계 중', dd: '설계 완료', ip: '작업 중', im: '검수 대기', xx: '완료',
+}
+export const STAGE_NONE_LABEL_KO = '미착수'
+
+export function isStageCode(v: unknown): v is StageCode {
+  return typeof v === 'string' && (STAGE_CODES as readonly string[]).includes(v)
+}
+export function isHumanStageCode(v: unknown): v is HumanStageCode {
+  return typeof v === 'string' && (HUMAN_STAGE_CODES as readonly string[]).includes(v)
+}
+
+/** null → 미착수, 모르는 코드 → 코드 그대로(표시 = 로깅 — 감추면 "단계 없음"으로 위장한다). */
+export function stageLabelKo(stage: string | null): string {
+  if (stage === null) return STAGE_NONE_LABEL_KO
+  return isStageCode(stage) ? STAGE_LABEL_KO[stage] : stage
+}
+```
+
+`src/lib/domain/agentWork.ts:8-9`:
+
+```ts
+/** WBS Task 단계 순서(스펙 2026-09-15 §3.2) — fp 는 0096 에서 ip 로 이관됐다. ds(설계 중)는 0107, dd(설계 완료)는 0108 에서 as 와 ip 사이. */
+export const STAGE_ORDER = ['as', 'ds', 'dd', 'ip', 'im', 'xx'] as const
+```
+
+`src/lib/domain/stageCredits.ts` 를 아래로 바꾼다(주석·함수 이름은 유지하고 dd·간격 규칙만 바뀐다):
+
+```ts
+/**
+ * 실적 크레딧 표(스펙 2026-09-15 §3.3·§3.4) — 순수 함수. 값의 정본은 DB(project_settings.stage_credits)이고
+ * 전이 때 실제 계산은 RPC apply_workflow_event 가 한다. 여기 기본값·규칙은 그 SQL 과 같아야 한다
+ * (tests/migrations/0108-design-state.test.ts 가 SQL 상수와 비교한다).
+ * ds(설계 중)는 0107, dd(설계 완료)는 0108 에서 들어왔다. ds·dd 는 간격 규칙에서 빠지고 as ≤ ds ≤ dd ≤ ip 만 지킨다(설계 상태 스펙 D18).
+ */
+export const CREDIT_KEYS = ['as', 'ds', 'dd', 'ip', 'rw', 'im', 'xx'] as const
+export type CreditKey = (typeof CREDIT_KEYS)[number]
+export type CreditTable = Record<CreditKey, number>
+/**
+ * 표는 `default` 하나뿐이다(2026-09-16 결정). 카테고리별 `if`·`doc` 표를 없앴다 — 쓰는 프로젝트가 거의 없는데
+ * 설정 화면에는 모든 프로젝트에 슬라이더가 세 벌씩 쌓였다. 항목의 `credit_key`(0089) 는 남지만 전이 계산에 쓰지 않는다.
+ */
+export type StageCredits = { default: CreditTable }
+
+export const DEFAULT_STAGE_CREDITS: StageCredits = {
+  default: { as: 0, ds: 10, dd: 20, ip: 30, rw: 50, im: 80, xx: 100 },
+}
+export const CREDIT_STEP = 5
+export const CREDIT_GAP = 10
+/** 10 간격을 지키는 핵심 사슬. ds·dd 는 여기서 빠진다(D18). */
+const CORE_KEYS: readonly CreditKey[] = ['as', 'ip', 'rw', 'im', 'xx']
+
+/**
+ * 사건 → 크레딧 키(§3.4). 승인은 xx(=100 고정), 반려·재작업은 rw(결과 단계는 ip).
+ * claim 은 종전(플래그 없음) 값이다 — 설계 선행·설계 범위 claim 은 ds, 구현부터(build) claim 은 dd 를 쓴다(0107·0108).
+ * build_start 는 ds·dd 일 때만 ip 로 옮긴다(이미 ip 이상이면 무변경). design_done·design_accept(확정)는 dd.
+ */
+export type CreditEvent = 'assign' | 'claim' | 'build_start' | 'design_done' | 'design_accept' | 'report_completion' | 'approve' | 'unapprove' | 'reject' | 'rework' | 'release'
+export const EVENT_CREDIT: Readonly<Record<CreditEvent, CreditKey>> = {
+  assign: 'as', claim: 'ip', build_start: 'ip', design_done: 'dd', design_accept: 'dd', report_completion: 'im', approve: 'xx',
+  unapprove: 'im', reject: 'rw', rework: 'rw', release: 'as',
+}
+/** 설계 선행 claim 의 크레딧 키. */
+export const DESIGN_FIRST_CLAIM_CREDIT: CreditKey = 'ds'
+
+/**
+ * 0107·0108 이전에 저장된 표에는 ds·dd 가 없다. ds 는 기본값(10), dd 는 max(ds, min(20, ip-5)) 로 채운다(D18) —
+ * RPC 가 표에 없는 키를 채우는 식과 같아 화면과 실제 전이가 어긋나지 않는다.
+ */
+function fillOptional(o: Record<string, unknown>): Record<string, unknown> {
+  const t = { ...o }
+  if (t.ds === undefined) t.ds = DEFAULT_STAGE_CREDITS.default.ds
+  if (t.dd === undefined && typeof t.ds === 'number' && typeof t.ip === 'number') t.dd = Math.max(t.ds, Math.min(20, t.ip - 5))
+  return t
+}
+
+type TableResult = { ok: true; table: CreditTable } | { ok: false; error: string }
+
+function validateTable(name: string, raw: unknown): TableResult {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, error: `${name} 표는 객체여야 합니다.` }
+  for (const k of Object.keys(raw)) {
+    if (!(CREDIT_KEYS as readonly string[]).includes(k)) return { ok: false, error: `${name} 표에 모르는 키가 있습니다: ${k}` }
+  }
+  const o = fillOptional(raw as Record<string, unknown>)
+  const t: Partial<CreditTable> = {}
+  for (const k of CREDIT_KEYS) {
+    const v = o[k]
+    if (typeof v !== 'number' || !Number.isInteger(v)) return { ok: false, error: `${name}.${k} 는 정수여야 합니다.` }
+    if (v < 0 || v > 100) return { ok: false, error: `${name}.${k} 는 0~100 이어야 합니다.` }
+    if (v % CREDIT_STEP !== 0) return { ok: false, error: `${name}.${k} 는 ${CREDIT_STEP} 단위여야 합니다.` }
+    t[k] = v
+  }
+  const table = t as CreditTable
+  if (table.xx !== 100) return { ok: false, error: `${name}.xx 는 100 이어야 합니다 — 완료는 WBS 완료 판정과 같다.` }
+  for (let i = 1; i < CORE_KEYS.length; i++) {
+    const prevKey = CORE_KEYS[i - 1], curKey = CORE_KEYS[i]
+    if (table[curKey] - table[prevKey] < CREDIT_GAP) {
+      return { ok: false, error: `${name}: ${prevKey} < ${curKey} 이고 간격이 ${CREDIT_GAP} 이상이어야 합니다.` }
+    }
+  }
+  if (!(table.as <= table.ds && table.ds <= table.dd && table.dd <= table.ip)) {
+    return { ok: false, error: `${name}: as ≤ ds ≤ dd ≤ ip 여야 합니다.` }
+  }
+  return { ok: true, table }
+}
+
+/** 저장 전 검증의 정본 — 서버 액션(updateStageCredits)과 슬라이더가 같이 쓴다. */
+export function validateStageCredits(raw: unknown): { ok: true; credits: StageCredits } | { ok: false; error: string } {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, error: '크레딧 표는 객체여야 합니다.' }
+  const o = raw as Record<string, unknown>
+  for (const k of Object.keys(o)) {
+    if (k !== 'default') return { ok: false, error: `모르는 카테고리입니다: ${k}` }
+  }
+  if (o.default === undefined) return { ok: false, error: 'default 표는 필수입니다.' }
+  const v = validateTable('default', o.default)
+  if (!v.ok) return v
+  return { ok: true, credits: { default: v.table } }
+}
+
+/** credits null → 코드 기본값. xx 는 100 고정. 표에 없는 ds·dd 는 fillOptional 과 같은 식(RPC 와 같다). */
+export function creditForKey(key: CreditKey, credits: StageCredits | null): number {
+  if (key === 'xx') return 100
+  const table = fillOptional({ ...((credits ?? DEFAULT_STAGE_CREDITS).default ?? DEFAULT_STAGE_CREDITS.default) })
+  const v = table[key]
+  return typeof v === 'number' ? v : DEFAULT_STAGE_CREDITS.default[key]
+}
+
+/**
+ * 저장된 표(project_settings.stage_credits) 읽기 — 없는 선택 키(ds·dd)를 채운다. 검증은 하지 않는다
+ * (값의 정본은 DB 이고 저장 때 검증했다). null 은 null(코드 기본값 사용).
+ */
+export function normalizeStageCredits(raw: StageCredits | null | undefined): StageCredits | null {
+  if (!raw || typeof raw !== 'object' || !raw.default || typeof raw.default !== 'object') return raw ?? null
+  return { ...raw, default: fillOptional(raw.default as unknown as Record<string, unknown>) as CreditTable }
+}
+
+/** 슬라이더 핸들 클램프 — 5 단위 스냅. 핵심 사슬은 이웃과 10 간격, ds·dd 는 as ≤ ds ≤ dd ≤ ip 만(D18). xx 는 100 고정. */
+export function clampCredit(raw: number, key: CreditKey, table: CreditTable): number {
+  if (key === 'xx') return 100
+  const snapped = Number.isFinite(raw) ? Math.round(raw / CREDIT_STEP) * CREDIT_STEP : table[key]
+  const bounds: Record<Exclude<CreditKey, 'xx'>, [number, number]> = {
+    as: [0, Math.min(table.ds, table.ip - CREDIT_GAP)],
+    ds: [table.as, table.dd],
+    dd: [table.ds, table.ip],
+    ip: [Math.max(table.as + CREDIT_GAP, table.dd), table.rw - CREDIT_GAP],
+    rw: [table.ip + CREDIT_GAP, table.im - CREDIT_GAP],
+    im: [table.rw + CREDIT_GAP, table.xx - CREDIT_GAP],
+  }
+  const [lo, hi] = bounds[key]
+  return Math.max(lo, Math.min(snapped, hi))
+}
+```
+
+`src/lib/i18n/dict/wbs.ts` 의 `'wbs.stageDs': '설계 중',` 다음 줄에 `'wbs.stageDd': '설계 완료',` 를, `wbs.en.ts` 의 `'wbs.stageDs': 'Designing',` 다음 줄에 `'wbs.stageDd': 'Design done',` 을 더한다.
+`src/lib/i18n/dict/settings.ts` 의 `'settings.creditKey_ds': '설계 중',` 다음에 `'settings.creditKey_dd': '설계 완료',` 를, `settings.en.ts` 의 `'settings.creditKey_ds': 'Designing',` 다음에 `'settings.creditKey_dd': 'Design done',` 을 더한다. 두 settings 사전에서 `settings.creditPvEvBuildStart` 키를 찾아 그 앞 줄에 `'settings.creditPvEvDesignDone': '설계 완료(검토·확정 뒤 구현)',`(en: `'Design done (build after review or confirm)',`)를 더한다.
+
+- [ ] **Step 4: 화면·액션의 단계 목록을 고친다**
+
+`src/components/settings/StageCreditSlider.tsx` — `KEY_LABEL`·`DOT_CLS`·`RING_CLS` 에 dd 를 더하고 미리보기 흐름에 설계 완료를 끼운다:
+
+```ts
+const KEY_LABEL: Record<CreditKey, DictKey> = {
+  as: 'settings.creditKey_as', ds: 'settings.creditKey_ds', dd: 'settings.creditKey_dd', ip: 'settings.creditKey_ip',
+  rw: 'settings.creditKey_rw', im: 'settings.creditKey_im', xx: 'settings.creditKey_xx',
+}
+const DOT_CLS: Record<CreditKey, string> = {
+  as: 'bg-pending', ds: 'bg-accent-secondary', dd: 'bg-accent-secondary/60', ip: 'bg-progress', rw: 'bg-delayed', im: 'bg-brand', xx: 'bg-done',
+}
+const RING_CLS: Record<CreditKey, string> = {
+  as: 'border-pending', ds: 'border-accent-secondary', dd: 'border-accent-secondary/60', ip: 'border-progress', rw: 'border-delayed',
+  im: 'border-brand', xx: 'border-done',
+}
+```
+
+`FLOW` 배열의 `settings.creditPvEvClaim` 행 다음에 한 줄을 더한다:
+
+```ts
+  { ev: 'settings.creditPvEvDesignDone', order: 'claimed', stage: 'dd', cur: 'dd' },
+```
+
+`src/components/wbs/shared.tsx` 의 `STAGE_META` 에서 `ds:` 줄 다음에:
+
+```ts
+  // dd(설계 완료, 0108) — 설계 중과 같은 계열을 진하게. 끝남·대기 단계라 작업 중(ip)과 구별된다.
+  dd: { key: 'wbs.stageDd', cls: 'bg-accent-secondary/30 text-accent-secondary' },
+```
+
+`src/components/wbs/WbsAssigneeStagePanel.tsx` — import 를 `import { HUMAN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'` 로 바꾸고, 선택지 목록을 `const STAGES: readonly Stage[] = HUMAN_STAGE_CODES` 로 바꾼다. 같은 파일의 `STAGE_KEYS`(단계 → 사전 키 표)에 `dd: 'wbs.stageDd'` 를 더한다(읽기 전용 표시는 dd 도 보여야 한다).
+
+`src/components/agent-hub/labels.ts:79` 를 `export { STAGE_CODES, HUMAN_STAGE_CODES } from '@/lib/domain/stageLabels'` 로 바꾸고, `DelegationTable.tsx` 의 import 목록에 `HUMAN_STAGE_CODES` 를 더한 뒤 458행의 `STAGE_CODES.map(` 을 `HUMAN_STAGE_CODES.map(` 으로 바꾼다.
+
+`src/app/actions/agentHub.ts` — 20행 import 를 `import { HUMAN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'`, 128행을 `const STAGE_CODES: ReadonlySet<string> = new Set(HUMAN_STAGE_CODES)` 로 바꾼다(허브의 단계 선택도 dd 를 받지 않는다).
+
+`src/app/actions/wbsAssign.ts` — 9행 import 에 `isHumanStageCode` 를 더하고 340행을 바꾼다:
+
+```ts
+  if (stage !== null && !isHumanStageCode(stage)) return { ok: false, error: '허용되지 않는 단계입니다. 설계 완료(dd)는 「설계 확정」·「설계 승인」으로만 생깁니다.' }
+```
+
+`src/lib/agent/wbsImport.ts` — 6행 import 를 `HUMAN_STAGE_CODES` 로, 92행을 `const STAGES: ReadonlySet<string> = new Set(HUMAN_STAGE_CODES)` 로 바꾼다.
+
+- [ ] **Step 5: 테스트와 타입 검사**
+
+Run: `npx vitest run tests/domain/stage-labels.test.ts tests/domain/stage-credits.test.ts tests/domain/predecessor-reached.test.ts tests/components tests/ui tests/actions tests/agent && npx tsc --noEmit -p .`
+Expected: PASS, 타입 오류 없음. `Record<CreditKey, …>`·`Record<StageCode, …>` 를 쓰는 곳이 더 있으면 tsc 가 알려 준다 — 그 표에 dd 항목을 더한다. `tests/migrations/0107-wbs-design-stage.test.ts` 의 "단계 CHECK 가 도메인 STAGE_CODES 와 같다"·"set_stage 허용 값" 두 테스트는 0107 파일이 dd 없이 고정돼 있어 이제 실패한다 — 두 테스트의 `STAGE_CODES` 를 0107 시점 목록 리터럴 `['as','ds','ip','im','xx']` 로 바꿔 0107 파일 자체를 고정하는 테스트로 남긴다(0108 대조는 Task 4 가 한다).
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add src/lib/domain/stageLabels.ts src/lib/domain/agentWork.ts src/lib/domain/stageCredits.ts \
+  src/lib/i18n/dict/wbs.ts src/lib/i18n/dict/wbs.en.ts src/lib/i18n/dict/settings.ts src/lib/i18n/dict/settings.en.ts \
+  src/components/settings/StageCreditSlider.tsx src/components/wbs/shared.tsx src/components/wbs/WbsAssigneeStagePanel.tsx \
+  src/components/agent-hub/labels.ts src/components/agent-hub/DelegationTable.tsx src/app/actions/agentHub.ts \
+  src/app/actions/wbsAssign.ts src/lib/agent/wbsImport.ts \
+  tests/domain/stage-labels.test.ts tests/domain/stage-credits.test.ts tests/domain/predecessor-reached.test.ts \
+  tests/migrations/0107-wbs-design-stage.test.ts
+git commit -m "feat(design-state): 단계 dd(설계 완료)와 크레딧 dd 를 더하고, 사람의 단계 선택에서는 dd 를 뺀다
+
+dd 는 design_done·design_accept 로만 생긴다(스펙 7절). 크레딧 dd 는 20, 옛 표는 max(ds, min(20, ip-5)) 로 채우고
+ds·dd 는 간격 규칙에서 빠진다(D18).
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
