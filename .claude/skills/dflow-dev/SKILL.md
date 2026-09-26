@@ -330,14 +330,15 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 
 **Verify 는 읽기 전용 감사자 셋과 작성자 하나를 한 메시지에 동시에 띄운다**(phase-verify.md). research/docs 특례 작업은
 감사자 없이 작성자만 띄운다(첫 보고가 곧 `PHASE_RESULT`).
-- 감사자: `<TSK>-audit-spec`·`<TSK>-audit-review`·`<TSK>-audit-tests`. 부모 컨텍스트를 물려받지 않는 새 서브에이전트(general-purpose,
+- 감사자: 역할 spec·review·tests 셋. **이름(`name`)을 붙이지 않고 띄운다** — 이름을 붙인 에이전트는 실행 환경에 따라 별도
+  pane·프로세스로 뜨는데, 감사자는 SendMessage·TaskStop 할 일이 없고 보고하면 스스로 끝난다. 부모 컨텍스트를 물려받지 않는 새 서브에이전트(general-purpose,
   fork 금지)에 `model: "sonnet"` 을 준다 — 쓰기 금지는 템플릿이 정한다(Explore 는 위치 찾기용이라 리뷰가 얕아진다). 프롬프트는 phase-prompt.md 「감사 템플릿」 에 `{ROLE}`(spec·review·tests)·
   `{BASE}`(state.json `baseline.base`)·`{BUILD_HEAD}`(`build_gate.head`)를 채운 것이다. 감사자는 커밋된 내용만 읽으므로 작성자의
   변이·E2E 와 겹쳐도 된다.
 - 작성자: `<TSK>-verify`, 종전 Verify 템플릿과 모델(sonnet) 그대로다. 첫 보고는 `VERIFY_EXEC done|fail` 이고 **이 보고로 회수하지
   않는다.**
-- 감사 보고(첫 줄 `AUDIT_RESULT <역할> <지적 수>`)를 받으면 곧바로 `<TASKS>/<TSK>/audit-<역할>.md` 에 그대로 옮겨 적고(git 에는
-  쓰지 않는다) 그 감사자를 TaskStop 한다.
+- 감사 보고(첫 줄 `AUDIT_RESULT <역할> <지적 수>`)를 받으면 곧바로 `<TASKS>/<TSK>/audit-<역할>.md` 에 그대로 옮겨 적는다(git
+  에는 쓰지 않는다).
 - 작성자의 `VERIFY_EXEC` 와 감사 셋이 모두 오면: 지적이 한 건이라도 있으면 세 파일의 지적을 모아 **같은 작성자에게 SendMessage 로**
   넘기고 `PHASE_RESULT verify done|fail` 을 기다린다. 지적이 0건이면 `VERIFY_EXEC` 를 최종 보고로 받는다(`done` 은 통과, `fail` 은
   Verify 실패 — 아래 4번). SendMessage 가 안 되면 sonnet 작성자를 새로 띄우고 `{AUDIT_FINDINGS}` 에 지적을 넣는다. 이 왕복은 Verify
