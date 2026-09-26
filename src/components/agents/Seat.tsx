@@ -18,10 +18,13 @@ export const STATE_LABEL: Record<SeatState, string> = {
   WAIT: '승인 대기', READY: '빈자리', DONE: '머지 완료',
 }
 
-/** 좌석 상태 라벨 — 설계 완료·선행 대기(designWait)는 WAIT 지만 승인 대기가 아니다(스펙 2026-09-26 §6.4). */
+/** 좌석 상태 라벨 — 설계 완료·선행 대기(designWait)·검토 대기(reviewWait)는 WAIT 지만 승인 대기가 아니다(스펙 2026-09-26 §6.4, §14.5). */
 export const DESIGN_WAIT_LABEL = '선행 대기'
-export function seatStateLabel(seat: Pick<Seat, 'state' | 'designWait'>): string {
-  return seat.designWait ? DESIGN_WAIT_LABEL : STATE_LABEL[seat.state]
+export const REVIEW_WAIT_LABEL = '설계 검토 대기'
+export function seatStateLabel(seat: Pick<Seat, 'state' | 'designWait' | 'reviewWait'>): string {
+  if (seat.designWait) return DESIGN_WAIT_LABEL
+  if (seat.reviewWait) return REVIEW_WAIT_LABEL
+  return STATE_LABEL[seat.state]
 }
 
 export function seatMetaLine(seat: Seat, nowMs: number): string {
@@ -31,7 +34,10 @@ export function seatMetaLine(seat: Seat, nowMs: number): string {
     case 'STALE': return `${who} · 무응답 ${ageLabel(seat.lastSignalAt, nowMs)}`
     case 'OFFLINE': return `${seat.phase} 에서 끊김 · ${ageLabel(seat.lastSignalAt, nowMs)}`
     case 'BLOCKED': return `${who} · 결정 대기`
-    case 'WAIT': return seat.designWait ? (seat.waitReason?.label ?? DESIGN_WAIT_LABEL) : '승인 대기'
+    case 'WAIT':
+      if (seat.designWait) return seat.waitReason?.label ?? DESIGN_WAIT_LABEL
+      if (seat.reviewWait) return seat.waitReason?.label ?? REVIEW_WAIT_LABEL
+      return '승인 대기'
     case 'READY': return seat.waitReason?.label ?? '미착수' // 짧은 라벨만 — 전문은 상세 패널(착수 대기 사유 스펙 §4)
     default: return '머지 완료'
   }
@@ -43,10 +49,13 @@ const MARK: Partial<Record<SeatState, () => React.JSX.Element>> = {
 }
 const HAS_BAR: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED', 'OFFLINE']
 
-export function SeatMark({ state, anim }: { state: SeatState; anim?: AnimName }) {
-  // 선행 대기는 상태가 READY 라 상태 표로는 못 가른다 — 좌석 그림(waiting)을 따라 표지를 단다.
+export function SeatMark({ state, anim, reviewWait }: { state: SeatState; anim?: AnimName; reviewWait?: boolean }) {
+  // 선행 대기·검토 대기는 상태가 READY(또는 designWait/reviewWait 인 WAIT)라 상태 표로는 못 가른다 —
+  // 좌석 그림(waiting)을 따라 표지를 달되, 검토 대기는 사유가 선행이 아니므로 말이 다르다(스펙 §14.5).
   if (anim === 'waiting') {
-    return <span className={css.mark} data-mark="waiting" title="선행 대기"><IconDependency /></span>
+    return reviewWait
+      ? <span className={css.mark} data-mark="waiting" data-mark-reason="design_review" title="설계 검토 대기"><IconDependency /></span>
+      : <span className={css.mark} data-mark="waiting" data-mark-reason="dependency" title="선행 대기"><IconDependency /></span>
   }
   const Icon = MARK[state]
   if (!Icon) return null
@@ -85,7 +94,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
             <span data-desk-phase=""><PhaseBadge seat={seat} size="chip" /></span>
             {owner && <OwnerTag owner={owner} />}
             <DecisionChip count={seat.decisionCount} />
-            <SeatMark state={seat.state} anim={seat.anim} />
+            <SeatMark state={seat.state} anim={seat.anim} reviewWait={seat.reviewWait} />
             {(seat.stubPending ?? []).length > 0 && (
               <span className={css.stubBadge} data-stub-badge="" title={(seat.stubPending ?? []).map(s => s.label).join('\n')}>
                 {stubBadgeText((seat.stubPending ?? []).length)}

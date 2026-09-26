@@ -1,7 +1,7 @@
 // 에이전트 허브 조립 — 순수 함수. 트리 순서·행 상태·카운터·승인 큐·감시자를 한 번에 만든다. DB·세션을 모른다.
 // 좌석 층은 여기서 만들지 않는다 — /agents/office 가 좌석표 로더로 그린다(2026-09-14 스튜디오 분리 스펙 §4-2).
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
-import { deriveSeatState, isApprovalWait, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
+import { deriveSeatState, isApprovalWait, isReviewWait, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 import { deriveWaitReason, type WaitReason } from './waitReason'
 import { parseDecisions, stageLockedForHuman, type DecisionsParse } from './agentWork'
@@ -44,7 +44,12 @@ export interface HubRow {
   stage: string | null
   /** 사람의 단계 지정 잠금(스펙 2026-09-15 §3.5) = 위임됨 ∨ 주문 claimed·reported. 서버가 계산하고 화면은 이 값만 읽는다(8상태에서 재파생 금지). */
   stageLocked: boolean
-  order: { id: string; status: OrderStatus; state: HubOrderState; agent: string | null; lastSignalAt: string | null } | null
+  order: {
+    id: string; status: OrderStatus; state: HubOrderState; agent: string | null; lastSignalAt: string | null
+    /** 설계 완료·검토 대기(claimed ∧ heartbeat wait_review, 스펙 §14.5) — WAIT 이지만 선행 대기(wait_pred)와 다른 라벨(§14.5)로
+     *  보여야 해서 hubStateLabel/hubStateTone 이 이 값을 본다. 선택 필드(옛 픽스처 = undefined → 선행 대기로 접힌다). */
+    reviewWait?: boolean
+  } | null
   prompt: string | null
   /** 리프 && 마일스톤 아님 && (관리자 || 담당자 본인) — 화면의 체크 활성 판정. 서버 가드(requireDelegationRight)와 같은 규칙. */
   canToggle: boolean
@@ -189,9 +194,10 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         id: picked.id, status: picked.status, state,
         agent: picked.heartbeat_agent ?? picked.claimed_by,
         lastSignalAt: sig > 0 ? new Date(sig).toISOString() : null,
+        reviewWait: isReviewWait(input),
       }
       if (state === 'READY') counters.ready++
-      // 승인 대기만 센다 — 설계 완료·선행 대기(claimed ∧ wait_pred)도 WAIT 지만 결재할 것이 아니다.
+      // 승인 대기만 센다 — 설계 완료·선행 대기(claimed ∧ wait_pred)·검토 대기(claimed ∧ wait_review)도 WAIT 지만 결재할 것이 아니다.
       else if (state === 'WAIT' && isApprovalWait(input)) counters.waiting++
       else if (WORKING.includes(state)) counters.working++
     }

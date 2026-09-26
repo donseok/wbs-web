@@ -119,6 +119,15 @@ describe('assembleAgentHub — 카운터·큐·상태', () => {
     expect(hub.rows.find(r => r.code === 'TSK-A-01')?.order?.state).toBe('WAIT')
     expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0 })
   })
+  it('설계 완료·검토 대기(claimed ∧ wait_review, 스펙 §14.5)도 WAIT 이지만 승인 대기(waiting)로 세지 않고, order.reviewWait 이 참이다', () => {
+    const hub = assembleAgentHub(rows({ orders: [
+      order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 3), updated_at: ago(OFFLINE_MS * 3) }),
+    ] }), NOW, VIEWER)
+    const row = hub.rows.find(r => r.code === 'TSK-A-01')
+    expect(row?.order?.state).toBe('WAIT')
+    expect(row?.order?.reviewWait).toBe(true)
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0 })
+  })
   it('queue: reported 주문마다 최신 completion 보고 1건, 오래된 것 먼저, 보고 없으면 빈 요약', () => {
     const o1 = '11111111-aaaa-4aaa-8aaa-000000000001', o2 = '11111111-aaaa-4aaa-8aaa-000000000002'
     const hub = assembleAgentHub(rows({

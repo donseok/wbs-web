@@ -259,6 +259,25 @@ describe('assembleSeatmap — 착수 대기 사유(waitReason)', () => {
     expect(seatOf(freed).waitReason?.kind).toBe('dependency')
     expect(seatOf(freed).waitReason?.text).toContain('재개')
   })
+  it('설계 완료·검토 대기(claimed ∧ wait_review, 스펙 §14.5)는 오래 침묵해도 WAIT·설계 검토 대기·실루엣이고, 미충족 선행이 있어도 사유는 바뀌지 않는다', () => {
+    const waitReview = order({ heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 5), updated_at: ago(OFFLINE_MS * 5) })
+    const base = { orders: [waitReview], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 10, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }
+    const m = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'ip', order_approved: false }] }), NOW)
+    const s = seatOf(m)
+    expect(s.state).toBe('WAIT')
+    expect(s.phase).toBe('wait_review')
+    expect(s.waitReason).toMatchObject({ kind: 'design_review', label: '설계 검토 대기' })
+    expect(s.anim).toBe('waiting')
+    expect(m.attention).toEqual([]) // 끊김·무응답으로 확인 필요 띠에 오르지 않는다
+    expect(s.designWait).toBe(false)
+    expect(s.reviewWait).toBe(true)
+    // 「승인 대기」 타일·구역 요약에 세지 않는다 — 레인처럼 빈자리(대기) 쪽이다
+    expect(m.counters).toMatchObject({ idle: 0, offline: 1 })
+    expect(m.floors[0].zones[0].summary).toMatchObject({ wait: 0, ready: 1 })
+    // 선행이 모두 풀렸어도 사유가 바뀌지 않는다 — wait_pred 와 달리 재개를 막는 것은 사람 검토이지 선행이 아니다.
+    const freed = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'xx', order_approved: true }] }), NOW)
+    expect(seatOf(freed).waitReason).toMatchObject({ kind: 'design_review', label: '설계 검토 대기' })
+  })
   it('승인 대기(reported) WAIT 에는 대기 사유를 붙이지 않는다', () => {
     const m = assembleSeatmap(rows({ orders: [order({ status: 'reported' })] }), NOW)
     expect(seatOf(m).state).toBe('WAIT')

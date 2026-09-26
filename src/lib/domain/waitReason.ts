@@ -4,7 +4,7 @@
 import { predecessorReached } from './agentWork'
 import { STAGE_LABEL_KO, isStageCode } from './stageLabels'
 
-export type WaitReasonKind = 'dependency' | 'agent_off' | 'agents_busy' | 'pickup' | 'merge_conflict'
+export type WaitReasonKind = 'dependency' | 'agent_off' | 'agents_busy' | 'pickup' | 'merge_conflict' | 'design_review'
 export interface WaitReason { kind: WaitReasonKind; label: string; text: string }
 
 export function stageText(stage: string | null): string {
@@ -117,5 +117,18 @@ export function designWaitReason(
   return {
     kind: 'dependency', label: '선행 대기',
     text: '설계를 마치고 선행을 기다리던 작업입니다. 선행은 모두 풀렸고, 팀장이 다음 확인 주기에 재개합니다. 이 상태가 오래 가면 팀장(/dflow-team)이 켜져 있는지 확인하세요.',
+  }
+}
+
+/**
+ * 설계 완료·검토 대기 좌석(claimed ∧ heartbeat wait_review, 스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5)의
+ * 사유 — 늘 사람 검토 대기다. `--scope design`(설계만) 으로 멈춘 작업이라 선행이 남아 있어도(§14.2 "미충족 선행이 있어도
+ * 같다") 사유는 바뀌지 않는다: 재개를 막는 것은 선행이 아니라 사람 검토이기 때문이다. designWaitReason 과 달리
+ * 미충족 선행 목록을 묻지 않는다 — 검토가 끝나기 전에는 선행이 풀려도 재개하지 않는다.
+ */
+export function reviewWaitReason(): WaitReason {
+  return {
+    kind: 'design_review', label: '설계 검토 대기',
+    text: '설계를 마치고 사람의 검토를 기다립니다. 검토 뒤 좌석의 「이어서 시작」을 누르거나 --scope build 로 구현을 이어 갑니다.',
   }
 }

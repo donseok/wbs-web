@@ -18,8 +18,8 @@ const OP_ICON: Record<SeatOpKind, () => React.JSX.Element> = {
 }
 
 function ladderPhase(seat: Seat): string {
-  // 설계 완료·선행 대기 — 설계 칸까지 지나왔다(WAIT 이므로 칸은 지나온 칸으로 칠해진다).
-  if (seat.designWait) return 'design'
+  // 설계 완료·선행 대기·검토 대기 — 설계 칸까지 지나왔다(WAIT 이므로 칸은 지나온 칸으로 칠해진다).
+  if (seat.designWait || seat.reviewWait) return 'design'
   if (seat.state === 'WAIT') return 'reported'
   if (seat.state === 'DONE') return 'merged'
   if (seat.phase === 'blocked' || seat.phase === 'rejected') return seat.progress < 25 ? 'design' : seat.progress < 60 ? 'build' : 'verify'
@@ -78,7 +78,7 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
           ))}
         </p>
       )}
-      {(seat.state === 'READY' || seat.designWait) && seat.waitReason && (
+      {(seat.state === 'READY' || seat.designWait || seat.reviewWait) && seat.waitReason && (
         <p className={css.waitReason} data-wait-reason={seat.waitReason.kind}><b>{seat.waitReason.label}</b> · {seat.waitReason.text}
           {/* 강제 진행 두 번째 진입점(스펙 §3.2) — 선행 대기 좌석에서 WBS 사이드바의 「강제 진행」 절로 바로 간다. */}
           {seat.waitReason.kind === 'dependency' && seat.itemId && (

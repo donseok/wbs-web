@@ -24,9 +24,9 @@ const LANES: readonly LaneDef[] = [
 
 interface Entry { seat: Seat; floorName: string; zoneLabel: string }
 
-/** 좌석이 설 레인 — 설계 완료·선행 대기(designWait)는 WAIT 지만 결재할 것이 없어 READY 의 선행 대기 곁(빈자리·완료)에 선다. */
+/** 좌석이 설 레인 — 설계 완료·선행 대기(designWait)·검토 대기(reviewWait)는 WAIT 지만 결재할 것이 없어 READY 의 선행 대기 곁(빈자리·완료)에 선다. */
 function laneKeyOf(seat: Seat): string | undefined {
-  if (seat.designWait) return 'rest'
+  if (seat.designWait || seat.reviewWait) return 'rest'
   return LANES.find(l => l.states.includes(seat.state))?.key
 }
 
@@ -95,7 +95,7 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
                       {owner && <span className="flex min-w-0"><OwnerTag owner={owner} /></span>}
                       <span className={css.cardMeta}><PhaseBadge seat={seat} size="chip" /><DecisionChip count={seat.decisionCount} /><span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span></span>
                     </span>
-                    <SeatMark state={seat.state} anim={seat.anim} />
+                    <SeatMark state={seat.state} anim={seat.anim} reviewWait={seat.reviewWait} />
                   </span>
                   {HAS_SAY.includes(seat.state) && <LaneSpeech seat={seat} nowMs={nowMs} />}
                   {HAS_BAR.includes(seat.state) && <span className={css.bar}><i style={{ width: `${seat.progress}%` }} /></span>}
