@@ -117,6 +117,13 @@ describe('sweep-check.sh — 스윕 후보 사전 검사', { timeout: 60000 }, (
     expect(last(r.out)).toBe('SWEEP_CANDIDATES n=1 eeeeeeee')
   })
 
+  it('설계만 push 하고 선행을 기다리는 agent 브랜치(phase=wait_pred)는 후보가 아니다 — 보고 전이다', () => {
+    pushAgent('44444444', 'TSK-02-07', state('TSK-02-07', '44444444-0000', 'wait_pred', { design_first: { unmet: ['d/TSK-01-01'] } }))
+    const r = check()
+    ok(r)
+    expect(last(r.out)).toBe('SWEEP_NONE')
+  })
+
   it('개발 브랜치에 이미 머지된 agent 브랜치(차분에 state.json 없음)는 후보가 아니다', () => {
     pushAgent('33333333', 'TSK-03-01', state('TSK-03-01', '33333333-0000', 'reported'))
     ok(sh(repo, `
@@ -216,6 +223,7 @@ describe('sweep-check.sh 후보 = /dflow-merge 「절차」 1번 정본(드리�
     pushAgent('ffffffff', 'TSK-02-02', JSON.stringify({ tsk: 'TSK-02-02', order: 'ffffffff-0000', api_base: 'https://other.test', phase: 'reported' }))
     pushAgent('11111111', 'TSK-02-03', JSON.stringify({ tsk: 'TSK-02-03', order: '11111111-0000', phase: 'verify' }))
     pushAgent('66666666', 'TSK-02-05', state('TSK-02-05', '66666666-0000', 'merged'))
+    pushAgent('77777777', 'TSK-02-06', state('TSK-02-06', '77777777-0000', 'wait_pred'))
     const canon = canonCandidates()
     expect(canon).toEqual(['aaaaaaaa', 'cccccccc', 'eeeeeeee'])
     expect(sweepIds(check().out)).toEqual(canon)
