@@ -2784,3 +2784,789 @@ git commit --allow-empty -m "0108 스테이징 리허설" --trailer "Staging-ver
 Step 1·3·6 의 숫자를 한 표로 보고한다(스테이징 = 운영 복제이므로 운영에 적용될 때의 예상 건수다). 보고 문장은 완전한 한국어로 쓴다. 예: "운영 복제 기준으로 설계 선행 대기 주문 2건이 설계 완료(dd)로 옮겨지고, 작업 중 주문 5건에 도는 PC 가 채워지며, 이미 진행된 항목의 대기 주문 1건이 취소됩니다."
 
 ---
+## Task 6: 전이 RPC 입구 — 새 사건·인자·사유
+
+**Files:**
+- Modify: `src/lib/agent/workflowEvent.ts`
+- Test: `tests/agent/workflow-event.test.ts`
+
+**Interfaces:**
+- Consumes: Task 4 의 RPC 시그니처·응답(`prev_status`·`design_state`·`design_mode_changed`)
+- Produces:
+  - `WorkflowEvent` 에 `'design_done' | 'design_accept' | 'design_reopen' | 'cancel' | 'set_design_mode'`
+  - `WorkflowEventArgs` 에 `scope?: string | null`, `cas?: Record<string, string | null> | null`, `note?: string | null`, `mode?: string | null`, `runner?: string | null`
+  - `WorkflowEventOk` 에 `prevStatus: string | null`, `designState: string | null`, `designModeChanged: boolean`
+  - `REASON_TEXT` 에 `bad_scope`·`bad_mode`·`design_gate`·`design_mode_locked`
+
+새 인자는 **값이 있을 때만** RPC 에 싣는다. 옛 사건 호출은 종전과 같은 7개 인자라서, 0108 전 DB 에서도 그대로 돈다(되돌리기 대비).
+
+- [ ] **Step 1: 실패하는 테스트를 더한다**
+
+`tests/agent/workflow-event.test.ts` 의 describe 안에 더한다:
+
+```ts
+  it('새 인자는 값이 있을 때만 싣는다 — 옛 사건 호출은 7개 인자 그대로', async () => {
+    const { client, rpc } = admin({ data: { ok: true, order_status: 'claimed', prev_status: 'ready', design_state: null, stage: 'ds', actual_pct: 10, stage_changed: true, actual_changed: true, reached_first: false, skipped: null } })
+    await applyWorkflowEvent(client, {
+      event: 'claim', actorUserId: 'u1', orderId: O1, agent: 'a/b/w1', scope: 'design',
+      cas: { design_state: null, design_mode: 'review' }, runner: 'a/b/w1',
+    })
+    expect(rpc).toHaveBeenCalledWith('apply_workflow_event', {
+      p_event: 'claim', p_actor: 'u1', p_item_id: null, p_order_id: O1, p_stage: null, p_agent: 'a/b/w1', p_agent_user_id: null,
+      p_scope: 'design', p_cas: { design_state: null, design_mode: 'review' }, p_runner: 'a/b/w1',
+    })
+  })
+  it('prev_status·design_state·design_mode_changed 를 돌려준다', async () => {
+    const { client } = admin({ data: { ok: true, order_status: 'cancelled', prev_status: 'claimed', design_state: null, stage: 'as', actual_pct: 0, stage_changed: true, actual_changed: true, reached_first: false, skipped: null } })
+    expect(await applyWorkflowEvent(client, { event: 'cancel', actorUserId: 'u1', orderId: O1 }))
+      .toMatchObject({ ok: true, orderStatus: 'cancelled', prevStatus: 'claimed', designState: null, designModeChanged: false })
+    const { client: c2 } = admin({ data: { ok: true, design_mode: 'human', design_mode_changed: true } })
+    expect(await applyWorkflowEvent(c2, { event: 'set_design_mode', actorUserId: 'u1', itemId: W1, mode: 'human' }))
+      .toMatchObject({ ok: true, designModeChanged: true })
+  })
+  it('새 사유는 사람 문구로', async () => {
+    for (const reason of ['design_gate', 'design_mode_locked', 'bad_scope', 'bad_mode']) {
+      const { client } = admin({ data: { ok: false, reason } })
+      const r = await applyWorkflowEvent(client, { event: 'design_done', actorUserId: 'u1', orderId: O1 })
+      expect(r).toMatchObject({ ok: false, reason, error: REASON_TEXT[reason] })
+      expect(REASON_TEXT[reason]).toBeTruthy()
+    }
+  })
+```
+
+첫 테스트(`인자를 p_* 로 넘기고…`)의 `toEqual` 기대값에 새 필드 세 개를 더한다: `prevStatus: null, designState: null, designModeChanged: false`.
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/agent/workflow-event.test.ts`
+Expected: FAIL(새 필드·새 인자 없음)
+
+- [ ] **Step 3: 구현**
+
+`src/lib/agent/workflowEvent.ts` 의 타입과 함수를 이렇게 바꾼다(주석 머리·`notifyOnReached`·`SKIPPED_WARN` 은 그대로):
+
+```ts
+export type WorkflowEvent =
+  | 'assign' | 'unassign' | 'claim' | 'report_completion' | 'approve' | 'unapprove' | 'reject' | 'rework' | 'release' | 'set_stage'
+  /** 설계 끝 → 구현 시작(0107·0108) — ds·dd 일 때만 ip, ip 이상이면 무변경. 주문 status 는 claimed 그대로, runner 를 적는다. */
+  | 'build_start'
+  /** 설계 완료(0108) — ds → dd, review 방식·design 범위면 설계 상태 review 로 두고 runner 를 비운다. */
+  | 'design_done'
+  /** ① 「설계 승인」(claimed·review·dd → accepted, claim_scope build) ② 「설계 확정」(ready·human → dd·accepted). */
+  | 'design_accept'
+  /** 「설계 되돌리기」·워커의 되돌림 — human 은 사람 설계 대기(as), 그 밖은 review. 사유를 design_note 에. */
+  | 'design_reopen'
+  /** D14 공용 취소 — ready·claimed → cancelled. claimed 이거나 단계 dd 면 as 로. prev_status 를 돌려준다. */
+  | 'cancel'
+  /** 설계 방식 변경(항목 사건) — 설계 상태가 있거나 claimed·reported·approved 주문이 있으면 design_mode_locked. */
+  | 'set_design_mode'
+
+export type WorkflowEventArgs = {
+  event: WorkflowEvent
+  actorUserId: string
+  /** assign·unassign·set_stage·set_design_mode 필수. 주문 사건은 생략한다(주문의 wbs_item_id 를 쓴다). */
+  itemId?: string | null
+  orderId?: string | null
+  /** set_stage 의 목표 단계. claim(legacy)에서는 null(종전 ip) 또는 'ds'(설계 선행, 0107). */
+  stage?: string | null
+  /** claim 은 기록, report_completion·release·build_start·design_done 은 점유자 일치 조건. 사람 사건은 null. */
+  agent?: string | null
+  agentUserId?: string | null
+  /** claim: full·design·build(없으면 legacy) / build_start: full·build·rework(없으면 legacy) — 0108. */
+  scope?: string | null
+  /** 라우트가 읽은 값 CAS(P1) — 키가 있으면 같아야 한다. null 값은 "없음". */
+  cas?: Record<string, string | null> | null
+  /** design_reopen 의 사유. */
+  note?: string | null
+  /** set_design_mode 의 목표 방식. */
+  mode?: string | null
+  /** claim·build_start·design_done 이 도는 PC 로 적을 호출 라벨(D25). */
+  runner?: string | null
+}
+
+export type WorkflowSkipped = 'parent' | 'not_workflow' | 'stage' | 'no_item'
+export type WorkflowEventOk = {
+  ok: true; orderStatus: string | null; stage: string | null; actualPct: number | null
+  stageChanged: boolean; actualChanged: boolean; reachedFirst: boolean; skipped: WorkflowSkipped | null
+  /** 주문 사건의 직전 status(0108) — cancel 이 워커가 돌던 주문이었는지(claimed) 호출부가 본다. */
+  prevStatus: string | null
+  /** 주문 사건 뒤 설계 상태(0108). */
+  designState: string | null
+  /** set_design_mode 가 실제로 바꿨는가. */
+  designModeChanged: boolean
+}
+export type WorkflowEventFail = { ok: false; conflict: boolean; reason: string; orderStatus: string | null; error: string }
+
+/** RPC 실패 사유 → 사람 문구. 모르는 사유는 코드 그대로 드러낸다(표시 = 로깅). */
+export const REASON_TEXT: Record<string, string> = {
+  conflict: '상태가 바뀌어 처리하지 못했습니다. 다시 시도하세요.',
+  locked: '에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요.',
+  not_workflow: '개발 워크플로 대상이 아닌 항목입니다.',
+  parent: '하위 항목이 있습니다 — 개발 워크플로 단계는 최종단계에만 지정합니다.',
+  item_required: '항목이 필요한 사건입니다.',
+  item_not_found: '항목 없음',
+  order_required: '주문이 필요한 사건입니다.',
+  order_not_found: '주문 없음',
+  order_item_mismatch: '주문의 항목이 다릅니다.',
+  bad_event: '알 수 없는 사건입니다.',
+  bad_stage: '허용되지 않는 단계입니다. 설계 완료(dd)는 「설계 확정」·「설계 승인」으로만 생깁니다.',
+  bad_scope: '허용되지 않는 범위입니다.',
+  bad_mode: '허용되지 않는 설계 방식입니다.',
+  design_gate: '설계 상태 때문에 처리할 수 없습니다. 화면의 설계 상태 안내를 확인하세요.',
+  design_mode_locked: '설계가 확정·검토 중이거나 에이전트가 작업 중이라 설계 방식을 바꿀 수 없습니다.',
+  stub_pending: '스텁이 남아 있어 승인할 수 없습니다 — 스텁 제거 작업을 먼저 끝내세요.',
+}
+
+export async function applyWorkflowEvent(admin: AdminClient, args: WorkflowEventArgs): Promise<WorkflowEventOk | WorkflowEventFail> {
+  const params: Record<string, unknown> = {
+    p_event: args.event, p_actor: args.actorUserId,
+    p_item_id: args.itemId ?? null, p_order_id: args.orderId ?? null, p_stage: args.stage ?? null,
+    p_agent: args.agent ?? null, p_agent_user_id: args.agentUserId ?? null,
+  }
+  // 0108 인자는 값이 있을 때만 싣는다 — 옛 사건 호출이 0108 전 DB(7인자 함수)에서도 그대로 돈다.
+  if (args.scope != null) params.p_scope = args.scope
+  if (args.cas != null) params.p_cas = args.cas
+  if (args.note != null) params.p_note = args.note
+  if (args.mode != null) params.p_mode = args.mode
+  if (args.runner != null) params.p_runner = args.runner
+  const { data, error } = await admin.rpc('apply_workflow_event', params)
+  if (error) return { ok: false, conflict: false, reason: 'rpc_error', orderStatus: null, error: `전이 실패: ${error.message}` }
+  const r = (data ?? {}) as Record<string, unknown>
+  const orderStatus = typeof r.order_status === 'string' ? r.order_status : null
+  if (r.ok !== true) {
+    const conflict = r.conflict === true
+    const reason = typeof r.reason === 'string' ? r.reason : conflict ? 'conflict' : 'unknown'
+    return { ok: false, conflict, reason, orderStatus, error: REASON_TEXT[reason] ?? `전이 실패(${reason})` }
+  }
+  return {
+    ok: true, orderStatus,
+    stage: typeof r.stage === 'string' ? r.stage : null,
+    actualPct: r.actual_pct == null ? null : Number(r.actual_pct),
+    stageChanged: r.stage_changed === true,
+    actualChanged: r.actual_changed === true,
+    reachedFirst: r.reached_first === true,
+    skipped: typeof r.skipped === 'string' ? (r.skipped as WorkflowSkipped) : null,
+    prevStatus: typeof r.prev_status === 'string' ? r.prev_status : null,
+    designState: typeof r.design_state === 'string' ? r.design_state : null,
+    designModeChanged: r.design_mode_changed === true,
+  }
+}
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `npx vitest run tests/agent/workflow-event.test.ts && npx tsc --noEmit -p .`
+Expected: PASS. tsc 가 `WorkflowEventOk` 를 리터럴로 만드는 다른 테스트 목(예: `RPC_OK` 상수)을 가리키면 그 목은 JSON(snake_case) 이라 영향이 없다. 영향을 받는 곳이 있으면 새 필드를 채운다.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add src/lib/agent/workflowEvent.ts tests/agent/workflow-event.test.ts
+git commit -m "feat(design-state): 전이 RPC 입구에 설계 사건·범위·CAS 인자를 더한다
+
+새 인자는 값이 있을 때만 실어 옛 사건 호출이 0108 전 DB 에서도 그대로 돈다.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 7: 공용 취소(D14) — 네 경로를 cancel 사건 하나로, import 의 표식 제거(L7)
+
+**Files:**
+- Create: `src/lib/agent/cancelOrder.ts`
+- Modify: `src/lib/agent/delegation.ts:145-191`, `src/app/actions/agentHub.ts:175-205`, `src/app/actions/wbsAssign.ts:549-559`, `src/lib/agent/forceProgress.ts:59-78`, `src/lib/agent/wbsImport.ts:212-300`
+- Test: `tests/agent/cancel-order.test.ts`(새), 그리고 네 경로의 기존 테스트(`tests/actions/wbs-spec-delegation-right.test.ts`·`tests/actions/agent-hub-actions.test.ts`·`tests/actions/wbs-dev-workflow.test.ts`·`tests/domain/force-progress.test.ts` 등 — 아래 Step 5)
+
+**Interfaces:**
+- Consumes: Task 6 `applyWorkflowEvent({ event: 'cancel', orderId, actorUserId })` → `{ ok, prevStatus, actualChanged }`
+- Produces: `cancelOrders(admin, { orderIds: string[]; actorUserId: string }): Promise<{ cancelled: Array<{ id: string; prevStatus: string }>; conflicts: string[]; failed: Array<{ id: string; error: string }>; actualChanged: boolean }>` — 한 건씩 RPC. 상태가 바뀐 주문(conflict)은 `conflicts` 에 담고 실패로 치지 않는다.
+
+- [ ] **Step 1: 실패하는 테스트**
+
+`tests/agent/cancel-order.test.ts`:
+
+```ts
+// 공용 취소(D14) — 주문마다 cancel 사건 RPC. conflict 는 건너뛰고, 그 밖의 실패는 모은다.
+import { describe, expect, it, vi } from 'vitest'
+import { cancelOrders } from '@/lib/agent/cancelOrder'
+
+const O1 = '22222222-2222-4222-8222-222222222222'
+const O2 = '33333333-3333-4333-8333-333333333333'
+function admin(replies: Array<{ data?: unknown; error?: { message: string } | null }>) {
+  const rpc = vi.fn(async () => { const r = replies.shift() ?? { data: null }; return { data: r.data ?? null, error: r.error ?? null } })
+  return { client: { rpc } as never, rpc }
+}
+const ok = (prev: string, actualChanged = false) => ({ data: { ok: true, order_status: 'cancelled', prev_status: prev, stage: 'as', actual_pct: 0, stage_changed: actualChanged, actual_changed: actualChanged, reached_first: false, skipped: null } })
+
+describe('cancelOrders', () => {
+  it('주문마다 cancel 사건을 부르고 직전 status 를 모은다', async () => {
+    const { client, rpc } = admin([ok('claimed', true), ok('ready')])
+    const r = await cancelOrders(client, { orderIds: [O1, O2], actorUserId: 'u1' })
+    expect(rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_event: 'cancel', p_order_id: O1, p_actor: 'u1' }))
+    expect(r).toEqual({ cancelled: [{ id: O1, prevStatus: 'claimed' }, { id: O2, prevStatus: 'ready' }], conflicts: [], failed: [], actualChanged: true })
+  })
+  it('상태가 바뀐 주문은 conflicts, RPC 오류는 failed', async () => {
+    const { client } = admin([{ data: { ok: false, conflict: true, order_status: 'reported' } }, { error: { message: 'boom' } }])
+    const r = await cancelOrders(client, { orderIds: [O1, O2], actorUserId: 'u1' })
+    expect(r.cancelled).toEqual([])
+    expect(r.conflicts).toEqual([O1])
+    expect(r.failed).toEqual([{ id: O2, error: '전이 실패: boom' }])
+  })
+  it('빈 목록이면 RPC 를 부르지 않는다', async () => {
+    const { client, rpc } = admin([])
+    expect(await cancelOrders(client, { orderIds: [], actorUserId: 'u1' })).toEqual({ cancelled: [], conflicts: [], failed: [], actualChanged: false })
+    expect(rpc).not.toHaveBeenCalled()
+  })
+})
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/agent/cancel-order.test.ts`
+Expected: FAIL — 모듈 없음
+
+- [ ] **Step 3: 헬퍼를 쓴다**
+
+`src/lib/agent/cancelOrder.ts`:
+
+```ts
+// 공용 취소(설계 상태 스펙 D14) — 위임 해제·「중단」·개발 워크플로 끄기·스텁 제거·import 의 표식 제거(L7)가 모두 이 함수를 쓴다.
+// 주문마다 RPC cancel 사건 하나(0108): 주문 cancelled·점유·설계 상태·claim_scope·runner 를 지우고, claimed 이거나 단계 dd 면
+// 단계·실적을 as 로 되돌린다. 종전의 "주문 UPDATE 뒤 set_stage as" 두 단계가 한 트랜잭션이 된다(태그 잠금에도 걸리지 않는다).
+import type { AdminClient } from '@/lib/minutes/externalApi'
+import { applyWorkflowEvent } from '@/lib/agent/workflowEvent'
+
+export type CancelOrdersResult = {
+  cancelled: Array<{ id: string; prevStatus: string }>
+  /** 판정과 쓰기 사이에 상태가 바뀐 주문(보고됨 등) — 실패가 아니라 "취소 대상이 아니게 됨". */
+  conflicts: string[]
+  failed: Array<{ id: string; error: string }>
+  /** 단계·실적이 되돌아간 주문이 있으면 참 — 호출부가 진척 스냅샷을 남긴다. */
+  actualChanged: boolean
+}
+
+export async function cancelOrders(admin: AdminClient, args: { orderIds: string[]; actorUserId: string }): Promise<CancelOrdersResult> {
+  const out: CancelOrdersResult = { cancelled: [], conflicts: [], failed: [], actualChanged: false }
+  for (const id of args.orderIds) {
+    const r = await applyWorkflowEvent(admin, { event: 'cancel', actorUserId: args.actorUserId, orderId: id })
+    if (r.ok) {
+      out.cancelled.push({ id, prevStatus: r.prevStatus ?? 'unknown' })
+      if (r.actualChanged) out.actualChanged = true
+    } else if (r.conflict) {
+      out.conflicts.push(id)
+    } else {
+      console.error('[cancelOrders] 취소 실패:', id, r.error)
+      out.failed.push({ id, error: r.error })
+    }
+  }
+  return out
+}
+```
+
+- [ ] **Step 4: 네 경로를 헬퍼로 바꾼다**
+
+① `src/lib/agent/delegation.ts` — import 에 `import { cancelOrders } from '@/lib/agent/cancelOrder'` 를 더하고, OFF 갈래(`// ready·claimed 는 체크 해제만으로 취소한다` 주석부터 `const extra = {` 직전까지)를 아래로 바꾼다. `applyWorkflowEvent` import 는 dev_workflow ON 갈래가 계속 쓰므로 둔다.
+
+```ts
+    // ready·claimed 는 체크 해제만으로 취소한다(2026-08-24 — 위임을 끄면 그 항목엔 에이전트를 더 안 쓰겠다는
+    // 뜻이니 대기 중이든 작업 중이든 그대로 끝낸다). 허브·좌석의 "중단" 버튼(2026-09-19)도 이 경로를 탄다.
+    // reported 는 이미 결과물이 올라온 상태라 취소로 지우지 않는다 — 승인·반려로만 정리한다.
+    // 취소는 RPC cancel 사건(설계 상태 스펙 D14) — 설계 상태·범위·도는 PC 를 지우고, claimed 이거나 단계 dd 면 as 로 되돌린다.
+    const { data: active, error: actErr } = await admin
+      .from('agent_work_orders').select('id, status').eq('wbs_item_id', itemId)
+      .in('status', ['ready', 'claimed', 'reported'])
+    if (actErr) return { ok: false, error: `주문 조회 실패: ${actErr.message}` }
+    const rows = (active ?? []) as Array<{ id: string; status: string }>
+    const cancelIds = rows.filter(o => o.status === 'ready' || o.status === 'claimed').map(o => o.id)
+    const c = await cancelOrders(admin, { orderIds: cancelIds, actorUserId })
+    if (c.failed.length > 0) return { ok: false, error: `주문 취소 실패: ${c.failed.map(f => f.error).join(' / ')}` }
+    // 실제로 취소된 주문 중 직전이 claimed 였던 것 — 워커가 돌던 주문이다(2026-09-19 중단 설계 §1).
+    const cancelledClaimedIds = c.cancelled.filter(x => x.prevStatus === 'claimed').map(x => x.id)
+    const actualChanged = c.actualChanged
+    if (rows.some(o => o.status === 'reported') || c.conflicts.length > 0) {
+      warnings.push('완료 보고가 이미 올라온 주문은 취소되지 않았습니다 — 진행 상황에서 승인·반려로 정리하세요.')
+    }
+```
+
+(바로 뒤의 `const extra = {…}` 와 `return` 은 그대로 둔다 — `cancelledClaimedIds`·`actualChanged` 이름이 같다.)
+
+② `src/app/actions/agentHub.ts` 의 `stopOrderByAdmin` — 항목이 지워진 주문 갈래(`} else {` 안의 `admin.from('agent_work_orders').update({ status: 'cancelled', …`)를 바꾼다:
+
+```ts
+  } else {
+    const c = await cancelOrders(admin, { orderIds: [orderId], actorUserId })
+    if (c.failed.length > 0) return { ok: false, error: `주문 취소 실패: ${c.failed[0].error}` }
+    if (!c.cancelled.some(x => x.id === orderId && x.prevStatus === 'claimed')) {
+      return { ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다. 다시 시도하세요.' }
+    }
+  }
+```
+
+파일 머리 import 에 `import { cancelOrders } from '@/lib/agent/cancelOrder'` 를 더한다.
+
+③ `src/app/actions/wbsAssign.ts` 의 dev_workflow OFF 갈래(`// OFF — 갱신된 항목들의 ready 주문만 일괄 취소` 블록)를 바꾼다:
+
+```ts
+  } else {
+    // OFF — 갱신된 항목들의 ready 주문만 취소(claimed/reported 는 진행 중이라 건드리지 않음). RPC cancel 사건이
+    // 단계 dd 의 확정 설계를 as 로 되돌린다(설계 상태 스펙 D14).
+    const { data: readyRows, error: readyErr } = await admin
+      .from('agent_work_orders').select('id').in('wbs_item_id', updatedIds).eq('status', 'ready')
+    if (readyErr) {
+      console.error('[wbsAssign] dev_workflow OFF 주문 조회 실패:', readyErr.message)
+      cascadeFailed = true
+    } else {
+      const c = await cancelOrders(admin, { orderIds: ((readyRows ?? []) as Array<{ id: string }>).map(r => r.id), actorUserId: g.actor.userId })
+      if (c.failed.length > 0) cascadeFailed = true
+    }
+  }
+```
+
+파일 머리 import 에 `cancelOrders` 를 더한다.
+
+④ `src/lib/agent/forceProgress.ts` 의 스텁 제거(`if (list.length > 0) {` 블록)를 바꾼다:
+
+```ts
+  if (list.length > 0) {
+    const c = await cancelOrders(admin, { orderIds: list.map(o => o.id), actorUserId: a.actorUserId })
+    if (c.failed.length > 0) return { ok: false, error: `주문 취소 실패: ${c.failed[0].error}` }
+    if (c.cancelled.length !== list.length) return { ok: false, error: '상태가 바뀌어 취소하지 못했습니다. 다시 시도하세요.' }
+  }
+```
+
+파일 머리 import 에 `import { cancelOrders } from '@/lib/agent/cancelOrder'` 를 더한다.
+
+⑤ `src/lib/agent/wbsImport.ts` — import 가 위임 표식을 떼면 그 항목의 ready·claimed 주문을 취소한다(L7, P15). `runWbsImport` 에서 `const stubConflicts = …` 검사 뒤, `import_wbs_upsert` 호출 **앞**에 표식이 빠질 항목을 구한다:
+
+```ts
+  // L7(설계 상태 스펙 12절) — 이번 업로드로 위임 표식(agent)이 빠지는 기존 항목. RPC 가 tags 를 덮어쓰므로 호출 전에 읽는다.
+  const untagRefs = (rpcNodes as Array<{ external_ref: string; tags: string[] }>)
+    .filter(n => !(n.tags ?? []).includes(AGENT_TAG)).map(n => n.external_ref)
+  const losingIds: string[] = []
+  for (const refChunk of chunked(untagRefs, IN_CHUNK)) {
+    const { data, error } = await admin.from('wbs_items').select('id, tags')
+      .eq('project_id', projectId).in('external_ref', refChunk)
+    if (error) throw new Error(`표식 확인 조회 실패: ${error.message}`)
+    for (const r of (data ?? []) as Array<{ id: string; tags: string[] | null }>) if ((r.tags ?? []).includes(AGENT_TAG)) losingIds.push(r.id)
+  }
+```
+
+`applyAssigneesAndOrders(...)` 호출 **앞**(upsert 뒤)에 취소를 넣는다:
+
+```ts
+  // 표식이 빠진 항목의 ready·claimed 주문을 공용 취소로 끝낸다(L7) — 확정 설계가 표식 없이 떠 있지 않게.
+  let delegationCancelled = 0
+  if (losingIds.length > 0) {
+    const act: string[] = []
+    for (const idChunk of chunked(losingIds, IN_CHUNK)) {
+      const { data, error } = await admin.from('agent_work_orders').select('id')
+        .in('wbs_item_id', idChunk).in('status', ['ready', 'claimed'])
+      if (error) throw new Error(`표식 제거 주문 조회 실패: ${error.message}`)
+      act.push(...((data ?? []) as Array<{ id: string }>).map(r => r.id))
+    }
+    const c = await cancelOrders(admin, { orderIds: act, actorUserId })
+    if (c.failed.length > 0) throw new Error(`표식 제거 주문 취소 실패: ${c.failed.map(f => f.error).join(' / ')}`)
+    delegationCancelled = c.cancelled.length
+  }
+```
+
+`RunWbsImportResult` 의 ok 갈래에 `delegationCancelled: number` 를 더하고 마지막 `return { ok: true, … }` 에 `delegationCancelled` 를 싣는다. 파일 머리 import 에 `import { AGENT_TAG } from '@/lib/domain/seatmap'` 와 `import { cancelOrders } from '@/lib/agent/cancelOrder'` 를 더한다(`chunked`·`IN_CHUNK` 는 같은 파일에 이미 있다 — 선언이 아래에 있으면 함수 호이스팅이 아닌 `const` 이므로, `IN_CHUNK` 선언을 `runWbsImport` 보다 위로 옮긴다).
+
+- [ ] **Step 5: 기존 테스트를 새 경로에 맞춘다**
+
+Run: `npx vitest run tests/agent/cancel-order.test.ts tests/actions tests/agent tests/domain/force-progress.test.ts`
+Expected: 새 테스트 PASS. 기존 테스트 중 "주문 UPDATE status=cancelled" 나 "set_stage as" 호출을 단언하던 것은 이제 `admin.rpc('apply_workflow_event', expect.objectContaining({ p_event: 'cancel', p_order_id: … }))` 를 단언하도록 고친다. 목이 `rpc` 를 갖고 있지 않으면 `rpc: vi.fn(async () => ({ data: { ok: true, order_status: 'cancelled', prev_status: '<직전>', stage_changed: false, actual_changed: false, reached_first: false, skipped: null }, error: null }))` 를 더한다. import 테스트(`tests/agent/wbs-import*.test.ts`)는 새 `wbs_items` 조회(표식 확인)가 upsert 전에 끼므로 큐에 `{ data: [] }` 를 그 자리에 하나 더하고, 결과 단언에 `delegationCancelled: 0` 을 더한다. 표식이 빠지는 항목을 하나 넣어 취소가 불리는 테스트를 `tests/agent/wbs-import.test.ts` 에 하나 더한다:
+
+```ts
+  it('업로드가 위임 표식을 떼면 그 항목의 ready·claimed 주문을 cancel 로 취소한다(L7)', async () => {
+    // 준비: 기존 항목 W1 은 tags=['agent'], payload 노드는 tags 없음 → 표식 확인 조회가 W1 을 돌려주고,
+    // upsert 뒤 주문 조회가 ready 주문 O1 을 돌려준다. 기대: rpc 가 p_event 'cancel', p_order_id O1 로 불리고 delegationCancelled 1.
+  })
+```
+
+이 테스트 본문은 그 파일의 기존 `useAdmin`/큐 헬퍼로 위 준비·기대를 그대로 옮겨 쓴다(파일마다 목 헬퍼 이름이 달라 여기 고정하지 않는다 — 준비 두 줄과 기대 두 줄을 빠짐없이 단언한다).
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add src/lib/agent/cancelOrder.ts src/lib/agent/delegation.ts src/app/actions/agentHub.ts src/app/actions/wbsAssign.ts \
+  src/lib/agent/forceProgress.ts src/lib/agent/wbsImport.ts tests/agent/cancel-order.test.ts
+git add $(git diff --name-only -- tests)   # Step 5 에서 고친 기존 테스트(파일명을 확인하고 add 한다)
+git commit -m "feat(design-state): 주문 취소 네 경로를 RPC cancel 사건 하나로 모으고, import 가 표식을 떼면 주문을 취소한다
+
+취소가 설계 상태·범위·도는 PC 를 함께 지우고 claimed·dd 를 as 로 되돌린다(D14). 업로드가 위임 표식을 떼면
+확정 설계가 표식 없이 남지 않게 ready·claimed 주문을 취소한다(L7).
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+(`git add $(git diff --name-only -- tests)` 는 이 Task 에서 고친 테스트만 올리는지 `git diff --name-only -- tests` 출력을 먼저 눈으로 확인한 뒤 쓴다.)
+
+---
+
+## Task 8: 발행 차단(D26) — 이미 진행된 항목에는 새 주문을 만들지 않는다
+
+**Files:**
+- Modify: `src/lib/agent/ensureOrder.ts:10-72`, `src/lib/agent/delegation.ts:141-144`
+- Test: `tests/agent/ensure-order.test.ts`
+
+**Interfaces:**
+- Consumes: 없음
+- Produces: `ensureOrderForWorkflowLeaf` 의 `reason` 에 `'progressed'` — 단계 ip 이상·실적 100·approved 주문이 있으면 만들지 않는다(`alreadyProgressed` 와 같은 조건).
+
+- [ ] **Step 1: 실패하는 테스트**
+
+`tests/agent/ensure-order.test.ts` 에 더한다(파일의 `MockAdminClient` 큐 관례: 등록 → 항목 → 하위 → approved → 활성 순으로 `maybeSingle` 이 소비한다):
+
+```ts
+  describe('D26 — 이미 진행된 항목에는 주문을 만들지 않는다', () => {
+    it.each([
+      ['단계 ip', { stage: 'ip', actual_pct: 30 }],
+      ['단계 xx', { stage: 'xx', actual_pct: 100 }],
+      ['실적 100', { stage: 'as', actual_pct: 100 }],
+    ])('%s 면 progressed', async (_n, extra) => {
+      const admin = new MockAdminClient()
+      admin.enqueue({ data: { enabled: true }, error: null })
+      admin.enqueue({ data: { name: 't', priority: null, external_ref: null, assignee_member_id: null, dev_workflow: true, ...extra }, error: null })
+      const r = await ensureOrderForWorkflowLeaf(admin as unknown as AdminClient, { projectId: 'p', wbsItemId: 'w', actorUserId: 'u' })
+      expect(r).toEqual({ ok: true, created: false, reason: 'progressed' })
+      expect(admin.lastInsertPayload).toBeNull()
+    })
+    it('approved 주문이 있으면 progressed', async () => {
+      const admin = new MockAdminClient()
+      admin.enqueue({ data: { enabled: true }, error: null })
+      admin.enqueue({ data: { name: 't', priority: null, external_ref: null, assignee_member_id: null, dev_workflow: true, stage: 'im', actual_pct: 80 }, error: null })
+      admin.enqueue({ data: null, error: null })          // 하위 없음
+      admin.enqueue({ data: { id: 'o-old' }, error: null }) // approved 주문 있음
+      const r = await ensureOrderForWorkflowLeaf(admin as unknown as AdminClient, { projectId: 'p', wbsItemId: 'w', actorUserId: 'u' })
+      expect(r).toEqual({ ok: true, created: false, reason: 'progressed' })
+    })
+  })
+```
+
+(파일의 목에 큐 넣는 메서드 이름이 `enqueue` 가 아니면 그 이름을 쓴다. `lastInsertPayload` 는 이미 있다.)
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/agent/ensure-order.test.ts`
+Expected: FAIL — 주문이 만들어진다(created true)
+
+- [ ] **Step 3: 구현**
+
+`src/lib/agent/ensureOrder.ts` — 반환 타입의 `reason` 에 `'progressed'` 를 더하고, 항목 조회 select 에 `stage, actual_pct` 를 더한 뒤 두 곳에 검사를 넣는다:
+
+```ts
+  | { ok: true; created: boolean; reason?: 'not_agent_project' | 'not_leaf' | 'active_exists' | 'not_workflow' | 'progressed' }
+```
+
+```ts
+  const { data: item, error: itemErr } = await admin
+    .from('wbs_items')
+    .select('name, priority, external_ref, assignee_member_id, dev_workflow, stage, actual_pct')
+    .eq('id', wbsItemId)
+    .maybeSingle()
+```
+
+`row` 타입에 `stage: string | null; actual_pct: number | string | null` 를 더하고, `if (row.dev_workflow !== true) …` 바로 뒤에:
+
+```ts
+  // D26(설계 상태 스펙) — 이미 진행된 항목(단계 ip 이상·실적 100)에는 새 주문을 만들지 않는다. 완료 항목에 ready 가 생기면
+  // 「재작업」이 0077 유니크 인덱스에 막히고, 재위임이 실적을 낮추던 결함도 여기서 닫는다.
+  if (row.stage === 'ip' || row.stage === 'im' || row.stage === 'xx' || Number(row.actual_pct ?? 0) >= 100) {
+    return { ok: true, created: false, reason: 'progressed' }
+  }
+```
+
+리프 검증(Step 3) 뒤, 활성 주문 확인(Step 4) 앞에:
+
+```ts
+  // D26 — approved 주문이 있는 항목도 진행된 항목이다(「재작업」으로 다시 연다).
+  const { data: approved, error: apprErr } = await admin
+    .from('agent_work_orders').select('id').eq('wbs_item_id', wbsItemId).eq('status', 'approved').limit(1).maybeSingle()
+  if (apprErr) return { ok: false, error: `승인 주문 확인 실패: ${apprErr.message}` }
+  if (approved) return { ok: true, created: false, reason: 'progressed' }
+```
+
+`src/lib/agent/delegation.ts` 의 주문 보장 뒤(`if (!ord.created && ord.reason === 'not_leaf') …` 다음 줄)에 안내를 더한다:
+
+```ts
+      if (!ord.created && ord.reason === 'progressed') {
+        warnings.push('이미 진행된 작업이라 새 주문을 만들지 않았습니다(단계 작업 중 이상·실적 100·승인된 주문) — 단계를 되돌리거나 「재작업」을 쓰세요.')
+      }
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `npx vitest run tests/agent/ensure-order.test.ts tests/agent tests/actions`
+Expected: PASS. 기존 테스트 중 approved 조회가 새로 끼어 큐가 한 칸 밀리는 것은 그 자리에 `{ data: null, error: null }`(approved 없음)을 넣어 맞춘다.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add src/lib/agent/ensureOrder.ts src/lib/agent/delegation.ts tests/agent/ensure-order.test.ts
+git commit -m "feat(design-state): 이미 진행된 항목(ip 이상·실적 100·승인 주문)에는 새 주문을 만들지 않는다(D26)
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 9: 판단 재료 일괄 로더 `designFacts.ts`
+
+**Files:**
+- Create: `src/lib/agent/designFacts.ts`
+- Test: `tests/agent/design-facts.test.ts`
+
+**Interfaces:**
+- Consumes: Task 1 `toDesignMode`·`toDesignState`·`toClaimScope`·`predsState`·`nextAgentAction`·`ItemFacts`·`OrderFacts`·`ActionResult`, `predecessorReached`(`src/lib/domain/agentWork.ts`)
+- Produces:
+  - `ORDER_FACT_COLUMNS = 'status, claimed_by, claimed_by_user_id, last_heartbeat_at, heartbeat_phase, heartbeat_agent, design_state, claim_scope, design_note, runner, runner_seen_at'`
+  - `ITEM_FACT_COLUMNS = 'id, project_id, external_ref, stage, actual_pct, tags, depends, depends_waived, design_mode'`
+  - `type FactOrderRow`, `type FactItemRow`
+  - `orderFactsOf(row: FactOrderRow): OrderFacts`
+  - `loadItemFacts(admin, items: FactItemRow[]): Promise<Map<string, { facts: ItemFacts; depsUnmet: Array<{ external_ref: string; stage: string | null }> }>>` — 쿼리 셋(항목의 approved 주문, 선행 항목, 선행의 approved 주문). 조회 실패는 throw(호출부 500).
+  - `hasApprovedOrder(admin, itemId): Promise<boolean>` — throw on error
+  - `decide(item: ItemFacts | null, order: OrderFacts, nowMs): ActionResult` — 항목이 없으면 `skip`(사유 `항목이 지워진 주문`)
+  - `designFieldsOf(row, action, mine)` — 응답에 실을 칸 `{ design_mode, design_state, design_note, claim_scope, runner, runner_seen_at, action, action_reason, deps_unmet, mine }`
+
+- [ ] **Step 1: 실패하는 테스트**
+
+`tests/agent/design-facts.test.ts`:
+
+```ts
+// 판단 재료 일괄 로더 — 항목의 approved 주문·선행 도달을 배치로 구해 designGate 입력을 만든다.
+import { describe, expect, it, vi } from 'vitest'
+import { decide, designFieldsOf, hasApprovedOrder, loadItemFacts, orderFactsOf } from '@/lib/agent/designFacts'
+
+type Resp = { data?: unknown; error?: { message: string } | null }
+function useAdmin(queues: Record<string, Resp[]>) {
+  const calls: Array<{ table: string; cols?: string }> = []
+  return {
+    calls,
+    client: {
+      from: vi.fn((table: string) => {
+        const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
+        const b: Record<string, unknown> = {}
+        b.select = (cols: string) => { calls.push({ table, cols }); return b }
+        for (const k of ['eq', 'in', 'limit', 'order']) b[k] = () => b
+        b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
+        b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
+        return b
+      }),
+    } as never,
+  }
+}
+const NOW = Date.parse('2026-09-27T12:00:00Z')
+
+describe('orderFactsOf', () => {
+  it('빈 값은 legacy·없음으로 정규화한다', () => {
+    expect(orderFactsOf({ status: 'claimed', claimed_by: 'a/b/w1', claimed_by_user_id: 'u', last_heartbeat_at: null, heartbeat_phase: null,
+      heartbeat_agent: null, design_state: null, claim_scope: null, runner: 'a/b/w1', runner_seen_at: null }))
+      .toMatchObject({ status: 'claimed', claimScope: 'legacy', designState: null, runner: 'a/b/w1' })
+  })
+})
+
+describe('loadItemFacts', () => {
+  it('항목의 approved 주문과 선행 도달을 배치로 구한다', async () => {
+    const { client } = useAdmin({
+      agent_work_orders: [{ data: [{ wbs_item_id: 'w1' }] }, { data: [{ wbs_item_id: 'p2' }] }],
+      wbs_items: [{ data: [
+        { id: 'p1', project_id: 'P', external_ref: 'M/TSK-01-01', stage: 'ip', actual_pct: 30 },
+        { id: 'p2', project_id: 'P', external_ref: 'M/TSK-01-02', stage: 'as', actual_pct: 0 },
+      ] }],
+    })
+    const m = await loadItemFacts(client, [
+      { id: 'w1', project_id: 'P', external_ref: 'M/TSK-01-03', stage: 'as', actual_pct: 0, tags: ['agent'], depends: ['M/TSK-01-01'], depends_waived: [], design_mode: 'review' },
+      { id: 'w2', project_id: 'P', external_ref: 'M/TSK-01-04', stage: 'as', actual_pct: 0, tags: [], depends: ['M/TSK-01-02', 'M/TSK-01-09'], depends_waived: ['M/TSK-01-09'], design_mode: null },
+    ])
+    expect(m.get('w1')).toEqual({ facts: { mode: 'review', stage: 'as', actualPct: 0, delegated: true, hasApprovedOrder: true, preds: 'ahead' }, depsUnmet: [{ external_ref: 'M/TSK-01-01', stage: 'ip' }] })
+    // p2 는 approved 주문이 있어 도달, TSK-01-09 는 면제
+    expect(m.get('w2')).toEqual({ facts: { mode: 'auto', stage: 'as', actualPct: 0, delegated: false, hasApprovedOrder: false, preds: 'met' }, depsUnmet: [] })
+  })
+  it('항목이 없으면 조회하지 않는다', async () => {
+    const { client, calls } = useAdmin({})
+    expect((await loadItemFacts(client, [])).size).toBe(0)
+    expect(calls).toEqual([])
+  })
+  it('조회 실패는 throw(위장하지 않는다)', async () => {
+    const { client } = useAdmin({ agent_work_orders: [{ error: { message: 'boom' } }] })
+    await expect(loadItemFacts(client, [{ id: 'w1', project_id: 'P', external_ref: null, stage: 'as', actual_pct: 0, tags: [], depends: [], depends_waived: [], design_mode: 'auto' }]))
+      .rejects.toThrow('boom')
+  })
+})
+
+describe('decide·designFieldsOf·hasApprovedOrder', () => {
+  it('항목이 지워진 주문은 skip', () => {
+    const o = orderFactsOf({ status: 'ready', claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_state: null, claim_scope: null, runner: null, runner_seen_at: null })
+    expect(decide(null, o, NOW)).toEqual({ action: 'skip', reason: '항목이 지워진 주문', depsUnmet: false })
+  })
+  it('응답 칸을 snake_case 로 싣는다', () => {
+    expect(designFieldsOf(
+      { design_state: 'review', claim_scope: 'design', design_note: 'x', runner: null, runner_seen_at: null },
+      'review', { action: 'wait', reason: '설계 검토 대기', depsUnmet: false }, true,
+    )).toEqual({ design_mode: 'review', design_state: 'review', design_note: 'x', claim_scope: 'design', runner: null, runner_seen_at: null,
+      action: 'wait', action_reason: '설계 검토 대기', deps_unmet: false, mine: true })
+  })
+  it('hasApprovedOrder 는 한 건 조회', async () => {
+    const { client } = useAdmin({ agent_work_orders: [{ data: { id: 'o' } }] })
+    expect(await hasApprovedOrder(client, 'w1')).toBe(true)
+  })
+})
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/agent/design-facts.test.ts`
+Expected: FAIL — 모듈 없음
+
+- [ ] **Step 3: 구현**
+
+`src/lib/agent/designFacts.ts`:
+
+```ts
+// 판단 재료 일괄 로더(설계 상태 스펙 5.3·D22) — 목록·상세·watch·claim·build-start 가 designGate 에 넘길 재료를 모은다.
+// 규칙은 여기 두지 않는다(src/lib/domain/designGate.ts 가 원본). 조회만 하고, 실패는 throw 해 호출부가 500 으로 답한다
+// (게이트 재료를 "없음"으로 위장하면 막아야 할 claim 이 통과한다 — 에러 3원칙).
+import type { AdminClient } from '@/lib/minutes/externalApi'
+import { predecessorReached } from '@/lib/domain/agentWork'
+import {
+  nextAgentAction, predsState, toClaimScope, toDesignMode, toDesignState,
+  type ActionResult, type DesignMode, type ItemFacts, type OrderFacts,
+} from '@/lib/domain/designGate'
+import type { AgentOrderStatus } from '@/lib/domain/agentWork'
+
+export const ORDER_FACT_COLUMNS =
+  'status, claimed_by, claimed_by_user_id, last_heartbeat_at, heartbeat_phase, heartbeat_agent, design_state, claim_scope, design_note, runner, runner_seen_at'
+export const ITEM_FACT_COLUMNS = 'id, project_id, external_ref, stage, actual_pct, tags, depends, depends_waived, design_mode'
+const IN_CHUNK = 200
+
+export type FactOrderRow = {
+  status: string; claimed_by: string | null; claimed_by_user_id: string | null
+  last_heartbeat_at: string | null; heartbeat_phase: string | null; heartbeat_agent?: string | null
+  design_state?: string | null; claim_scope?: string | null; design_note?: string | null
+  runner?: string | null; runner_seen_at?: string | null
+}
+export type FactItemRow = {
+  id: string; project_id: string; external_ref: string | null; stage: string | null; actual_pct: number | string | null
+  tags: string[] | null; depends: string[] | null; depends_waived: string[] | null; design_mode: string | null
+}
+
+/** 주문 행 → designGate OrderFacts. 0108 전 행·목(열 없음)은 없음·legacy 로 본다. */
+export function orderFactsOf(row: FactOrderRow): OrderFacts {
+  return {
+    status: row.status as AgentOrderStatus,
+    designState: toDesignState(row.design_state ?? null),
+    claimScope: toClaimScope(row.claim_scope ?? null),
+    runner: row.runner ?? null,
+    runnerSeenAt: row.runner_seen_at ?? null,
+    lastHeartbeatAt: row.last_heartbeat_at ?? null,
+    heartbeatPhase: row.heartbeat_phase ?? null,
+    heartbeatAgent: row.heartbeat_agent ?? null,
+    claimedBy: row.claimed_by ?? null,
+    claimedByUserId: row.claimed_by_user_id ?? null,
+  }
+}
+
+function chunked<T>(xs: readonly T[], n: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n))
+  return out
+}
+
+async function approvedItemIds(admin: AdminClient, itemIds: readonly string[]): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (const c of chunked(itemIds, IN_CHUNK)) {
+    const { data, error } = await admin.from('agent_work_orders').select('wbs_item_id').in('wbs_item_id', c).eq('status', 'approved')
+    if (error) throw new Error(`승인 주문 조회 실패: ${error.message}`)
+    for (const r of (data ?? []) as Array<{ wbs_item_id: string | null }>) if (r.wbs_item_id) out.add(r.wbs_item_id)
+  }
+  return out
+}
+
+/** 한 항목의 approved 주문 여부(claim·build-start 라우트용). 조회 실패는 throw. */
+export async function hasApprovedOrder(admin: AdminClient, itemId: string): Promise<boolean> {
+  const { data, error } = await admin.from('agent_work_orders').select('id').eq('wbs_item_id', itemId).eq('status', 'approved').limit(1).maybeSingle()
+  if (error) throw new Error(`승인 주문 조회 실패: ${error.message}`)
+  return data !== null
+}
+
+/**
+ * 항목들의 ItemFacts — approved 주문(D26)과 선행 도달(predecessorReached, 면제 포함)을 배치로 구한다.
+ * 선행은 같은 프로젝트의 external_ref 로 찾는다. 프로젝트에 없는 ref 는 미충족(단계 null — fail-closed, claim 게이트와 같다).
+ */
+export async function loadItemFacts(
+  admin: AdminClient, items: readonly FactItemRow[],
+): Promise<Map<string, { facts: ItemFacts; depsUnmet: Array<{ external_ref: string; stage: string | null }> }>> {
+  const out = new Map<string, { facts: ItemFacts; depsUnmet: Array<{ external_ref: string; stage: string | null }> }>()
+  if (items.length === 0) return out
+  const approved = await approvedItemIds(admin, items.map(i => i.id))
+  const refs = [...new Set(items.flatMap(i => (i.depends ?? []).filter(r => !(i.depends_waived ?? []).includes(r))))]
+  const projects = [...new Set(items.map(i => i.project_id))]
+  const preds = new Map<string, { id: string; stage: string | null; actual_pct: number | string | null }>()
+  if (refs.length > 0) {
+    for (const c of chunked(refs, IN_CHUNK)) {
+      const { data, error } = await admin.from('wbs_items').select('id, project_id, external_ref, stage, actual_pct')
+        .in('project_id', projects).in('external_ref', c)
+      if (error) throw new Error(`선행 항목 조회 실패: ${error.message}`)
+      for (const p of (data ?? []) as Array<{ id: string; project_id: string; external_ref: string; stage: string | null; actual_pct: number | string | null }>) {
+        preds.set(`${p.project_id}|${p.external_ref}`, p)
+      }
+    }
+  }
+  const predApproved = preds.size > 0 ? await approvedItemIds(admin, [...preds.values()].map(p => p.id)) : new Set<string>()
+  for (const i of items) {
+    const waived = i.depends_waived ?? []
+    const depsUnmet: Array<{ external_ref: string; stage: string | null }> = []
+    for (const ref of i.depends ?? []) {
+      if (waived.includes(ref)) continue
+      const p = preds.get(`${i.project_id}|${ref}`)
+      if (!p) { depsUnmet.push({ external_ref: ref, stage: null }); continue }
+      const reached = predecessorReached({ stage: p.stage, orderApproved: predApproved.has(p.id), actualPct: p.actual_pct == null ? null : Number(p.actual_pct) })
+      if (!reached) depsUnmet.push({ external_ref: ref, stage: p.stage })
+    }
+    out.set(i.id, {
+      facts: {
+        mode: toDesignMode(i.design_mode), stage: i.stage, actualPct: i.actual_pct == null ? null : Number(i.actual_pct),
+        delegated: (i.tags ?? []).includes('agent'), hasApprovedOrder: approved.has(i.id), preds: predsState(depsUnmet),
+      },
+      depsUnmet,
+    })
+  }
+  return out
+}
+
+/** 항목이 지워진 주문은 판단하지 않는다(skip) — 그 밖은 designGate.nextAgentAction. */
+export function decide(item: ItemFacts | null, order: OrderFacts, nowMs: number): ActionResult {
+  if (item === null) return { action: 'skip', reason: '항목이 지워진 주문', depsUnmet: false }
+  return nextAgentAction(item, order, nowMs)
+}
+
+/** 계약 2.11 응답 칸(목록·상세·watch 공통, PAT 응답에만). */
+export function designFieldsOf(
+  row: Pick<FactOrderRow, 'design_state' | 'claim_scope' | 'design_note' | 'runner' | 'runner_seen_at'>,
+  mode: DesignMode | string | null, a: ActionResult, mine: boolean,
+) {
+  return {
+    design_mode: toDesignMode(mode), design_state: toDesignState(row.design_state ?? null), design_note: row.design_note ?? null,
+    claim_scope: row.claim_scope ?? null, runner: row.runner ?? null, runner_seen_at: row.runner_seen_at ?? null,
+    action: a.action, action_reason: a.reason, deps_unmet: a.depsUnmet, mine,
+  }
+}
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `npx vitest run tests/agent/design-facts.test.ts && npx tsc --noEmit -p .`
+Expected: PASS
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add src/lib/agent/designFacts.ts tests/agent/design-facts.test.ts
+git commit -m "feat(design-state): 목록·상세·watch 가 쓰는 판단 재료 일괄 로더
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
