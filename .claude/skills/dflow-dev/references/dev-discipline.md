@@ -354,13 +354,86 @@ design.md `## 구현 단위` 표(phase-design.md 「구현 단위 표」)의 단
 | Phase | 모델 | 비고 |
 |---|---|---|
 | Design | 복잡도 점수 3점↑ opus, 미만 sonnet | **haiku 금지** |
-| Build | sonnet (Design 이 opus 였으면 Build 도 opus 권장) | 어려운 작업의 구현만 격하하지 않는다. 구현 단위는 모두 같은 모델 |
+| Build | sonnet (Design 이 opus 였으면 Build 도 opus 권장) | 어려운 작업의 구현만 격하하지 않는다. 구현 단위는 모두 같은 모델. 예외 둘 — 아래 「Build 모델 시험(build_model_trial)」(켰을 때만)과 「sonnet Build 의 opus 승급」. **haiku 금지** |
 | Verify | **처음부터 sonnet** | 작성자와 감사자 셋 모두. haiku 는 쓰지 않는다(게이트 명령만 다시 돌리는 좁은 확인은 예외) |
 | Refactor | sonnet | supervised 만(무인은 실행하지 않는다) |
 
 복잡도 점수: depends 0–1개 0 / 2–3개 +1 / 4개+ +2 · spec 키워드(아키텍처·트랜잭션·마이그레이션·
 인증·보안·외부연동) +2 · category research/docs −1. 오버라이드: 호출 인자 > spec 의 model 필드.
 키워드 매칭은 근사치다 — 판정 결과를 한 줄 출력해 사람이 교정할 수 있게 한다.
+
+### Build 모델 시험(build_model_trial)
+
+배정표가 opus 로 정한 Build 중 **일부**를 sonnet(+정해진 시점 advisor — 이 시험 단위만, 아래 「advisor 호출」)으로 돌려 비교하는 스위치다.
+기본은 꺼짐이다. Design·Verify 의 모델 배정은 바꾸지 않는다.
+
+- 설정(`.dflow.local`, 개인): `build_model_trial=sonnet`(비면 꺼짐. sonnet 밖의 값은 꺼짐으로 본다 — haiku Build 금지),
+  `build_model_trial_rate=<0~100 정수, 비율%>`, `build_model_trial_tasks=<쉼표 목록>`(`TSK-02-05`, 접두 `TSK-02`, `WP-02`,
+  모듈 접두 `dict/WP-02`). **목록이 있으면 목록만 보고, 없으면 비율**이다.
+- 판정은 `.claude/skills/dflow-dev/scripts/build-trial.sh <external_ref> <build_model_base>` 가 한다. 대상은
+  `build_model_base` 가 opus 인 작업뿐이다(호출 인자 `--model opus` 로 정해진 opus 도 대상이다 — 시험을 원치 않으면 설정을
+  비운다). 비율은 `printf %s <TSK> | cksum` 의 첫 값 mod 100 이 rate 보다 작으면 켠다(TSK 는 state.json `tsk`, 모듈 접두 없음) —
+  같은 TSK 는 어느 PC·재개에서도 같은 결과다. 목록의 WP 는 poll.sh `--wp` 와 같은 규칙(번호 앞 0 무시, 모듈 접두는 모듈까지
+  같아야 한다)이다.
+- **판정은 Phase 01 에서 한 번만** 하고 state.json 에 `build_model_base`(배정표가 정한 Build 모델)와 `build_model_trial`
+  (`true`|`false`)을 적는다. 재개는 state.json 값을 쓰고 다시 판정하지 않는다(설정을 바꿔도 진행 중인 Task 의 모델이 바뀌지 않는다).
+- Build 단위의 모델은 `build_model_trial` 이 true 면 sonnet, 아니면 `build_model_base` 다. 시험 단위도 아래 승급 규칙을 그대로 받는다.
+- 기록(비교 지표): build-log.md `## 실행 모델` 표에 에이전트마다 한 줄, 오케스트레이터가 쓴다.
+
+  | 열 | 값 |
+  |---|---|
+  | 단위 | `B1`… · Build 게이트 재시도 에이전트는 `재시도` |
+  | 에이전트 | 띄운 이름(`<TSK>-build-B2-c1`·`<TSK>-build-retry`) |
+  | 모델 | Agent 에 넘긴 값(`opus`·`sonnet`) |
+  | 시험 | state.json `build_model_trial`(`예`·`아니오`) |
+  | 승급 | `-` 또는 `sonnet→opus(<사유>)` — 사유는 `게이트 실패`·`인계 2회`·`초록 없이 끝남` |
+  | 결과 | `UNIT_DONE`·`UNIT_HANDOFF`·`초록 없음`·`게이트 재시도 끝` |
+  | 경과 | 초 — Agent 결과의 사용량(`duration_ms`)이 있으면 그 값, 없으면 `-` |
+  | 토큰 | Agent 결과의 사용량(`total_tokens`)이 있으면 그 값, 없으면 `-` |
+  | advisor | 보고의 `advisor <호출 수>` 값(보고에 없으면 `-`) |
+
+  줄은 띄우기 직전에 쓰고(결과·경과·토큰은 `-`), 보고를 받으면 채운다. 다음 단위 커밋이나 Build 산출물 커밋에 함께 실린다.
+  나머지 지표는 이미 있는 기록에서 모은다 — 게이트 신규 실패 수는 `## 게이트 기록`·state.json `build_gate.new_failures`, 단위
+  재작업은 이 표의 같은 단위 줄 수(인계)와 `재시도` 줄, 승급률은 승급 칸, Verify 지적 수는 state.json `verify_findings`
+  (SKILL.md 「Phase 02~05」 Verify — 감사 파일을 지우기 전에 적는다), advisor 호출 수는 이 표의 `advisor` 칸(Build)과 state.json
+  `verify_advisor`(Verify 작성자·감사자 따로).
+
+### sonnet Build 의 opus 승급
+
+Build 단위를 도는 에이전트의 모델이 sonnet 이면(시험이든 원래 배정이든) 두 경우에 opus 새 에이전트로 올린다. 횟수는 늘리지
+않는다 — 기존 자리(Build 게이트 재시도 1회, 단위마다 인계 2회)를 opus 가 대신 쓴다. 절차의 정본은 SKILL.md 「Phase 02~05」
+(단위 절차와 4번).
+
+- **(a) Build 게이트 1차 실패**: 같은 sonnet 에이전트에 이어 붙이지 않고 opus 새 에이전트(`<TSK>-build-retry`)에 실패 목록과
+  "재시도 때는 단위 범위 제한 없이 Build 전체를 고친다" 를 넘긴다. 신규 실패가 모두 부하 민감 테스트면 「부하 민감 테스트
+  (타이밍·성능)의 단독 재실행」 이 먼저다. 마지막 단위의 에이전트가 이미 opus 면(승급했거나 원래 opus) 종전대로 그 에이전트에 이어 붙인다.
+- **(b) 단위가 막힘**: 같은 단위에서 `UNIT_HANDOFF` 가 두 번째로 나오거나, sonnet 단위가 새·관련 테스트 초록 없이 끝나면(보고의
+  관련 테스트가 빨갛거나 `UNIT_DONE`·`UNIT_HANDOFF` 어느 것도 아닌 보고) 그 단위의 이어받기 에이전트를 opus 로 띄운다. 초록 없이
+  끝난 경우는 오케스트레이터가 인계로 바꿔 커밋하므로 인계 계수(트레일러) 하나를 쓴다 — 그 커밋에는
+  `--trailer "DFlow-Escalate: <단위> 초록 없이 끝남"` 도 붙인다. 승급한 단위의 뒤 이어받기도 opus 이고, 남은 단위는 원래 모델로
+  돌아간다. opus 단위가 초록 없이 끝나면 종전대로 Build 실패다.
+- **모델은 git 으로 정한다(재개 포함)**: 단위를 띄울 때의 모델은 state.json `model`(승급 뒤에는 opus 로 남아 있다)에서 읽지
+  않는다. 기본은 위 「Build 모델 시험」 의 Build 단위 모델이고, 그 값이 sonnet 이면서 그 단위의 인계 트레일러
+  (`DFlow-Unit: <단위> handoff`)가 2개 이상이거나 `DFlow-Escalate: <단위>` 트레일러가 있으면 opus 다
+  (`git log <기점>..HEAD --grep=... --format=%h` 줄 수로 센다).
+- 승급하면 state.json `model` 을 opus 로 쓰고, build-log.md `## 실행 모델` 의 승급 칸과 서버 progress 보고에
+  `escalated: sonnet→opus <단위>(<사유>)` 를 남긴다.
+
+### advisor 호출(실행 모델별)
+
+Phase 서브에이전트는 프롬프트의 「당신의 실행 모델은 {MODEL} 이다」 로 자기 모델을, `{ADVISOR_POLICY}` 로 advisor 호출 시점을
+안다(phase-prompt.md 공통 규칙 9). advisor 도구가 있을 때만 적용하며, **이 규칙이 하네스의 일반 advisor 지시(착수 전·완료 전
+호출 등)보다 우선한다.**
+
+| 누가 | `{ADVISOR_POLICY}` | advisor 를 부르는 때 |
+|---|---|---|
+| 기본 — 모든 Design·Verify(작성자)·Refactor, 원래 배정의 Build(opus·sonnet), 승급한 opus, 게이트 재시도 에이전트 | `막혔을 때만` | **막혔을 때만** — 같은 오류 반복, 게이트·테스트가 풀리지 않음, 설계와 코드가 충돌해 방향을 바꿔야 할 때. 착수 전·완료 전 정기 호출은 하지 않는다 |
+| **Build sonnet 시험 단위**(state.json `build_model_trial` 이 true 이고 sonnet 으로 도는 Build 단위) | `착수 전·막혔을 때·완료 전` | 코드 작성 착수 전 1회, 막혔을 때, 완료 보고 전 1회 |
+| Verify 감사자(읽기 전용) | (감사 템플릿에 고정) | 막혔을 때만(짧은 읽기 전용 감사다 — phase-prompt.md 「감사 템플릿」) |
+
+서브에이전트는 보고에 `advisor <호출 수>` 를 적는다(감사자도). 오케스트레이터는 작성자·Build 단위 몫과 감사자 몫을 따로 옮긴다 —
+Build 단위는 build-log.md `## 실행 모델` 의 `advisor` 칸, Verify 는 state.json `verify_advisor`
+`{"writer":<작성자>,"audit":<감사자 셋의 합>}`(시험 비교 지표).
 
 ## 공용 결정 기록(decisions.md)의 번호
 

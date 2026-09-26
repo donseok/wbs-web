@@ -25,3 +25,10 @@ automerge=0
 # 방언 검증 명령(.dflow 의 dialect_check 를 덮는다). PC 전용 값(JAVA_HOME 등)이 든 명령은 .dflow.local 에 둔다.
 # 정본: .claude/skills/dflow-merge/SKILL.md 「방언 검증」.
 # dialect_check=cd src/backend/mdm && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ../gradlew :api:mssqlMigrationTest --no-daemon --console=plain
+
+# Build 모델 시험(기본 꺼짐). 배정표가 opus 로 정한 Build 중 일부를 sonnet(+정해진 시점 advisor)으로 돌려 비교한다.
+# sonnet 밖의 값은 꺼짐이다(haiku Build 금지). 목록이 있으면 목록만 보고, 없으면 비율(TSK ID 로 결정적 판정 — 재개해도 같다).
+# 판정은 Phase 01 에서 한 번 하고 state.json 에 적는다. 정본: dflow-dev/references/dev-discipline.md 「Build 모델 시험(build_model_trial)」.
+# build_model_trial=sonnet
+# build_model_trial_rate=30
+# build_model_trial_tasks=TSK-02-05,WP-03,dict/WP-01

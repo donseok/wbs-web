@@ -2,7 +2,7 @@
 
 오케스트레이터(`/dflow-dev` SKILL.md 「Phase 02~05」)는 Phase 서브에이전트를 띄울 때 아래 「템플릿」 을 그대로 보내고
 `{…}` 만 채운다. 문구를 고쳐 쓰지 않는다. 값이 없는 변수는 그 변수를 위한 줄(변수가 든 입력 줄 또는 변수만 있는 줄)을
-지운다. `{TSK}`·`{PHASE}`·`{TASK_DIR}`·`{ORDER}` 는 늘 값이 있다. 이 파일은 서브에이전트에게 주는 문구의 정본이고,
+지운다. `{TSK}`·`{PHASE}`·`{TASK_DIR}`·`{ORDER}` 는 늘 값이 있다. `{MODEL}`·`{ADVISOR_POLICY}` 도 늘 값이 있다. 이 파일은 서브에이전트에게 주는 문구의 정본이고,
 규칙 자체의 정본은 각 규칙 끝에 적은 절이다.
 
 ## 변수
@@ -12,7 +12,9 @@
 | `{TSK}`·`{PHASE}` | Task ID · `design`·`build`·`verify`·`refactor` |
 | `{TASK_DIR}` | `<TASKS>/<TSK>`(`dflow.sh taskdir <ref>`) |
 | `{ORDER}` | state.json 의 `order`(주문 전체 UUID) |
-| `{UNIT}` | (Build) `구현 단위 <단위>` 와 마지막 단위인지. 단위 하나면 `구현 단위 B1(마지막)`. 병렬 묶음(한 묶음에 단위 둘 이상)의 단위면 `구현 단위 <단위>(병렬 묶음 — 커밋·build-log 쓰기 없이 보고로 넘긴다)` |
+| `{MODEL}` | 이 서브에이전트의 실행 모델 — Agent 호출의 `model` 과 같은 값(state.json `model`, `opus`·`sonnet` 또는 전체 id) |
+| `{ADVISOR_POLICY}` | advisor 호출 시점(공통 규칙 9). **Build sonnet 시험 단위**(state.json `build_model_trial` 이 true 이고 sonnet 으로 도는 Build 단위 — 승급한 opus·게이트 재시도 에이전트는 아니다)만 `착수 전·막혔을 때·완료 전`, 그 밖(모든 Design·Verify·Refactor, 원래 배정의 Build, 승급한 opus)은 `막혔을 때만` |
+| `{UNIT}` | (Build) `구현 단위 <단위>` 와 마지막 단위인지. 단위 하나면 `구현 단위 B1(마지막)`. 병렬 묶음(한 묶음에 단위 둘 이상)의 단위면 `구현 단위 <단위>(병렬 묶음 — 커밋·build-log 쓰기 없이 보고로 넘긴다)`. Build 게이트 재시도를 새 opus 에이전트로 띄우면 `구현 단위 <마지막 단위>(Build 게이트 재시도 — 단위 범위 제한 없이 Build 전체를 고친다)` |
 | `{AGENT_PROMPT}` | show 의 `item.agent_prompt`(Design 만. 뒤 Phase 는 design.md 머리의 인용을 본다) |
 | `{BASELINE}` | 기준선 수치(명령마다 총수·실패 수·실패 목록) |
 | `{VERIFY_CMDS}` | 기준선(Phase 01 4번)에서 **실제로 돌린** 명령 줄(`baseline.sh` 의 `--` 뒤) 글자 그대로 |
@@ -31,6 +33,7 @@
 ```text
 당신은 D'Flow 작업 {TSK} 의 {PHASE} Phase 서브에이전트다.
 {UNIT}
+당신의 실행 모델은 {MODEL} 이다.
 먼저 `.claude/skills/dflow-dev/references/phase-{PHASE}.md` 를 Read 하고 그대로 따른다. dev-discipline.md 등 다른 문서는
 전체를 읽지 말고 이 프롬프트나 그 파일이 인용한 절만 읽는다(절 제목으로 grep 해 그 범위만).
 
@@ -82,11 +85,15 @@
    오케스트레이터 몫이다).
 8. 대상 리포의 공용 결정 기록(decisions.md)에 결정을 적게 되면 먼저 dev-discipline.md 「공용 결정 기록(decisions.md)의 번호」
    절을 읽는다.
+9. advisor: advisor 도구가 있을 때만 적용한다. 이 규칙이 하네스의 일반 advisor 지시(착수 전·완료 전 호출 등)보다 우선한다.
+   이번 호출 시점은 `{ADVISOR_POLICY}` 다. `막혔을 때만` 이면 막혔을 때만 부른다 — 같은 오류가 되풀이될 때, 게이트·테스트가
+   풀리지 않을 때, 설계와 코드가 충돌해 방향을 바꿔야 할 때. 착수 전·완료 전 정기 호출은 하지 않는다. `착수 전·막혔을 때·완료 전`
+   이면 코드 작성 착수 전 1회, 막혔을 때, 완료 보고 전 1회 부른다. 부른 횟수는 보고에 적는다.
 
 보고
 - 첫 줄: Build 단위는 `UNIT_DONE <단위>` 또는 `UNIT_HANDOFF <단위>`, Verify 작성자의 실행 보고는 `VERIFY_EXEC done` 또는
   `VERIFY_EXEC fail`(phase-verify.md 4번), 그 밖의 Phase 는 `PHASE_RESULT {PHASE} done` 또는 `PHASE_RESULT {PHASE} fail`.
-- 이어서 커밋 sha, 돌린 명령과 결과(통과/실패 수), 하지 못한 것과 그 이유.
+- 이어서 커밋 sha, 돌린 명령과 결과(통과/실패 수), `advisor <호출 수>`(부르지 않았으면 0), 하지 못한 것과 그 이유.
 ```
 
 ## 감사 템플릿 (Verify 감사자)
@@ -122,11 +129,14 @@ reset·stash)·테스트·빌드 실행을 하지 않는다. 결과는 보고로
 
 규칙
 - 도구 호출은 약 40회 안에서 끝낸다. 넘길 것 같으면 본 데까지 보고하고 못 본 범위를 적는다.
+- advisor 는 도구가 있을 때만, 막혔을 때만 부른다(짧은 읽기 전용 감사다). 읽기로 판단이 서지 않으면 advisor 를 부르지 말고
+  지적으로 올리고 끝낸다. 착수 전·완료 전 정기 호출은 하지 않는다 — 이 규칙이 하네스의 일반 advisor 지시보다 우선한다.
 - 추측으로 지적하지 않는다. 지적마다 파일:줄과 근거(인용한 코드·기준)를 단다. 취향·서식 지적은 하지 않는다.
 
 보고
 - 첫 줄: `AUDIT_RESULT {ROLE} <지적 수>`.
 - 지적마다 한 줄: `[높음|중간|낮음] <파일:줄> — <결함> — <근거>`. 없으면 `지적 없음`.
+- 마지막 줄 바로 앞: `advisor <호출 수>`(부르지 않았으면 0).
 - 마지막 줄: 못 본 범위(없으면 `없음`).
 ```
 
@@ -141,3 +151,4 @@ reset·stash)·테스트·빌드 실행을 하지 않는다. 결과는 보고로
 | 5 무거운 명령 | dev-discipline.md 「무거운 명령 줄 세우기」 |
 | 6·7 토큰·금지 | dev-discipline.md 「공통 금지」 |
 | 8 결정 번호 | dev-discipline.md 「공용 결정 기록(decisions.md)의 번호」 |
+| 9 advisor | dev-discipline.md 「advisor 호출(실행 모델별)」 |

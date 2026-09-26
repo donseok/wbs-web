@@ -60,6 +60,10 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   Phase 마다 바뀐다.
   `build_unit`(선택)은 지금 도는 구현 단위(`B1`…)다. 병렬 묶음이면 동시에 도는 단위를 쉼표로 잇는다(`"B1,B2"`).
   단위가 몇 개든 `phase` 는 Build 동안 `build` 하나다.
+  `build_model_base`·`build_model_trial`(Phase 01 5번)은 배정표가 정한 Build 모델과 Build 모델 시험 여부(`true`|`false`)다 —
+  한 번 적으면 재개해도 다시 판정하지 않는다(dev-discipline 「Build 모델 시험(build_model_trial)」).
+  `verify_findings`(선택)는 Verify 감사자 역할별 지적 수 `{"spec":n,"review":n,"tests":n}` 이고, `verify_advisor`(선택)는 Verify 의
+  advisor 호출 수 `{"writer":n,"audit":<감사자 셋의 합>}` 다(비교 지표 — 감사 파일은 지워진다).
   `design_first`(선택)는 설계 선행 모드의 표식 `{"unmet": ["<선행 external_ref>", …]}` 이다(「설계 선행」). 재개한 뒤에도 기록으로 남긴다.
   `phase` 값: `ready`·`design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.
   `ready` 는 `dflow.sh scaffold` 가 만든 초기값이다(주문 전 폴더 자리). 진행 중 phase 가 아니므로 스윕·재개 판정은 건너뛴다.
@@ -298,6 +302,10 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    `baseline` 에 `"base": "<기점 sha>"` 를 적는다 — 재개한 세션도 게이트 범위 판정(`gate-scope.sh --base`)에 같은 기점을 쓴다.
    모듈 명령의 기준선은 여기서 재지 않고 Design 게이트 뒤에 잰다(아래 「Phase 종료마다」 1번).
 5. spec.md 읽기(필수) + 복잡도 판정(dev-discipline 의 점수표) → 설계 모델 결정, 한 줄 출력.
+   이어서 Build 모델: 배정표로 `build_model_base` 를 정하고, state.json 에 `build_model_trial` 이 없을 때만
+   `.claude/skills/dflow-dev/scripts/build-trial.sh <external_ref> <build_model_base>` 로 시험 여부를 판정해 두 값을 state.json 에
+   적는다(커밋하지 않는다 — Design 산출물 커밋에 실린다). 있으면(재개) 다시 판정하지 않는다. 한 줄 출력:
+   `Build 모델: <sonnet|opus> (배정 <base>, 시험 <BUILD_TRIAL 줄의 on|off·reason>)`. 규칙은 dev-discipline 「Build 모델 시험(build_model_trial)」.
 6. **준비 끝 표시**: state.json 의 `phase` 가 `prepare` 이면 `design` 으로 바꾼다(Design 서브에이전트를 띄우기 전, 커밋하지
    않는다). 빠뜨리면 Design 동안 좌석이 계속 「준비」로 보인다.
 
@@ -381,13 +389,32 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 `## 구현 단위` 표가 정하고, 표가 없으면 단위 하나(B1)다.
 - 이름: 단위가 하나면 `<TSK>-build` 그대로다 — 이름·게이트·재시도가 종전과 같다. 여럿이면 `<TSK>-build-<단위>`(예
   `<TSK>-build-B2`)다. 인계를 받아 같은 단위를 이어 띄우면 끝에 `-c<n>` 을 붙인다(`<TSK>-build-B2-c1`).
-- 띄우기 직전 state.json 의 `model` 과 `build_unit` 을 쓴다. 모델은 모든 단위가 Build 모델 하나다.
+- 띄우기 직전 state.json 의 `model` 과 `build_unit` 을 쓴다. 모델은 모든 단위가 Build 모델 하나다 — state.json
+  `build_model_trial` 이 true 면 sonnet, 아니면 `build_model_base`. 예외는 아래 「승급」 뿐이고, 단위를 띄울 때의 모델은
+  state.json `model` 이 아니라 git 트레일러로 정한다(재개도 같다 — dev-discipline 「sonnet Build 의 opus 승급」). 띄울 때마다
+  build-log.md `## 실행 모델` 에 한 줄을 쓰고 보고를 받으면 채운다(열은 dev-discipline 「Build 모델 시험(build_model_trial)」).
 - 프롬프트에 단위 이름, 마지막 단위인지(연결 테스트·E2E 담당), 단위 상한(도구 호출 약 120회·컨텍스트 250K 추정)을 넣는다.
 - 보고 첫 줄이 `UNIT_DONE <단위>` 면 그 단위 커밋이 있는지 확인한다(병렬 묶음의 단위는 아래 「묶음」 — 커밋은 오케스트레이터가 한다). 마지막 단위가 아니면 게이트 없이 곧바로
   `TaskStop` 하고 다음 단위를 띄운다. `UNIT_HANDOFF <단위>` 면 build-log.md `## 인계 <단위>` 가 커밋됐는지 확인하고(병렬 묶음은 아래 「묶음」)
   TaskStop 한 뒤 같은 단위를 새 에이전트로 이어 띄운다(프롬프트에 그 인계 절을 넣는다). 이어 띄우기는 단위마다 2회까지다.
   횟수는 기억이 아니라 `git log <기점>..HEAD --grep='DFlow-Unit: <단위> handoff' --format=%h` 줄 수로 센다.
-  세 번째 인계나 둘 다 아닌 보고는 Build 실패다(아래 4번).
+  세 번째 인계는 Build 실패다(아래 4번). 둘 다 아닌 보고는 opus 단위면 Build 실패이고, sonnet 단위면 아래 「승급」 이다.
+- **승급(sonnet 단위)**: 단위 에이전트가 sonnet 이고 그 단위가 막히면 이어받기를 opus 새 에이전트로 띄운다 — 같은 단위의 두 번째
+  인계(`UNIT_HANDOFF`)이거나, 새·관련 테스트 초록 없이 끝났을 때(보고의 관련 테스트가 빨갛거나 `UNIT_DONE`·`UNIT_HANDOFF` 어느
+  것도 아닌 보고)다. 인계 상한(단위마다 2회)은 그대로이고 승급은 그 자리의 모델만 바꾼다.
+  1. 초록 없이 끝났으면 오케스트레이터가 인계로 바꾼다 — 보고로 build-log.md `## 인계 <단위>`(한 것·남은 것·실패 중인 테스트)를
+     쓰고, design.md 표의 그 단위 범위 안 변경과 build-log.md 를 `--trailer "DFlow-Unit: <단위> handoff" --trailer "DFlow-Escalate:
+     <단위> 초록 없이 끝남"`(과 `DFlow-Order`)로 커밋한다. 인계가 이미 2회면(이 커밋이 세 번째가 된다) 바꾸지 않고 Build 실패다.
+     범위 밖에 커밋되지 않은 변경이 남으면 Build 실패다. 병렬 묶음의 단위면 「묶음」 2 의 커밋에서 같은 트레일러를 붙인다.
+  2. TaskStop 하고 build-log.md `## 실행 모델` 에 opus 줄(승급 칸 `sonnet→opus(<사유>)`)을 쓴다. `dflow.sh progress <ref> <직전
+     보고 퍼센트, 보통 25> "escalated: sonnet→opus <단위>(<사유>)"` 를 보낸다 — state.json `model` 을 바꾸기 **전에** 보낸다(보고 행이
+     그 시점의 heartbeat 모델을 남기므로(0105) 방금 끝난 sonnet 구간이 그 행에 남는다). exit 10 이면 멈춘다(상태 모델).
+  3. state.json `model` 을 opus 로 쓰고 이어받기 `<TSK>-build-<단위>-c<n>` 을 opus 로 띄운다(`{HANDOFF}` 에 그 인계 절). 그 단위의
+     뒤 이어받기도 opus 다. 그 단위가 끝나면 남은 단위는 원래 모델로 돌아간다.
+  승급한 에이전트와 게이트 재시도 에이전트는 시험 단위가 아니므로 `{ADVISOR_POLICY}` 를 `막혔을 때만` 으로 채운다.
+- **advisor 호출 시점**: 프롬프트의 `{ADVISOR_POLICY}` 는 Build sonnet 시험 단위(state.json `build_model_trial` 이 true 이고 sonnet 으로
+  도는 단위)만 `착수 전·막혔을 때·완료 전`, 그 밖의 모든 Phase 에이전트는 `막혔을 때만` 이다(dev-discipline 「advisor 호출(실행 모델별)」).
+  보고의 `advisor <호출 수>` 를 `## 실행 모델` 의 `advisor` 칸에 옮긴다.
 - 재개하면 끝난 단위를 커밋 트레일러로 가린다 — `git log <기점>..HEAD --grep='DFlow-Unit: <단위> done' --format=%h` 가 한 줄
   이상이면 끝난 단위다(단위 커밋 규칙은 phase-build.md 「구현 단위」). 남은 단위부터 띄우고, 마지막 인계가 있으면
   build-log.md `## 인계 <단위>` 를 프롬프트에 넣는다.
@@ -407,7 +434,7 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
   4. 인계한 단위는 묶음 커밋 뒤 혼자 이어 띄운다(`-c<n>`, 병렬 표기 없이 — 스스로 커밋한다). 둘 이상이 인계했으면 표 순서대로
      하나씩 차례로 이어 띄운다(이어 띄운 단위는 스스로 커밋하므로 동시에 띄우지 않는다). 끝나면 다음 묶음으로 간다.
   5. 커밋이 끝나면 단위 보고 파일(`<TASKS>/<TSK>/unit-report-<단위>.md`, phase-build.md 「병렬 묶음의 단위」)을 지운다.
-  한 단위가 Build 실패(세 번째 인계, 둘 다 아닌 보고)면 형제의 보고를 기다려 끝난 단위는 커밋한 뒤 Build 실패로 멈춘다 — 재개가
+  한 단위가 Build 실패(세 번째 인계, opus 단위의 둘 다 아닌 보고)면 형제의 보고를 기다려 끝난 단위는 커밋한 뒤 Build 실패로 멈춘다 — 재개가
   끝난 단위를 다시 하지 않게. 재개할 때 묶음의 일부만 끝났으면 남은 단위만 같은 방식으로 띄운다(하나만 남으면 순차 표기).
   재개할 때 done 트레일러가 없는 묶음 단위에 단위 보고 파일이 있으면 다시 띄우지 않고 그 파일로 위 1~5 를 한다(보고를 받고
   커밋하기 전에 오케스트레이터가 재시작된 경우). 보고 파일이 없는데 그 단위 범위에 커밋되지 않은 변경이 있으면 Build 실패로
@@ -423,7 +450,9 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 - 작성자: `<TSK>-verify`, 종전 Verify 템플릿과 모델(sonnet) 그대로다. 첫 보고는 `VERIFY_EXEC done|fail` 이고 **이 보고로 회수하지
   않는다.**
 - 감사 보고(첫 줄 `AUDIT_RESULT <역할> <지적 수>`)를 받으면 곧바로 `<TASKS>/<TSK>/audit-<역할>.md` 에 그대로 옮겨 적는다(git
-  에는 쓰지 않는다).
+  에는 쓰지 않는다). 같은 때 state.json `verify_findings.<역할>` 에 지적 수를, `verify_advisor.audit` 에 감사 보고의 advisor 호출 수를
+  더한다 — 감사 파일은 게이트 뒤 지워지므로 비교 지표(dev-discipline 「Build 모델 시험(build_model_trial)」)는 여기에 남긴다.
+  작성자의 advisor 호출 수는 최종 보고를 받을 때 `verify_advisor.writer` 에 적는다.
 - 작성자의 `VERIFY_EXEC` 와 감사 셋이 모두 오면: 지적이 한 건이라도 있으면 세 파일의 지적을 모아 **같은 작성자에게 SendMessage 로**
   넘기고 `PHASE_RESULT verify done|fail` 을 기다린다. 지적이 0건이면 `VERIFY_EXEC` 를 최종 보고로 받는다(`done` 은 통과, `fail` 은
   Verify 실패 — 아래 4번). SendMessage 가 안 되면 sonnet 작성자를 새로 띄우고 `{AUDIT_FINDINGS}` 에 지적을 넣는다. 이 왕복은 Verify
@@ -512,10 +541,17 @@ Phase 종료마다 오케스트레이터가:
    재실행한다 — 통과하면 실패가 아니다(dev-discipline 「부하 민감 테스트(타이밍·성능)의 단독 재실행」).
    Build 게이트와 Verify 만 1회 재시도한다(수정은 Build 규율로 — dev-discipline 참조). **Build 게이트가 실패하면 곧바로
    failed 로 끝내지 않고** 같은 Build 서브에이전트(구현 단위가 여럿이면 마지막 단위)에 실패 목록(신규 실패 테스트 이름과 출력 꼬리)과
-   "재시도 때는 단위 범위 제한 없이 Build 전체를 고친다" 를 넘겨 고치게 한 뒤 Build 게이트를 다시 돈다. 재시도 중 인계(`UNIT_HANDOFF`)는
-   단위 상한 2회에 포함하고, 이어 띄운 에이전트에도 같은 두 가지를 넣는다(같은 1회 재시도다). Verify 가 실패해도 같은 Verify 서브에이전트에 실패 사유를 넘긴다. 두 번째 실패는 중단한다.
+   "재시도 때는 단위 범위 제한 없이 Build 전체를 고친다" 를 넘겨 고치게 한 뒤 Build 게이트를 다시 돈다. **그 에이전트가 sonnet 이면
+   이어 붙이지 않는다** — TaskStop 한 뒤 opus 새 에이전트 `<TSK>-build-retry` 에 같은 두 가지(`{FAILURES}`, `{UNIT}` 은 재시도 표기 —
+   phase-prompt.md 변수표)를 넘겨 띄운다. 이 opus 재시도가 1회 재시도 자리를 대신한다(횟수는 늘지 않는다). 띄우기 전의 기록
+   (`## 실행 모델` 줄 `재시도`·승급 칸 `sonnet→opus(게이트 실패)`, progress `escalated: sonnet→opus 재시도(게이트 실패)`, 그 뒤
+   state.json `model`)은 위 「승급」 2·3 과 같다. 위 부하 민감 단독 재실행이 먼저다(통과하면 재시도도 승급도 없다). 마지막 단위
+   에이전트가 이미 opus 면(승급했거나 원래 opus) 종전대로 이어 붙인다. 재시도 중 인계(`UNIT_HANDOFF`)는
+   단위 상한 2회에 포함하고, 이어 띄운 에이전트에도 같은 두 가지를 넣는다(같은 1회 재시도다. opus 재시도의 이어받기는
+   `<TSK>-build-retry-c<n>` 이고 opus 이며, 인계 커밋의 트레일러는 마지막 단위 이름이다). Verify 가 실패해도 같은 Verify 서브에이전트에 실패 사유를 넘긴다. 두 번째 실패는 중단한다.
    재시도할 때는 회수를 미루고 같은 에이전트에 SendMessage 로 이어 붙인다(컨텍스트 재구축 낭비 방지).
    SendMessage 가 안 되면(이미 회수됐거나 도구가 없다) 같은 Phase·같은 모델의 새 에이전트를 실패 목록과 함께 띄운다.
+   (Build 에서 그 모델이 sonnet 이었으면 위대로 opus 새 에이전트다.)
    `HEAVY_BUSY`·`BASELINE_BUSY`·`DEPS_BUSY`(exit 75)는 실패가 아니라 재시도에 세지 않는다.
 5. **서브에이전트가 끝났는데(finished) 이 오케스트레이터가 게이트를 아직 직접 돌리지 않았다면** — 보고에
    게이트 결과가 없거나 "백그라운드 완료를 기다린다"고만 했다면, 그 알림을 기다리지 않는다. 프로세스
