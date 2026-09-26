@@ -150,7 +150,8 @@ describe('advisor 호출 — 기본은 막혔을 때만, 정해진 시점은 Bui
     const tpl = between(PROMPT, '## 템플릿', '## 감사 템플릿')
     expect(tpl.indexOf('9. advisor:')).toBeGreaterThan(tpl.indexOf('8. 대상 리포의 공용 결정 기록'))
     expect(tpl.indexOf('9. advisor:')).toBeLessThan(tpl.indexOf('\n보고\n'))
-    expect(flat(tpl)).toContain('`advisor <호출 수>`(부르지 않았으면 0)')
+    expect(flat(tpl)).toContain('`advisor <누적 호출 수>`(부르지 않았으면 0)')
+    expect(r9).toContain('이 에이전트가 지금까지 부른 누적 횟수다(SendMessage 로 이어 받은 뒤의 보고도 처음부터 센다)')
     expect(PROMPT).toContain('| 9 advisor | dev-discipline.md 「advisor 호출(실행 모델별)」 |')
   })
   it('감사 템플릿: 막혔을 때만, 판단이 서지 않으면 advisor 대신 지적으로, 보고에 호출 수 한 줄', () => {
@@ -177,7 +178,9 @@ describe('advisor 호출 — 기본은 막혔을 때만, 정해진 시점은 Bui
     expect(f).toContain('작성자·Build 단위 몫과 감사자 몫을 따로 옮긴다')
     expect(f).toContain('state.json `verify_advisor` `{"writer":<작성자>,"audit":<감사자 셋의 합>}`')
     expect(flat(SKILL)).toContain('`verify_advisor.audit` 에 감사 보고의 advisor 호출 수를 더한다')
-    expect(flat(SKILL)).toContain('작성자의 advisor 호출 수는 최종 보고를 받을 때 `verify_advisor.writer` 에 적는다')
+    expect(flat(SKILL)).toContain('`verify_advisor.writer` 에 덮어쓴다(보고가 누적 값이다')
+    expect(flat(SKILL)).toContain('같은 에이전트가 SendMessage 로 다시 보고하면 더하지 않고 덮어쓴다')
+    expect(f).toContain('**누적** 횟수라, 같은 에이전트의 다음 보고는 덮어쓴다')
   })
   it('SKILL.md 가 {ADVISOR_POLICY} 채우는 규칙을 싣고, 승급·재시도 에이전트는 막혔을 때만이다', () => {
     const s = flat(SKILL)
@@ -242,7 +245,8 @@ describe('sonnet Build 의 opus 승급 — 기존 재시도·인계 상한과 �
   it('opus 단위는 종전대로 — 둘 다 아닌 보고는 Build 실패', () => {
     expect(s).toContain('둘 다 아닌 보고는 opus 단위면 Build 실패이고, sonnet 단위면 아래 「승급」 이다')
     expect(s).toContain('한 단위가 Build 실패(세 번째 인계, opus 단위의 둘 다 아닌 보고)면')
-    expect(flat(DISC)).toContain('opus 단위가 초록 없이 끝나면 종전대로 Build 실패다')
+    expect(flat(DISC)).toContain('opus 단위는 종전대로다 — 둘 다 아닌 보고는 Build 실패이고, 관련 테스트가 빨간 `UNIT_DONE` 도 종전처럼 다룬다')
+    expect(flat(DISC)).not.toContain('opus 단위가 초록 없이 끝나면')
   })
   it('초록 없이 끝난 sonnet 단위는 인계 커밋으로 바꿔 트레일러 하나를 쓰고 승급 표식을 남긴다', () => {
     expect(s).toContain('`--trailer "DFlow-Unit: <단위> handoff" --trailer "DFlow-Escalate: <단위> 초록 없이 끝남"`')
@@ -253,7 +257,14 @@ describe('sonnet Build 의 opus 승급 — 기존 재시도·인계 상한과 �
     expect(d).toContain('**모델은 git 으로 정한다(재개 포함)**')
     expect(d).toContain('state.json `model`(승급 뒤에는 opus 로 남아 있다)에서 읽지 않는다')
     expect(d).toContain('인계 트레일러 (`DFlow-Unit: <단위> handoff`)가 2개 이상이거나 `DFlow-Escalate: <단위>` 트레일러가 있으면 opus 다')
+    expect(d).toContain("`--grep='DFlow-Escalate: <단위> '` 줄 수로 센다 — 단위 이름 뒤 공백까지 넣어야 `B1` 이 `B10` 을 잡지 않는다")
     expect(s).toContain('단위를 띄울 때의 모델은 state.json `model` 이 아니라 git 트레일러로 정한다(재개도 같다')
+  })
+  it('재개 함정: done 커밋 뒤에 승급 인계가 쌓인 단위는 끝난 단위가 아니다(가장 최근 트레일러가 done 일 때만)', () => {
+    expect(SKILL).toContain("git log <기점>..HEAD --grep='DFlow-Unit: <단위> done' --format=%h") // 종전 문구 유지
+    expect(s).toContain('그 단위의 **가장 최근** `DFlow-Unit` 트레일러가 `done` 이면 끝난 단위다')
+    expect(s).toContain("--grep='DFlow-Unit: <단위> ' --format=%B | sed -n 's/^DFlow-Unit: <단위> //p'` 가 `done`")
+    expect(s).toContain('에이전트가 이미 `done` 커밋을 남겼으면 되돌리지 않고 그 위에 이 커밋을 쌓는다')
   })
   it('기록: state.json model·build-log 승급 칸·progress 메모(새 서버 계약 없이), progress 는 model 을 바꾸기 전에', () => {
     expect(s).toContain('"escalated: sonnet→opus <단위>(<사유>)"')
@@ -271,6 +282,29 @@ describe('rationale — 수치 근거', () => {
       expect(sec).toContain(k)
     expect(sec).toContain('haiku 는 여전히 Build·Verify 에 쓰지 않는다')
     for (const k of ['코드 품질 때문에 생긴 게이트 실패·Verify 실패·반려는 0건', 'sonnet 작업 3건 포함', '모두 환경·', '건당 +11~15분, +1.3~2.2M'])
+      expect(sec).toContain(k)
+  })
+})
+
+describe('읽기 전용 조사 서브에이전트 — 위치 조사는 haiku 기본, 해석·판단은 sonnet', () => {
+  it('phase-prompt 공통 규칙 6 과 dev-discipline 공통 금지가 같은 구분을 싣는다', () => {
+    const r6 = flat(between(PROMPT, '6. 토큰:', '7. 금지:'))
+    expect(r6).toContain('읽기 전용 조사 서브에이전트(공통 규칙 3)를 띄울 때는 Agent 호출에 model 을 적는다')
+    expect(r6).toContain('파일·선례·위치 찾기 같은 위치 조사는 `haiku`(기본), 조사 결과를 해석·판단해야 하는 조사(설계 대안 비교, 코드 의미 검토)는 `sonnet`')
+    expect(r6).not.toContain('sonnet 또는 haiku')
+    const ban = flat(DISC.slice(DISC.indexOf('## 공통 금지')))
+    expect(ban).toContain('파일·선례·위치 찾기 같은 읽기 전용 위치 조사는 `haiku` 가 기본이고(Design·Build·Verify 어디서 띄우든 같다)')
+    expect(ban).toContain('조사 결과를 해석·판단해야 하는 조사(설계 대안 비교, 코드 의미 검토)는 `sonnet` 을 적는다')
+    // 공통 규칙 3 의 예(Explore)는 그대로
+    expect(flat(PROMPT)).toContain('새 읽기 전용 서브에이전트(예: Explore)를 띄워 조사 질문만 명시한다')
+  })
+  it('바꾸지 않는 것: Verify 감사자 sonnet, 배정표 haiku 금지(실행 모델)', () => {
+    expect(SKILL).toContain('`model: "sonnet"` 을 준다')
+    expect(flat(DISC)).toContain('Verify 감사자 셋은 조사가 아니라 감사라 이 규칙 밖이다(sonnet')
+    expect(flat(DISC)).toContain('이 표의 haiku 금지는 Phase 실행 모델의 규칙이다')
+    expect(DISC.split('\n').find((l) => l.startsWith('| Design |'))).toContain('**haiku 금지**')
+    const sec = flat(between(RAT, '## advisor 호출 정책·Build 모델 시험·opus 승급(2026-09-26)', '## e2e.md'))
+    for (const k of ['Explore 21개가 모두 sonnet', '작업당 3~8분이 임계 경로', '생길 자리가 없다'])
       expect(sec).toContain(k)
   })
 })

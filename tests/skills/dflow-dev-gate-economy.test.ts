@@ -203,10 +203,10 @@ describe('변이 검증은 Build 한 곳, Verify 는 감사', () => {
 describe('토큰 규칙', () => {
   it('dev-discipline 공통 금지와 SKILL.md 공통 프롬프트에 Edit·tail/grep·Agent model·인용 절만 읽기가 있다', () => {
     const ban = DISC.slice(DISC.indexOf('## 공통 금지'))
-    for (const s of ['Edit 를 쓴다', '`tail`·`grep`', '`sonnet` 이나 `haiku` 를 적는다', '프롬프트에 인용된 절만 읽는다'])
+    for (const s of ['Edit 를 쓴다', '`tail`·`grep`', 'Agent 호출에 모델을 적는다', '프롬프트에 인용된 절만 읽는다'])
       expect(ban, s).toContain(s)
     const p = flat(PROMPT)
-    for (const s of ['Edit 로 고친다', 'tail·grep 으로 필요한 부분만 본다', 'model(sonnet 또는 haiku)을 적는다'])
+    for (const s of ['Edit 로 고친다', 'tail·grep 으로 필요한 부분만 본다', 'Agent 호출에 model 을 적는다'])
       expect(p, s).toContain(s)
     expect(p).toContain('dev-discipline.md 등 다른 문서는 전체를 읽지 말고 이 프롬프트나 그 파일이 인용한 절만 읽는다')
     expect(SKILL).toContain('템플릿을 그대로 보내고 `{…}` 변수만 채운다**')

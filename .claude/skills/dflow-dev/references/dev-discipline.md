@@ -361,6 +361,8 @@ design.md `## 구현 단위` 표(phase-design.md 「구현 단위 표」)의 단
 복잡도 점수: depends 0–1개 0 / 2–3개 +1 / 4개+ +2 · spec 키워드(아키텍처·트랜잭션·마이그레이션·
 인증·보안·외부연동) +2 · category research/docs −1. 오버라이드: 호출 인자 > spec 의 model 필드.
 키워드 매칭은 근사치다 — 판정 결과를 한 줄 출력해 사람이 교정할 수 있게 한다.
+이 표의 haiku 금지는 Phase 실행 모델의 규칙이다. Phase 서브에이전트가 띄우는 읽기 전용 조사 서브에이전트의 모델은 「공통 금지」 의
+토큰 항목(위치 조사는 haiku 기본)을 따른다.
 
 ### Build 모델 시험(build_model_trial)
 
@@ -411,11 +413,12 @@ Build 단위를 도는 에이전트의 모델이 sonnet 이면(시험이든 원�
   관련 테스트가 빨갛거나 `UNIT_DONE`·`UNIT_HANDOFF` 어느 것도 아닌 보고) 그 단위의 이어받기 에이전트를 opus 로 띄운다. 초록 없이
   끝난 경우는 오케스트레이터가 인계로 바꿔 커밋하므로 인계 계수(트레일러) 하나를 쓴다 — 그 커밋에는
   `--trailer "DFlow-Escalate: <단위> 초록 없이 끝남"` 도 붙인다. 승급한 단위의 뒤 이어받기도 opus 이고, 남은 단위는 원래 모델로
-  돌아간다. opus 단위가 초록 없이 끝나면 종전대로 Build 실패다.
+  돌아간다. opus 단위는 종전대로다 — 둘 다 아닌 보고는 Build 실패이고, 관련 테스트가 빨간 `UNIT_DONE` 도 종전처럼 다룬다.
 - **모델은 git 으로 정한다(재개 포함)**: 단위를 띄울 때의 모델은 state.json `model`(승급 뒤에는 opus 로 남아 있다)에서 읽지
   않는다. 기본은 위 「Build 모델 시험」 의 Build 단위 모델이고, 그 값이 sonnet 이면서 그 단위의 인계 트레일러
   (`DFlow-Unit: <단위> handoff`)가 2개 이상이거나 `DFlow-Escalate: <단위>` 트레일러가 있으면 opus 다
-  (`git log <기점>..HEAD --grep=... --format=%h` 줄 수로 센다).
+  (`git log <기점>..HEAD --grep='DFlow-Unit: <단위> handoff' --format=%h`·`--grep='DFlow-Escalate: <단위> '` 줄 수로 센다 — 단위
+  이름 뒤 공백까지 넣어야 `B1` 이 `B10` 을 잡지 않는다).
 - 승급하면 state.json `model` 을 opus 로 쓰고, build-log.md `## 실행 모델` 의 승급 칸과 서버 progress 보고에
   `escalated: sonnet→opus <단위>(<사유>)` 를 남긴다.
 
@@ -431,7 +434,8 @@ Phase 서브에이전트는 프롬프트의 「당신의 실행 모델은 {MODEL
 | **Build sonnet 시험 단위**(state.json `build_model_trial` 이 true 이고 sonnet 으로 도는 Build 단위) | `착수 전·막혔을 때·완료 전` | 코드 작성 착수 전 1회, 막혔을 때, 완료 보고 전 1회 |
 | Verify 감사자(읽기 전용) | (감사 템플릿에 고정) | 막혔을 때만(짧은 읽기 전용 감사다 — phase-prompt.md 「감사 템플릿」) |
 
-서브에이전트는 보고에 `advisor <호출 수>` 를 적는다(감사자도). 오케스트레이터는 작성자·Build 단위 몫과 감사자 몫을 따로 옮긴다 —
+서브에이전트는 보고에 `advisor <호출 수>` 를 적는다(감사자도). 그 에이전트가 지금까지 부른 **누적** 횟수라, 같은 에이전트의 다음
+보고는 덮어쓴다. 오케스트레이터는 작성자·Build 단위 몫과 감사자 몫을 따로 옮긴다 —
 Build 단위는 build-log.md `## 실행 모델` 의 `advisor` 칸, Verify 는 state.json `verify_advisor`
 `{"writer":<작성자>,"audit":<감사자 셋의 합>}`(시험 비교 지표).
 
@@ -616,6 +620,8 @@ Task 브랜치는 기점에서 만든 뒤 **개발 브랜치를 다시 머지하
 - 토큰 낭비:
   - 이미 있는 파일을 Write 로 통째로 다시 쓰기 — 고칠 때는 Edit 를 쓴다.
   - 하네스가 잘라 파일로 저장한 긴 출력을 Read 로 통째로 다시 읽기 — `tail`·`grep` 으로 필요한 부분만 본다.
-  - 읽기 전용 조사 서브에이전트(Explore 등)를 `model` 없이 띄우기 — Agent 호출에 `sonnet` 이나 `haiku` 를 적는다.
+  - 읽기 전용 조사 서브에이전트(Explore 등)를 `model` 없이 띄우기 — Agent 호출에 모델을 적는다. 파일·선례·위치 찾기 같은 읽기
+    전용 위치 조사는 `haiku` 가 기본이고(Design·Build·Verify 어디서 띄우든 같다), 조사 결과를 해석·판단해야 하는 조사(설계 대안
+    비교, 코드 의미 검토)는 `sonnet` 을 적는다. Verify 감사자 셋은 조사가 아니라 감사라 이 규칙 밖이다(sonnet — SKILL.md 「Phase 02~05」).
   - Phase 서브에이전트가 이 문서 전체를 읽기 — 자기 Phase 파일과 프롬프트에 인용된 절만 읽는다(필요하면 그 절 제목으로
     grep 해 그 범위만).

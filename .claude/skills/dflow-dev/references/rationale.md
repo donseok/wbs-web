@@ -316,6 +316,12 @@ Build·Verify·Refactor 개정과 「무거운 명령 줄 세우기」 의 감�
   것을 막기 위해서다. 승급 progress 를 state.json `model` 을 바꾸기 전에 보내는 이유는 보고 행이 그 시점의 heartbeat 모델을
   남기므로(0105) 진행표에서 sonnet 구간과 opus 구간이 행으로 갈리기 때문이다. heartbeat `--note` 는 blocked 일 때만 저장되므로
   (heartbeat 라우트) 승급 기록에 쓰지 않는다.
+- **읽기 전용 위치 조사의 기본 모델을 haiku 로**(phase-prompt.md 공통 규칙 6, dev-discipline 「공통 금지」 토큰 항목): 종전 문구는
+  "sonnet 또는 haiku" 로 둘 다 허용했는데 7건에서 띄운 Explore 21개가 모두 sonnet 이었다. Design 은 Explore 결과를 기다리므로
+  작업당 3~8분이 임계 경로에 있다. 조사는 읽기 전용이라 haiku 의 과거 문제(Verify 에서 변이 검증·E2E 같은 실행 단계를 건너뜀)가
+  생길 자리가 없다. 결과를 해석·판단해야 하는 조사(설계 대안 비교, 코드 의미 검토)는 판단의 질이 산출물로 이어지므로 sonnet 을
+  둔다. Verify 감사자 셋은 조사가 아니라 리뷰라 sonnet 을 유지한다(사용자 결정). Phase 실행 모델의 haiku 금지(배정표)와는 대상이
+  다르다. 조사 서브에이전트의 모델은 Agent 호출 기록으로 확인할 수 있어 따로 기록하지 않는다.
 
 ## e2e.md
 

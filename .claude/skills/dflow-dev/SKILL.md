@@ -405,7 +405,9 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
   1. 초록 없이 끝났으면 오케스트레이터가 인계로 바꾼다 — 보고로 build-log.md `## 인계 <단위>`(한 것·남은 것·실패 중인 테스트)를
      쓰고, design.md 표의 그 단위 범위 안 변경과 build-log.md 를 `--trailer "DFlow-Unit: <단위> handoff" --trailer "DFlow-Escalate:
      <단위> 초록 없이 끝남"`(과 `DFlow-Order`)로 커밋한다. 인계가 이미 2회면(이 커밋이 세 번째가 된다) 바꾸지 않고 Build 실패다.
-     범위 밖에 커밋되지 않은 변경이 남으면 Build 실패다. 병렬 묶음의 단위면 「묶음」 2 의 커밋에서 같은 트레일러를 붙인다.
+     범위 밖에 커밋되지 않은 변경이 남으면 Build 실패다. 에이전트가 이미 `done` 커밋을 남겼으면 되돌리지 않고 그 위에 이 커밋을
+     쌓는다(가장 최근 트레일러가 `handoff` 가 되어 재개가 끝난 단위로 보지 않는다). 병렬 묶음의 단위면 「묶음」 2 의 커밋에서 같은
+     트레일러를 붙인다.
   2. TaskStop 하고 build-log.md `## 실행 모델` 에 opus 줄(승급 칸 `sonnet→opus(<사유>)`)을 쓴다. `dflow.sh progress <ref> <직전
      보고 퍼센트, 보통 25> "escalated: sonnet→opus <단위>(<사유>)"` 를 보낸다 — state.json `model` 을 바꾸기 **전에** 보낸다(보고 행이
      그 시점의 heartbeat 모델을 남기므로(0105) 방금 끝난 sonnet 구간이 그 행에 남는다). exit 10 이면 멈춘다(상태 모델).
@@ -414,9 +416,12 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
   승급한 에이전트와 게이트 재시도 에이전트는 시험 단위가 아니므로 `{ADVISOR_POLICY}` 를 `막혔을 때만` 으로 채운다.
 - **advisor 호출 시점**: 프롬프트의 `{ADVISOR_POLICY}` 는 Build sonnet 시험 단위(state.json `build_model_trial` 이 true 이고 sonnet 으로
   도는 단위)만 `착수 전·막혔을 때·완료 전`, 그 밖의 모든 Phase 에이전트는 `막혔을 때만` 이다(dev-discipline 「advisor 호출(실행 모델별)」).
-  보고의 `advisor <호출 수>` 를 `## 실행 모델` 의 `advisor` 칸에 옮긴다.
+  보고의 `advisor <호출 수>`(그 에이전트의 누적)를 `## 실행 모델` 의 `advisor` 칸에 옮긴다 — 같은 에이전트가 SendMessage 로 다시
+  보고하면 더하지 않고 덮어쓴다.
 - 재개하면 끝난 단위를 커밋 트레일러로 가린다 — `git log <기점>..HEAD --grep='DFlow-Unit: <단위> done' --format=%h` 가 한 줄
-  이상이면 끝난 단위다(단위 커밋 규칙은 phase-build.md 「구현 단위」). 남은 단위부터 띄우고, 마지막 인계가 있으면
+  이상이고, 그 단위의 **가장 최근** `DFlow-Unit` 트레일러가 `done` 이면 끝난 단위다(`git log <기점>..HEAD -1
+  --grep='DFlow-Unit: <단위> ' --format=%B | sed -n 's/^DFlow-Unit: <단위> //p'` 가 `done`). 아래 「승급」 1 로 `done` 커밋 뒤에
+  인계 커밋이 붙은 단위는 끝나지 않았다(단위 커밋 규칙은 phase-build.md 「구현 단위」). 남은 단위부터 띄우고, 마지막 인계가 있으면
   build-log.md `## 인계 <단위>` 를 프롬프트에 넣는다.
 - 마지막 단위가 끝나면 Build 게이트를 돈다(아래 1번). Build 게이트 재시도(아래 4번)는 마지막 단위의 에이전트에 이어 붙인다.
 - **묶음**: 단위는 표의 `묶음` 순서대로 돈다(열이 없거나 비면 단위마다 다른 묶음 — 위 순차 절차 그대로). Build 를 시작할 때
@@ -452,7 +457,8 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 - 감사 보고(첫 줄 `AUDIT_RESULT <역할> <지적 수>`)를 받으면 곧바로 `<TASKS>/<TSK>/audit-<역할>.md` 에 그대로 옮겨 적는다(git
   에는 쓰지 않는다). 같은 때 state.json `verify_findings.<역할>` 에 지적 수를, `verify_advisor.audit` 에 감사 보고의 advisor 호출 수를
   더한다 — 감사 파일은 게이트 뒤 지워지므로 비교 지표(dev-discipline 「Build 모델 시험(build_model_trial)」)는 여기에 남긴다.
-  작성자의 advisor 호출 수는 최종 보고를 받을 때 `verify_advisor.writer` 에 적는다.
+  작성자의 advisor 호출 수는 보고(`VERIFY_EXEC`·`PHASE_RESULT`·재시도 보고)를 받을 때마다 `verify_advisor.writer` 에 덮어쓴다(보고가
+  누적 값이다. 작성자를 새로 띄웠으면 앞 작성자의 마지막 값에 더한다).
 - 작성자의 `VERIFY_EXEC` 와 감사 셋이 모두 오면: 지적이 한 건이라도 있으면 세 파일의 지적을 모아 **같은 작성자에게 SendMessage 로**
   넘기고 `PHASE_RESULT verify done|fail` 을 기다린다. 지적이 0건이면 `VERIFY_EXEC` 를 최종 보고로 받는다(`done` 은 통과, `fail` 은
   Verify 실패 — 아래 4번). SendMessage 가 안 되면 sonnet 작성자를 새로 띄우고 `{AUDIT_FINDINGS}` 에 지적을 넣는다. 이 왕복은 Verify
