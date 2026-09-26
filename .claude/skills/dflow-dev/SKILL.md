@@ -298,7 +298,7 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 - 이름: 단위가 하나면 `<TSK>-build` 그대로다 — 이름·게이트·재시도가 종전과 같다. 여럿이면 `<TSK>-build-<단위>`(예
   `<TSK>-build-B2`)다. 인계를 받아 같은 단위를 이어 띄우면 끝에 `-c<n>` 을 붙인다(`<TSK>-build-B2-c1`).
 - 띄우기 직전 state.json 의 `model` 과 `build_unit` 을 쓴다. 모델은 모든 단위가 Build 모델 하나다.
-- 프롬프트에 단위 이름, 마지막 단위인지(연결 테스트·E2E 담당), 단위 상한(도구 호출 약 80회·컨텍스트 250K 추정)을 넣는다.
+- 프롬프트에 단위 이름, 마지막 단위인지(연결 테스트·E2E 담당), 단위 상한(도구 호출 약 120회·컨텍스트 250K 추정)을 넣는다.
 - 보고 첫 줄이 `UNIT_DONE <단위>` 면 그 단위 커밋이 있는지 확인한다(병렬 묶음의 단위는 아래 「묶음」 — 커밋은 오케스트레이터가 한다). 마지막 단위가 아니면 게이트 없이 곧바로
   `TaskStop` 하고 다음 단위를 띄운다. `UNIT_HANDOFF <단위>` 면 build-log.md `## 인계 <단위>` 가 커밋됐는지 확인하고(병렬 묶음은 아래 「묶음」)
   TaskStop 한 뒤 같은 단위를 새 에이전트로 이어 띄운다(프롬프트에 그 인계 절을 넣는다). 이어 띄우기는 단위마다 2회까지다.
@@ -327,6 +327,23 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
   재개할 때 done 트레일러가 없는 묶음 단위에 단위 보고 파일이 있으면 다시 띄우지 않고 그 파일로 위 1~5 를 한다(보고를 받고
   커밋하기 전에 오케스트레이터가 재시작된 경우). 보고 파일이 없는데 그 단위 범위에 커밋되지 않은 변경이 있으면 Build 실패로
   멈춘다 — 반쯤 쓴 트리 위에 새 에이전트를 띄우지 않는다(사람이 보고 되돌리거나 커밋한다).
+
+**Verify 는 읽기 전용 감사자 셋과 작성자 하나를 한 메시지에 동시에 띄운다**(phase-verify.md). research/docs 특례 작업은
+감사자 없이 작성자만 띄운다(첫 보고가 곧 `PHASE_RESULT`).
+- 감사자: `<TSK>-audit-spec`·`<TSK>-audit-review`·`<TSK>-audit-tests`. 부모 컨텍스트를 물려받지 않는 쓰기 도구 없는 읽기 전용
+  유형(Explore 등, fork 금지)에 `model: "sonnet"` 을 준다. 프롬프트는 phase-prompt.md 「감사 템플릿」 에 `{ROLE}`(spec·review·tests)·
+  `{BASE}`(state.json `baseline.base`)·`{BUILD_HEAD}`(`build_gate.head`)를 채운 것이다. 감사자는 커밋된 내용만 읽으므로 작성자의
+  변이·E2E 와 겹쳐도 된다.
+- 작성자: `<TSK>-verify`, 종전 Verify 템플릿과 모델(sonnet) 그대로다. 첫 보고는 `VERIFY_EXEC done|fail` 이고 **이 보고로 회수하지
+  않는다.**
+- 감사 보고(첫 줄 `AUDIT_RESULT <역할> <지적 수>`)를 받으면 곧바로 `<TASKS>/<TSK>/audit-<역할>.md` 에 그대로 옮겨 적고(git 에는
+  쓰지 않는다) 그 감사자를 TaskStop 한다.
+- 작성자의 `VERIFY_EXEC` 와 감사 셋이 모두 오면: 지적이 한 건이라도 있으면 세 파일의 지적을 모아 **같은 작성자에게 SendMessage 로**
+  넘기고 `PHASE_RESULT verify done|fail` 을 기다린다. 지적이 0건이면 `VERIFY_EXEC` 를 최종 보고로 받는다(`done` 은 통과, `fail` 은
+  Verify 실패 — 아래 4번). SendMessage 가 안 되면 sonnet 작성자를 새로 띄우고 `{AUDIT_FINDINGS}` 에 지적을 넣는다. 이 왕복은 Verify
+  재시도 1회에 세지 않는다.
+- 재개할 때 `audit-<역할>.md` 가 있는 감사자는 다시 띄우지 않는다. Verify 게이트 판정이 끝나면 `audit-*.md` 를 지운다.
+- Verify 재시도(아래 4번)는 작성자에게만 이어 붙이고 감사자는 다시 띄우지 않는다.
 
 **띄우기 직전에 state.json 의 `model` 을 그 서브에이전트의 모델로 쓴다** — Agent 도구에 넘기는 값 그대로
 (`opus`·`sonnet`·`haiku`, 전체 id 를 넘겼으면 그 id). 커밋은 하지 않는다(다음 Phase 산출물 커밋에 같이 실린다).
@@ -388,7 +405,8 @@ Phase 종료마다 오케스트레이터가:
    - **강제 재실행**: Gradle `--rerun-tasks`·`cleanTest` 는 변이 드라이버가 부분 실행 상태를 남겼을 때(`dflow-bak/` 에 사본이
      남음)만 쓴다. 그 밖에는 UP-TO-DATE 를 믿는다(dev-discipline 「강제 재실행」).
    - **Verify 의 감사 확인**: build-log.md 「변이 검증 기록」 표가 「불변 규칙」 을 모두 덮는지와, 화면 작업이면 E2E 결과가
-     보고에 있는지 본다. 없으면 실패다. research/docs 특례 작업(dev-discipline 「research/docs 작업 특례」)은 표 대신
+     보고에 있는지 본다. 작성자 보고에 변이 표본으로 고른 행과 이유가 있고, 감사 지적이 있었으면 지적마다 판정(수용·기각 사유)이
+     있는지도 본다. 없으면 실패다. research/docs 특례 작업(dev-discipline 「research/docs 작업 특례」)은 표 대신
      문서 검증 체크리스트 순회를 본다.
 2. 통과 → Phase 산출물 커밋 확인(없으면 여기서 커밋: 파일명 명시) → state.json 전진 → 서버 보고:
    Design `progress 25 "설계 완료"` / Build `progress 60 "구현 완료"` / Verify `progress 85 "검증 완료"`.

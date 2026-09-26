@@ -14,7 +14,8 @@ D'Flow 작업 1건을 구현하는 **과정 규율**의 단일 정본(2026-08-21
 |---|---|
 | 오케스트레이터 | 이 파일(`/dflow-dev` SKILL.md 「위치 선언」 이 절 목록을 정한다) |
 | Phase 서브에이전트 | `phase-prompt.md`(프롬프트로 받는다) + `phase-design.md`·`phase-build.md`·`phase-verify.md`·`phase-refactor.md` 중 자기 것 |
-| 화면 작업의 Design·Build·Verify | 위에 더해 `e2e.md` |
+| Verify 감사자(읽기 전용) | `phase-prompt.md` 「감사 템플릿」(프롬프트로 받는다)만 |
+| 화면 작업의 Design·Build·Verify | 위에 더해 `e2e.md`(Verify 는 작성자만) |
 
 러너 킥오프 계약: 러너는 오케스트레이터 몫으로 이 파일을, 각 Phase 실행에는 `phase-prompt.md` 템플릿을 채운 프롬프트와
 그 Phase 파일을 싣는다. 이 문서 하나만 싣던 옛 계약은 Phase 규율이 빠지므로 쓰지 않는다.
@@ -308,7 +309,7 @@ Phase 서브에이전트는 `references/phase-prompt.md` 템플릿으로 띄우�
 |---|---|---|
 | 02 Design | `phase-design.md` | 게이트는 design.md 최소 구조 5절(접근 방식·변경 파일 목록·테스트 전략·수용 기준 매핑·불변 규칙). 구현이 크면 `## 구현 단위` 표가 더 있다 |
 | 03 Build | `phase-build.md` | 구현 단위(B1~Bn)마다 한 서브에이전트. 보고 첫 줄 `UNIT_DONE <단위>`·`UNIT_HANDOFF <단위>`. 전체 스위트는 돌리지 않는다. Build 게이트 실패는 1회 재시도. 대응표가 있으면 Build 게이트는 영향 모듈만(「게이트 범위 대응표」) |
-| 04 Verify | `phase-verify.md` | 전체 스위트를 다시 돌리지 않고 build-log.md 「변이 검증 기록」 을 감사한다. 재시도는 1회. 대응표가 있고 Build 게이트가 모듈 범위였으면 오케스트레이터의 Verify 게이트가 전체를 한 번 돈다 |
+| 04 Verify | `phase-verify.md`(작성자) · `phase-prompt.md` 「감사 템플릿」(감사자) | 읽기 전용 감사자 셋(spec·review·tests)과 작성자 하나를 동시에 띄운다. 전체 스위트를 다시 돌리지 않고, 작성자는 build-log.md 「변이 검증 기록」 의 의심 행과 표본 2행만 다시 넣는다. 작성자 첫 보고 `VERIFY_EXEC`, 감사 지적은 같은 작성자에게 넘긴다. 재시도는 1회. 대응표가 있고 Build 게이트가 모듈 범위였으면 오케스트레이터의 Verify 게이트가 전체를 한 번 돈다 |
 | 05 Refactor | `phase-refactor.md` | 아래 「Phase 05 — Refactor」 |
 
 화면 작업이면 Design·Build·Verify 가 `references/e2e.md` 를 함께 읽는다.
@@ -332,7 +333,7 @@ design.md `## 구현 단위` 표(phase-design.md 「구현 단위 표」)의 단
 |---|---|---|
 | Design | 복잡도 점수 3점↑ opus, 미만 sonnet | **haiku 금지** |
 | Build | sonnet (Design 이 opus 였으면 Build 도 opus 권장) | 어려운 작업의 구현만 격하하지 않는다. 구현 단위는 모두 같은 모델 |
-| Verify | **처음부터 sonnet** | haiku 는 쓰지 않는다(게이트 명령만 다시 돌리는 좁은 확인은 예외) |
+| Verify | **처음부터 sonnet** | 작성자와 감사자 셋 모두. haiku 는 쓰지 않는다(게이트 명령만 다시 돌리는 좁은 확인은 예외) |
 | Refactor | sonnet | supervised 만(무인은 실행하지 않는다) |
 
 복잡도 점수: depends 0–1개 0 / 2–3개 +1 / 4개+ +2 · spec 키워드(아키텍처·트랜잭션·마이그레이션·

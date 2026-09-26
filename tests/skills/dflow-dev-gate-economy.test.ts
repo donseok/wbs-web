@@ -170,7 +170,7 @@ describe('변이 검증은 Build 한 곳, Verify 는 감사', () => {
   })
   it('Verify: 전체 스위트를 다시 돌리지 않고, 코드를 고쳤을 때만 게이트가 돈다', () => {
     expect(verify).toContain('전체 스위트를 다시 돌리지 않는다')
-    expect(verify).toContain('「변이 검증 기록」 표의 행마다')
+    expect(verify).toContain('「변이 검증 기록」 표의 의심 행 전부와 표본 2행만')
     expect(verify).toContain('**화면 작업이면 E2E 를 돌린다**')
     expect(verify).toContain('`git diff --name-only <Build 게이트 sha>..HEAD`')
     expect(SKILL).toContain('`git diff --name-only <Build 게이트 sha>..HEAD`')
@@ -223,7 +223,7 @@ describe('읽기 규율(design.md 는 한 번, 기록은 build-log.md)', () => {
     expect(rule).toContain('Read 의 offset·limit')
     expect(rule).toContain('300줄 이하 파일')
     expect(BUILD).toContain('build-log.md `## 설계 이탈`')
-    expect(VERIFY).toContain('build-log.md 「변이 검증 기록」 표의 행마다')
+    expect(VERIFY).toContain('build-log.md 「변이 검증 기록」 표의 의심 행 전부와 표본 2행만')
     expect(DESIGN).toContain('design.md 에는 설계만 쓴다')
   })
   it('SKILL.md 가 Verify 감사를 build-log.md 에서 하고 공통 프롬프트를 phase-prompt.md 로 보낸다', () => {
@@ -236,13 +236,13 @@ describe('Build 구현 단위(단위마다 서브에이전트, 상한과 인계)
   const units = BUILD.slice(BUILD.indexOf('## 구현 단위'), BUILD.indexOf('## TDD 와 변이 검증'))
   it('Design 이 표로 정하고(phase-design), Build 단위는 상한·인계로 끝난다(phase-build). 작은 작업은 B1 하나로 종전과 같다', () => {
     expect(DESIGN).toContain('`단위 | 묶음 | 범위(파일·기능) | 새 테스트 | 담당 불변 규칙`')
-    expect(DESIGN).toContain('**작은 작업은 표를 생략한다** — 단위 하나(B1)이며 종전 Build 와 같다.')
+    expect(DESIGN).toContain('**작업 전체가 도구 호출 약 120회 안에 끝날 것으로 보이면 표를 생략한다** — 단위 하나(B1)이며 종전 Build 와 같다.')
     expect(between(DISC, '### 구현 단위', '## Phase 05')).toContain('표가 없으면 단위 하나(B1)이며 종전 Build 와 같다')
     expect(units).toContain('**마지막 단위가 연결을 맡는다**')
     expect(units).toContain('**변이 검증 담당**')
     expect(units).toContain('`UNIT_DONE <단위>`')
     expect(units).toContain('`UNIT_HANDOFF <단위>`')
-    expect(units).toContain('도구 호출이 약 80회를 넘었거나')
+    expect(units).toContain('도구 호출이 약 120회를 넘었거나')
     expect(units).toContain('컨텍스트 250K 토큰(추정)')
     expect(units).toContain('build-log.md `## 인계 <단위>`')
     expect(DESIGN).toContain('design.md 에 `## 구현 단위` 표를 둔다')
@@ -337,5 +337,68 @@ describe('게이트 범위 대응표(.dflow-gates) — 2026-09-26 성능 감사'
       expect(doc).not.toContain('dmes')
       expect(doc).not.toContain('@dk-oasis')
     }
+  })
+})
+
+// 2026-09-26 병렬성·토큰 개선(설계 docs/superpowers/specs/2026-09-26-dflow-parallel-token-design.md 개선 1~3)
+describe('Verify 는 읽기 전용 감사자 셋과 작성자 하나', () => {
+  it('phase-verify: 작성자만 작업 트리를 고치고, 첫 보고는 VERIFY_EXEC, 지적 왕복은 재시도에 세지 않는다', () => {
+    const v = flat(VERIFY)
+    expect(v).toContain('**Verify 는 읽기 전용 감사자 셋과 작성자 하나(당신)로 나뉜다.**')
+    expect(v).toContain('작업 트리를 고치는 것은 당신 혼자다')
+    expect(v).toContain('`VERIFY_EXEC done` 또는 `VERIFY_EXEC fail` 로 보고한다')
+    expect(v).toContain('`수용`·`기각(사유)` 을 판정하고')
+    expect(v).toContain('감사 지적을 받아 처리하는 왕복은 재시도에 세지 않는다')
+  })
+  it('SKILL.md: 넷을 한 메시지에 띄우고, 감사자는 sonnet 읽기 전용, VERIFY_EXEC 로 작성자를 회수하지 않는다', () => {
+    const k = flat(SKILL)
+    expect(k).toContain('**Verify 는 읽기 전용 감사자 셋과 작성자 하나를 한 메시지에 동시에 띄운다**')
+    expect(k).toContain('`<TSK>-audit-spec`·`<TSK>-audit-review`·`<TSK>-audit-tests`')
+    expect(k).toContain('`model: "sonnet"`')
+    expect(k).toContain('**이 보고로 회수하지 않는다.**')
+    expect(k).toContain('**같은 작성자에게 SendMessage 로**')
+    expect(k).toContain('이 왕복은 Verify 재시도 1회에 세지 않는다')
+    expect(k).toContain('Verify 재시도(아래 4번)는 작성자에게만 이어 붙이고 감사자는 다시 띄우지 않는다')
+  })
+  it('감사 템플릿: 커밋된 내용만 읽고(diff 를 파일마다), 쓰기 금지, 역할 셋, 호출 약 40회, 보고 첫 줄', () => {
+    const t = flat(PROMPT.slice(PROMPT.indexOf('## 감사 템플릿'), PROMPT.indexOf('## 규칙의 정본')))
+    expect(t).toContain('소스·테스트는 작업 트리에서 Read 하지 말고 커밋된 내용만 읽는다')
+    expect(t).toContain('`git diff --stat {BASE}..{BUILD_HEAD}`')
+    expect(t).toContain('`git show {BUILD_HEAD}:<경로>`')
+    expect(t).toContain('{WORKER_LINES}')
+    for (const r of ['- spec:', '- review:', '- tests:']) expect(t, r).toContain(r)
+    expect(t).toContain('도구 호출은 약 40회 안에서 끝낸다')
+    expect(t).toContain('`AUDIT_RESULT {ROLE} <지적 수>`')
+  })
+  it('모델 배정표: 감사자도 sonnet(haiku 금지 유지)', () => {
+    const row = DISC.split('\n').find((l) => l.startsWith('| Verify |')) ?? ''
+    expect(row).toContain('작성자와 감사자 셋 모두')
+    expect(row).toContain('haiku 는 쓰지 않는다')
+  })
+})
+
+describe('Verify 변이 재실행은 표본 감사', () => {
+  it('의심 행 전부 + 서로 다른 규칙의 표본 2행, 어긋나면 전수', () => {
+    const v = flat(VERIFY)
+    expect(v).toContain('잡은 테스트 칸이 비었거나 `-` 인 행')
+    expect(v).toContain('`안 잡힘(보강함)` 행(보강한 테스트가 실제로 잡는지)')
+    expect(v).toContain('서로 다른 불변 규칙의 행 2개를 고른다')
+    expect(v).toContain('고른 행과 고른 이유를 보고에 적는다')
+    expect(v).toContain('**표본이 하나라도 기록과 다르게 나오면(안 잡힘) 표본 감사를 버리고 남은 행을 모두 다시 넣는다.**')
+    expect(v).not.toContain('「변이 검증 기록」 표의 행마다')
+  })
+})
+
+describe('구현 단위 크기(50~100회, 상한 120회, 전체 120회 이하면 단위 1개)', () => {
+  it('Design·Build·SKILL.md 가 같은 수치를 쓰고 80회가 남지 않는다', () => {
+    expect(DESIGN).toContain('도구 호출 약 50~100회에 끝날 크기로(50회 미만으로 예상되는 단위는 이웃 단위와 합친다)')
+    expect(BUILD).toContain('도구 호출이 약 120회를 넘었거나')
+    expect(SKILL).toContain('단위 상한(도구 호출 약 120회·컨텍스트 250K 추정)')
+    for (const f of [DESIGN, BUILD, SKILL]) expect(f).not.toContain('80회')
+  })
+  it('rationale 이 곡선 근거를 남기고 "제곱에 비례" 를 단정하지 않는다', () => {
+    const r = ref('rationale.md')
+    expect(r).toContain('W ≈ 0.028M × calls + 0.000024 × calls²')
+    expect(r).not.toContain('누적은 호출 수의 제곱에 비례한다.')
   })
 })
