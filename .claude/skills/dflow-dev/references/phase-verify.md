@@ -20,7 +20,16 @@ Verify 는 전체 스위트를 다시 돌리는 Phase 가 아니다. Build 게�
    - **표본이 하나라도 기록과 다르게 나오면(안 잡힘) 표본 감사를 버리고 남은 행을 모두 다시 넣는다.**
    - `안 잡힘(보고)` 행은 다시 넣지 않는다. 표의 서류 감사(「불변 규칙」 에 있는데 표에 없는 규칙, `안 잡힘` 인데 보고가 없는
      행)는 감사자 tests 가 한다.
-   E2E 스위트 전체가 대상인 행도 같다. 끝나면 넣은 변이를 모두 되돌려 `git status --porcelain` 이 Task 문서 밖에서 비어 있게 한다.
+   - **다시 넣는 방법**: 행마다 Build 가 커밋한 변이 기록 파일(`<TASKS>/<TSK>/mutations/<ID>.mut`, 표의 변이 칸 첫머리가 ID)을
+     드라이버에 그대로 넣는다 — 리포 최상위에서 `heavy.sh mutate.sh run <TASKS>/<TSK>/mutations --ids <고른 ID>`(두 스크립트
+     모두 `.claude/skills/dflow-dev/scripts/`). 결과 줄 `MUTATION_RESULT <ID> caught|survived|anchor …` 가 판정이다(caught = 잡힘).
+     변이 위치를 찾으려고 소스를 다시 읽거나 조사 에이전트를 띄우지 않는다. `anchor`(원문이 파일에 정확히 한 번 있지 않음)는
+     기록 결함이므로 고치지 말고 보고한다. 기록 파일이 없는 옛 Task(mutations 폴더 없음)만 종전처럼 표를 보고 직접 넣는다.
+   - **E2E 변이 행(`e2e: yes`)은 다시 넣는 행 전체에서 1행까지다** — 행마다 재빌드·서버 재기동이라 한 행에 약 7분이 든다.
+     의심 행에 E2E 행이 있으면 그중 하나, 없으면 표본에 E2E 행을 1행까지 넣는다. 나머지 E2E 행은 "E2E 상한으로 다시 넣지 않음"
+     으로 보고에 적는다. 표본 감사를 버리고 전수로 넘어갈 때도 이 상한은 그대로다.
+   E2E 스위트 전체가 대상인 행도 같다. 끝나면 넣은 변이를 모두 되돌려 `git status --porcelain` 이 Task 문서 밖에서 비어 있게 한다
+   (드라이버가 되돌린다 — `MUTATION_RERUN_NEEDED` 가 나오면 지난 실행의 사본을 되돌린 것이다).
    research/docs 특례 작업은 표 대신 문서 검증 체크리스트를 순회한다(spec 의 category 가 research/docs).
 3. **화면 작업이면 E2E 를 돌린다**(spec 에 `entry-point` 가 있거나 domain 이 `fullstack`·`frontend` 인 작업.
    `references/e2e.md` 「스모크 넷」, 스크린샷 포함). 서버는 e2e.md 「E2E 서버 슬롯」 대로

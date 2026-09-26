@@ -552,6 +552,13 @@ holders() { # [$1 접두(slot|docker|e2e) $2 개수]
   echo "$out"
 }
 
+# 슬롯을 얻기까지 기다린 초 — 얻은 줄(HEAVY_SLOT·HEAVY_DOCKER_SLOT·HEAVY_ACQUIRED·HEAVY_EXCL) 끝에 `waited=<초>s` 로 붙인다.
+# 포기(HEAVY_BUSY … wait=Ns)만 시간이 남으면 기다려 얻은 대기를 잴 수 없다(2026-09-26 dmes-standard 7건: 포기 대기 34회·133.5분,
+# 단일 gradlew 128회의 "Gradle 밖 시간" 74분이 성공한 대기로 추정되나 측정 불가). 기존 앞부분 형식은 그대로 두고 끝에만 붙인다.
+# 분리 실행(--detach)의 자식도 같은 줄을 잡 로그에 남긴다.
+WAIT_T0=
+waited() { echo "waited=$(( $(now) - ${WAIT_T0:-$(now)} ))s"; }
+
 # 대기 상한 안에 슬롯을 잡는다. 못 잡으면 HEAVY_BUSY 를 내고 1
 # $1 kind $2 pid $3 cmd [$4 접두(slot|e2e) $5 개수] — e2e 면 E2E 풀(acquire)
 wait_slot() {
@@ -559,7 +566,7 @@ wait_slot() {
   if [ "$pre" = e2e ]; then tag="e2e=$n"; pool=e2e; else tag="k=$K"; pool=general; fi
   # 슬롯 폴더를 못 만들면 줄 세우기를 포기하고 그냥 돌린다(성능 보호이지 보안 가드가 아니다 — fail-open)
   mkdir -p "$DIR" 2>/dev/null || { echo "HEAVY_UNLOCKED 슬롯 폴더를 만들 수 없음: $DIR" >&2; return 2; }
-  deadline=$(( $(now) + WAIT ))
+  WAIT_T0=$(now); deadline=$(( WAIT_T0 + WAIT ))
   while :; do
     # 일반 풀은 take_new 가 부하 검사를 먼저 한다(E2E 풀은 검사하지 않는다 — 머리 주석 「부하 검사」)
     take_new "$kind" "$pid" "$cmd" "$pre" "$n" && { wait_unmark; return 0; }
@@ -586,7 +593,7 @@ wait_slot() {
 wait_docker() {
   local pid="$1" cmd="$2" need="$3" deadline announced=0 i
   mkdir -p "$DIR" 2>/dev/null || { echo "HEAVY_UNLOCKED 슬롯 폴더를 만들 수 없음: $DIR" >&2; return 2; }
-  deadline=$(( $(now) + WAIT ))
+  WAIT_T0=$(now); deadline=$(( WAIT_T0 + WAIT ))
   while :; do
     DSLOT=; SLOT=; LOADWHY=
     # 새 일반 슬롯이 필요하면(need=1) 부하 검사를 도커 슬롯을 잡기 **전에** 한다 — 도커 슬롯을 잡았다 돌려주기를 되풀이하지
@@ -661,7 +668,7 @@ cmd_run() {
   wait_slot run "$MYPID" "$*"; rc=$?
   [ "$rc" -ne 1 ] || exit "$BUSY_RC"
   if [ "$rc" -eq 0 ]; then
-    echo "HEAVY_SLOT $(basename "$SLOT") k=$K" >&2
+    echo "HEAVY_SLOT $(basename "$SLOT") k=$K $(waited)" >&2
     export DFLOW_HEAVY_HELD="$SLOT"
   fi
   "$@" &
@@ -697,7 +704,7 @@ cmd_run_docker() {
   wait_docker "$MYPID" "$*" "$need"; rc=$?
   [ "$rc" -ne 1 ] || exit "$BUSY_RC"
   if [ "$rc" -eq 0 ]; then
-    echo "HEAVY_DOCKER_SLOT $(basename "$DSLOT") docker=$KD${SLOT:+ + $(basename "$SLOT") k=$K}" >&2
+    echo "HEAVY_DOCKER_SLOT $(basename "$DSLOT") docker=$KD${SLOT:+ + $(basename "$SLOT") k=$K} $(waited)" >&2
     export DFLOW_HEAVY_DOCKER_HELD="$DSLOT"
     [ -z "$SLOT" ] || export DFLOW_HEAVY_HELD="$SLOT"
   fi
@@ -813,7 +820,8 @@ cmd_run_exclusive() {
     [ "$announced" = 1 ] || { echo "HEAVY_EXCL_WAIT k=$K 순번 ${pos:-?}/$n 보유: $(holders)" >&2; announced=1; }
     sleep "$POLL"
   done
-  echo "HEAVY_EXCL k=$K 일반 슬롯 ${K}개를 모두 잡았다" >&2
+  WAIT_T0=$t0
+  echo "HEAVY_EXCL k=$K 일반 슬롯 ${K}개를 모두 잡았다 $(waited)" >&2
   export DFLOW_HEAVY_HELD
   DFLOW_HEAVY_HELD=$(printf '%s' "$EXSLOTS" | head -n 1)
   "$@" &
@@ -846,9 +854,9 @@ cmd_acquire() {
   # 슬롯을 붙잡은 세션은 독점을 부르지 못한다(HEAVY_EXCL_NESTED) — 앞서 BUSY 로 남긴 재호출 대기 표식이 남을 막지 않게 지운다
   excl_drop_gap "$o"
   if [ "$KE" -ge 1 ]; then
-    echo "HEAVY_ACQUIRED $(basename "$SLOT") owner=$o e2e=$KE" >&2
+    echo "HEAVY_ACQUIRED $(basename "$SLOT") owner=$o e2e=$KE $(waited)" >&2
   else
-    echo "HEAVY_ACQUIRED $(basename "$SLOT") owner=$o k=$K" >&2
+    echo "HEAVY_ACQUIRED $(basename "$SLOT") owner=$o k=$K $(waited)" >&2
   fi
   exit 0
 }

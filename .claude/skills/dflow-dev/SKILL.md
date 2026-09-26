@@ -22,7 +22,7 @@ description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕
 > 중복 서술하지 않고 오케스트레이션(순서·게이트 집행·상태·서버 보고)만 정의한다.
 >
 > **시작할 때 읽는 것**: **`.claude/skills/dflow-dev/references/dev-discipline.md`** 의 「게이트 기준선」(「기준선 캐시」·
-> 「게이트 범위 대응표(.dflow-gates)」·「강제 재실행」·「게이트 기록」·「research/docs 작업 특례」 포함)·「화면 작업의 브라우저 E2E」·「도커 사용 규칙」·「Phase 정의」·「Phase 05 — Refactor」·「모델 배정」·「무거운 명령 줄
+> 「게이트 범위 대응표(.dflow-gates)」·「강제 재실행」·「게이트 기록」·「부하 민감 테스트(타이밍·성능)의 단독 재실행」·「research/docs 작업 특례」 포함)·「화면 작업의 브라우저 E2E」·「도커 사용 규칙」·「Phase 정의」·「Phase 05 — Refactor」·「모델 배정」·「무거운 명령 줄
 > 세우기」·「포그라운드 실행(백그라운드 게이트 금지)」·「공통 금지」 절을 읽고 그대로 따른다. 「공용 결정 기록(decisions.md)의
 > 번호」·「마이그레이션 버전」 은 그 일이 생길 때 읽는다. Phase 서브에이전트에게 주는 문구는 `references/phase-prompt.md` 다.
 > 규칙의 이유·사고 이력은 `references/rationale.md` 에 있다(실행 중에는 읽지 않는다).
@@ -399,8 +399,9 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
   병렬 표기로 채운다(phase-prompt.md 변수표). 병렬 단위는 git 에 쓰지 않고 보고로 넘긴다(phase-build.md 「병렬 묶음의 단위」).
   각 단위는 보고를 받는 즉시 TaskStop 한다. 모두 보고하면:
   1. 묶음 검사 — 단위들의 파일 목록이 서로 겹치지 않는다. 각 파일이 design.md 표의 그 단위 범위 안이다. 어기면 Build 실패다.
-  2. 단위마다 차례로 그 단위 파일만 stage 해 커밋한다. 보고의 변이 검증 기록 행·설계 이탈·인계 내용을 build-log.md 에 옮겨
-     같은 커밋에 싣는다. `UNIT_DONE` 은 `--trailer "DFlow-Unit: <단위> done"`, `UNIT_HANDOFF` 는
+     단위가 쓴 변이 기록 파일(`<TASKS>/<TSK>/mutations/<단위>-M<n>.mut`)은 Task 문서라 범위 검사에서 뺀다.
+  2. 단위마다 차례로 그 단위 파일만 stage 해 커밋한다. 보고의 변이 검증 기록 행·설계 이탈·인계 내용을 build-log.md 에 옮기고
+     그 단위의 변이 기록 파일과 함께 같은 커밋에 싣는다. `UNIT_DONE` 은 `--trailer "DFlow-Unit: <단위> done"`, `UNIT_HANDOFF` 는
      `--trailer "DFlow-Unit: <단위> handoff"` 를 붙인다(`DFlow-Order` 트레일러도). 트레일러가 같으므로 재개·인계 계수는 위와 같다.
   3. 커밋 뒤 `git status --porcelain` 이 Task 문서 밖에서 비어 있어야 한다. 보고에서 빠진 파일이 남으면 Build 실패다.
   4. 인계한 단위는 묶음 커밋 뒤 혼자 이어 띄운다(`-c<n>`, 병렬 표기 없이 — 스스로 커밋한다). 둘 이상이 인계했으면 표 순서대로
@@ -507,6 +508,8 @@ Phase 종료마다 오케스트레이터가:
    사라지는지는 실행 하네스(FleetView 등) 몫이다.
    종료 후에도 pane 이 남으면 하네스에 보고할 건이지 이 스킬이 우회할 대상이 아니다 — 없는 API 를 지어내지 않는다.
 4. 실패 → **즉시 중단**: `"{TSK} {Phase} 실패 — {사유}. phase 유지, 재실행 시 같은 Phase 재개."`
+   단, 게이트의 신규 실패가 **모두** 타이밍·성능(부하 민감) 테스트이면 먼저 그 테스트 파일만 `heavy.sh --exclusive` 로 단독
+   재실행한다 — 통과하면 실패가 아니다(dev-discipline 「부하 민감 테스트(타이밍·성능)의 단독 재실행」).
    Build 게이트와 Verify 만 1회 재시도한다(수정은 Build 규율로 — dev-discipline 참조). **Build 게이트가 실패하면 곧바로
    failed 로 끝내지 않고** 같은 Build 서브에이전트(구현 단위가 여럿이면 마지막 단위)에 실패 목록(신규 실패 테스트 이름과 출력 꼬리)과
    "재시도 때는 단위 범위 제한 없이 Build 전체를 고친다" 를 넘겨 고치게 한 뒤 Build 게이트를 다시 돈다. 재시도 중 인계(`UNIT_HANDOFF`)는

@@ -403,3 +403,29 @@ describe('구현 단위 크기(50~100회, 상한 120회, 전체 120회 이하면
     expect(r).not.toContain('누적은 호출 수의 제곱에 비례한다.')
   })
 })
+
+// 2026-09-26 부하 민감 테스트 단독 재실행(dmes-standard TSK-07-04·09-01: evalex-perf NFR-1·sections-render 가 부하 24~32 에서만 실패)
+describe('게이트 신규 실패가 모두 타이밍·성능 테스트이면 단독(--exclusive) 재실행', () => {
+  const sec = between(DISC, '### 부하 민감 테스트(타이밍·성능)의 단독 재실행', '### research/docs')
+  it('판별은 경과 시간 상한 단언만(이름만으로 정하지 않고, 경합·타임아웃 통합 테스트는 제외)', () => {
+    const f = flat(sec)
+    expect(f).toContain('**측정한 경과 시간을 고정 상한과 비교하는 단언**을 가진 것만이다')
+    expect(f).toContain('이름만으로 정하지 않고 실패한 메서드의 단언을 읽어 확인한다')
+    expect(f).toContain('동시성·경합(race) 실패, 타임아웃으로 끝난 통합 테스트')
+  })
+  it('단독 통과면 게이트 통과·기록, 단독 실패면 종전 재시도, 섞이면 쓰지 않는다, 완화 금지 유지', () => {
+    const f = flat(sec)
+    expect(f).toContain('`heavy.sh --exclusive` 로 돌린다')
+    expect(f).toContain('`통과(부하 민감 단독)`')
+    expect(f).toContain('`env: 부하 민감, 단독 통과(')
+    expect(f).toContain('`"load_sensitive":')
+    expect(f).toContain('**단독에서도 실패하면** 진짜 실패다')
+    expect(f).toContain('부하 민감이 아닌 테스트가 하나라도 섞이면 이 절을 쓰지 않는다')
+    expect(f).toContain('기준 완화·skip·삭제 금지는 그대로다')
+  })
+  it('SKILL.md 가 실패 처리 앞에서 이 절을 부르고 읽기 목록에 넣는다, Build 단위도 같은 판별', () => {
+    expect(flat(SKILL)).toContain('게이트의 신규 실패가 **모두** 타이밍·성능(부하 민감) 테스트이면 먼저 그 테스트 파일만 `heavy.sh --exclusive` 로 단독 재실행한다')
+    expect(SKILL).toContain('「부하 민감 테스트(타이밍·성능)의 단독 재실행」')
+    expect(flat(BUILD)).toContain('**관련 테스트에서 타이밍·성능 테스트만 빨가면**')
+  })
+})
