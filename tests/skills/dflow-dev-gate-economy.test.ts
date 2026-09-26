@@ -353,7 +353,7 @@ describe('Verify 는 읽기 전용 감사자 셋과 작성자 하나', () => {
   it('SKILL.md: 넷을 한 메시지에 띄우고, 감사자는 sonnet 읽기 전용, VERIFY_EXEC 로 작성자를 회수하지 않는다', () => {
     const k = flat(SKILL)
     expect(k).toContain('**Verify 는 읽기 전용 감사자 셋과 작성자 하나를 한 메시지에 동시에 띄운다**')
-    expect(k).toContain('`<TSK>-audit-spec`·`<TSK>-audit-review`·`<TSK>-audit-tests`')
+    expect(k).toContain('**이름(`name`)을 붙이지 않고 띄운다**')
     expect(k).toContain('`model: "sonnet"`')
     expect(k).toContain('**이 보고로 회수하지 않는다.**')
     expect(k).toContain('Verify 작성자의 `VERIFY_EXEC` 는 게이트 시점이 아니다')
