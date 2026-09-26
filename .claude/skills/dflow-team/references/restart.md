@@ -15,7 +15,7 @@
   가 아니라 `team.lost` 로 적는다. `team.result` 는 카운터를 0 으로 되돌린다.
 - 재투입은 「5-1. 재개 spawn」 그대로다. 같은 워크트리, 같은 슬롯 번호, claim 하지 않음.
 - 워크트리 `state.json` 이 `wait_pred`(설계 완료·선행 대기)면 재시작하지 않는다. `references/design-ahead.md` 가 선행이 풀린 뒤에만
-  재개한다(「판정」 4-1).
+  재개한다(「판정」 4-1). `wait_review`(설계만·검토 대기)도 재시작하지 않는다(「판정」 4-2, 이어 가기는 `references/scope.md` 「2」).
 - Orca 도 tmux 와 같은 방식으로 재투입한다(「Orca」).
 - 화면(tmux `capture-pane`, Orca `orca terminal read`)은 생존 판정에 쓰지 않는다(정본 SKILL.md 「3」). 결과 줄 폴백과,
   켜 두었을 때의 한도 문구 판정에만 쓴다.
@@ -95,6 +95,7 @@ fi
 | 3 | `status` 가 `claimed` 가 아님, 또는 `mine` 이 거짓, 또는 `same_host` 가 거짓 | 점유 변동 | 보고만 한다 | 거두기 → 슬롯 해제 → 「멈춤」(사유 `서버 <status>` 또는 `다른 PC claim`). **이벤트는 쓰지 않는다** |
 | 4 | `local_phase=cancelled` | 표식 불일치 | 보고만 한다 | 거두기 → `team.lost`(`next=park`) → 「멈춤」(사유 `중단 표식 불일치`). 사람이 phase 를 되돌릴지 판단한다 |
 | 4-1 | `local_phase=wait_pred` | 설계 완료 대기(멈춤 절차 뒤 결과 줄 없이 끝남) | 같다(오른쪽) | 거두기 → `team.result`(status `design_waiting`, hash `-`, 사유는 그 state.json 의 `design_first.unmet`) → 슬롯 해제·`.dflow-agent` 는 `parked`. `team.lost` 를 쓰지 않고 재시작하지 않는다 — 재개는 `references/design-ahead.md` 2번이 선행이 풀린 뒤에 한다 |
+| 4-2 | `local_phase=wait_review` | 설계만 멈춤(멈춤 절차 뒤 결과 줄 없이 끝남) | 같다(오른쪽) | 거두기 → `team.result`(status `design_review`, hash `-`, 사유 `-`) → 슬롯 해제, 워크트리는 SKILL.md 「3. 결과 처리」 `design_review` 행대로. `team.lost` 를 쓰지 않고 재시작하지 않는다 — 이어 가기는 `references/scope.md` 「2」 |
 | 5 | 「한도 판정」 이 `LIMIT_HIT` | rate-limit | 「rate-limit 대기」 의 감지(두 TICK 을 기다리지 않는다) | 같다 |
 | 6 | (가)이고 `dead_status=127` | 환경 결함 | — | 현행 `failed no-result`(SKILL.md 「3. 결과 처리」). 재시작 없음. `claude` 를 찾지 못한 것이라 다시 띄워도 같은 자리에서 죽는다 |
 | 7 | (가) 그 밖 | pane 죽음 | — | 재시작 후보(`cause=pane-dead`) |
@@ -190,8 +191,8 @@ esac
 `references/resume.md`(SKILL.md 「5-1. 재개 spawn」)를 그대로 따르고 아래만 다르다.
 
 **재투입 전 확인**(모든 재투입 — 같은 기상의 `restart`, `RESTART_DUE`, `RL_DUE` — 에서 거두기 뒤·띄우기 전에 한 번).
-그 앞에 워크트리의 `<TASKS>/<TSK>/state.json` 이 `phase=wait_pred` 인지 본다(「판정」 블록의 `local_phase` 와 같은 줄). 그렇다면
-재투입하지 않고 「판정」 4-1 의 오른쪽 칸대로 처리한다 — 선행이 아직이면 "재개 → 미충족 → 멈춤 → 재개" 가 끝없이 돈다.
+그 앞에 워크트리의 `<TASKS>/<TSK>/state.json` 이 `phase=wait_pred`·`wait_review` 인지 본다(「판정」 블록의 `local_phase` 와 같은 줄). 그렇다면
+재투입하지 않고 「판정」 4-1·4-2 의 오른쪽 칸대로 처리한다 — 선행이 아직이면 "재개 → 미충족 → 멈춤 → 재개" 가 끝없이 돈다.
 이번 기상의 `show` 로 서버가 `claimed`+`mine`+이 PC 인지, 워크트리의 `.dflow-pane` 이 가리키는 팀원이 살아 있지 않은지,
 재시도 수가 3 미만인지를 다시 본다. 고아 스캔 "재개 가능" 조건과의 교집합이다. `REINJECT_OK` 가 아니면 띄우지 않고
 「멈춤」(사유는 출력의 사유: `서버 조회 실패`·`서버 <status>`·`다른 PC claim`·`살아 있는 팀원`·`재시도 상한`)으로 보고한다.

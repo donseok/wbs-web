@@ -7,7 +7,7 @@
 #   --hash 를 주면 그 워크트리의 HASH 줄만 낸다(HASH_OMITTED 로 빠진 경로를 따로 읽을 때. 상한 없음)
 #
 # 출력(한 줄에 하나). 크기가 고정된 줄을 먼저 낸다 — 늘 내며, 출력이 길어 뒤가 잘려도 보이게 한다:
-#   RUN start=<ts|-> backend=<…> slots=<…> until=<…> until_label=<…> wp=<…>
+#   RUN start=<ts|-> backend=<…> slots=<…> until=<…> until_label=<…> wp=<…> scope=<full|design|build|->
 #       until·until_label 은 마지막 team.extend 가 있으면 그 값, 없으면 team.start 의 until(until_label 은 -)
 #   EVENTS window=<n> total=<n> bad=<n>    읽은 줄 수(마지막 team.start 이후 / 이 팀장의 전체). bad 는 파일 전체에서
 #                                          건너뛴 깨진 줄(JSON 이 아니거나 객체가 아닌 줄) 수 — 누구의 줄인지 알 수 없어 거르지 않고 센다
@@ -46,7 +46,7 @@ if [ -z "$AGENT" ]; then
   AGENT=$(cut -d' ' -f1 "$(git rev-parse --git-path dflow-team.lock)/owner" 2>/dev/null)
   [ -n "$AGENT" ] || { echo "FAIL NO_AGENT --agent 를 주거나 팀장 잠금을 먼저 잡아라" >&2; exit 2; }
 fi
-[ -f "$EV" ] || { printf 'RUN start=- backend=- slots=- until=- until_label=- wp=-\nEVENTS window=0 total=0 bad=0\nBREAKER 0\nCONFLICT_CLEARED resolved=0 other=0\nHASH_OMITTED 0\nEXCLUDE_PERM -\nEXCLUDE_TEMP -\n'; exit 0; }
+[ -f "$EV" ] || { printf 'RUN start=- backend=- slots=- until=- until_label=- wp=- scope=-\nEVENTS window=0 total=0 bad=0\nBREAKER 0\nCONFLICT_CLEARED resolved=0 other=0\nHASH_OMITTED 0\nEXCLUDE_PERM -\nEXCLUDE_TEMP -\n'; exit 0; }
 
 # 깨진 줄(JSON 이 아니거나 객체가 아닌 줄)은 그 줄만 건너뛰고 {"__bad":true} 로 넘겨 센다(그 뒤를 버리지 않는다)
 jq -R -c --arg a "$AGENT" --arg r "$REPO" 'select(test("\\S")) | (try fromjson catch null) as $o
@@ -92,7 +92,7 @@ jq -R -c --arg a "$AGENT" --arg r "$REPO" 'select(test("\\S")) | (try fromjson c
           else "perm" end
       end;
   if $hw != "" then ($hshow[] | "HASH \(.worktree) \(.tsk // "-") \(.hash) \(.status // "blocked") id8=\(.id8 // "-") slot=\(.slot // "-")") else
-  ( "RUN start=\($st.ts // "-") backend=\($st.backend // "-") slots=\($st.slots // "-") until=\(if $ex then $ex.until else ($st.until // "-") end) until_label=\(if $ex then ($ex.until_label // "-") else "-" end) wp=\($st.wp // "-")" ),
+  ( "RUN start=\($st.ts // "-") backend=\($st.backend // "-") slots=\($st.slots // "-") until=\(if $ex then $ex.until else ($st.until // "-") end) until_label=\(if $ex then ($ex.until_label // "-") else "-" end) wp=\($st.wp // "-") scope=\($st.scope // "-")" ),
   ( "EVENTS window=\($w | length) total=\($all | length) bad=\($bad)" ),
   ( "BREAKER " + (reduce ([$w[] | select(.event == "team.result" or .event == "team.blocked" or .event == "team.lost")] | reverse[]) as $e ({n: 0, stop: false};
       if .stop then .

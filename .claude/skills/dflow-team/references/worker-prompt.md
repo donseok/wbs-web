@@ -15,6 +15,7 @@
 | `{MAIN_CHECKOUT}` | `MAIN_CHECKOUT` | 팀장의 상주 체크아웃 절대경로 |
 | `{BACKEND}` | `BACKEND` | 언제나 `pane`. 팀원은 tmux pane 또는 Orca 탭에서 돌며 `blocked` 이후 동작이 같다 |
 | `{MODEL_FLAG}` | `MODEL` | `opus` 면 `--model opus`, `sonnet` 이면 `--model sonnet`, `default` 면 빈 값 |
+| `{SCOPE_FLAG}` | `SCOPE` | `design` 이면 `--scope design`, `build` 면 `--scope build`, `full`·키 없음이면 빈 값(`/dflow-dev` SKILL.md 「실행 범위」) |
 | `{DEV_BRANCH}` | `DEV_BRANCH` | 개발 브랜치 이름(`origin/` 없음). 팀장이 `dflow.sh branch dev` 로 해석해 넘긴다 |
 | `{TASK_DIR}` | `TASK_DIR` | 이 작업의 작업 폴더(`<TASKS>/<TSK>`). 팀장이 `dflow.sh taskdir <order>` 로 구해 넘긴다 |
 | `{DOCKER}` | `DOCKER` | `allow` 일 때만 도커를 쓸 수 있다(팀장이 `docker` 태그 Task 에만 넘긴다). 키가 없거나 다른 값이면 도커 금지 모드다. 옛 팀장의 `NO_DOCKER` 는 값과 무관하게 금지로 본다(「10」) |
@@ -98,8 +99,8 @@ git fetch origin && git switch --detach origin/<기본브랜치>
 
 ## 4. 실행
 
-Skill 도구로 `/dflow-dev {ID8} --worker {MODEL_FLAG}` 를 실행한다. 참조는 id8 만 쓰고 순번은 쓰지 않는다.
-Skill 도구가 `dflow-dev` 를 모르면 `.claude/skills/dflow-dev/SKILL.md` 를 Read 해서 `$ARGUMENTS` 를 `{ID8} --worker {MODEL_FLAG}`
+Skill 도구로 `/dflow-dev {ID8} --worker {MODEL_FLAG} {SCOPE_FLAG}` 를 실행한다. 참조는 id8 만 쓰고 순번은 쓰지 않는다.
+Skill 도구가 `dflow-dev` 를 모르면 `.claude/skills/dflow-dev/SKILL.md` 를 Read 해서 `$ARGUMENTS` 를 `{ID8} --worker {MODEL_FLAG} {SCOPE_FLAG}`
 로 놓고 그 절차를 그대로 따른다. 스킬 hot-reload 를 기다리지 않는다.
 
 ## 5. 서버 쓰기 범위
@@ -166,8 +167,9 @@ Skill 도구가 `dflow-dev` 를 모르면 `.claude/skills/dflow-dev/SKILL.md` �
 | status | 언제 | 사유 |
 |---|---|---|
 | `done` | Phase 06 까지 마치고 `done --auto-links --decisions …` 가 exit 0 | 한 줄 요약. 6번의 확인 필요 결정이 있으면 끝에 `(결정 N건)` |
-| `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재` 중 하나. 설계 선행 claim 이 `DESIGN_FIRST_TOO_EARLY` 로 거부되면 `선행 미충족(설계 선행 불가: <ref…>)`(`<ref…>` 는 거부 본문 `unmet` 의 `external_ref` 를 공백으로 이은 것) |
+| `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재`, `design_missing`, `design_invalid <빠진 절>`(구현부터인데 사람 설계가 없거나 모자람) 중 하나. 설계 선행 claim 이 `DESIGN_FIRST_TOO_EARLY` 로 거부되면 `선행 미충족(설계 선행 불가: <ref…>)`(`<ref…>` 는 거부 본문 `unmet` 의 `external_ref` 를 공백으로 이은 것) |
 | `design_waiting` | 설계를 마치고 선행을 기다리며 멈춤(`/dflow-dev` 「설계 선행」 멈춤 절차 — design.md 커밋·state.json `wait_pred`·push·heartbeat `wait_pred` 뒤). 팀장은 실패로 보지 않고 워크트리를 남긴 채 좌석만 비운다 | 미충족 선행 ref 를 공백으로 이은 것. 재개했는데 기점을 정하지 못했으면 그 판정(예 `선행 승인 대기 <ref>`) |
+| `design_review` | 설계만(`--scope design`)으로 설계를 마치고 사람의 검토를 기다리며 멈춤(`/dflow-dev` `orch/design.md` 「설계만 멈춤」 — design.md 커밋·state.json `wait_review`·push·heartbeat `wait_review` 뒤). 또는 검토 대기 설계를 `build` 가 아닌 범위로 받았을 때 | 비운다(`-`) |
 | `needs-merge` | 재개 판정이 approved(`/dflow-dev` 「--worker」 C) | `approved` |
 | `blocked` | 6번 판단 규칙(되돌리기 어려운 결정만) | 질문과 선택지 |
 | `cancelled` | 사람이 D'Flow 에서 이 작업을 중단했다. `dflow.sh` 의 progress·heartbeat·done 이 exit 10 이거나, heartbeat 훅이 세션을 세웠다(`/dflow-dev` 상태 모델) | 멈춘 Phase 와 호출(예 `build progress exit 10`). 산출물은 로컬 커밋만 하고 **push 하지 않는다** |

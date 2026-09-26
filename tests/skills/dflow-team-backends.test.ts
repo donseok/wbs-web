@@ -143,7 +143,7 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
 
   it('events.md 는 일곱 이벤트와 스펙 §9-3 추가 필드를 표로 담는다', () => {
     for (const row of [
-      '| `team.start` | 「1. 시작」 5번 | `backend`, `slots`, `until`, `wp` |', // wp 는 87805910
+      '| `team.start` | 「1. 시작」 5번 | `backend`, `slots`, `until`, `wp`, `scope` |', // wp 는 87805910, scope 는 실행 범위(2026-09-26 §14)
       // 2026-09-25: 「5-1」 절차는 references/resume.md 로 옮겼다(team.spawn 은 그 9항)
       '| `team.spawn` | 「5. 팀원 spawn」 6번, `references/resume.md` 9항, 「1. 시작」 5번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |',
       '| `team.result` | 「3. 결과 처리」, 「1. 시작」 5번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |',

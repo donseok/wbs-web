@@ -47,17 +47,22 @@ describe('lead-state.sh — 재구성 보조 요약', () => {
       start({ wp: 'WP-02,dict/WP-03' }), spawnE('2', 'new00002'),
       spawnE('3', 'othr0003').replace(A, 'kim/mbp/lead'), line({ event: 'team.spawn', slot: '1', id8: 'repo0004', worktree: '-', handle: '-', spawn_kind: 'new' }, A, '/other'),
     ])
-    expect(get(out, 'RUN')[0]).toMatch(/ wp=WP-02,dict\/WP-03$/)
+    expect(get(out, 'RUN')[0]).toMatch(/ wp=WP-02,dict\/WP-03 scope=-$/)
     expect(get(out, 'SLOT').map((l) => l.split(' ')[2])).toEqual(['new00002'])
     expect(get(out, 'EVENTS')).toEqual(['EVENTS window=2 total=4 bad=0'])
     expect(out.join('\n')).not.toContain('"event"')
   })
 
+  it('실행 범위는 team.start 의 scope 로 복원한다(없는 옛 줄은 -)', () => {
+    const withScope = JSON.parse(start()); withScope.scope = 'design'
+    expect(get(run([JSON.stringify(withScope)]), 'RUN')[0]).toMatch(/ scope=design$/)
+  })
+
   it('종료 시각은 마지막 team.extend 가 team.start 보다 우선한다(wp 가 없는 옛 줄은 -)', () => {
     const noWp = JSON.parse(start()); delete noWp.wp
-    expect(get(run([JSON.stringify(noWp)]), 'RUN')[0]).toMatch(/ backend=tmux slots=3 until=18:00 until_label=- wp=-$/)
+    expect(get(run([JSON.stringify(noWp)]), 'RUN')[0]).toMatch(/ backend=tmux slots=3 until=18:00 until_label=- wp=- scope=-$/)
     const out = run([start(), line({ event: 'team.extend', until: '2026-09-25 06:00', until_label: '09-25 06:00' }), line({ event: 'team.extend', until: '2026-09-25 09:00', until_label: '09-25 09:00' })])
-    expect(get(out, 'RUN')[0]).toMatch(/ until=2026-09-25 09:00 until_label=09-25 09:00 wp=-$/)
+    expect(get(out, 'RUN')[0]).toMatch(/ until=2026-09-25 09:00 until_label=09-25 09:00 wp=- scope=-$/)
   })
 
   it('슬롯: 마지막이 spawn·blocked 인 id8 을 그 id8 의 마지막 team.spawn 값으로 잇고, 해소 워커는 워크트리 접미사로 가른다(readopt 뒤에도)', () => {
@@ -141,7 +146,7 @@ describe('lead-state.sh — 재구성 보조 요약', () => {
     const r = spawnSync('bash', [SCRIPT, '--events', ev], { cwd: repo, encoding: 'utf8' })
     expect(r.stdout).toMatch(/^SLOT 1 aaaa0001 /m)
     const none = spawnSync('bash', [SCRIPT, '--agent', A, '--repo', R, '--events', join(tmp, 'nope.jsonl')], { encoding: 'utf8' })
-    expect(none.stdout.trim().split('\n')).toEqual(['RUN start=- backend=- slots=- until=- until_label=- wp=-', 'EVENTS window=0 total=0 bad=0', 'BREAKER 0', 'CONFLICT_CLEARED resolved=0 other=0', 'HASH_OMITTED 0', 'EXCLUDE_PERM -', 'EXCLUDE_TEMP -'])
+    expect(none.stdout.trim().split('\n')).toEqual(['RUN start=- backend=- slots=- until=- until_label=- wp=- scope=-', 'EVENTS window=0 total=0 bad=0', 'BREAKER 0', 'CONFLICT_CLEARED resolved=0 other=0', 'HASH_OMITTED 0', 'EXCLUDE_PERM -', 'EXCLUDE_TEMP -'])
     expect(readFileSync(SCRIPT, 'utf8')).toContain('실행 내내 쌓인 이벤트를 그대로')
   })
 

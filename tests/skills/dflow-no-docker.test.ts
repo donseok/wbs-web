@@ -181,7 +181,7 @@ describe('/dflow-team 도커 허용 태그와 포인터', () => {
   })
   it('새 작업·재개 포인터와 해소 포인터 끝에 DOCKER 가 실리고, 매번 docker-allow.sh 로 다시 구한다', () => {
     const spawn = between(TEAM, '## 5. 팀원 spawn', '### 5-1. 재개 spawn')
-    expect(spawn).toMatch(/TASK_DIR=<작업 폴더> DOCKER=<allow\|ban>\n/)
+    expect(spawn).toMatch(/TASK_DIR=<작업 폴더> DOCKER=<allow\|ban> SCOPE=<full\|design\|build>\n/) // SCOPE: 실행 범위(2026-09-26 설계 §14)
     expect(spawn).toContain('.claude/skills/dflow-team/scripts/docker-allow.sh "$order"')
     expect(spawn).toContain('재개(「5-1」)·재시작(restart.md\n     재투입)은 이 형식으로 포인터를 다시 쓰며 그때도 `docker-allow.sh` 로 다시 구하고')
     // 2026-09-25: 「5-1」 의 절차는 references/resume.md 로 옮겼다(재개할 때만 읽는다)

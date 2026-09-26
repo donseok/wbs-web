@@ -40,6 +40,7 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 | `references/resume.md` | 재개 spawn(「5-1」) 때 |
 | `references/restart.md` | TICK 판정·결과 줄 없는 `PANE_DEAD`·재투입·rate-limit 대기·중단 표식 정리 때 |
 | `references/design-ahead.md` | 빈 슬롯에 선행 대기 작업을 설계 선행으로 줄 때, `design_waiting` 결과·설계 완료 대기 워크트리(고아 스캔 0번)를 다룰 때 |
+| `references/scope.md` | 실행 범위(`<SCOPE>`)가 `full` 이 아닐 때의 후보 판정, `design_review` 결과, `wait_review` 재개 때 |
 | `references/merge-conflict.md` | 머지 충돌 접수·해소 spawn·해소 결과·사람 머지 감지 때 |
 | `references/issues.md` | 팀원의 SendMessage 이슈 보고가 도착했을 때(「2-4」) |
 | `references/closing.md` | 「7. 마감」 에 들어설 때(잠금 상실·lease 상실 마감 포함) |
@@ -145,6 +146,11 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   바꾼다. 값은 `low`|`medium`|`high`|`xhigh`|`max` 중 하나이고, 그 밖의 값이면 한 줄 알리고 `high` 를 쓴다. 정한 값을
   `<EFFORT>` 로 기억한다. 두 백엔드 모두 `.dflow-run` 의 `claude` 호출에 `--effort <EFFORT>` 를 붙인다(backends.md
   「팀원 워크트리 준비」). 모델과 effort 는 묻지 않는다.
+- **실행 범위**는 선택이다: "설계만"·"설계까지" → `design`, "구현부터"·"개발자동" → `build`, 없으면 `full`. 정한 값을
+  `<SCOPE>` 로 기억하고 `team.start` 의 `scope` 에 남긴다(「1. 시작」 5번, 압축 뒤 `RUN` 의 `scope` 로 복원). 포인터에
+  `SCOPE=<SCOPE>` 를 싣고 워커가 `/dflow-dev --scope` 로 넘긴다(정본 `/dflow-dev` SKILL.md 「실행 범위」). `design` 은 설계를 마치고
+  사람의 검토를 기다리며 멈추고(`design_review`), `build` 는 사람이 쓴 설계(개발 브랜치 `<TASKS>/<TSK>/design.md`)나 검토 대기 설계에서
+  구현한다. `full` 이 아니면 후보 판정·결과 처리에 `references/scope.md` 를 Bash `cat` 으로 읽어 더한다. 시작 보고에 범위를 한 줄 적는다.
 - **재개 인자 `--resume <id8>[ <id8>…]`** 는 선택이다. 자연어로 "443b8ffe 재개" 라고 써도 같게 해석한다. 이 인자가
   없어도 이 PC 에 남아 있는 중단된 팀원 워크트리는 자동으로 이어받는다(「팀장 상태」 고아 스캔의 "재개 가능"
   분류). `--resume` 은 **워크트리가 이 PC 에 없거나 다른 PC 가 claim 한 작업**을
@@ -234,6 +240,7 @@ done
 - `EVENTS` 의 `bad` 가 0 보다 크면 깨진 줄을 빼고 셌다는 뜻이다. 재구성 보고에 "events.jsonl 깨진 줄 <n>" 을 싣는다.
   `HASH_OMITTED` 가 0 보다 크면 `HASH` 에 없는 경로의 해시는 같은 명령에 `--hash '<worktree>'` 를 붙여 따로 읽는다.
 - `RUN` 의 `wp`(`team.start` 의 `wp`, 없는 옛 줄은 전체 `-`)가 WP 범위다. poll 을 다시 띄울 때 `--wp` 에 넘긴다.
+- `RUN` 의 `scope`(`team.start` 의 `scope`, 없는 옛 줄은 `-` = `full`)가 실행 범위 `<SCOPE>` 다.
 - 종료 시각(`<UNTIL>`·`<UNTIL_LABEL>`)은 **마지막 `team.extend`** 의 `until`·`until_label` 이고, 없으면 `team.start` 의
   `until` 이다(`RUN` 의 `until`·`until_label`).
 - `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다(`SLOT`. 브랜치 전인 Phase 01 팀원도 id8 을 안다).
@@ -242,7 +249,7 @@ done
   `merge-conflict.md` 「0」). 결과는 `references/merge-conflict.md` 「4. 해소 결과 처리」 표로 처리하고, 고아 스캔에서는
   backends.md 「고아 정리 규칙」 2-1번으로 가르며 "재개 가능" 으로 보내지 않는다. 워커 자동 재시작(H)의 대상도 아니다.
 - `team.result`·`team.blocked` 로 이미 판정한 작업, 제외 목록(`skipped` 는 일시, `failed`·`failed no-result`·
-  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit`·`design_waiting` 은 제외
+  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit`·`design_waiting`·`design_review` 은 제외
   없음), 차단기 상태(끝에서부터 연속한 `failed…` 수. `failed not-assignee`·`cancelled`·해소 워커의 내용 실패(`references/merge-conflict.md` 「6. 차단기」)는 세지도 끊지도 않고 건너뛴다. `team.lost` 는 `cause` 와 무관하게 실패 1건으로 센다. 단 `next=wait` 인 `team.lost` 는 세지도 끊지도 않는다), 결과 줄 경로별 마지막 처리 해시(경로는
   `<worktree>/<TASKS>/<tsk>/.result`)를 복원한다.
 - 단 사유가 `선행 미충족(사전 검사:` 로 시작하는 `skipped` 는 일시 제외가 아니라 **선행 대기**다. 선행 대기 목록은
@@ -263,7 +270,7 @@ done
 - 살아 있는 팀원의 워크트리는 그 `.dflow-agent` 슬롯 번호로 슬롯 표에 흡수한다. 그 안에 `.result` 가 있으면
   처리 여부를 해시로 가린 뒤 처리한다(「3. 결과 처리」).
 - 새로 줄 슬롯 번호는 흡수한 번호를 뺀 1..N 중 가장 작은 것이다(같은 `AGENT_ID` 를 다시 발급하지 않는다).
-- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`)을 받지 않은 팀원이다.
+- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`)을 받지 않은 팀원이다.
   화면이 떠 있는지로 판단하지 않는다. Orca 는 `.dflow-agent` 가 `w<slot>` 인 워크트리 중 최종 status 의
   `.result` 가 없는 것이며, tmux 는 거기에 더해 정본 표의 생존 칸이 `alive` 여야 한다. `blocked` 는 최종
   판정이 아니므로 그 팀원은 두 백엔드 모두 살아 있다. 실제로 죽은 Orca 팀원은 무응답 규칙(「3. 결과 처리」)이
@@ -541,7 +548,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    알린다(`TMUX=` 는 팀장이 tmux 안일 때의 중첩 attach 거부를 피한다).
    `AUTOMERGE_ON` 이면(「인자」 자동 머지) "자동 머지: 켜짐. 완료 보고된 작업은 승인 전에 main 에 머지하고, 승인은
    사후에 확인합니다." 를 한 줄 알린다. 꺼져 있으면 알리지 않는다.
-5. `team.start`(backend, slots, until, wp)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. 3번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
+5. `team.start`(backend, slots, until, wp, scope)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. `scope` 는 `<SCOPE>`(`full`·`design`·`build`)다. 3번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
    다시 기록한다: 흡수한 슬롯마다 `team.spawn`(`spawn_kind` 는 `readopt`)(원래 종류는 `orig_kind` 필드에 싣는다, `references/events.md`), 답을 기다리는 `blocked` 마다
    `team.blocked`, 흡수한 슬롯의 마지막 처리 해시마다 `team.result` 또는 `team.blocked`. 다시 기록하지 않으면
    이어받은 팀원이 살아 있지 않은 것으로 보이고 같은 결과가 다시 처리된다(재구성은 새 `team.start` 이후만 읽는다).
@@ -696,6 +703,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
   뭉개지 않는다.
 - `host` 가 이 PC 의 `<host>` 슬러그와 **글자 그대로 같은 것만** 「5-1. 재개 spawn」 으로 보낸다(서버가 `claimed_by` 에서
   파생한 값이다. 팀장이 다시 계산하지 않는다). 다른 값이면 **"멈춤" 표에 사유 `다른 PC claim` 으로 적고 띄우지 않는다.**
+- 요청 작업이 설계 검토 대기(`wait_review`)면 범위와 무관하게 포인터 `SCOPE=build` 로 띄운다(`references/scope.md` 「2」 2).
 - **팀장은 표식을 지우지 않으며 확인 응답도 보내지 않는다.** 되살아난 워커의 첫 heartbeat 가 그것을 비우고,
   회수 뒤 재claim 하는 경로에서는 claim 라우트가 지운다.
 `WATCH_FAILED`(watch 호출 실패)·`HOLDER_FAILED`(`lease holder` 조회가 실패해 watch 를 아예 부르지 않은 것. 빈 `--holder`
@@ -739,7 +747,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 
 | 기상 | 처리 |
 |---|---|
-| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다(겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌 수 있다). 일시 제외는 대조하지 않는다(poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정한다, 「2-1」). 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 보고와 `team.result` 는 같게 하되, 일시 제외가 아니라 **선행 대기**에 넣는다(아래 「선행 사전 검사」). `deps_unmet` 이 비었고 `deps_nohead` 가 비어 있지 않으면 아래 「선행 반영 사전 검사」 를 거친다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다 |
+| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다(겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌 수 있다). 일시 제외는 대조하지 않는다(poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정한다, 「2-1」). 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 보고와 `team.result` 는 같게 하되, 일시 제외가 아니라 **선행 대기**에 넣는다(아래 「선행 사전 검사」). `deps_unmet` 이 비었고 `deps_nohead` 가 비어 있지 않으면 아래 「선행 반영 사전 검사」 를 거친다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다. `<SCOPE>` 가 `full` 이 아니면 이 판정에 `references/scope.md` 「1」 을 더한다 |
 | `STOP_REQUESTED`, 사람의 종료 요청("팀장 종료"·"마감해" 등) | 종료 시각과 무관하게 「7. 마감」 으로 간다. "종료 요청으로 마감합니다" 를 한 줄 알린다. 종료 파일은 이 자리에서 지운다(남기면 마감 중 다시 띄운 감시 루프가 곧바로 다시 끝나 공회전한다). 마감의 기다림(「7. 마감」 2번) 중에 종료 요청이 **한 번 더** 오면 기다림을 끝내고 곧바로 3번으로 간다 |
 | poll exit 8 (시한) | 먼저 지금 시각이 현재 `<UNTIL>`(연장 반영) 전인지 본다. 전이면 연장 전에 띄운 옛 poll 이 끝난 것이므로 무시하고 재기동 조건(「2-1」)대로 새 `--until` 로 다시 띄운다. 지났으면 새 배정을 멈춘다. 대기 큐를 비우고(보고만 한다) 「7. 마감」 으로 간다 |
 | poll exit 2·3·5·6·7 | 중단 사유(stderr)를 보고하고 「7. 마감」 으로 간다 |
@@ -864,7 +872,7 @@ restart.md 는 이것을 가리킨다. 터미널 핸들이 없는 옛 Orca 런�
 커밋하지 않는다(「1. 시작」 exclude 의 `/docs/dflow-team/`).
 - 재료는 둘이다. 하나는 워커가 쓴 `<워크트리>/<TASKS>/<TSK>/.issues`(worker-prompt.md 「7-1」, 줄마다
   `<phase>\t<분류>\t<내용>`)이고, 다른 하나는 `done` 이 아닌 결과의 사유(결과 줄 7번째 칸부터)다.
-- `done`·`needs-merge`·`design_waiting` 이고 `.issues` 가 없거나 비었으면 붙이지 않는다. 그 밖의 status 는 `.issues` 가 없어도
+- `done`·`needs-merge`·`design_waiting`·`design_review` 이고 `.issues` 가 없거나 비었으면 붙이지 않는다. 그 밖의 status 는 `.issues` 가 없어도
   사유 한 줄로 항목을 만든다.
 - `failed no-result` 는 사유 대신 `pane_dead_status` 와 화면 마지막 20줄(tmux `capture-pane -p -J -S - | tail -n
   20`, Orca `orca terminal read`)을 코드 블록으로 붙인다. 화면을 읽지 못하면 `화면 없음` 한 줄을 쓴다.
@@ -872,11 +880,11 @@ restart.md 는 이것을 가리킨다. 터미널 핸들이 없는 옛 Orca 런�
 ```bash
 f='<MAIN>/docs/dflow-team/issues.md'; i='<워크트리>/<TASKS>/<TSK>/.issues'; st='<status>'
 reason=$(head -n 1 "$(dirname "$i")/.result" 2>/dev/null | cut -d' ' -f7-)
-if [ -s "$i" ] || { [ "$st" != done ] && [ "$st" != needs-merge ] && [ "$st" != design_waiting ]; }; then
+if [ -s "$i" ] || { [ "$st" != done ] && [ "$st" != needs-merge ] && [ "$st" != design_waiting ] && [ "$st" != design_review ]; }; then
   mkdir -p "$(dirname "$f")"
   [ -s "$f" ] || printf '# /dflow-team 문제 기록\n\n팀원이 보고한 에러·문제점. 스킬·환경 개선 재료이며 커밋하지 않는다.\n' > "$f"
   { printf '\n### %s · <TSK> (<id8>) · %s\n\n' "$(date '+%Y-%m-%d %H:%M')" "$st"
-    [ "$st" = done ] || [ "$st" = needs-merge ] || [ "$st" = design_waiting ] || printf -- '- 결과 사유: %s\n' "$reason"
+    [ "$st" = done ] || [ "$st" = needs-merge ] || [ "$st" = design_waiting ] || [ "$st" = design_review ] || printf -- '- 결과 사유: %s\n' "$reason"
     [ -s "$i" ] && awk -F'\t' 'NF{c=$2;p=$1;sub(/^[^\t]*\t[^\t]*\t/,"");printf "- [%s] %s: %s\n",c,p,$0}' "$i"
   } >> "$f" || echo ISSUE_LOG_FAIL
 fi
@@ -896,6 +904,7 @@ Bash 호출의 변수는 남지 않는다). `.result` 가 없으면(`failed no-r
 | `needs-merge` | 해제 | 없음 | `done` 과 같다 | 승인 스윕을 곧바로 한다. 이 기상의 스윕 1회이며, 워커가 approved 를 확인한 머지 대상이 있으므로 사전 검사 없이 부른다(「4-0」 의 예외) |
 | `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙, 아니면 `done` 과 같다 | 사유 보고 |
 | `design_waiting`(설계 완료·선행 대기, 사유는 미충족 선행 ref) | 해제 | 없음 | **지우지 않는다**. `.dflow-agent` 를 `parked` 로 | 실패가 아니다(차단기 연속 수를 0 으로). 재개는 `references/design-ahead.md` 2·4번 |
+| `design_review`(설계만 멈춤, `<SCOPE>`=`design`) | 해제 | 없음 | `done` 과 같다(설계는 agent 브랜치에 push 돼 있다) | 실패가 아니다(차단기 연속 수를 0 으로). 좌석은 「설계 검토 대기」. 이어 가기는 `references/scope.md` 「결과」 |
 | `blocked` | 유지 | 진행 중으로 영구 제외에 남긴다 | 그대로 둔다(두 백엔드 공통). 팀원이 pane 이나 탭에서 답을 기다린다 | 통지(「6. blocked」) |
 | `failed <사유>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산 |
 | `failed permission <명령>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 거부된 명령을 "권한 목록 재료" 로 보고한다(킷 허용 목록에 넣을 값). 서버에 claimed 로 남으므로 **"멈춤" 표**에 넣는다(사유는 그 status). 차단기 계산 |
@@ -1118,7 +1127,7 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
 4. 포인터 **한 줄**을 만든다. 백엔드에는 워커 프롬프트 전문이 아니라 이 포인터를 넘기고, 워커가
    `references/worker-prompt.md` 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다.
    ```
-   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<작업 폴더> DOCKER=<allow|ban>
+   <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치> TASK_DIR=<작업 폴더> DOCKER=<allow|ban> SCOPE=<full|design|build>
    ```
    - `DOCKER` 는 3번 블록의 `docker-allow.sh` 가 낸 값이다(「인자」 의 「도커 허용 태그」). 재개(「5-1」)·재시작(restart.md
      재투입)은 이 형식으로 포인터를 다시 쓰며 그때도 `docker-allow.sh` 로 다시 구하고, 해소(「5-2」)는 merge-conflict.md 의
@@ -1128,6 +1137,8 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
    - 전문을 셸 인자로 넘기면 백틱·따옴표·여러 줄이 섞여 깨진다. 워커 프롬프트 경로는 절대경로로 준다(새 워크트리에 스킬이
      없을 수 있다).
    - `BACKEND` 는 언제나 `pane` 이다(두 백엔드 모두 팀원이 화면에서 멈춰 답을 기다린다, worker-prompt.md).
+   - `SCOPE` 는 「인자」 의 `<SCOPE>` 다. 재개(「5-1」)·재시작(restart.md 재투입)도 같은 값을 싣는다 — 단 `references/scope.md` 가
+     정한 재개(검토 대기 설계를 구현으로 넘기기)는 `build` 다.
    - 모델은 공백이 든 `--model opus` 를 넘기지 않고 `MODEL=` 로 넘기며, 워커가 `{MODEL_FLAG}` 로 바꾼다
      (`default` 면 빈 값). 두 백엔드 모두 같은 값을 `.dflow-run` 의 `claude` 호출에도 붙인다(backends.md).
 5. **띄우기 직전** `references/restart.md` 「중단 표식 정리」 블록을 돈다(`order` 는 show 필터의 `order`, `st` 는 `status`).

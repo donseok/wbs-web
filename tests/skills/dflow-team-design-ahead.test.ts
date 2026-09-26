@@ -116,7 +116,7 @@ describe('dflow-team 문서 — 설계 선행 계약', () => {
     expect(flat(TEAM)).toContain('0. **설계 완료 대기**: `<TASKS>/*/state.json` 이 `phase=wait_pred` 면 정리·멈춤으로 보내지 않는다')
     const r = read('.claude/skills/dflow-team/references/restart.md')
     expect(r).toContain('| 4-1 | `local_phase=wait_pred` |')
-    expect(flat(r)).toContain('재투입하지 않고 「판정」 4-1 의 오른쪽 칸대로 처리한다')
+    expect(flat(r)).toContain('재투입하지 않고 「판정」 4-1·4-2 의 오른쪽 칸대로 처리한다')
     expect(flat(DA)).toContain('**재시작·재개 후보에서 뺀다**')
   })
 
