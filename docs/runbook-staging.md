@@ -73,6 +73,14 @@ npm run staging:sync -- --yes      # 프롬프트 + 활성 접속 가드 함께 
 **첨부파일**:
 - 실체(파일 내용) 는 복사되지 않음 — S3/R2  파일 목록만 복제되어 404 가 정상
 - 임베딩 벡터(`pgvector`)는 일반 컬럼 데이터로 pg_dump/restore 에 그대로 실려온다 (별도 재생성 없음)
+- **스토리지 RLS 정책은 sync 가 마지막에 `supabase/storage-policies.sql` 로 재적용한다.**
+  sync 중간의 `drop schema public cascade` 가 정책 9건 중 7건을 함께 지우기 때문이다
+  (`can_attach`·`can_edit_issue`·`app_role`·`minute_versions` 를 참조 → cascade 대상).
+  재적용이 빠지면 `storage.objects` 는 **RLS on + 정책 0건 = 업로드 전면 거부**가 되고,
+  회의록 본문 `.md`·회의록 첨부·이슈 첨부·WBS 산출물이 모두
+  `new row violates row-level security policy for table "objects"` 로 실패한다.
+  2026-09-27 스테이징이 실제로 그 상태였다(minutes 버킷 객체 0건 / 운영 26건).
+  증상이 보이면 손으로 복구: `npm run db:apply -- supabase/storage-policies.sql --target staging`
 
 **제약 및 주의**:
 - **UAT 진행 중에는 금지** — 활성 접속이 있으면 즉시 중단한다(경고 출력). 조율 후 `npm run staging:sync -- --yes` 로 재실행.
