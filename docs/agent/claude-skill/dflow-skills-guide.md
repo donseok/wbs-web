@@ -3,6 +3,9 @@
 작성 2026-08-23 · 스킬 8종의 사용자 안내서. 정본은 각 `.claude/skills/<이름>/SKILL.md` —
 어긋나면 SKILL.md 가 이긴다. 이 문서는 "Claude 에게 뭐라고 말하면 무슨 일이 일어나는가"를 다룬다.
 
+`/dflow-team` 을 처음 쓰는 사람을 위한 설치·설정·운용 매뉴얼(화면 캡처·흐름도 포함, 2026-09-26)은
+[`docs/agent/dflow-team-manual/index.html`](../dflow-team-manual/index.html) 에 있다. 브라우저로 연다.
+
 ## 한눈에 보기
 
 | 이럴 때 | 이렇게 말한다 | 스킬 |

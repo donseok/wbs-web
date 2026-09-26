@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 게시본: https://claude.ai/artifact/42eyVqWY5jCuv4DEz2yvpe (비공개). 이 파일은 그 사본이다. 기준 킷 dflow-kit cb25883 = wbs-web aeca4762. -->
+<title>dflow-team 운용 매뉴얼</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#f3f5f4; --surface:#ffffff; --surface-2:#eaefed; --ink:#15211f; --muted:#56645f; --line:#d6dedb;
+  --brand:#0f766e; --brand-weak:#e0eeea; --brand-ink:#0b5650; --orange:#c0602b; --orange-weak:#f8e8dd;
+  --navy:#123d64; --warn-bg:#fff4e0; --warn-line:#e6b565; --warn-ink:#7a4a05;
+  --danger-bg:#fdecec; --danger-line:#e3a3a3; --danger-ink:#8a1f1f;
+  --code-bg:#0f1a19; --code-ink:#d8e6e2; --code-dim:#7d9590; --code-hl:#6fd3c5; --code-or:#f0a570;
+  --term-bar:#1d2a28; --term-border:#3b8f86; --term-border-dim:#35514c;
+  --font:"IBM Plex Sans KR","Pretendard Variable",Pretendard,system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono","Cascadia Code",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0e1514; --surface:#151f1d; --surface-2:#1b2826; --ink:#e3ece9; --muted:#9aaba6; --line:#2a3a37;
+    --brand:#3cbcb0; --brand-weak:#16302c; --brand-ink:#8fe0d6; --orange:#e89462; --orange-weak:#3a2518;
+    --navy:#9cc3e8; --warn-bg:#2e2410; --warn-line:#8a6420; --warn-ink:#f2cf8b;
+    --danger-bg:#321818; --danger-line:#7c3a3a; --danger-ink:#f3b3b3;
+    --code-bg:#0a1110; --term-bar:#16211f;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e1514; --surface:#151f1d; --surface-2:#1b2826; --ink:#e3ece9; --muted:#9aaba6; --line:#2a3a37;
+  --brand:#3cbcb0; --brand-weak:#16302c; --brand-ink:#8fe0d6; --orange:#e89462; --orange-weak:#3a2518;
+  --navy:#9cc3e8; --warn-bg:#2e2410; --warn-line:#8a6420; --warn-ink:#f2cf8b;
+  --danger-bg:#321818; --danger-line:#7c3a3a; --danger-ink:#f3b3b3;
+  --code-bg:#0a1110; --term-bar:#16211f;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15.5px;line-height:1.75;margin:0;-webkit-font-smoothing:antialiased}
+a{color:var(--brand-ink);text-underline-offset:3px}
+a:focus-visible,button:focus-visible,img:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+code,kbd,pre{font-family:var(--mono)}
+:not(pre)>code{font-size:.86em;background:var(--surface-2);border:1px solid var(--line);border-radius:4px;padding:.05em .35em;word-break:break-word}
+
+.shell{max-width:1240px;margin:0 auto;padding-inline:20px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:48px}
+@media (max-width:980px){.shell{grid-template-columns:minmax(0,1fr);gap:0;padding-inline:16px}}
+
+/* 목차 */
+nav.toc{position:sticky;top:env(safe-area-inset-top,0px);align-self:start;max-height:100vh;overflow:auto;padding-block:32px 24px;font-size:13.5px}
+nav.toc .kit{font-family:var(--mono);font-size:11.5px;color:var(--muted);letter-spacing:.02em;margin-bottom:14px;line-height:1.5}
+nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:ch}
+nav.toc li{counter-increment:ch}
+nav.toc a{display:grid;grid-template-columns:2.1em 1fr;padding:4px 8px;border-radius:6px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a::before{content:counter(ch,decimal-leading-zero);font-family:var(--mono);font-size:11.5px;color:var(--brand);padding-top:1px}
+nav.toc a:hover{background:var(--surface);color:var(--ink)}
+nav.toc a.on{background:var(--brand-weak);color:var(--brand-ink);font-weight:600}
+@media (max-width:980px){nav.toc{position:static;max-height:none;padding-block:20px 0}
+  nav.toc ol{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:2px}}
+
+main{padding-block:32px 96px;min-width:0}
+
+/* 머리 */
+header.hero{padding-block:8px 28px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--brand)}
+h1{font-size:clamp(28px,4.2vw,40px);line-height:1.2;margin:.25em 0 .35em;letter-spacing:-.01em;text-wrap:balance;font-weight:700}
+.lede{font-size:17px;color:var(--muted);max-width:44em;margin:0}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:18px;font-size:13px;color:var(--muted)}
+.meta b{color:var(--ink);font-weight:600;font-family:var(--mono);font-size:12.5px}
+
+section.ch{padding-top:40px;scroll-margin-top:12px}
+h2{font-size:25px;line-height:1.3;margin:0 0 .6em;display:flex;gap:.55em;align-items:baseline;text-wrap:balance}
+h2 .n{font-family:var(--mono);font-size:14px;color:var(--brand);font-weight:600;flex:none}
+h3{font-size:18px;margin:1.9em 0 .5em;line-height:1.4}
+h4{font-size:15.5px;margin:1.4em 0 .4em}
+p,ul,ol{max-width:46em}
+p{margin:.6em 0}
+ul,ol{padding-left:1.3em}
+li{margin:.25em 0}
+.muted{color:var(--muted)}
+strong{font-weight:600}
+
+/* 표 */
+.tw{overflow-x:auto;margin:14px 0 18px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.55}
+th,td{padding:9px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{font-size:12.5px;font-weight:600;color:var(--muted);background:var(--surface-2);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+td.wrap code{white-space:normal}
+
+/* 코드 */
+.code{position:relative;margin:12px 0 16px}
+.code pre{margin:0;background:var(--code-bg);color:var(--code-ink);border-radius:10px;padding:14px 16px;overflow-x:auto;font-size:13px;line-height:1.65}
+.code .lbl{position:absolute;top:0;left:14px;transform:translateY(-50%);font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;background:var(--brand);color:#fff;border-radius:4px;padding:1px 7px}
+.code button.cp{position:absolute;top:8px;right:8px;font:500 11.5px var(--font);color:var(--code-ink);background:#ffffff14;border:1px solid #ffffff2a;border-radius:6px;padding:3px 9px;cursor:pointer}
+.code button.cp:hover{background:#ffffff26}
+pre .c{color:var(--code-dim)} pre .k{color:var(--code-hl)} pre .o{color:var(--code-or)}
+
+/* 콜아웃 */
+.note{border:1px solid var(--line);border-left:4px solid var(--brand);background:var(--surface);border-radius:8px;padding:12px 16px;margin:16px 0;max-width:46em}
+.note.warn{border-color:var(--warn-line);border-left-color:var(--orange);background:var(--warn-bg);color:var(--warn-ink)}
+.note.warn code{background:#ffffff66}
+.note.danger{border-color:var(--danger-line);border-left-color:#c0392b;background:var(--danger-bg);color:var(--danger-ink)}
+.note .t{font-weight:600;display:block;margin-bottom:2px}
+.note p{margin:.3em 0}
+
+/* 단계 목록 */
+ol.steps{list-style:none;padding:0;counter-reset:st;margin:14px 0;max-width:48em}
+ol.steps>li{counter-increment:st;position:relative;padding:2px 0 14px 44px;margin:0}
+ol.steps>li::before{content:counter(st);position:absolute;left:0;top:2px;width:28px;height:28px;border-radius:50%;background:var(--brand-weak);color:var(--brand-ink);font:600 13px/28px var(--mono);text-align:center}
+ol.steps>li::after{content:"";position:absolute;left:13.5px;top:34px;bottom:2px;width:1px;background:var(--line)}
+ol.steps>li:last-child::after{display:none}
+ol.steps>li>b:first-child{display:block}
+
+/* 그림 */
+figure{margin:20px 0 26px}
+figure.shot img{display:block;width:100%;height:auto;border-radius:10px;border:1px solid var(--line);background:var(--surface);cursor:zoom-in;box-shadow:0 1px 2px #0000000d,0 8px 24px -12px #0f2a2640}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:8px;max-width:52em;line-height:1.6}
+figcaption b{color:var(--ink);font-weight:600}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:760px){.pair{grid-template-columns:1fr}}
+.pair figure{margin:0}
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 12px;overflow-x:auto}
+.diagram pre.mermaid{margin:0;background:transparent;text-align:center;font-family:var(--font)}
+.tag-ex{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.06em;color:var(--orange);border:1px solid var(--orange);border-radius:4px;padding:0 6px;margin-right:6px;vertical-align:1px}
+
+/* 터미널 목업 */
+.term{background:var(--code-bg);border-radius:10px;overflow:hidden;border:1px solid #0000;font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--code-ink)}
+.term .bar{display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--term-bar);color:var(--code-dim);font-size:11.5px}
+.term .bar i{width:10px;height:10px;border-radius:50%;background:#3a4a47;display:inline-block}
+.term .bar span{margin-left:8px}
+.term .panes{display:grid;grid-template-columns:1fr 1fr;gap:0;padding:6px;min-width:760px}
+.term .pane{border:1px solid var(--term-border-dim);margin:3px;border-radius:3px;min-height:170px;display:flex;flex-direction:column}
+.term .pane.lead{grid-column:1 / -1;min-height:0}
+.term .pane .ttl{border-bottom:1px solid var(--term-border-dim);padding:2px 8px;color:var(--code-hl);font-size:11.5px}
+.term .pane.act{border-color:var(--term-border)}
+.term .pane.act .ttl{border-bottom-color:var(--term-border);background:#3b8f8622}
+.term .pane pre{margin:0;padding:8px 10px;white-space:pre;overflow:hidden;font-size:11.5px;line-height:1.6;color:var(--code-ink);background:transparent}
+.term .scroll{overflow-x:auto}
+.term .status{display:flex;justify-content:space-between;background:#3b8f86;color:#06201d;padding:2px 10px;font-size:11.5px;font-weight:600}
+
+/* 흐름 요약 카드 */
+.flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:18px 0}
+.flow>div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 12px 10px;position:relative}
+.flow .who{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.flow .who.h{color:var(--orange)} .flow .who.l{color:var(--navy)} .flow .who.w{color:var(--brand)}
+.flow .what{font-weight:600;margin:4px 0 2px;line-height:1.4}
+.flow .how{font-size:12.5px;color:var(--muted);line-height:1.5}
+@media (max-width:900px){.flow{grid-template-columns:1fr 1fr}}
+@media (max-width:480px){.flow{grid-template-columns:1fr}}
+
+.stage-row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.stage{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 12px 4px 6px;font-size:13.5px}
+.stage code{background:var(--brand-weak);border:0;color:var(--brand-ink);border-radius:999px;padding:1px 8px;font-weight:600}
+.stage span.cr{font-family:var(--mono);font-size:12px;color:var(--muted)}
+
+/* 확대 보기 */
+.lb{position:fixed;inset:0;background:#081110e6;display:flex;align-items:center;justify-content:center;padding:24px;z-index:50;cursor:zoom-out}
+.lb img{max-width:100%;max-height:100%;border-radius:8px}
+
+footer{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+html{scroll-behavior:smooth}
+</style>
+</head>
+<body>
+
+<div class="shell">
+<nav class="toc" aria-label="목차">
+  <div class="kit">기준 킷 dflow-kit cb25883<br>원본 wbs-web aeca4762 · 계약 2.9</div>
+  <ol>
+    <li><a href="#overview">한눈에 보기</a></li>
+    <li><a href="#tools">필요한 도구</a></li>
+    <li><a href="#kit">킷 설치</a></li>
+    <li><a href="#web">D'Flow 웹 준비</a></li>
+    <li><a href="#config">설정 파일</a></li>
+    <li><a href="#hooks">훅 설치</a></li>
+    <li><a href="#doctor">설치 확인</a></li>
+    <li><a href="#start">팀장 시작하기</a></li>
+    <li><a href="#watch">진행 지켜보기</a></li>
+    <li><a href="#cycle">팀원의 개발 사이클</a></li>
+    <li><a href="#decide">결정 요청에 답하기</a></li>
+    <li><a href="#approve">승인과 머지</a></li>
+    <li><a href="#control">멈추기·연장·재개</a></li>
+    <li><a href="#advanced">고급 설정</a></li>
+    <li><a href="#solo">혼자 쓰는 경로</a></li>
+    <li><a href="#trouble">문제 해결</a></li>
+    <li><a href="#ref">부록: 출력 형식</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">D'Flow · Claude Code 에이전트 팀</div>
+  <h1>dflow-team 운용 매뉴얼</h1>
+  <p class="lede">D'Flow WBS 에 올린 작업을 Claude Code 팀장 세션 하나가 여러 팀원 에이전트에게 나눠 동시에 개발시키고, 사람은 결과를 웹에서 승인하는 흐름을 처음부터 끝까지 설명합니다. 새 PC 와 새 프로젝트 리포에서 이 문서를 위에서부터 따라 하면 첫 팀 실행까지 갈 수 있습니다.</p>
+  <div class="meta">
+    <span>킷 <b>jongik-sv/dflow-kit@cb25883</b></span>
+    <span>정본 <b>wbs-web aeca4762</b></span>
+    <span>서버 계약 <b>2.9</b></span>
+    <span>작성 <b>2026-09-26</b></span>
+  </div>
+</header>
+
+<!-- 1 -->
+<section class="ch" id="overview">
+<h2><span class="n">01</span>한눈에 보기</h2>
+<p>dflow-team 은 Claude Code 스킬 묶음인 <strong>dflow-kit</strong> 에 들어 있는 팀장 스킬입니다. 사람이 D'Flow 웹의 WBS 에서 작업을 에이전트에게 위임하면, 팀장 세션이 그 작업을 찾아 빈 자리(슬롯)마다 팀원을 띄웁니다. 팀원은 각자 분리된 git 워크트리에서 설계, 테스트 주도 구현, 검증을 거쳐 브랜치를 push 하고 완료를 보고합니다. 사람이 웹에서 승인하면 팀장이 그 브랜치를 개발 브랜치에 머지합니다.</p>
+
+<div class="flow" role="list">
+  <div role="listitem"><div class="who h">사람</div><div class="what">배정과 위임</div><div class="how">WBS 작업의 담당자를 팀장 신원으로 정하고 <code>agent</code> 태그를 켭니다.</div></div>
+  <div role="listitem"><div class="who l">팀장</div><div class="what">감시와 배정</div><div class="how">180초마다 대기 작업을 조회해 빈 슬롯에 팀원을 띄웁니다.</div></div>
+  <div role="listitem"><div class="who w">팀원</div><div class="what">개발 사이클</div><div class="how">설계 → 구현(TDD) → 검증을 마치고 push 한 뒤 완료를 보고합니다.</div></div>
+  <div role="listitem"><div class="who h">사람</div><div class="what">승인·반려</div><div class="how">에이전트 허브나 오피스 화면에서 결과를 승인하거나 반려합니다.</div></div>
+  <div role="listitem"><div class="who l">팀장</div><div class="what">승인 스윕</div><div class="how">최대 30분마다 승인된 브랜치를 개발 브랜치에 머지합니다.</div></div>
+</div>
+
+<h3>역할과 책임</h3>
+<div class="tw"><table>
+<thead><tr><th>주체</th><th>하는 일</th><th>하지 않는 일</th></tr></thead>
+<tbody>
+<tr><td><b>사람</b></td><td>작업 명세(spec) 작성, 담당자 배정, 에이전트 위임, 결정 요청에 답하기, 승인·반려</td><td>팀원 화면에서 코드를 직접 고칠 필요는 없습니다.</td></tr>
+<tr><td><b>팀장</b> <code>/dflow-team</code></td><td>대기 작업 감시, 팀원 띄우기·거두기·재시작, 결과 기록, 승인 스윕(머지), 좌석표 신호</td><td>대상 리포의 소스를 고치거나 빌드·테스트를 직접 돌리지 않습니다. 팀장 문맥은 몇 시간을 버텨야 하는 공용 자원이기 때문입니다.</td></tr>
+<tr><td><b>팀원</b> <code>/dflow-dev --worker</code></td><td>자기 작업 1건의 claim, 설계, 구현, 검증, push, 완료 보고</td><td>다른 작업에 claim·보고하지 않고, 사람에게 직접 질문 창을 띄우지 않습니다.</td></tr>
+</tbody></table></div>
+
+<figure>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+    actor H as 사람
+    participant W as D'Flow 웹
+    participant L as 팀장
+    participant M as 팀원 (워크트리)
+    participant R as origin 리포
+    H->>W: 담당자 배정 + agent 태그
+    L->>W: poll.sh 로 대기 작업 조회
+    W-->>L: 대기 작업 (id8, 이름)
+    L->>M: 워크트리 만들고 claude 실행
+    M->>W: claim (단계 ds, 설계 중)
+    M->>M: Design 후 build-start (ds → ip)
+    M->>M: Build (TDD, 게이트)
+    M->>M: Verify (감사자 셋 + 작성자)
+    M->>R: agent 브랜치 push
+    M->>W: 완료 보고 (단계 im, 검수 대기)
+    M-->>L: .result 파일 (done)
+    L->>H: 승인 대기 알림
+    H->>W: 승인 (단계 xx, 완료)
+    L->>R: 승인 스윕: 개발 브랜치에 --no-ff 머지
+</pre>
+</div>
+<figcaption><b>그림 1.</b> 작업 1건의 생애주기입니다. 팀장은 소스를 만지지 않고, 팀원은 서버의 자기 작업 1건만 다룹니다.</figcaption>
+</figure>
+
+<h3>꼭 구분해야 할 두 가지 상태</h3>
+<p>D'Flow 의 작업 주문(order)에는 성격이 다른 두 값이 있습니다. 둘을 섞어 읽으면 화면과 로그가 어긋나 보입니다.</p>
+<div class="tw"><table>
+<thead><tr><th>축</th><th>값</th><th>쓰임</th></tr></thead>
+<tbody>
+<tr><td><b>status</b> (주문 생애주기)</td><td><code>ready</code> 대기 → <code>claimed</code> 진행 중 → <code>reported</code> 승인 대기 → <code>approved</code> 승인됨. 그 밖에 <code>cancelled</code> 중단</td><td>에이전트가 무엇을 해도 되는지 정합니다. <code>dflow.sh list</code> 는 RD·CL·RP·AP 로 줄여 보여 줍니다.</td></tr>
+<tr><td><b>stage</b> (WBS 진척 단계)</td><td><code>as</code> 할당됨 · <code>ds</code> 설계 중 · <code>ip</code> 작업 중 · <code>im</code> 검수 대기 · <code>xx</code> 완료</td><td>WBS 실적%(크레딧)와 화면 단계 칩을 정합니다.</td></tr>
+</tbody></table></div>
+</section>
+
+<!-- 2 -->
+<section class="ch" id="tools">
+<h2><span class="n">02</span>필요한 도구</h2>
+<p>킷 설치 스크립트와 팀장의 시작 전 검사가 아래 명령이 있는지 확인합니다. 스크립트에 버전 하한은 적혀 있지 않으므로 패키지 관리자의 최신판을 쓰면 됩니다.</p>
+<div class="tw"><table>
+<thead><tr><th>도구</th><th>쓰는 곳</th><th>없을 때</th></tr></thead>
+<tbody>
+<tr><td><code>git</code></td><td>워크트리, 브랜치, 머지. 팀원은 git 을 절대경로로 부릅니다.</td><td rowspan="5" class="wrap">킷 <code>install.sh</code> 가 <code>필요한 명령이 없다: …</code> 를 내고 exit 2 로 멈춥니다.</td></tr>
+<tr><td><code>curl</code></td><td><code>dflow.sh</code> 가 D'Flow Agent API 를 부를 때</td></tr>
+<tr><td><code>jq</code></td><td><code>dflow.sh</code>·<code>poll.sh</code>·팀장 이벤트 기록</td></tr>
+<tr><td><code>gh</code></td><td>완료 보고의 <code>--auto-links</code>, 리포 생성</td></tr>
+<tr><td><code>python3</code> (또는 <code>python</code>)</td><td>WBS 파일 생성·검증·내보내기 스크립트</td></tr>
+<tr><td><code>claude</code> (Claude Code CLI)</td><td>팀원을 대화형 claude 프로세스로 띄웁니다.</td><td>팀장 검사가 <code>NO_CLAUDE_CLI</code> 로 멈춥니다.</td></tr>
+<tr><td><code>tmux</code> 또는 Orca</td><td>팀원을 띄울 화면(pane·탭)</td><td>둘 다 없으면 <code>NO_TMUX</code> 로 멈춥니다.</td></tr>
+</tbody></table></div>
+
+<div class="code"><span class="lbl">macOS</span><pre>brew install git jq gh tmux python
+<span class="c"># Claude Code 는 공식 설치 안내대로 설치하고, 터미널에서 claude 가 실행되는지 확인합니다.</span>
+claude --version</pre></div>
+<div class="code"><span class="lbl">Debian·Ubuntu</span><pre>sudo apt install git curl jq tmux python3
+<span class="c"># gh 는 GitHub CLI 공식 저장소 안내대로 설치합니다.</span></pre></div>
+
+<h3>팀원을 띄우는 화면: tmux 와 Orca</h3>
+<p>팀장 세션이 Orca 안에서 돌면 Orca 탭에, 그 밖이면 tmux pane 에 팀원을 띄웁니다. 예전의 비대화형 프로세스 방식(<code>claude -p</code>)은 2026-09-16 에 없어졌습니다. 사람이 화면을 보거나 결정 요청에 맥락을 지킨 채 답할 자리가 없었기 때문입니다.</p>
+<div class="tw"><table>
+<thead><tr><th></th><th>tmux</th><th>Orca</th></tr></thead>
+<tbody>
+<tr><td>팀원 화면 보기</td><td><code>TMUX= tmux -L dflow attach</code></td><td><code>w&lt;슬롯&gt; · &lt;TSK&gt; &lt;id8&gt; · &lt;작업 이름&gt;</code> 탭</td></tr>
+<tr><td>팀장 세션이 죽으면</td><td colspan="2">팀원은 계속 돕니다. 다시 띄운 팀장이 살아 있는 팀원을 이어받습니다.</td></tr>
+<tr><td>주의</td><td>팀장은 PATH 의 tmux 가 아니라 실제 tmux 실행 파일의 절대경로를 찾아 씁니다.</td><td>Orca 는 PATH 앞에 tmux 흉내 스크립트를 끼웁니다. 이것은 진짜 tmux 가 아니어서 팀장이 걸러 냅니다. Orca 가 오래된 판이면 <code>ORCA_OLD</code> 로 멈춥니다.</td></tr>
+</tbody></table></div>
+
+<div class="note warn"><span class="t">Windows(Git Bash)</span><p>코드 경로(MSYS2 tmux, <code>CLAUDE_PID</code> 검사, 줄끝 LF 고정)는 검증을 마쳤지만, 실제 Windows 세션에서 팀을 돌려 본 기록은 아직 없습니다. 특히 Claude Code 가 Bash 도구에 <code>CLAUDE_PID</code> 를 내보내지 않으면 팀장이 <code>NO_CLAUDE_PID</code> 로 시작하지 않습니다. 가능하면 macOS·Linux 에서 팀장을 돌리십시오.</p></div>
+</section>
+
+<!-- 3 -->
+<section class="ch" id="kit">
+<h2><span class="n">03</span>킷 설치</h2>
+<p>스킬의 정본은 wbs-web 리포에 있고, 배포본은 GitHub 의 <code>jongik-sv/dflow-kit</code> 입니다. 킷은 PC 마다 한 번 받아 두고, 작업할 프로젝트 리포마다 설치합니다.</p>
+<ol class="steps">
+<li><b>킷을 받습니다.</b>
+<div class="code"><pre>git clone git@github.com:jongik-sv/dflow-kit.git ~/dflow-kit</pre></div></li>
+<li><b>프로젝트 리포에 설치합니다.</b>
+<div class="code"><pre>~/dflow-kit/install.sh ~/project/&lt;내 리포&gt;
+<span class="c"># 좌석표 훅까지 한 번에 받으려면(6장 참고)</span>
+~/dflow-kit/install.sh ~/project/&lt;내 리포&gt; --hooks</pre></div></li>
+<li><b>스킬을 리포에 커밋하고 기본 브랜치에 push 합니다.</b> 팀원 워크트리는 <code>origin</code> 의 스킬을 쓰기 때문에, push 하지 않으면 팀장이 <code>KIT_NOT_PUSHED</code> 로 시작을 거부합니다.
+<div class="code"><pre>cd ~/project/&lt;내 리포&gt;
+git add .claude/skills .dflow .gitignore .gitattributes .claude/settings.json
+git commit -m "dflow-kit 설치"
+git push</pre></div>
+<p class="muted"><code>.dflow.local</code> 은 개인 토큰이 들어가므로 절대 커밋하지 않습니다. install.sh 가 <code>.gitignore</code> 에 이미 넣어 두었습니다.</p></li>
+</ol>
+
+<h3>install.sh 가 하는 일</h3>
+<div class="tw"><table>
+<thead><tr><th>순서</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>git·curl·jq·gh·python3 가 있는지 확인합니다.</td></tr>
+<tr><td>2</td><td>스킬 7종을 <code>&lt;리포&gt;/.claude/skills/dflow-*</code> 에 폴더째 덮어씁니다. 사본에서 고친 내용은 다음 설치 때 사라지므로 스킬은 고치지 않습니다.</td></tr>
+<tr><td>3</td><td><code>.dflow</code>·<code>.dflow.local</code> 초안을 만들고(이미 있으면 두고), <code>.gitignore</code> 에 <code>.dflow.local</code> 을, <code>.gitattributes</code> 에 스킬 줄끝 LF 고정을 더합니다. 예전 <code>.env</code> 방식으로 잘 돌던 리포는 초안을 만들지 않고 그대로 둡니다.</td></tr>
+<tr><td>4</td><td><code>--hooks</code> 면 좌석표 훅을 <code>~/.dflow/hooks/heartbeat.sh</code> 에 복사합니다. 등록은 사람이 합니다.</td></tr>
+<tr><td>5</td><td>Gradle 리포면 권장 설정을 점검합니다(14장).</td></tr>
+<tr><td>6</td><td><code>.claude/settings.json</code> 의 <code>permissions.allow</code> 에 이 PC 의 git 절대경로 규칙을 더합니다.</td></tr>
+<tr><td>7</td><td>킷 <code>VERSION</code> 을 <code>.claude/skills/DFLOW_KIT_VERSION</code> 으로 남깁니다.</td></tr>
+</tbody></table></div>
+
+<div class="tw"><table>
+<thead><tr><th>스킬</th><th>역할</th></tr></thead>
+<tbody>
+<tr><td><code>dflow-work</code></td><td><code>dflow.sh</code>: D'Flow Agent API 래퍼(me·list·show·claim·progress·done·release·doctor). 모든 스킬의 기반입니다.</td></tr>
+<tr><td><code>dflow-dev</code></td><td>작업 1건의 개발 사이클(착수 판정 → 설계 → TDD → 검증 → 보고)</td></tr>
+<tr><td><code>dflow-team</code></td><td>팀장. 위임 작업을 여러 팀원에게 나눠 동시에 개발시킵니다.</td></tr>
+<tr><td><code>dflow-merge</code></td><td>승인된 작업 브랜치를 개발 브랜치에 반영합니다(조상 순서, <code>--no-ff</code>).</td></tr>
+<tr><td><code>dflow-poll</code></td><td>위임 작업을 하나씩 감시해 착수합니다(팀장 없이 쓰는 반자동 루프).</td></tr>
+<tr><td><code>dflow-wbs-nlevel</code> · <code>dflow-export</code></td><td>WBS 파일 작성·검증과 D'Flow 업로드용 변환</td></tr>
+</tbody></table></div>
+
+<h3>킷 갱신</h3>
+<div class="code"><pre>cd ~/dflow-kit &amp;&amp; git pull &amp;&amp; ./install.sh ~/project/&lt;내 리포&gt;
+<span class="c"># 갱신한 스킬도 커밋·push 합니다. 좌석표 훅을 쓰면 --hooks 도 다시 붙입니다.</span></pre></div>
+<p><code>dflow.sh doctor</code> 가 <code>계약 major 불일치</code> 를 알리거나 팀장이 <code>OLD_DFLOW_DEV</code>·<code>OLD_DFLOW_MERGE</code> 를 내면 이 절차로 갱신합니다.</p>
+</section>
+
+<!-- 4 -->
+<section class="ch" id="web">
+<h2><span class="n">04</span>D'Flow 웹 준비</h2>
+
+<h3>개인 액세스 토큰(PAT) 발급</h3>
+<p>오른쪽 위 계정 메뉴에서 <code>/account</code> 로 들어가 「개인 액세스 토큰(PAT)」 영역의 「새 토큰 발급」 폼을 씁니다.</p>
+<figure class="shot"><img src="img/11-account-pat-masked.png" alt="내 계정 화면. 왼쪽에 발급된 토큰 표(이름, PREFIX, 스코프, 프로젝트, 만료), 오른쪽에 새 토큰 발급 폼(이름, 프로젝트, 스코프 체크박스, 만료)" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 2.</b> <code>/account</code> 의 PAT 영역입니다. 토큰 PREFIX 와 이메일은 가렸습니다. 팀장에 쓸 토큰은 스코프 두 개(<code>work:read</code>, <code>work:claim</code>)를 모두 고릅니다.</figcaption></figure>
+<div class="tw"><table>
+<thead><tr><th>항목</th><th>고를 값</th></tr></thead>
+<tbody>
+<tr><td>이름</td><td>PC 나 용도를 알아볼 이름(예: <code>맥북-팀장</code>)</td></tr>
+<tr><td>프로젝트</td><td>이 토큰으로 일할 프로젝트. 비우면 전체 프로젝트입니다.</td></tr>
+<tr><td>스코프</td><td><code>work:read</code>(조회)와 <code>work:claim</code>(착수·반납·완료 보고·WBS import, 조회 포함)</td></tr>
+<tr><td>만료</td><td>30·90·180일 중 하나(기본 90일)</td></tr>
+</tbody></table></div>
+<div class="note danger"><span class="t">토큰은 발급 직후 한 번만 보입니다</span><p>바로 복사해 <code>.dflow.local</code> 의 <code>pats=</code> 에 넣으십시오. 채팅, 커밋, 명령 문자열, 화면 공유에 붙여 넣지 않습니다.</p></div>
+
+<h3>프로젝트 역할</h3>
+<p>토큰 주인 계정은 그 프로젝트의 <strong>멤버 이상</strong>이어야 claim 할 수 있습니다. 역할이 없으면 조회만 되고 claim 은 <code>forbidden_role</code>(exit 5)로 거부됩니다. 승인은 프로젝트 관리자(또는 그 작업의 상위 항목 담당자인 서브트리 관리자)만 할 수 있습니다.</p>
+
+<h3>작업을 에이전트에게 맡기기</h3>
+<p>팀장이 작업을 가져가려면 아래 조건이 <strong>모두</strong> 맞아야 합니다. 한 가지라도 빠지면 작업은 화면에 보여도 자동 루프에 걸리지 않습니다.</p>
+<ol class="steps">
+<li><b>명세(spec)를 채웁니다.</b> 비어 있으면 팀원이 "제목만으로 요구사항을 지어낼 수 없다"며 착수를 거부합니다. 수용 기준이 구체적일수록 결과가 좋습니다.</li>
+<li><b>담당자를 팀장이 쓰는 토큰의 계정으로 정합니다.</b> 팀장은 <code>list --scope assigned</code> 로 조회하므로 담당자가 다르면 보지 못합니다.</li>
+<li><b>「에이전트 위임」을 켭니다.</b> 작업 명세 패널의 체크박스를 켜면 그 작업의 태그에 <code>agent</code> 가 붙습니다. 에이전트 허브의 위임 표에서 여러 작업을 한 번에 켤 수도 있습니다.</li>
+<li><b>선행 작업을 확인합니다.</b> 선행이 끝나지 않았으면 팀원은 설계까지만 먼저 하고 선행을 기다립니다(10장 「설계 선행」).</li>
+</ol>
+<div class="pair">
+<figure class="shot"><img src="img/02-wbs-detail-spec-agent-tag.png" alt="WBS 작업 상세 패널의 명세 섹션. 태그 칩에 design, database, 긴급, opus, dict, erd, agent 가 있고 아래에 수용 기준과 명세 본문이 보인다" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 3.</b> 작업 상세 패널의 명세입니다. 태그 끝의 <code>agent</code> 가 위임 표시입니다. 수용 기준과 명세 본문이 팀원의 요구사항 입력이 됩니다.</figcaption></figure>
+<figure class="shot"><img src="img/10-hub-delegation-approval.png" alt="에이전트 허브의 위임·승인 탭. 리프 행마다 위임 체크박스, 코드, 작업명, 담당자, 단계·상태 칸이 있고 위쪽에 승인 대기만 16 버튼이 있다" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 4.</b> 프로젝트의 「에이전트」 메뉴(허브) → 「위임·승인」 탭입니다. 리프 행의 체크가 위임이고, 부모 행을 체크하면 켤 수 있는 하위 리프를 한 번에 켭니다.</figcaption></figure>
+</div>
+<div class="note warn"><span class="t">슈퍼유저 계정 주의</span><p>슈퍼유저는 프로젝트 멤버 명단에 자동으로 들어가지 않아 WBS 담당자로 고를 수 없는 경우가 있습니다. 팀장용 토큰은 그 프로젝트에 멤버로 등록된 계정으로 발급하는 편이 안전합니다.</p></div>
+<p>도커가 꼭 필요한 작업(Testcontainers 등)에는 <code>docker</code> 태그를 함께 답니다. 이 태그가 없으면 팀원은 도커를 쓰지 않고, 생략한 검증을 보고서에 남깁니다.</p>
+</section>
+
+<!-- 5 -->
+<section class="ch" id="config">
+<h2><span class="n">05</span>설정 파일</h2>
+<p>리포 최상위에 두 파일을 둡니다. <code>.dflow</code> 는 팀 전체가 같은 값을 쓰는 공용 설정이라 커밋하고, <code>.dflow.local</code> 은 토큰과 개인 브랜치가 들어가므로 커밋하지 않습니다.</p>
+
+<h3><code>.dflow</code> (커밋)</h3>
+<div class="code"><span class="lbl">.dflow</span><pre>api_base=https://wbs-web.vercel.app
+project_id=&lt;프로젝트 UUID, 프로젝트 URL /p/&lt;UUID&gt;/ 의 값&gt;
+release_branch=main
+<span class="c"># no_docker=1</span>
+<span class="c"># dialect_check=cd src/backend/mdm &amp;&amp; ../gradlew :api:mssqlMigrationTest --no-daemon --console=plain</span></pre></div>
+<div class="tw"><table>
+<thead><tr><th>키</th><th>뜻</th><th>비우면</th></tr></thead>
+<tbody>
+<tr><td><code>api_base</code></td><td>D'Flow 서버 주소</td><td>필수입니다.</td></tr>
+<tr><td><code>project_id</code></td><td>이 리포가 속한 D'Flow 프로젝트 UUID</td><td>서브시스템마다 프로젝트가 다르면 비우고 각자 <code>.dflow.local</code> 의 <code>project_map</code> 을 씁니다.</td></tr>
+<tr><td><code>release_branch</code></td><td>운영 브랜치. 개발 브랜치를 승격해서만 들어갑니다.</td><td>원격 기본 브랜치(<code>origin/HEAD</code>)</td></tr>
+<tr><td><code>no_docker</code></td><td><code>1</code> 이면 <code>docker</code> 태그가 있어도 도커를 막습니다.</td><td>태그가 있는 작업만 허용</td></tr>
+<tr><td><code>dialect_check</code></td><td>승인 스윕이 머지 뒤 한 번 돌리는 DB 방언 검증 명령</td><td>그 단계가 없습니다.</td></tr>
+</tbody></table></div>
+<p class="muted">스테이징 서버로 시험할 때는 파일을 고치지 말고, 그 세션에서만 <code>export DFLOW_API_BASE=…</code> 로 덮습니다.</p>
+
+<h3><code>.dflow.local</code> (개인, 커밋 금지)</h3>
+<div class="code"><span class="lbl">.dflow.local</span><pre>pats=<span class="o">&lt;발급한 토큰. 여러 개면 쉼표로, 첫 토큰이 기본&gt;</span>
+as=
+dev_branch=<span class="o">&lt;내 개발 브랜치. 운영 브랜치에서 직접 개발하면 main&gt;</span>
+automerge=0
+<span class="c"># project_map=docs/c10=&lt;uuid&gt;</span>
+<span class="c"># no_docker=1</span>
+<span class="c"># build_model_trial=sonnet</span>
+<span class="c"># build_model_trial_rate=30</span>
+<span class="c"># build_model_trial_tasks=TSK-02-05,WP-03</span>
+<span class="c"># worker_keep_skills=auto</span>
+<span class="c"># worker_skills_off=</span>
+<span class="c"># worker_keep_plugins=auto</span>
+<span class="c"># worker_output_style=default</span></pre></div>
+<div class="tw"><table>
+<thead><tr><th>키</th><th>뜻</th><th>기본</th></tr></thead>
+<tbody>
+<tr><td><code>pats</code></td><td>개인 액세스 토큰. 쉼표로 여러 개를 넣을 수 있고, 하나면 <code>pat=</code> 도 됩니다.</td><td>필수</td></tr>
+<tr><td><code>as</code></td><td>토큰이 둘 이상일 때 이 리포가 쓸 토큰의 prefix. 목록은 <code>dflow.sh profiles</code> 로 봅니다.</td><td>첫 토큰. <code>/dflow-team</code> 은 비어 있으면 시작할 때 묻고 적습니다.</td></tr>
+<tr><td><code>dev_branch</code></td><td>에이전트 머지·스택 기점·반영 확인의 기준 브랜치. 원격에 먼저 push 돼 있어야 합니다.</td><td>필수(<code>NO_DEV_BRANCH</code>)</td></tr>
+<tr><td><code>automerge</code></td><td><code>1</code> 이면 완료 보고 즉시 개발 브랜치에 머지하고 승인은 사후에 확인합니다(12장).</td><td><code>0</code></td></tr>
+<tr><td><code>project_map</code></td><td>내가 맡은 서브시스템 문서 폴더와 프로젝트 UUID 짝(<code>docs/c10=&lt;uuid&gt;</code>)</td><td>비움</td></tr>
+<tr><td><code>no_docker</code> · <code>dialect_check</code></td><td><code>.dflow</code> 의 같은 키를 이 PC 에서만 덮습니다(JAVA_HOME 같은 PC 전용 값).</td><td>미기입</td></tr>
+<tr><td><code>build_model_trial*</code></td><td>Build 모델 시험 스위치(14장)</td><td>꺼짐</td></tr>
+<tr><td><code>worker_*</code></td><td>팀원 첫 턴 컨텍스트 줄이기(14장)</td><td>종전 동작</td></tr>
+</tbody></table></div>
+<p>값의 우선순위는 <strong>이미 export 된 환경변수 → 파일 값 → 옛 <code>.env</code></strong> 순입니다. 두 파일이 모두 받는 키는 <code>.dflow.local</code> 이 이깁니다. 한쪽 파일만 있으면 <code>NO_LOCAL</code> 또는 <code>NO_DFLOW</code> 로 멈춥니다.</p>
+<div class="code"><span class="lbl">확인</span><pre>.claude/skills/dflow-work/scripts/dflow.sh config --source   <span class="c"># mode=new|legacy, 읽은 파일 경로</span>
+.claude/skills/dflow-work/scripts/dflow.sh config dev_branch <span class="c"># 비밀이 아닌 키 값</span>
+.claude/skills/dflow-work/scripts/dflow.sh profiles          <span class="c"># 토큰별 prefix·이름·이메일·프로젝트</span></pre></div>
+</section>
+
+<!-- 6 -->
+<section class="ch" id="hooks">
+<h2><span class="n">06</span>훅 설치</h2>
+<h3>좌석표 heartbeat 훅 (권장)</h3>
+<p>D'Flow 의 에이전트 오피스 화면이 "진행 중·무응답·끊김"을 구분하려면, 에이전트가 도구를 쓸 때마다 최대 60초에 한 번 신호가 서버에 가야 합니다. 이 신호를 Claude Code 의 PostToolUse 훅이 보냅니다. 같은 훅이 사람이 웹에서 누른 「중단」도 받아 세션을 세웁니다.</p>
+<ol class="steps">
+<li><b>훅 파일을 설치합니다.</b>
+<div class="code"><pre>~/dflow-kit/install.sh ~/project/&lt;내 리포&gt; --hooks</pre></div></li>
+<li><b><code>~/.claude/settings.json</code> 의 <code>hooks.PostToolUse</code> 배열에 원소를 하나 더합니다.</b> 기존 원소는 그대로 둡니다.
+<div class="code"><span class="lbl">~/.claude/settings.json</span><pre>{ "matcher": "*", "hooks": [ { "type": "command", "timeout": 5,
+  "command": "if [ -x \"${HOME-}/.dflow/hooks/heartbeat.sh\" ]; then /bin/sh \"${HOME-}/.dflow/hooks/heartbeat.sh\"; else cat &gt;/dev/null 2&gt;&amp;1 || :; fi" } ] }</pre></div></li>
+<li><b>확인합니다.</b> 팀을 돌리는 동안 오피스 화면의 좌석이 1~2분 간격으로 갱신되면 됩니다.</li>
+</ol>
+<p>훅은 진행 중 작업이 있는 에이전트 워크트리에서만 신호를 보내고, 조건이 맞지 않으면 아무것도 출력하지 않고 끝납니다. 토큰은 <code>.dflow.local</code> 의 첫 토큰을 쓰며 출력하거나 기록하지 않습니다. 훅은 PC 마다 따로 설치하고, 킷을 갱신하면 <code>--hooks</code> 로 다시 설치합니다.</p>
+
+<h3>자동으로 붙는 것</h3>
+<ul>
+<li><b>긴 명령 timeout 가드</b>: 팀원 전용 설정에 자동으로 걸립니다. 무거운 명령을 timeout 없이 부르거나 백그라운드로 돌려 완료 알림을 잃는 사고를 막습니다. 팀장 없이 쓰는 <code>/dflow-dev</code> 세션에도 걸고 싶으면 킷 README 의 선택 절차를 따릅니다.</li>
+<li><b>사용량 상태줄</b>: 팀원 전용 설정이 5시간·주간 사용량과 해제 시각을 <code>~/.dflow/limits/&lt;id8&gt;.json</code> 에 기록합니다. 팀장은 이것으로 한도에 걸린 팀원을 기다렸다가 다시 띄웁니다.</li>
+</ul>
+</section>
+
+<!-- 7 -->
+<section class="ch" id="doctor">
+<h2><span class="n">07</span>설치 확인</h2>
+<div class="code"><span class="lbl">리포 루트에서</span><pre>.claude/skills/dflow-work/scripts/dflow.sh doctor</pre></div>
+<div class="code"><span class="lbl">정상 출력</span><pre>base: https://wbs-web.vercel.app
+프로필 1: OxMb1D1097Qz 맥북-에어 alice@example.com (계약 2.9, 프로젝트 3) [선택됨]</pre></div>
+<div class="tw"><table>
+<thead><tr><th>출력</th><th>뜻과 처리</th></tr></thead>
+<tbody>
+<tr><td><code>프로필 N: &lt;prefix&gt; 인증 실패</code></td><td>토큰이 만료·폐기됐습니다. <code>/account</code> 에서 다시 발급합니다.</td></tr>
+<tr><td><code>⚠ 계약 major 불일치(서버 X / 스킬 Y)</code></td><td>킷이 오래됐습니다. 킷을 갱신합니다(minor 차이는 경고하지 않습니다).</td></tr>
+<tr><td><code>⚠ 계약 버전 확인 불가</code></td><td>서버 응답 문제입니다. 킷 갱신으로는 풀리지 않으니 서버 배포를 확인합니다.</td></tr>
+<tr><td><code>⚠ DFLOW_AS=… 에 맞는 토큰이 없습니다</code></td><td><code>as=</code> 값이 어느 토큰 prefix 와도 맞지 않습니다.</td></tr>
+<tr><td><code>NO_DEV_BRANCH …</code></td><td><code>.dflow.local</code> 에 <code>dev_branch=</code> 를 적습니다.</td></tr>
+</tbody></table></div>
+<p>마지막으로 <strong>Claude Code 를 리포 루트에서 엽니다.</strong> 스킬이 프로젝트 범위(<code>.claude/skills/</code>)에 있어 작업 폴더가 리포 루트여야 <code>/dflow-team</code> 이 보입니다.</p>
+</section>
+
+<!-- 8 -->
+<section class="ch" id="start">
+<h2><span class="n">08</span>팀장 시작하기</h2>
+<p>팀장 세션을 시작하기 전에 두 가지를 맞춥니다. 체크아웃이 개발 브랜치(또는 detached HEAD) 위에 있어야 하고, 작업 트리에 커밋하지 않은 변경이 없어야 합니다.</p>
+<div class="code"><span class="lbl">사용법</span><pre>/dflow-team [인원] &lt;종료시각|종료 요청 전까지&gt; [모델] [effort] [WP-XX…]
+/dflow-team help</pre></div>
+<div class="tw"><table>
+<thead><tr><th>인자</th><th>예</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td><b>종료 시각</b> (유일한 필수)</td><td><code>18:00</code> · <code>3일 뒤 06:00까지</code> · <code>월요일 09:00</code> · <code>종료 요청 전까지</code></td><td>새 배정을 멈추는 시각입니다. 이미 지난 오늘 시각은 되묻고, 날짜 붙은 시각은 7일 이내만 받습니다.</td></tr>
+<tr><td>인원</td><td><code>2명</code> · <code>4명</code></td><td>동시 팀원 수. 기본 3명, 상한은 <code>min(6, K+2)</code> 입니다(K 는 PC 의 무거운 명령 슬롯 수, 16GB PC 는 4명, 32GB 이상은 6명).</td></tr>
+<tr><td>모델</td><td><code>opus</code> · <code>sonnet</code></td><td>팀원 모델. 없으면 기본 모델입니다.</td></tr>
+<tr><td>effort</td><td><code>low</code>~<code>max</code></td><td>팀원 추론 강도. 기본 <code>high</code> 입니다.</td></tr>
+<tr><td>WP 범위</td><td><code>WP-02</code> · <code>dict/WP-02</code></td><td>새 배정만 그 WP 로 좁힙니다. 재개와 승인 스윕은 범위와 무관합니다.</td></tr>
+<tr><td><code>--resume &lt;id8&gt;</code></td><td><code>443b8ffe 재개</code></td><td>이 PC 에 워크트리가 없거나 멈춘 작업을 사람이 지목해 이어받습니다.</td></tr>
+<tr><td><code>--takeover</code></td><td><code>넘겨받기</code></td><td>같은 신원이 다른 PC 에서 쥔 팀장 자리를 빼앗습니다. 밀려난 팀장은 약 1분 안에 멈춥니다.</td></tr>
+</tbody></table></div>
+<div class="code"><span class="lbl">예</span><pre>/dflow-team 18:00                     <span class="c"># 오늘 18시까지, 팀원 3명</span>
+/dflow-team 4명 18시까지 opus          <span class="c"># 팀원 4명, opus</span>
+/dflow-team 18:00 WP-02               <span class="c"># WP-02 작업만 새로 배정</span>
+/dflow-team 3일 뒤 06:00까지           <span class="c"># 사흘 동안 무인 운용</span>
+/dflow-team 종료 요청 전까지 WP-03      <span class="c"># 멈추라고 할 때까지 WP-03 만</span></pre></div>
+
+<h3>시작하면 일어나는 일</h3>
+<ol class="steps">
+<li><b>토큰 결정.</b> <code>pats</code> 에 토큰이 둘 이상이고 <code>as=</code> 가 비어 있으면 어느 계정으로 돌지 한 번 묻습니다.</li>
+<li><b>시작 전 검사.</b> 리포 루트 여부, 경로 공백, 개발 브랜치, 스킬 버전, 설정·인증, 화면 백엔드, 팀장 잠금과 서버 lease 를 한 번에 검사합니다. 하나라도 실패하면 아무것도 띄우지 않고 사유 코드를 냅니다(16장).</li>
+<li><b>작업 폴더 준비와 재구성.</b> 배정된 대기 작업의 <code>state.json</code> 을 미리 만들고, 이전 실행에서 남은 팀원 워크트리를 흡수합니다. 이어받을 수 없는 것은 「멈춤」 표에 올립니다.</li>
+<li><b>시작 보고.</b> 종료 시각, 쓰는 계정(이름·이메일·prefix), 「멈춤」 표, 경고, 팀원 화면 보는 법을 알려 줍니다.</li>
+<li><b>첫 승인 스윕</b>을 한 번 돌고, 빈 슬롯에 팀원을 띄운 뒤 감시를 시작합니다. macOS 에서 여러 날 돌리면 절전 방지(<code>caffeinate</code>)도 겁니다. 전원을 연결하고 덮개를 열어 두십시오.</li>
+</ol>
+
+<h3>팀원 화면</h3>
+<p>tmux 백엔드에서는 다른 터미널에서 <code>TMUX= tmux -L dflow attach</code> 로 팀원 화면을 봅니다. 팀원 pane 테두리에 <code>w&lt;슬롯&gt; · &lt;TSK&gt; &lt;id8&gt; · &lt;작업 이름&gt;</code> 이름표가 뜨고, 팀원이 늘거나 줄 때마다 바둑판 배치로 다시 정렬됩니다.</p>
+<figure>
+<div class="term" role="img" aria-label="tmux 에 팀원 네 명이 바둑판으로 뜬 예시 화면">
+  <div class="bar"><i></i><i></i><i></i><span>TMUX= tmux -L dflow attach</span></div>
+  <div class="scroll">
+  <div class="panes">
+    <div class="pane act"><div class="ttl"> w1 · dict/TSK-02-05 a1b2c3d4 · 용어 등록·수정 API </div><pre>● Phase 03 Build: 구현 단위 B2
+  heavy.sh ./gradlew :api:test --tests '*TermApi*'
+HEAVY_SLOT slot-1 k=2 waited=14s
+BUILD SUCCESSFUL in 41s
+UNIT_DONE B2
+● 게이트: 기준선 대비 신규 실패 0, 테스트 1060 → 1074</pre></div>
+    <div class="pane"><div class="ttl"> w2 · dict/TSK-02-08 9f8e7d6c · 도메인 상속 검사 API </div><pre>● Phase 04 Verify: 감사자 셋 + 작성자
+AUDIT_RESULT spec 0
+AUDIT_RESULT review 1
+AUDIT_RESULT tests 0
+MUTATION_RESULT M3 caught rc=1 sec=38 e2e=no log=…
+● 지적 1건을 작성자에게 넘깁니다.</pre></div>
+    <div class="pane"><div class="ttl"> w3 · dict/TSK-02-10 5a4b3c2d · 도메인 트리 화면 </div><pre>● Phase 02 Design
+  design.md: 접근 · 파일 목록 · 테스트 전략
+             · 수용 기준 매핑 · 불변 규칙
+● build-start → 403 dependency_not_met
+  선행 dict/TSK-02-08 구현 중
+● 설계를 push 하고 선행 완료를 기다립니다(wait_pred).</pre></div>
+    <div class="pane"><div class="ttl"> w4 · dict/TSK-02-12 77e1a0b9 · 컬럼 시스템 매핑 API </div><pre>● Phase 06 마감
+  git push origin agent/77e1a0b9-column-map
+  dflow.sh done … --auto-links --decisions …
+reported(승인 대기) — PM 승인은 웹에서
+● 승인 대기로 보고했습니다.</pre></div>
+  </div>
+  </div>
+  <div class="status"><span>[dflow]</span><span>w1 · w2 · w3 · w4</span></div>
+</div>
+<figcaption><span class="tag-ex">예시</span><b>그림 5.</b> 팀원 네 명이 도는 tmux 화면을 그린 예시입니다. 이름표 형식과 <code>HEAVY_SLOT</code>·<code>AUDIT_RESULT</code>·<code>MUTATION_RESULT</code>·<code>UNIT_DONE</code>·완료 보고 문구는 스크립트의 실제 출력 형식을 따랐고, 작업 이름과 숫자는 꾸민 값입니다.</figcaption>
+</figure>
+
+<figure>
+<div class="term" role="img" aria-label="팀장 세션의 예시 대화">
+  <div class="bar"><i></i><i></i><i></i><span>팀장 세션 (claude, 리포 루트)</span></div>
+  <div class="scroll"><div class="panes" style="grid-template-columns:1fr">
+  <div class="pane lead act"><div class="ttl"> /dflow-team 4명 18:00 </div><pre>› /dflow-team 4명 18:00
+● 종료 18:00(오늘) · 계정 alice(맥북-팀장, OxMb1D10) · 백엔드 tmux · 팀원 4명
+  팀원 화면: 다른 터미널에서 TMUX= tmux -L dflow attach
+● 승인 스윕: 머지 0, 대기 1. 감시 시작.
+● a1b2c3d4 용어 등록·수정 API → w1 착수
+● 9f8e7d6c 도메인 상속 검사 API → w2 착수
+● 5a4b3c2d 도메인 트리 화면 → w3 착수(선행 구현 중, 설계 먼저)
+● 77e1a0b9 컬럼 시스템 매핑 API → w4 착수
+  …
+● w4 done(승인 대기로 보고). 대기 중이던 3c9d0e11 → w4 착수.
+● 결정 필요 9f8e7d6c: "상속 깊이 상한을 8로 둘까요, 무제한으로 둘까요?"
+  TMUX= tmux -L dflow attach 로 붙어 그 pane 에서 답하거나, 이 세션에 "9f8e7d6c &lt;답&gt;" 으로 답하세요.</pre></div>
+  </div></div>
+</div>
+<figcaption><span class="tag-ex">예시</span><b>그림 6.</b> 팀장 세션의 흐름을 그린 예시입니다. 팀장은 기상할 때마다 한 줄씩 알리므로 사람은 대개 화면만 보면 됩니다.</figcaption>
+</figure>
+
+<div class="diagram" style="margin-top:6px">
+<pre class="mermaid">
+flowchart LR
+    subgraph S["D'Flow 서버"]
+      Q["위임된 대기 작업"]
+    end
+    subgraph L["팀장 세션"]
+      P["poll.sh 180초"]
+      T["tick.sh 20초"]
+      K["wake.sh 기상마다"]
+      SW["승인 스윕 30분"]
+    end
+    subgraph B["tmux pane 또는 Orca 탭"]
+      W1["w1 워크트리"]
+      W2["w2 워크트리"]
+      WN["wN 워크트리"]
+    end
+    Q --> P --> K
+    K -- "git worktree add + claude" --> B
+    W1 -- ".result" --> T
+    W2 -- ".result" --> T
+    W1 -. "이슈 보고" .-> L
+    B -- "agent 브랜치 push" --> R[("origin")]
+    SW -- "승인분 머지" --> R
+</pre>
+</div>
+<p class="muted" style="margin-top:8px"><b>그림 7.</b> 팀장을 깨우는 것은 넷입니다. 새 작업을 찾은 <code>poll.sh</code>, 팀원 결과나 30분 주기 <code>TICK</code> 을 알리는 <code>tick.sh</code>, 사람의 말, 팀원의 이슈 보고입니다. 팀장은 기다리는 동안 토큰을 쓰지 않습니다.</p>
+</section>
+
+<!-- 9 -->
+<section class="ch" id="watch">
+<h2><span class="n">09</span>진행 지켜보기</h2>
+<p>팀장 세션을 보지 않아도 D'Flow 웹에서 진행을 볼 수 있습니다. 전체 오피스(<code>/agents</code>)는 모든 프로젝트를, 프로젝트의 「에이전트」 메뉴는 그 프로젝트만 보여 줍니다.</p>
+
+<h3>에이전트 오피스</h3>
+<figure class="shot"><img src="img/04-office-floor.png" alt="에이전트 오피스 평면도. 프로젝트가 층, 상위 항목이 구역으로 나뉘고 각 좌석 카드에 작업 코드, 내 에이전트 배지, 승인 대기 상태, 승인과 반려 버튼이 있다" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 8.</b> 평면도 보기입니다. 프로젝트가 층, WBS 상위 항목이 구역, 주문 하나가 책상입니다. 승인 대기 좌석에는 바로 누를 수 있는 승인·반려 버튼이 있고, 오른쪽 위에 업무 중·승인 대기 수가 나옵니다.</figcaption></figure>
+<div class="pair">
+<figure class="shot"><img src="img/05-office-lane.png" alt="상태 레인 보기. 결재 대기, 손봐야 함, 업무 중 세 열에 좌석 카드가 쌓여 있고 카드에 팀원 말풍선이 보인다" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 9.</b> 상태 레인 보기입니다. 「결재 대기」, 「손봐야 함」, 「업무 중」 열로 묶어 사람이 처리할 것을 먼저 보여 줍니다.</figcaption></figure>
+<figure class="shot"><img src="img/06-office-roster.png" alt="에이전트 명단 보기. 감시 중인 PC 도 주문을 잡은 에이전트도 없다는 안내 문구가 있다" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 10.</b> 에이전트(명단) 보기입니다. 팀장이 돌지 않을 때는 이렇게 비어 있고, 팀장이 감시를 시작하면 PC·팀장·팀원 자리가 생깁니다.</figcaption></figure>
+</div>
+<div class="tw"><table>
+<thead><tr><th>화면 표시</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td>감시 중 · <code>alice/mbp/lead 2/3 ~18:00</code></td><td>팀장이 감시 중이며, 슬롯 3개 중 2개가 일하고, 18:00 에 새 배정을 멈춥니다(허브 상단 상태줄).</td></tr>
+<tr><td>선행 대기 좌석</td><td>설계를 마치고 선행 작업을 기다리는 팀원입니다(<code>wait_pred</code>).</td></tr>
+<tr><td>머지 충돌</td><td>팀장이 자동 해소를 세 번 시도해도 풀지 못해 사람이 머지해야 합니다.</td></tr>
+<tr><td>「이어서 시작」 버튼</td><td>끊기거나 응답이 없는 좌석을 그 PC 의 팀장이 다시 띄우도록 요청합니다(관리자·서브트리 관리자).</td></tr>
+<tr><td>「팀장 해제」 버튼</td><td>죽은 팀장의 서버 lease 를 강제로 풉니다.</td></tr>
+</tbody></table></div>
+
+<h3>작업 상세의 진행 기록</h3>
+<figure class="shot"><img src="img/07-wbs-detail-agent-progress.png" alt="작업 상세 패널의 에이전트 진행 상황 표. 단계, 시작, 종료, 시간, 진척, 모델 칸이 있고 설계 완료, 구현 완료, 검증 완료, 완료 행과 전체 합계가 있다. 아래에 작업 의존성 그래프와 변경 이력이 보인다" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 11.</b> WBS 작업 상세의 「에이전트 진행 상황」 표입니다. 보고 하나가 한 줄이고, 각 줄에 단계를 돌린 시각·소요 시간·진척·모델이 남습니다. 아래의 의존성 그래프는 선행이 충족됐는지, 변경 이력은 단계 전이(<code>ip → im</code>)를 보여 줍니다.</figcaption></figure>
+
+<h3>WBS·칸반·대시보드</h3>
+<div class="pair">
+<figure class="shot"><img src="img/01-wbs-list.png" alt="WBS 작업 목록 표. 번호, 작업명, 계획 시작·종료, 가중치, 계획%, 실적% 칸" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 12.</b> WBS 목록입니다. 에이전트가 단계를 옮길 때마다 실적%가 크레딧 표(10장)대로 바뀝니다.</figcaption></figure>
+<figure class="shot"><img src="img/03-wbs-gantt.png" alt="WBS 간트 타임라인 보기" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 13.</b> 간트 보기입니다. 선행 관계를 걸어 두면 팀원이 같은 파일을 동시에 고치는 충돌을 줄일 수 있습니다.</figcaption></figure>
+<figure class="shot"><img src="img/09-kanban-progress.png" alt="칸반 진행 보드. 시작전, 진행중, 완료 세 열" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 14.</b> 칸반의 「진행」 보드입니다.</figcaption></figure>
+<figure class="shot"><img src="img/08-kanban-phase.png" alt="칸반 Phase별 보기. 작업 그룹별로 카드가 묶이고 실적 진행바가 보인다" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 15.</b> 칸반의 「Phase별」 보기(조회 전용)입니다.</figcaption></figure>
+</div>
+<figure class="shot"><img src="img/12-project-dashboard.png" alt="프로젝트 대시보드" loading="lazy" width="1440" height="900">
+<figcaption><b>그림 16.</b> 프로젝트 대시보드입니다. 에이전트가 올린 실적이 프로젝트 진척에 그대로 합산됩니다.</figcaption></figure>
+</section>
+
+<!-- 10 -->
+<section class="ch" id="cycle">
+<h2><span class="n">10</span>팀원의 개발 사이클</h2>
+<p>팀원은 팀장이 넘긴 한 줄짜리 지시를 읽고, 자기 워크트리(<code>&lt;리포&gt;/.claude/worktrees/dflow-&lt;id8&gt;</code>)에서 <code>/dflow-dev &lt;id8&gt; --worker</code> 를 실행합니다. 각 단계는 별도 서브에이전트가 맡고, 게이트 판정은 팀원이 명령을 직접 실행해 확인합니다. 서브에이전트의 자기 신고만으로는 통과시키지 않습니다.</p>
+<div class="tw"><table>
+<thead><tr><th>단계</th><th>하는 일</th><th>산출물과 게이트</th><th>모델</th></tr></thead>
+<tbody>
+<tr><td><b>01 착수</b></td><td>명세·선행 검사, <code>claim --design-first</code>, 브랜치 <code>agent/&lt;id8&gt;-&lt;slug&gt;</code> 생성, 의존성 설치, 게이트 기준선 측정, 복잡도 점수로 모델 결정</td><td><code>state.json</code>, 기준선(테스트 수·실패 수)</td><td>-</td></tr>
+<tr><td><b>02 Design</b></td><td>명세를 읽고 설계. 끝나면 <code>build-start</code> 로 <code>ds → ip</code></td><td><code>design.md</code> 에 접근·파일 목록·테스트 전략·수용 기준 매핑·불변 규칙 5절과 「구현 단위」 표</td><td>복잡도 3점 이상 opus, 미만 sonnet</td></tr>
+<tr><td><b>03 Build</b></td><td>구현 단위(B1, B2…)마다 테스트 먼저 작성 후 구현, 단위마다 커밋. 변이 검증 기록을 남깁니다.</td><td>기준선 대비 <b>신규 실패 0</b>, 테스트 수 감소 없음. <code>build-log.md</code></td><td>sonnet(Design 이 opus 면 opus 권장)</td></tr>
+<tr><td><b>04 Verify</b></td><td>읽기 전용 감사자 셋(spec·review·tests)과 작성자 하나가 동시에 돕니다. 작성자가 린트·변이 표본·E2E 를 실행하고 지적을 고칩니다.</td><td>감사 지적 반영, 변이 표본에서 살아남은 변이 없음</td><td>sonnet</td></tr>
+<tr><td><b>05 Refactor</b></td><td>팀원 모드에서는 건너뜁니다(사람이 직접 돌리는 <code>/dflow-dev</code> 에서만).</td><td>실패하면 그 커밋만 되돌림</td><td>sonnet</td></tr>
+<tr><td><b>06 마감</b></td><td>push → <code>dflow.sh done --auto-links --decisions</code></td><td>서버 상태 <code>reported</code>(승인 대기), 단계 <code>im</code></td><td>-</td></tr>
+</tbody></table></div>
+
+<h3>단계와 크레딧</h3>
+<div class="stage-row">
+<span class="stage"><code>as</code>할당됨 <span class="cr">0</span></span>
+<span class="stage"><code>ds</code>설계 중 <span class="cr">10</span></span>
+<span class="stage"><code>ip</code>작업 중 <span class="cr">30</span></span>
+<span class="stage"><code>rw</code>반려·재작업 <span class="cr">50</span></span>
+<span class="stage"><code>im</code>검수 대기 <span class="cr">80</span></span>
+<span class="stage"><code>xx</code>완료 <span class="cr">100</span></span>
+</div>
+<p>숫자는 그 단계에 들어갔을 때 WBS 실적%로 쓰이는 기본 크레딧입니다. 프로젝트 설정에서 5 단위로 바꿀 수 있고, <code>xx</code> 는 늘 100 이며 인접 값은 10 이상 벌어져야 합니다. <code>rw</code> 는 별도 단계가 아니라 반려 뒤 <code>ip</code> 로 돌아갈 때 쓰는 크레딧입니다.</p>
+<figure>
+<div class="diagram">
+<pre class="mermaid">
+stateDiagram-v2
+    direction LR
+    state "as 할당됨" as AS
+    state "ds 설계 중" as DS
+    state "ip 작업 중" as IP
+    state "im 검수 대기" as IM
+    state "xx 완료" as XX
+    [*] --> AS: 배정과 위임
+    AS --> DS: claim --design-first
+    DS --> DS: 선행 미충족이면 대기
+    DS --> IP: build-start
+    IP --> IM: 완료 보고
+    IM --> XX: 사람 승인
+    IM --> IP: 반려 (크레딧 rw)
+    XX --> IM: 승인 취소
+    IP --> AS: 반납 release
+</pre>
+</div>
+<figcaption><b>그림 17.</b> 단계 전이입니다. 계약 2.9 서버에서는 모든 claim 이 설계 중(<code>ds</code>)에서 시작합니다. 선행이 이미 끝났으면 설계 직후 곧바로 <code>ip</code> 로 넘어가므로 사람 눈에는 보통 개발과 같습니다.</figcaption>
+</figure>
+
+<h3>설계 선행</h3>
+<p>선행 작업이 아직 구현 중이면, 팀원은 빈 슬롯에서 후속 작업의 설계를 먼저 해 둡니다. 설계가 끝났는데 선행이 끝나지 않았으면 <code>build-start</code> 가 거부되고, 팀원은 설계를 push 한 뒤 <code>design_waiting</code> 으로 자리를 비웁니다. 선행이 끝나면 팀장이 같은 워크트리로 다시 띄워 구현을 잇습니다. 한 번에 설계를 먼저 받는 작업은 기본 2건까지이며, <code>DFLOW_DESIGN_AHEAD_MAX</code>(0 이면 끔)로 조절합니다.</p>
+
+<h3>PC 자원 줄 세우기</h3>
+<p>전체 테스트, 빌드, E2E, 변이 검증, 모든 <code>gradlew</code>·<code>mvn</code>, 의존성 설치는 <code>heavy.sh</code> 로 감쌉니다. 리포가 달라도 같은 PC 에서는 슬롯 K개까지만 동시에 돌고 나머지는 줄을 섭니다. 슬롯을 얻으면 <code>HEAVY_SLOT slot-1 k=2 waited=14s</code> 처럼 기다린 시간이 남습니다. 도커 명령은 별도 슬롯(기본 1개)을 씁니다. 게이트에서 새로 실패한 것이 모두 경과 시간을 단언하는 부하 민감 테스트이면, 그 테스트만 PC 를 독점한 채 다시 돌려 통과하면 실패로 치지 않습니다.</p>
+
+<h3>사람이 봐 둘 산출물</h3>
+<div class="tw"><table>
+<thead><tr><th>파일</th><th>내용</th></tr></thead>
+<tbody>
+<tr><td><code>&lt;작업 폴더&gt;/design.md</code></td><td>설계와 「담당자 확인 필요 결정」 절. 팀원이 스스로 고른 결정이 D 번호로 남고, 완료 보고의 결정 목록으로 서버에 갑니다.</td></tr>
+<tr><td><code>&lt;작업 폴더&gt;/build-log.md</code></td><td>게이트 기록, 변이 검증 기록, 실행 모델 표, 설계 이탈, 인계</td></tr>
+<tr><td><code>&lt;작업 폴더&gt;/state.json</code></td><td>진행 단계(<code>prepare·design·build·verify·reported·wait_pred</code> 등)와 기준선·모델</td></tr>
+<tr><td>커밋 트레일러</td><td>모든 커밋에 <code>DFlow-Order: &lt;주문 UUID&gt;</code> 가 붙습니다. 승급했다면 <code>DFlow-Escalate</code> 도 붙습니다.</td></tr>
+</tbody></table></div>
+</section>
+
+<!-- 11 -->
+<section class="ch" id="decide">
+<h2><span class="n">11</span>결정 요청에 답하기</h2>
+<p>팀원은 판단이 갈리는 대부분의 자리에서 기본값이나 근거가 강한 쪽을 스스로 고르고 기록만 남깁니다. 되돌리기 어려운 결정(데이터 삭제, 외부 공개, 다른 작업 산출물의 대폭 수정, 보안·권한 변경)에서만 멈추고 사람에게 묻습니다(<code>blocked</code>).</p>
+<div class="tw"><table>
+<thead><tr><th>백엔드</th><th>답하는 법</th></tr></thead>
+<tbody>
+<tr><td>tmux</td><td><code>TMUX= tmux -L dflow attach</code> 로 붙어 그 팀원 pane 에서 직접 답하거나, 팀장 세션에 <code>&lt;id8&gt; &lt;답&gt;</code> 으로 답합니다.</td></tr>
+<tr><td>Orca</td><td>그 팀원의 탭에서 직접 답합니다.</td></tr>
+</tbody></table></div>
+<p>기다리는 질문이 하나뿐이면 id8 없이 답해도 됩니다. 답을 기다리는 동안 그 팀원은 슬롯을 계속 쥡니다.</p>
+<p>팀원이 도구 오류나 환경 문제를 만나면 팀장에게 이슈를 보고하고, 팀장이 같은 턴에서 판단해 지시를 돌려보냅니다. 그 기록은 팀장 체크아웃의 <code>docs/dflow-team/issues.md</code> 에 쌓입니다(커밋하지 않는 로컬 기록).</p>
+</section>
+
+<!-- 12 -->
+<section class="ch" id="approve">
+<h2><span class="n">12</span>승인과 머지</h2>
+<p>완료 보고된 작업은 서버에서 <code>reported</code>(승인 대기), 단계 <code>im</code>(검수 대기)입니다. 사람은 두 곳에서 승인하거나 반려할 수 있습니다.</p>
+<ul>
+<li><b>에이전트 허브의 승인 큐와 오피스 좌석 카드</b>: 관리자와 서브트리 관리자는 승인·반려를, 담당자 본인은 반려만 할 수 있습니다. 자기 완료를 자기가 승인하지 못하게 나눈 규칙입니다. 강제 진행 스텁이 남은 작업은 승인 버튼이 잠깁니다.</li>
+<li><b>WBS 작업 상세의 「진행 상황」</b>: 프로젝트 관리자에게 승인·반려 버튼이 보이고, 승인 뒤에는 승인 취소·재작업 요청 버튼으로 바뀝니다.</li>
+</ul>
+<p>반려할 때는 사유를 꼭 적습니다. 사유가 다음 재작업의 요구사항이 됩니다. 팀원이 스스로 고른 결정 중 하나를 바꾸고 싶으면 "D2 는 선택지 2로" 처럼 번호로 적습니다.</p>
+
+<h3>승인 뒤에 일어나는 일</h3>
+<ol class="steps">
+<li><b>팀장이 승인을 감지합니다.</b> 결과가 도착했을 때나 30분 주기 <code>TICK</code> 에 먼저 후보가 있는지 가볍게 확인하고(<code>SWEEP_CANDIDATES</code>), 있을 때만 승인 스윕을 돕니다.</li>
+<li><b>조상 먼저 머지합니다.</b> 스택으로 쌓인 브랜치는 선행부터 개발 브랜치에 <code>--no-ff</code> 로 머지하고, 머지 커밋에도 <code>DFlow-Order</code> 트레일러를 붙입니다.</li>
+<li><b>승인 뒤 변경을 막습니다.</b> 완료 보고 뒤 그 브랜치에 새 변경이 생겼으면 머지하지 않고 「건너뜀(승인 뒤 변경)」으로 알립니다.</li>
+<li><b>브랜치를 정리합니다.</b> 머지된 agent 브랜치는 원격과 로컬에서 지웁니다. <code>dialect_check</code> 가 있으면 스윕마다 한 번 방언 검증을 돌립니다.</li>
+</ol>
+<div class="tw"><table>
+<thead><tr><th>스윕 보고</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td><code>머지됨</code></td><td>승인을 확인하고 개발 브랜치에 넣었습니다.</td></tr>
+<tr><td><code>승인 대기</code></td><td>아직 승인되지 않았습니다.</td></tr>
+<tr><td><code>반려: 재작업 필요 (&lt;사유&gt;)</code></td><td>반려됐습니다. 다음 배정 때 팀원이 사유를 요구사항으로 삼아 같은 브랜치 위에 고칩니다.</td></tr>
+<tr><td><code>머지 실패(충돌) &lt;파일,…&gt;</code></td><td>팀장이 해소 전용 팀원을 띄워 풉니다. 한 작업에 세 번까지 시도하고, 못 풀면 좌석표에 「머지 충돌」을 띄웁니다.</td></tr>
+<tr><td><code>건너뜀(조상 미승인)</code> 외</td><td>선행이 승인되지 않았거나 조회 실패 등으로 이번에는 넘깁니다.</td></tr>
+</tbody></table></div>
+
+<h3>자동 머지(<code>automerge=1</code>)</h3>
+<p>켜면 팀원이 완료 보고하는 즉시 팀장이 개발 브랜치에 머지하고 다음 작업으로 넘어갑니다. 후속 작업이 선행의 승인을 기다리지 않아 처리량이 늘지만, <strong>승인은 사후 확인</strong>이 됩니다. 나중에 승인하면 미승인 표식만 지우고, 반려하면 「반려(머지됨): 되돌리기 또는 재작업 필요」로 알립니다. 되돌릴지(<code>git revert -m 1</code>) 재작업할지는 사람이 고릅니다. 팀장은 스스로 되돌리지 않습니다.</p>
+</section>
+
+<!-- 13 -->
+<section class="ch" id="control">
+<h2><span class="n">13</span>멈추기·연장·재개</h2>
+<div class="tw"><table>
+<thead><tr><th>하고 싶은 일</th><th>방법</th></tr></thead>
+<tbody>
+<tr><td>멈추기</td><td>팀장 세션에 "팀장 종료", "마감해", "그만"이라고 말합니다. 다른 터미널에서는 <code>touch "$(git -C &lt;팀장 체크아웃&gt; rev-parse --git-path dflow-team.stop)"</code> 로도 됩니다(20초 안에 알아챕니다).</td></tr>
+<tr><td>연장</td><td>"내일 9시까지 연장"처럼 말합니다. 마감 중이면 마감을 취소합니다.</td></tr>
+<tr><td>특정 작업 빼기</td><td>D'Flow 에서 그 작업의 위임(<code>agent</code> 태그)을 끕니다.</td></tr>
+<tr><td>멈춘 작업 이어받기</td><td>「멈춤」 표에 적힌 명령(<code>/dflow-team &lt;종료시각&gt; --resume &lt;id8&gt;</code>)을 쓰거나 오피스의 「이어서 시작」을 누릅니다.</td></tr>
+<tr><td>다른 계정으로 팀장 하나 더</td><td>주 체크아웃 루트에서 <code>.claude/skills/dflow-team/scripts/lead-worktree.sh &lt;이름&gt;</code> 으로 링크드 워크트리를 만들고 그곳에서 시작합니다. 같은 계정으로는 두 번째 팀장을 띄울 수 없습니다(<code>SAME_IDENTITY_LEAD</code>).</td></tr>
+</tbody></table></div>
+
+<h3>마감</h3>
+<p>종료 시각이 되거나 종료 요청이 오면 새 배정을 멈춥니다. 결정 대기·무응답 팀원은 기다리지 않고, 진행 중 팀원은 <code>TICK</code> 두 번(최대 약 1시간)까지만 결과를 기다립니다. 그 뒤 작업별 집계 표와 「멈춤」 표를 보고하고 마지막 승인 스윕을 한 번 돕니다. agent 브랜치는 남기고, 살아 있는 팀원의 워크트리는 지우지 않습니다. 팀원은 팀장이 끝나도 하던 작업을 끝까지 합니다.</p>
+
+<h3>자동 재시작</h3>
+<p>팀장은 팀원이 응답 없이 멈추거나(생존 증거가 두 번 연속 그대로), pane 이 죽거나, 사용량 한도에 걸리면 같은 워크트리·같은 슬롯으로 다시 띄웁니다. 한도에 걸린 경우는 해제 시각 10분 뒤에 한 번 이어갑니다. 한 작업당 세 번을 넘으면 「멈춤」 표로 내리고 재시작 명령을 알려 줍니다. 주간 사용량이 90% 를 넘으면 동시 팀원을 2명으로 줄이고, 95% 를 넘으면 새 작업을 띄우지 않습니다.</p>
+</section>
+
+<!-- 14 -->
+<section class="ch" id="advanced">
+<h2><span class="n">14</span>고급 설정</h2>
+<h3>팀원 첫 턴 컨텍스트 줄이기 (PC별 선택)</h3>
+<p>팀원은 켜진 플러그인과 MCP 를 끈 채로 뜹니다. <code>.dflow.local</code> 에 아래 키를 적으면 스킬 목록 같은 기본 컨텍스트를 더 줄여 매 턴의 토큰을 아낄 수 있습니다. <code>dflow-*</code> 와 대상 리포의 프로젝트 스킬은 무엇을 적어도 남습니다.</p>
+<div class="tw"><table>
+<thead><tr><th>키</th><th>값</th></tr></thead>
+<tbody>
+<tr><td><code>worker_keep_skills</code></td><td><code>auto</code> 면 그 PC 의 <code>~/.claude/CLAUDE.md</code>(와 그 안에서 <code>@</code> 로 포함한 파일)에서 "쓴다"고 적힌 사용자 스킬만 남깁니다. "먼저 고르지 않는다" 같은 부정 문장에 나온 이름은 남기지 않습니다. 지침을 읽지 못하면 하나도 끄지 않습니다. 이름을 쉼표로 적거나 <code>none</code> 도 됩니다.</td></tr>
+<tr><td><code>worker_keep_plugins</code></td><td><code>auto</code> 면 지침에 <code>&lt;이름&gt;@&lt;마켓&gt;</code> 이 나오거나 플러그인·MCP 를 말하는 문장에 이름이 나오는 플러그인만 켜 두고, 그 플러그인의 MCP 서버를 살려 줍니다. 지침이 claude-in-chrome 을 쓰라고 하면 그것도 켭니다.</td></tr>
+<tr><td><code>worker_skills_off</code></td><td>그 밖에 끌 스킬 이름(쉼표)</td></tr>
+<tr><td><code>worker_output_style</code></td><td>팀원의 출력 스타일(예: <code>default</code>)</td></tr>
+</tbody></table></div>
+<p class="muted">전역 설정 파일은 건드리지 않고 팀원 실행에만 설정 조각을 넘깁니다. 적은 이름이 그 PC 에 없으면 경고 한 줄만 내고 진행합니다.</p>
+
+<h3>Build 모델 시험</h3>
+<p>배정표가 opus 로 정한 Build 중 일부를 sonnet 으로 돌려 비용과 품질을 비교하는 스위치입니다. 기본은 꺼져 있습니다.</p>
+<div class="code"><span class="lbl">.dflow.local</span><pre>build_model_trial=sonnet
+build_model_trial_rate=30                <span class="c"># 또는 대상을 직접 지정</span>
+build_model_trial_tasks=TSK-02-05,WP-03</pre></div>
+<p>대상 판정은 작업 ID 로 결정되므로 재개해도 같습니다. 시험 중인 sonnet Build 가 게이트 1차에서 실패하거나, 같은 구현 단위를 두 번째로 인계하거나, 테스트를 초록으로 만들지 못하고 끝나면 그 자리를 opus 가 이어받습니다(승급). 결과는 <code>build-log.md</code> 의 「실행 모델」 표와 작업 상세의 모델 칸에 남습니다.</p>
+
+<h3>게이트 범위 대응표 <code>.dflow-gates</code></h3>
+<p>리포 최상위에 두면 Build 게이트는 바뀐 모듈의 테스트만 돌고, 전체 스위트는 Verify 에서 한 번만 돕니다. 여러 모듈을 가진 큰 리포에서 시간을 크게 줄입니다.</p>
+<div class="code"><span class="lbl">.dflow-gates (경로 TAB 명령)</span><pre>full	./gradlew test &amp;&amp; pnpm -r test
+prepare	pnpm --filter "web^..." build
+docs/	-
+backend/core/	./gradlew :core:test :api:test</pre></div>
+
+<h3>도커 허용</h3>
+<p>팀원은 인원과 관계없이 기본적으로 도커를 쓰지 않습니다. D'Flow 작업에 <code>docker</code> 태그가 있을 때만 팀장이 허용을 넘기고, 그 팀원도 PC 전역 도커 슬롯을 잡은 동안만 씁니다. <code>no_docker=1</code> 은 태그가 있어도 막습니다.</p>
+
+<h3>Gradle 리포</h3>
+<p>킷 설치 때 <code>gradle.properties</code> 에 권장 세 키(<code>org.gradle.caching=true</code>, <code>org.gradle.workers.max=3</code>, <code>org.gradle.daemon.idletimeout=600000</code>)가 있는지 점검합니다. 팀원을 여럿 돌리는 PC 라면 <code>~/dflow-kit/install.sh --gradle-pc</code> 로 PC 전역 안전망(테스트 JVM 옵션, 테스트 캐시 제외)도 추가할 수 있습니다. 심볼릭 링크로 스킬을 쓰는 리포에서는 반드시 리포 인자 없이 이 단독 형태로 씁니다.</p>
+
+<h3>환경변수</h3>
+<div class="tw"><table>
+<thead><tr><th>변수</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td><code>DFLOW_TEAM_MAX</code></td><td>인원 상한을 1~6 으로 덮습니다.</td></tr>
+<tr><td><code>DFLOW_DESIGN_AHEAD_MAX</code></td><td>설계 선행 동시 건수(기본 2, 0 이면 끔)</td></tr>
+<tr><td><code>DFLOW_WORKER_MCP=keep</code> · <code>DFLOW_WORKER_PLUGINS=keep</code></td><td>팀원의 MCP·플러그인 끄기를 되돌립니다.</td></tr>
+<tr><td><code>DFLOW_API_BASE</code></td><td>그 세션에서만 서버 주소를 덮습니다(스테이징 시험).</td></tr>
+</tbody></table></div>
+</section>
+
+<!-- 15 -->
+<section class="ch" id="solo">
+<h2><span class="n">15</span>혼자 쓰는 경로</h2>
+<p>팀장 없이 작업 한두 건을 직접 돌릴 때는 아래 스킬을 씁니다. 팀장도 내부에서 같은 스킬을 씁니다.</p>
+<div class="tw"><table>
+<thead><tr><th>상황</th><th>명령</th></tr></thead>
+<tbody>
+<tr><td>내 작업 보기</td><td>"내 할당 작업 보여줘" 또는 <code>dflow.sh list --scope assigned</code></td></tr>
+<tr><td>작업 1건 개발</td><td><code>/dflow-dev &lt;순번|TSK-ID&gt; [--only design|build|verify|refactor] [--model opus|sonnet]</code></td></tr>
+<tr><td>위임 작업을 하나씩 자동 착수</td><td><code>/dflow-poll [--interval 300] [--until HH:MM] [--all]</code>. 낮 시간 반자동 전용이고, 동시에 여러 건은 <code>/dflow-team</code> 을 씁니다.</td></tr>
+<tr><td>승인된 작업 머지</td><td>"승인했어, 머지해" 또는 <code>/dflow-merge [&lt;ref&gt;…]</code></td></tr>
+</tbody></table></div>
+<div class="code"><span class="lbl">/dflow-dev 대화 예</span><pre>› /dflow-dev 3
+● TSK-00-02-01 claim 완료. 브랜치 agent/6b3ea02e-dev-standards 생성.
+  복잡도 0점 → 설계 모델 sonnet. Design 단계 시작…
+  …
+● 검증 통과. push 완료 → 승인 대기로 보고했습니다. D'Flow 웹에서 승인해 주세요.</pre></div>
+<div class="tw"><table>
+<thead><tr><th>dflow.sh 명령</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td><code>me</code> · <code>doctor</code> · <code>profiles</code></td><td>신원·설치 확인·토큰 목록</td></tr>
+<tr><td><code>list [--scope available|claimed|assigned|all]</code> · <code>show &lt;순번|id8&gt;</code></td><td>조회</td></tr>
+<tr><td><code>claim &lt;ref&gt; [--design-first]</code> · <code>build-start &lt;ref&gt;</code></td><td>착수 · 설계 끝 구현 시작(<code>ds → ip</code>)</td></tr>
+<tr><td><code>progress &lt;순번&gt; &lt;0-99&gt; "&lt;요약&gt;"</code></td><td>진행 보고. 100 은 <code>done</code> 으로만 갑니다.</td></tr>
+<tr><td><code>done &lt;순번&gt; "&lt;요약&gt;" --auto-links --decisions &lt;파일&gt;</code></td><td>완료 보고. push 가 먼저 끝나 있어야 합니다.</td></tr>
+<tr><td><code>release &lt;순번&gt;</code></td><td>claim 포기, 대기로 되돌림</td></tr>
+</tbody></table></div>
+<div class="note warn"><span class="t">옵션은 서브커맨드 앞에</span><p><code>dflow.sh --as bob@example.com list</code> 가 맞습니다. 뒤에 붙이면 조용히 다른 신원으로 실행됩니다.</p></div>
+</section>
+
+<!-- 16 -->
+<section class="ch" id="trouble">
+<h2><span class="n">16</span>문제 해결</h2>
+<h3>팀장이 시작을 거부할 때</h3>
+<div class="tw"><table>
+<thead><tr><th>코드</th><th>원인</th><th>처리</th></tr></thead>
+<tbody>
+<tr><td><code>DIRTY</code></td><td>팀장 체크아웃에 커밋하지 않은 변경이 있습니다.</td><td>커밋하거나 되돌립니다.</td></tr>
+<tr><td><code>NOT_DEFAULT_BRANCH</code></td><td>현재 브랜치가 개발 브랜치도 detached HEAD 도 아닙니다.</td><td>개발 브랜치로 전환합니다.</td></tr>
+<tr><td><code>NO_REMOTE_DEV_BRANCH</code></td><td>개발 브랜치가 원격에 없고 자동 생성도 실패했습니다.</td><td>개발 브랜치를 push 하거나 권한을 확인합니다.</td></tr>
+<tr><td><code>KIT_NOT_PUSHED</code></td><td>원격 기본 브랜치의 스킬이 옛 판입니다.</td><td>킷 커밋을 기본 브랜치에 push 합니다.</td></tr>
+<tr><td><code>OLD_DFLOW_DEV</code> · <code>OLD_DFLOW_MERGE</code></td><td>스킬이 옛 판입니다.</td><td>킷을 갱신합니다.</td></tr>
+<tr><td><code>CONFIG</code> (<code>NO_LOCAL</code>·<code>NO_DFLOW</code>·<code>NO_DEV_BRANCH</code>…)</td><td>설정 파일 문제</td><td>5장대로 채웁니다.</td></tr>
+<tr><td><code>NO_PROJECT</code></td><td>리포와 D'Flow 프로젝트가 연결돼 있지 않습니다.</td><td><code>project_id</code> 또는 <code>project_map</code> 을 적습니다.</td></tr>
+<tr><td><code>AUTH</code></td><td>토큰 인증 실패</td><td>토큰을 다시 발급합니다.</td></tr>
+<tr><td><code>LOCKED</code></td><td>같은 체크아웃에서 다른 팀장이 돌고 있습니다.</td><td>그 팀장이 끝난 게 확실하면 잠금 디렉터리를 지우고 다시 시작합니다.</td></tr>
+<tr><td><code>LEAD_LEASE_HELD</code></td><td>같은 계정의 팀장이 다른 clone·PC 에서 돌고 있습니다.</td><td>죽었다면 최대 3분 뒤 풀립니다. 바로 넘겨받으려면 <code>--takeover</code>.</td></tr>
+<tr><td><code>SAME_IDENTITY_LEAD</code></td><td>같은 리포 다른 워크트리에 같은 계정 팀장이 있습니다.</td><td>팀장 하나에 인원과 WP 범위를 더 줍니다.</td></tr>
+<tr><td><code>SPACE_IN_PATH</code></td><td>리포 경로에 공백이 있습니다.</td><td>공백 없는 경로로 옮깁니다.</td></tr>
+<tr><td><code>UNTIL_PAST</code> · <code>UNTIL_TOO_FAR</code></td><td>종료 시각이 지났거나 7일을 넘습니다.</td><td>다시 입력하거나 <code>종료 요청 전까지</code> 를 씁니다.</td></tr>
+<tr><td><code>NO_CLAUDE_CLI</code> · <code>NO_TMUX</code> · <code>ORCA_OLD</code></td><td>도구가 없거나 오래됐습니다.</td><td>2장대로 설치·갱신합니다.</td></tr>
+<tr><td><code>WARN GRADLE_TUNING</code></td><td>Gradle 권장 설정이 빠졌습니다(경고만).</td><td>14장을 따릅니다.</td></tr>
+</tbody></table></div>
+
+<h3><code>dflow.sh</code> 종료 코드</h3>
+<div class="tw"><table>
+<thead><tr><th>exit</th><th>원인</th><th>처리</th></tr></thead>
+<tbody>
+<tr><td>2</td><td>사용법·설정 오류, <code>progress 100</code>, push 전 <code>done</code></td><td>사용법과 설정을 확인하고, push 한 뒤 다시 보고합니다.</td></tr>
+<tr><td>3</td><td>토큰 만료·폐기</td><td><code>/account</code> 에서 다시 발급합니다.</td></tr>
+<tr><td>4</td><td>선행 미충족(<code>dependency_not_met</code>), 상태 충돌(409)</td><td><code>dflow.sh show</code> 로 확인합니다. 재시도로 뚫지 않습니다.</td></tr>
+<tr><td>5</td><td>권한 부족(스코프·담당자·역할)</td><td>스코프를 다시 발급하거나 담당자·멤버십을 고칩니다.</td></tr>
+<tr><td>6</td><td>네트워크·서버 오류</td><td>주소와 서버 상태를 확인하고 다시 시도합니다.</td></tr>
+<tr><td>7</td><td>기능 꺼짐·프로젝트 미등록(404)</td><td><code>dflow.sh me</code> 로 진단합니다.</td></tr>
+<tr><td>10</td><td>사람이 웹에서 중단했습니다.</td><td>다시 시도하지 않고 멈춥니다.</td></tr>
+</tbody></table></div>
+
+<h3>자주 겪는 상황</h3>
+<div class="tw"><table>
+<thead><tr><th>상황</th><th>원인과 처리</th></tr></thead>
+<tbody>
+<tr><td>위임했는데 팀장이 가져가지 않습니다.</td><td>담당자가 팀장 토큰의 계정인지, 명세가 채워졌는지, 위임 범위(WP)를 좁히지 않았는지 확인합니다.</td></tr>
+<tr><td>팀원이 "착수 불가"로 끝납니다.</td><td>명세가 비었거나 선행 산출물이 없습니다. 웹에서 명세를 채우거나 선행을 먼저 끝냅니다.</td></tr>
+<tr><td>팀원이 도커를 쓰려다 막힙니다.</td><td>그 작업에 <code>docker</code> 태그를 답니다.</td></tr>
+<tr><td>좌석이 갱신되지 않습니다.</td><td>heartbeat 훅이 등록됐는지, 킷 갱신 뒤 <code>--hooks</code> 로 다시 설치했는지 확인합니다.</td></tr>
+<tr><td>「머지 충돌」 표시가 남습니다.</td><td>자동 해소가 실패한 것입니다. 사람이 그 브랜치를 개발 브랜치에 직접 머지하면 다음 스윕이 감지해 표시를 지웁니다.</td></tr>
+<tr><td>병렬 작업끼리 같은 파일을 고쳐 의미가 어긋납니다.</td><td>텍스트 충돌이 없어도 계약이 갈릴 수 있습니다. WBS 에서 같은 파일을 건드릴 작업 사이에 선행을 걸거나 공통 계약을 별도 작업으로 뺍니다.</td></tr>
+<tr><td>새 워크트리에서 "Is this project you created or trust?" 화면이 뜹니다.</td><td>팀장이 화면을 읽어 자동으로 답합니다. Claude Code 판에 따라 이 화면이 뜨지 않을 수도 있습니다.</td></tr>
+</tbody></table></div>
+<p>계속 풀리지 않으면 <code>dflow.sh doctor</code> 출력, <code>env | grep DFLOW</code>(토큰 값은 빼고), <code>git status</code>, 팀장 체크아웃의 <code>docs/dflow-team/issues.md</code> 를 모아 D'Flow 관리자에게 전달합니다.</p>
+</section>
+
+<!-- 17 -->
+<section class="ch" id="ref">
+<h2><span class="n">17</span>부록: 출력 형식</h2>
+<p>로그나 팀원 화면에서 보는 줄의 뜻입니다. 모두 스크립트와 스킬 문서의 원문 형식입니다.</p>
+<div class="code"><span class="lbl">팀원 · dflow-dev</span><pre><span class="k">PHASE_RESULT</span> {PHASE} done|fail        <span class="c"># Design·Build·Refactor 서브에이전트 보고</span>
+<span class="k">UNIT_DONE</span> &lt;단위&gt; · <span class="k">UNIT_HANDOFF</span> &lt;단위&gt;   <span class="c"># Build 구현 단위 완료·인계</span>
+<span class="k">VERIFY_EXEC</span> done|fail               <span class="c"># Verify 작성자의 실행 보고</span>
+<span class="k">AUDIT_RESULT</span> {ROLE} &lt;지적 수&gt;         <span class="c"># Verify 감사자(spec·review·tests)</span>
+<span class="k">HEAVY_SLOT</span> slot-&lt;i&gt; k=&lt;K&gt; waited=&lt;초&gt;s  <span class="c"># 무거운 명령 슬롯 획득</span>
+<span class="k">HEAVY_BUSY</span>                           <span class="c"># exit 75, 실패가 아니라 다시 부르라는 뜻</span>
+<span class="k">MUTATION_RESULT</span> &lt;ID&gt; caught|survived|busy rc=&lt;rc&gt; sec=&lt;초&gt; e2e=&lt;yes|no&gt; log=&lt;경로&gt;
+<span class="k">BASELINE_REUSED</span> exit=&lt;n&gt; key=&lt;key&gt; …   <span class="c"># 다른 팀원이 잰 기준선 재사용</span>
+<span class="k">GATE_SCOPE</span> module &lt;명령&gt;              <span class="c"># .dflow-gates 로 좁힌 게이트</span></pre></div>
+<div class="code"><span class="lbl">팀원 결과 줄 · &lt;작업 폴더&gt;/.result</span><pre>{TSK} {ID8} &lt;branch|-&gt; &lt;head_sha|-&gt; &lt;done_exit|-&gt; &lt;status&gt; &lt;한 줄 사유 또는 질문&gt;
+<span class="c"># status: done · skipped · design_waiting · needs-merge · blocked · cancelled · failed &lt;사유&gt;</span></pre></div>
+<div class="code"><span class="lbl">팀장</span><pre><span class="k">RESULT_READY</span> &lt;경로…&gt; · <span class="k">PANE_DEAD</span> &lt;경로…&gt; · <span class="k">TICK</span> · <span class="k">STOP_REQUESTED</span> · <span class="k">LEASE_LOST</span> &lt;사유&gt;
+<span class="k">CAPACITY_OK</span> free=64% swap=87% load=0.9 heavy_wait=0/2 pressure=normal …
+<span class="k">CAPACITY_USAGE_CAP</span> max=2 weekly=91 …     <span class="c"># 주간 사용량 90% 이상</span>
+<span class="k">SWEEP_CANDIDATES</span> n=&lt;N&gt; &lt;id8…&gt; · <span class="k">SWEEP_NONE</span>
+<span class="k">DOCKER</span>=allow tag=docker · <span class="k">DOCKER</span>=ban tag=none</pre></div>
+<div class="code"><span class="lbl">dflow.sh</span><pre>claimed a1b2c3d4
+build-started a1b2c3d4
+reported(승인 대기) — PM 승인은 웹에서
+원격에 브랜치 agent/… 가 없습니다 — git push 후 다시 시도하세요.</pre></div>
+<p>팀장 PC 의 <code>~/.dflow/events.jsonl</code> 에는 <code>team.start</code>, <code>team.spawn</code>, <code>team.result</code>, <code>team.blocked</code>, <code>team.sweep</code>, <code>team.conflict</code>, <code>team.lost</code>, <code>team.stop</code> 같은 이벤트가 한 줄씩 쌓입니다. 서버가 아니라 로컬 기록입니다.</p>
+</section>
+
+<footer>
+이 매뉴얼은 wbs-web 의 <code>.claude/skills/dflow-*</code> 정본(aeca4762)과 킷 README 를 근거로 작성했습니다. 화면 캡처는 스테이징 D'Flow 에서 찍었고 개인 정보는 가렸습니다. 스킬을 고칠 때는 킷이 아니라 wbs-web 정본을 고치고 킷을 다시 빌드합니다.
+</footer>
+</main>
+</div>
+
+<script>
+(function(){
+  // 코드 블록 복사 버튼
+  document.querySelectorAll('.code pre').forEach(function(pre){
+    var b=document.createElement('button');b.className='cp';b.type='button';b.textContent='복사';
+    b.addEventListener('click',function(){
+      var t=pre.innerText;
+      var done=function(){b.textContent='복사됨';setTimeout(function(){b.textContent='복사'},1400)};
+      var fallback=function(){var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent='선택됨';setTimeout(function(){b.textContent='복사'},1400)};
+      try{navigator.clipboard.writeText(t).then(done,fallback)}catch(e){fallback()}
+    });
+    pre.parentNode.appendChild(b);
+  });
+  // 이미지 확대
+  document.querySelectorAll('figure.shot img').forEach(function(img){
+    img.tabIndex=0;
+    var open=function(){var d=document.createElement('div');d.className='lb';var i=document.createElement('img');i.src=img.src;i.alt=img.alt;d.appendChild(i);d.addEventListener('click',function(){d.remove()});document.addEventListener('keydown',function k(e){if(e.key==='Escape'){d.remove();document.removeEventListener('keydown',k)}});document.body.appendChild(d)};
+    img.addEventListener('click',open);
+    img.addEventListener('keydown',function(e){if(e.key==='Enter')open()});
+  });
+  // 목차 현재 위치
+  var links={};document.querySelectorAll('nav.toc a').forEach(function(a){links[a.getAttribute('href').slice(1)]=a});
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){Object.values(links).forEach(function(a){a.classList.remove('on')});var a=links[e.target.id];a&&a.classList.add('on')}})},{rootMargin:'-20% 0px -70% 0px'});
+    document.querySelectorAll('section.ch').forEach(function(s){io.observe(s)});
+  }
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true});</script>
+</body>
+</html>
