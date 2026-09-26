@@ -6,7 +6,7 @@ export interface ReadinessTask {
   id: string
   /** leaf=actualPct, 상위=가중 롤업(ComputedItem.rolledActualPct). manual 링크 판정에 쓴다. */
   rolledActualPct: number
-  /** WBS Task 단계('as'|'ip'|'im'|'xx'). spec 링크 판정에 쓴다. 없으면 stage 축은 미달로 본다. */
+  /** WBS Task 단계('as'|'ds'|'ip'|'im'|'xx' — ds 는 도달이 아니다). spec 링크 판정에 쓴다. 없으면 stage 축은 미달로 본다. */
   stage?: string | null
 }
 

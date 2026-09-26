@@ -218,6 +218,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   // dev-workflow state-machine.json. 'wbs.stageTodo' dropped with the todo stage (0082).
   'wbs.stageNoneOption': 'Not started',
   'wbs.stageAs': 'Assigned',
+  'wbs.stageDs': 'Designing',
   'wbs.stageIp': 'In progress',
   'wbs.stageIm': 'Awaiting review',
   'wbs.stageXx': 'Done',

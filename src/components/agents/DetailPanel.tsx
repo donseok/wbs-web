@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import type { Seat } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
-import { STATE_LABEL } from './Seat'
+import { seatStateLabel } from './Seat'
 import { opsFor, opSpec, type SeatOpKind } from './seatOps'
 import { IconApprove, IconReject, IconResume, IconRework, IconStop, IconUnapprove } from './icons'
 import { SeatDecisions } from './SeatDecisions'
@@ -18,6 +18,8 @@ const OP_ICON: Record<SeatOpKind, () => React.JSX.Element> = {
 }
 
 function ladderPhase(seat: Seat): string {
+  // 설계 완료·선행 대기 — 설계 칸까지 지나왔다(WAIT 이므로 칸은 지나온 칸으로 칠해진다).
+  if (seat.designWait) return 'design'
   if (seat.state === 'WAIT') return 'reported'
   if (seat.state === 'DONE') return 'merged'
   if (seat.phase === 'blocked' || seat.phase === 'rejected') return seat.progress < 25 ? 'design' : seat.progress < 60 ? 'build' : 'verify'
@@ -66,7 +68,7 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
       </div>
       <h3>{seat.code}</h3>
       <p className={css.task}>{seat.name}</p>
-      <span className={css.pill} data-state={seat.state}>{STATE_LABEL[seat.state]}</span>
+      <span className={css.pill} data-state={seat.state}>{seatStateLabel(seat)}</span>
       {/* 스텁 잔존(강제 진행 스펙 F13) — 승인이 잠긴 이유와 치울 하위 Task 로 가는 링크. */}
       {(seat.stubPending ?? []).length > 0 && (
         <p className={css.waitReason} data-stub-pending="">
@@ -76,7 +78,7 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
           ))}
         </p>
       )}
-      {seat.state === 'READY' && seat.waitReason && (
+      {(seat.state === 'READY' || seat.designWait) && seat.waitReason && (
         <p className={css.waitReason} data-wait-reason={seat.waitReason.kind}><b>{seat.waitReason.label}</b> · {seat.waitReason.text}
           {/* 강제 진행 두 번째 진입점(스펙 §3.2) — 선행 대기 좌석에서 WBS 사이드바의 「강제 진행」 절로 바로 간다. */}
           {seat.waitReason.kind === 'dependency' && seat.itemId && (

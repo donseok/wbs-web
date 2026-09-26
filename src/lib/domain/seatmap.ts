@@ -1,9 +1,9 @@
 // 좌석표 조립 — IO 없음. 층=프로젝트, 구역=주문 항목의 부모 항목, 책상=주문(스펙 §5-1).
 import {
-  animFor, deriveSeatState, fnv1a32, inferPhase, isRejected, isWatcherAlive, lastSignalMs, pickCharacter,
+  animFor, deriveSeatState, fnv1a32, inferPhase, isDesignWait, isRejected, isWatcherAlive, lastSignalMs, pickCharacter,
   type AnimName, type CharacterName, type OrderStatus, type Phase, type SeatState,
 } from './seatState'
-import { deriveWaitReason, unmetDepends, type PredecessorLike, type WaitReason } from './waitReason'
+import { deriveWaitReason, designWaitReason, unmetDepends, type PredecessorLike, type WaitReason } from './waitReason'
 import {
   DEFAULT_BOTTLENECK, blockedSinceMs, bottleneckText, findBottlenecks, lastRefSegment, stubPendingByItem,
   type BlockedSuccessor, type BottleneckSettings, type StubPendingEntry,
@@ -85,7 +85,8 @@ export interface Seat {
   resumeRequestedAt: string | null
   /** 그 요청을 이어받아야 하는 PC. 그 워크트리가 있는 PC 만 실제로 복구할 수 있다. */
   resumeRequestedHost: string | null
-  /** READY(빈자리)만 값 — 왜 아직 안 집어갔는지(스펙 2026-09-14 착수 대기 사유 §1). 나머지 상태는 null. */
+  /** READY(빈자리)와 설계 완료·선행 대기(claimed ∧ wait_pred) 좌석만 값 — 왜 아직 안 집어갔는지·왜 멈췄는지
+   *  (스펙 2026-09-14 착수 대기 사유 §1, 2026-09-26 §6.4). 나머지 상태는 null. */
   waitReason: WaitReason | null
   /** 관리자이거나 이 항목의 서브트리 관리자 — 승인·중단 어포던스. 서버 가드
    *  requireSubtreeManagerOrAdmin(agent/subtreeManager.ts)과 같은 축이다. 재료가 없으면 false(fail-closed). */
@@ -110,6 +111,9 @@ export interface Seat {
   decisionCount?: number | null
   /** 무거운 작업(0106) — 긴 게이트 동안 PostToolUse heartbeat 가 없어도 팀장 lease 갱신이 알려 준다. 선택 필드(옛 픽스처). */
   heavy?: SeatHeavy | null
+  /** 설계 완료·선행 대기(claimed ∧ heartbeat wait_pred, 스펙 2026-09-26 §6.4). state 는 WAIT 지만 승인 대기가 아니다 —
+   *  레인·메타 줄·결재 버튼·사다리가 이 값으로 승인 대기와 가른다. 선택 필드(옛 픽스처 = false). */
+  designWait?: boolean
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher {
@@ -266,6 +270,7 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     agentMine: owner.mine, agentOwnerName: owner.name,
     stubPending: [],
     decisionCount: o.status === 'reported' ? (review?.decision_count ?? null) : null,
+    designWait: isDesignWait(input),
   }
 }
 
@@ -360,6 +365,10 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       })
       // 선행 대기는 빈자리가 아니다 — 올 사람이 정해져 있고 앞 작업만 기다린다. 실루엣으로 그린다(안 A).
       if (seat.waitReason?.kind === 'dependency') seat.anim = 'waiting'
+    } else if (item && isDesignWait({ status: o.status, heartbeatPhase: seat.heartbeatPhase })) {
+      // 설계 완료·선행 대기(스펙 2026-09-26 §6.4) — 점유 중이지만 선행을 기다리며 멈췄다. READY 의 선행 대기와 같이 그린다.
+      seat.waitReason = designWaitReason(item.depends ?? null, ref => predByKey.get(`${o.project_id}\u0000${ref}`), item.depends_waived ?? [])
+      seat.anim = 'waiting'
     }
     // DONE(최근 7일 승인분)도 구역에 남긴다 — 승인 취소·재작업 요청을 좌석에서 하려면 좌석이 있어야 한다(스튜디오 v7).
     // 평면도는 이 좌석을 그리지 않고 상태 레인의 "빈자리·완료" 레인만 그린다.

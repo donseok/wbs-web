@@ -6,7 +6,7 @@ import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
-import { STATE_LABEL, SeatMark, seatMetaLine } from './Seat'
+import { SeatMark, seatMetaLine, seatStateLabel } from './Seat'
 import { OwnerTag, ownerLabel } from './OwnerTag'
 import { DecisionChip } from './DecisionChip'
 import { IconFolded, IconStale, IconWait } from './icons'
@@ -23,6 +23,12 @@ const LANES: readonly LaneDef[] = [
 ]
 
 interface Entry { seat: Seat; floorName: string; zoneLabel: string }
+
+/** 좌석이 설 레인 — 설계 완료·선행 대기(designWait)는 WAIT 지만 결재할 것이 없어 READY 의 선행 대기 곁(빈자리·완료)에 선다. */
+function laneKeyOf(seat: Seat): string | undefined {
+  if (seat.designWait) return 'rest'
+  return LANES.find(l => l.states.includes(seat.state))?.key
+}
 
 function collect(map: Seatmap): Entry[] {
   const out: Entry[] = []
@@ -64,7 +70,7 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
   return (
     <div className={css.lanes} aria-label="상태별 좌석">
       {LANES.map(lane => {
-        const list = all.filter(e => lane.states.includes(e.seat.state))
+        const list = all.filter(e => laneKeyOf(e.seat) === lane.key)
         const Icon = lane.icon
         return (
           <section key={lane.key} className={css.lane} data-lane={lane.key} aria-label={lane.title}>
@@ -79,7 +85,7 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
                 data-selected={seat.orderId === selectedId ? '1' : undefined} data-owner={owner?.kind}>
                 <button type="button" className={css.deskPick}
                   aria-pressed={seat.orderId === selectedId}
-                  aria-label={`${seat.code} ${seat.name} ${STATE_LABEL[seat.state]}`}
+                  aria-label={`${seat.code} ${seat.name} ${seatStateLabel(seat)}`}
                   onClick={() => onSelect(seat.orderId)}>
                   <span className={css.cardTop}>
                     <Sprite character={seat.character} anim={seat.anim} />

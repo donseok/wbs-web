@@ -5,10 +5,10 @@
 export type AgentOrderStatus = 'ready' | 'claimed' | 'reported' | 'approved' | 'cancelled'
 export type AgentReportKind = 'progress' | 'completion'
 
-/** WBS Task 단계 순서(스펙 2026-09-15 §3.2) — fp 는 0096 에서 ip 로 이관됐다. */
-export const STAGE_ORDER = ['as', 'ip', 'im', 'xx'] as const
+/** WBS Task 단계 순서(스펙 2026-09-15 §3.2) — fp 는 0096 에서 ip 로 이관됐다. ds(설계 중)는 0107 에서 as 와 ip 사이. */
+export const STAGE_ORDER = ['as', 'ds', 'ip', 'im', 'xx'] as const
 
-/** "완료 도달"로 보는 단계 — §2.10 알림·선행 게이트 판정 축. */
+/** "완료 도달"로 보는 단계 — §2.10 알림·선행 게이트 판정 축. ds 는 도달이 아니다(설계만 끝난 선행은 후행을 풀지 않는다). */
 export const REACHED_STAGES: ReadonlySet<string> = new Set(['im', 'xx'])
 
 /**

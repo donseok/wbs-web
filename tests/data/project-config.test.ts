@@ -20,12 +20,13 @@ describe('getProjectConfig', () => {
     mocks.createServerClient.mockResolvedValue(client(null, { message: 'db down' }) as never)
     await expect(getProjectConfig('11111111-1111-4111-8111-111111111111')).rejects.toThrow('db down')
   })
-  it('stage_credits 를 stageCredits 로 싣고, 없으면 null(코드 기본값 사용)', async () => {
+  it('stage_credits 를 stageCredits 로 싣고(ds 가 없는 옛 표는 ds 기본값 10 을 채워), 없으면 null(코드 기본값 사용)', async () => {
     const credits = { default: { as: 0, ip: 20, rw: 40, im: 70, xx: 100 } }
     mocks.createServerClient.mockResolvedValue(client({
       level_labels: ['A'], max_depth: 1, extra_axis_label: null, milestone_keywords: [], excel_profile: {}, stage_credits: credits,
     }) as never)
-    expect((await getProjectConfig('11111111-1111-4111-8111-111111111111')).stageCredits).toEqual(credits)
+    expect((await getProjectConfig('11111111-1111-4111-8111-111111111111')).stageCredits)
+      .toEqual({ default: { as: 0, ds: 10, ip: 20, rw: 40, im: 70, xx: 100 } })
     mocks.createServerClient.mockResolvedValue(client({
       level_labels: ['A'], max_depth: 1, extra_axis_label: null, milestone_keywords: [], excel_profile: {}, stage_credits: null,
     }) as never)

@@ -120,7 +120,8 @@ export async function agentMemberRole(
 
 // 2.6: 완료 보고 decisions(과제 C). 2.7: heartbeat 의 팀장 merge_conflict 표시(2026-09-23 머지 충돌 설계 §7.2).
 // 2.8: 강제 진행 — depends_waived·stub_for(2026-09-23 강제 진행 설계).
-export const AGENT_CONTRACT_VERSION = '2.8'
+// 2.9: 설계 단계 ds — claim design_first·POST /work/{id}/build-start·heartbeat phase wait_pred(2026-09-26 설계 §6).
+export const AGENT_CONTRACT_VERSION = '2.9'
 
 export type AgentPrincipal =
   | { kind: 'legacy' }

@@ -120,7 +120,7 @@ describe('WbsAssigneeStagePanel', () => {
     await mount()
     const values = stageOptions().map(o => o.value)
     expect(values).not.toContain('todo')
-    expect(values).toEqual(['', 'as', 'ip', 'im', 'xx'])
+    expect(values).toEqual(['', 'as', 'ds', 'ip', 'im', 'xx'])
     const asOption = stageOptions().find(o => o.value === 'as')!
     expect(asOption.textContent).toBe('wbs.stageAs')
   })
@@ -287,10 +287,10 @@ describe('WbsAssigneeStagePanel', () => {
     expect(container.textContent).toContain('wbs.stageLeafOnlyHint')
   })
 
-  it('자식이 없으면 네 단계를 모두 고를 수 있다(fp 는 0096 에서 제거)', async () => {
+  it('자식이 없으면 다섯 단계를 모두 고를 수 있다(fp 는 0096 에서 제거, ds 는 0107 에서 추가)', async () => {
     await mount({ hasChildren: false })
     const select = [...container.querySelectorAll('select')].at(-1)!
-    expect([...select.options].map(o => o.value)).toEqual(['', 'as', 'ip', 'im', 'xx'])
+    expect([...select.options].map(o => o.value)).toEqual(['', 'as', 'ds', 'ip', 'im', 'xx'])
     expect(container.textContent).not.toContain('wbs.stageLeafOnlyHint')
   })
 

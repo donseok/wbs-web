@@ -32,7 +32,7 @@ type AssigneeStageResult = {
   skippedDelegated?: number
 }
 const STAGE_KEYS: Record<Stage, DictKey> = {
-  as: 'wbs.stageAs', ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
+  as: 'wbs.stageAs', ds: 'wbs.stageDs', ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
 }
 const STAGES: readonly Stage[] = STAGE_CODES
 

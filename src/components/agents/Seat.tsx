@@ -18,6 +18,12 @@ export const STATE_LABEL: Record<SeatState, string> = {
   WAIT: '승인 대기', READY: '빈자리', DONE: '머지 완료',
 }
 
+/** 좌석 상태 라벨 — 설계 완료·선행 대기(designWait)는 WAIT 지만 승인 대기가 아니다(스펙 2026-09-26 §6.4). */
+export const DESIGN_WAIT_LABEL = '선행 대기'
+export function seatStateLabel(seat: Pick<Seat, 'state' | 'designWait'>): string {
+  return seat.designWait ? DESIGN_WAIT_LABEL : STATE_LABEL[seat.state]
+}
+
 export function seatMetaLine(seat: Seat, nowMs: number): string {
   const who = seat.agent ?? '—'
   switch (seat.state) {
@@ -25,7 +31,7 @@ export function seatMetaLine(seat: Seat, nowMs: number): string {
     case 'STALE': return `${who} · 무응답 ${ageLabel(seat.lastSignalAt, nowMs)}`
     case 'OFFLINE': return `${seat.phase} 에서 끊김 · ${ageLabel(seat.lastSignalAt, nowMs)}`
     case 'BLOCKED': return `${who} · 결정 대기`
-    case 'WAIT': return '승인 대기'
+    case 'WAIT': return seat.designWait ? (seat.waitReason?.label ?? DESIGN_WAIT_LABEL) : '승인 대기'
     case 'READY': return seat.waitReason?.label ?? '미착수' // 짧은 라벨만 — 전문은 상세 패널(착수 대기 사유 스펙 §4)
     default: return '머지 완료'
   }
@@ -71,7 +77,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
         data-selected={selected ? '1' : undefined} data-owner={owner?.kind}>
         <button
           type="button" className={css.deskPick}
-          aria-pressed={selected} aria-label={`${seat.code} ${seat.name} ${STATE_LABEL[seat.state]}`}
+          aria-pressed={selected} aria-label={`${seat.code} ${seat.name} ${seatStateLabel(seat)}`}
           onClick={() => onSelect(seat.orderId)}
         >
           <span className={css.deskTop}>

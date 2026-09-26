@@ -8,6 +8,8 @@ import { notifySuccessorsOnReached } from '@/lib/agent/stageTransition'
  */
 export type WorkflowEvent =
   | 'assign' | 'unassign' | 'claim' | 'report_completion' | 'approve' | 'unapprove' | 'reject' | 'rework' | 'release' | 'set_stage'
+  /** 설계 끝 → 구현 시작(0107) — ds 일 때만 ip, ip 이상이면 무변경. 주문 status 는 claimed 그대로. */
+  | 'build_start'
 
 export type WorkflowEventArgs = {
   event: WorkflowEvent
@@ -15,8 +17,9 @@ export type WorkflowEventArgs = {
   /** assign·unassign·set_stage 필수. 주문 사건은 생략한다(주문의 wbs_item_id 를 쓴다). */
   itemId?: string | null
   orderId?: string | null
+  /** set_stage 의 목표 단계. claim 에서는 null(종전 ip) 또는 'ds'(설계 선행, 0107). */
   stage?: string | null
-  /** claim 은 기록, report_completion·release 는 점유자 일치 조건. 사람 사건은 null. */
+  /** claim 은 기록, report_completion·release·build_start 는 점유자 일치 조건. 사람 사건은 null. */
   agent?: string | null
   agentUserId?: string | null
 }

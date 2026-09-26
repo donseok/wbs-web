@@ -1,7 +1,7 @@
 // 좌석표 상태 판정 — IO 없음. 정본: docs/superpowers/specs/2026-09-14-agent-office-v1-design.md §2
 export type OrderStatus = 'ready' | 'claimed' | 'reported' | 'approved' | 'cancelled'
 export type SeatState = 'READY' | 'WAIT' | 'DONE' | 'BLOCKED' | 'OFFLINE' | 'STALE' | 'REJECTED' | 'ACTIVE'
-export type Phase = 'prepare' | 'design' | 'build' | 'verify' | 'refactor' | 'blocked' | 'rejected' | 'reported' | 'merge_conflict'
+export type Phase = 'prepare' | 'design' | 'build' | 'verify' | 'refactor' | 'blocked' | 'rejected' | 'reported' | 'merge_conflict' | 'wait_pred'
 export type AnimName =
   | 'typing' | 'design' | 'verify' | 'refactor' | 'stale'
   | 'idle_coffee' | 'idle_stretch' | 'idle_look' | 'blocked' | 'rejected' | 'empty'
@@ -12,8 +12,10 @@ export type AnimName =
 export type CharacterName = 'cat' | 'human_m' | 'human_f' | 'dog' | 'bot'
 
 /** prepare = /dflow-dev Phase 01(claim·브랜치·기준선) 중 — state.json 을 phase=prepare 로 쓰면 훅이 보낸다(2026-09-24).
- *  scaffold 가 만드는 ready 는 싣지 않는다: 주문 전 자리표라 받으면 남의 ready 주문으로 신호가 샌다. */
-export const HEARTBEAT_PHASES: readonly Phase[] = ['prepare', 'design', 'build', 'verify', 'refactor', 'blocked', 'rejected', 'reported']
+ *  scaffold 가 만드는 ready 는 싣지 않는다: 주문 전 자리표라 받으면 남의 ready 주문으로 신호가 샌다.
+ *  wait_pred = 설계 선행으로 설계를 끝냈고 선행을 기다리며 멈춘다(계약 2.9, 스펙 2026-09-26 §6.4) — 멈춘 뒤로 heartbeat 가
+ *  끊기므로 좌석은 침묵 시간과 무관하게 WAIT(선행 대기)로 본다. */
+export const HEARTBEAT_PHASES: readonly Phase[] = ['prepare', 'design', 'build', 'verify', 'refactor', 'blocked', 'rejected', 'reported', 'wait_pred']
 /** 팀장이 대리로 쏘는 표시 phase — reported·approved 주문에만 받는다(heartbeat 라우트). 워커 phase 와 섞지 않는다.
  *  정본: docs/superpowers/specs/2026-09-23-parallel-merge-conflict-design.md §7.2~7.3 */
 export const LEAD_PHASES: readonly Phase[] = ['merge_conflict']
@@ -51,11 +53,23 @@ export function isRejected(i: SeatInput): boolean {
   return i.status === 'claimed' && i.lastReview === 'reject'
 }
 
+/** 설계 완료·선행 대기 — 점유 중이고 마지막 heartbeat 가 wait_pred. 좌석은 WAIT 지만 승인 대기가 아니다. */
+export function isDesignWait(i: Pick<SeatInput, 'status' | 'heartbeatPhase'>): boolean {
+  return i.status === 'claimed' && i.heartbeatPhase === 'wait_pred'
+}
+
+/** 승인 대기 — WAIT 중 사람이 결재할 것(reported)만. 설계 완료·선행 대기(isDesignWait)는 WAIT 이지만 여기 들지 않는다. */
+export function isApprovalWait(i: Pick<SeatInput, 'status'>): boolean {
+  return i.status === 'reported'
+}
+
 export function deriveSeatState(i: SeatInput, nowMs: number): SeatState {
   if (i.status === 'ready') return 'READY'
   if (i.status === 'reported') return 'WAIT'
   if (i.status !== 'claimed') return 'DONE' // approved · cancelled — 화면은 cancelled 를 조회에서 뺀다
   if (i.heartbeatPhase === 'blocked') return 'BLOCKED'
+  // 설계 선행 뒤 선행 대기로 멈춘 주문 — 자동 회수가 없어 heartbeat 가 끊긴 채 남는다. 끊김으로 보이지 않게 침묵 판정보다 먼저.
+  if (isDesignWait(i)) return 'WAIT'
   const silence = nowMs - lastSignalMs(i)
   if (silence > OFFLINE_MS) return 'OFFLINE'
   if (silence > STALE_MS) return 'STALE'
