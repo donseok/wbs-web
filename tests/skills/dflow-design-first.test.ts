@@ -3,6 +3,7 @@
 // dflow.sh 를 가짜 curl 로 실제 실행해 claim --design-first·build-start·contract-ge 의 요청 본문·출력·exit 를 고정하고,
 // dflow-dev·dflow-team·dflow-merge 문서의 흐름 문구를 고정한다.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -221,7 +222,7 @@ describe('계약 문서·usage', () => {
 
 describe('/dflow-dev 「설계 선행」 흐름 문구', () => {
   const flat = (s: string) => s.replace(/\s*\n\s*/g, ' ')
-  const DEV = flat(read('.claude/skills/dflow-dev/SKILL.md'))
+  const DEV = flat(devAll())
   const WM = flat(read('.claude/skills/dflow-dev/references/worker-mode.md'))
   it('계약 2.9 이상이면 늘 --design-first 로 claim 하고, 너무 이른 선행은 재시도하지 않는다', () => {
     expect(DEV).toContain('`dflow.sh contract-ge 2.9` 가 exit 0 이면 늘 `dflow.sh claim <ref> --design-first` 다')

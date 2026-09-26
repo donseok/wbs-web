@@ -4,12 +4,13 @@
 // 컴파일 범위가 다르고 서로 기대지 않는 단위는 같은 워크트리에서 동시에 돈다. 병렬 단위는 git 에 쓰지 않고,
 // 커밋은 묶음이 끝난 뒤 오케스트레이터가 단위마다 한다(트레일러·재개 규칙은 그대로). 묶음 열이 없으면 종전 순차다.
 import { describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8')
-const SKILL = read('.claude/skills/dflow-dev/SKILL.md')
+const SKILL = devAll()
 const ref = (f: string) => read(join('.claude/skills/dflow-dev/references', f))
 const DESIGN = ref('phase-design.md')
 const BUILD = ref('phase-build.md')

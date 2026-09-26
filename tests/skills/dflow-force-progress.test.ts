@@ -1,5 +1,6 @@
 // 강제 진행 스킬 계약(스펙 2026-09-23 §3.3·§3.4·§4) — waived 간선은 로컬 도달 검사·행 G 에서 따로 다루고, 승격 관문은 stub-check.
 import { describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,7 +9,7 @@ import { join } from 'node:path'
 const ROOT = process.cwd()
 const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
 const sh = readFileSync(DFLOW, 'utf8')
-const dev = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
+const dev = devAll()
 const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
 const contract = readFileSync(join(ROOT, '.claude/skills/dflow-work/references/api-contract.md'), 'utf8')
 

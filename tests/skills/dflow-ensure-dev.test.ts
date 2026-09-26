@@ -1,5 +1,6 @@
 // 개발 브랜치가 원격에 없으면 운영 브랜치에서 만든다(2026-09-23 사용자 결정: "작업할때 없으면 만들어야지").
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -71,6 +72,6 @@ describe('문서', () => {
     expect(read('dflow-team/SKILL.md')).toContain('dflow.sh branch ensure-dev >/dev/null || bad "NO_REMOTE_DEV_BRANCH $base"')
   })
   it('dflow-dev Phase 01 은 시작 때 ensure-dev 를 부른다', () => {
-    expect(read('dflow-dev/SKILL.md')).toContain('dflow.sh branch ensure-dev')
+    expect(devAll()).toContain('dflow.sh branch ensure-dev')
   })
 })

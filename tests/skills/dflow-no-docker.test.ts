@@ -5,6 +5,7 @@
 // (dflow-dialect-check.test.ts), 도커 명령은 PC 전역 도커 슬롯(dflow-heavy-semaphore.test.ts). 정본은 dev-discipline.md
 // 「도커 사용 규칙」 하나이고, 다른 문서는 가리키기만 한다.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,7 +14,7 @@ import { stripWorkerBlocks, workerBlocks } from './_preserve'
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
 const DISC = read('.claude/skills/dflow-dev/references/dev-discipline.md')
-const DEV = read('.claude/skills/dflow-dev/SKILL.md')
+const DEV = devAll()
 const TEAM = read('.claude/skills/dflow-team/SKILL.md')
 const WORKER = read('.claude/skills/dflow-team/references/worker-prompt.md')
 const RESOLVE = read('.claude/skills/dflow-team/references/resolve-prompt.md')
@@ -131,7 +132,7 @@ describe('참조 문서는 정본을 가리키기만 한다', () => {
     expect(sec).toContain('`DOCKER` 값')
     expect(sec).toContain('`allow` 일 때만')
     expect(sec).toContain('dev-discipline.md 「도커 사용 규칙」')
-    expect(workerBlocks(DEV)).toHaveLength(8)
+    expect(workerBlocks(DEV)).toHaveLength(9) // 2026-09-26 분할: 안내 본문 「압축 뒤」 에 한 블록
   })
   it('worker-prompt: 변수표에 DOCKER(없으면 금지), 「10」 이 정본을 가리킨다', () => {
     expect(WORKER).toContain('| `{DOCKER}` | `DOCKER` |')

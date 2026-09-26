@@ -1,0 +1,28 @@
+# 분할 전 SKILL.md(dflow-dev.SKILL.presplit.md) 줄 범위 -> 옮겨 간 파일(.claude/skills/dflow-dev/ 기준)
+# 설계: docs/superpowers/specs/2026-09-26-dflow-dev-skill-router-design.md §8-2
+1-92 SKILL.md
+93-100 references/orch/claim.md
+101-101 SKILL.md
+102-142 references/orch/sweep.md
+143-166 references/orch/start.md
+167-176 references/orch/rework.md
+177-180 references/orch/start.md
+181-245 references/orch/base.md
+246-288 references/orch/claim.md
+289-311 references/orch/baseline.md
+312-330 references/orch/design-first.md
+331-340 references/orch/design.md
+341-379 references/orch/design-first.md
+380-387 references/orch/phase-common.md
+388-447 references/orch/build.md
+448-467 references/orch/verify.md
+468-501 references/orch/phase-common.md
+502-509 references/orch/design.md
+510-518 references/orch/build.md
+519-525 references/orch/verify.md
+526-530 references/orch/phase-common.md
+531-534 references/orch/verify.md
+535-571 references/orch/phase-common.md
+572-576 references/orch/refactor.md
+577-601 references/orch/close.md
+602-622 SKILL.md

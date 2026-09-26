@@ -1,5 +1,6 @@
 // 스킬 문서의 작업 폴더를 <DOCS_DIR>/tasks 로 통일(docs/superpowers/specs/2026-09-23-dflow-task-scaffold-design.md §6).
 import { describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -9,6 +10,8 @@ describe('스킬 문서의 작업 폴더', () => {
   const FILES = ['dflow-dev', 'dflow-merge', 'dflow-team', 'dflow-work'].flatMap((d) => [
     `${d}/SKILL.md`,
     ...(existsSync(join(process.cwd(), '.claude/skills', d, 'references')) ? readdirSync(join(process.cwd(), '.claude/skills', d, 'references')).filter((f) => f.endsWith('.md')).map((f) => `${d}/references/${f}`) : []),
+    // dflow-dev 단계 파일(2026-09-26 분할)
+    ...(existsSync(join(process.cwd(), '.claude/skills', d, 'references/orch')) ? readdirSync(join(process.cwd(), '.claude/skills', d, 'references/orch')).filter((f) => f.endsWith('.md')).map((f) => `${d}/references/orch/${f}`) : []),
   ]).concat(['dflow-work/README.md'])
     // 원래 검사 밖이던 문서 셋은 옛 dflow.sh 호환 폴백(`echo docs/tasks`)과 예시로 이 경로를 적는다
     .filter((f) => !['dflow-team/references/merge-conflict.md', 'dflow-team/references/restart.md', 'dflow-team/references/resolve-prompt.md'].includes(f))
@@ -18,14 +21,14 @@ describe('스킬 문서의 작업 폴더', () => {
   })
   it('dflow-dev·dflow-merge·dflow-team 이 <TASKS> 를 정의한다', () => {
     for (const f of ['dflow-dev/SKILL.md', 'dflow-merge/SKILL.md', 'dflow-team/SKILL.md'])
-      expect(read(f), f).toContain('작업 폴더 `<TASKS>` 는 `<DOCS_DIR>/tasks` 다')
+      expect(f === 'dflow-dev/SKILL.md' ? devAll() : read(f), f).toContain('작업 폴더 `<TASKS>` 는 `<DOCS_DIR>/tasks` 다')
   })
   it('팀장 exclude 패턴과 backends 필터가 DOCS_DIR 을 덮는다', () => {
     expect(read('dflow-team/SKILL.md')).toContain("'**/tasks/*/.result' '**/tasks/*/.issues'")
     expect(read('dflow-team/references/backends.md')).not.toContain('docs/tasks/<TSK>/(spec')
   })
   it('dflow-dev 가 ready 단일 파일을 격리 예외로 둔다', () => {
-    const t = read('dflow-dev/SKILL.md')
+    const t = devAll()
     expect(t).toContain('`state.json` 하나만 있고 `phase=ready`')
     expect(t).toMatch(/`phase` 값: `ready`·`design`/)
   })
@@ -152,6 +155,8 @@ describe('들여쓴 bash 블록의 붙여넣기 안전성', () => {
   const FILES = ['dflow-dev', 'dflow-merge', 'dflow-team', 'dflow-work'].flatMap((d) => [
     `${d}/SKILL.md`,
     ...(existsSync(join(process.cwd(), '.claude/skills', d, 'references')) ? readdirSync(join(process.cwd(), '.claude/skills', d, 'references')).filter((f) => f.endsWith('.md')).map((f) => `${d}/references/${f}`) : []),
+    // dflow-dev 단계 파일(2026-09-26 분할)
+    ...(existsSync(join(process.cwd(), '.claude/skills', d, 'references/orch')) ? readdirSync(join(process.cwd(), '.claude/skills', d, 'references/orch')).filter((f) => f.endsWith('.md')).map((f) => `${d}/references/orch/${f}`) : []),
   ]).concat(['dflow-work/README.md'])
     // 원래 검사 밖이던 문서 셋은 옛 dflow.sh 호환 폴백(`echo docs/tasks`)과 예시로 이 경로를 적는다
     .filter((f) => !['dflow-team/references/merge-conflict.md', 'dflow-team/references/restart.md', 'dflow-team/references/resolve-prompt.md'].includes(f))

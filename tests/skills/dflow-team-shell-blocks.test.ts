@@ -20,7 +20,11 @@ const DOCS = [
   '.claude/skills/dflow-team/references/resume.md',
   '.claude/skills/dflow-team/references/closing.md',
   '.claude/skills/dflow-team/references/second-lead.md',
-  '.claude/skills/dflow-dev/SKILL.md',
+  // dflow-dev 는 2026-09-26 분할로 셸 블록이 단계 파일에 있다(안내 본문에는 없다)
+  '.claude/skills/dflow-dev/references/orch/sweep.md',
+  '.claude/skills/dflow-dev/references/orch/claim.md',
+  '.claude/skills/dflow-dev/references/orch/baseline.md',
+  '.claude/skills/dflow-dev/references/orch/design-first.md',
   '.claude/skills/dflow-dev/references/worker-mode.md',
   '.claude/skills/dflow-merge/SKILL.md',
 ]

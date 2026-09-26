@@ -1,13 +1,14 @@
 // tests/skills/worker-decide-and-notify.test.ts
 // 팀원은 판단 분기마다 멈추지 않고 "합리적으로 고르고 나중에 알린다"(2026-09-19 사용자 지시).
 import { describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const prompt = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/worker-prompt.md'), 'utf8')
 // 「--worker」 행 D 는 references/worker-mode.md 로 옮겼다
-const dev = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8') + '\n' + readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
+const dev = devAll() + '\n' + readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
 
 describe('워커 판단 규칙: 골라서 진행하고 기록한다', () => {
   it('기본값이 없어도 멈추지 않고 design.md 고정 절에 다섯 항목을 남긴다', () => {

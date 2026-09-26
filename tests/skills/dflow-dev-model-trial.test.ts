@@ -6,6 +6,7 @@
 // 3) sonnet Build 실패 시 opus 승급(게이트 재시도·단위 막힘 — 횟수는 늘리지 않는다)
 // 이유·수치의 정본은 .claude/skills/dflow-dev/references/rationale.md 「advisor 호출 정책·Build 모델 시험·opus 승급(2026-09-26)」.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -15,7 +16,7 @@ const ROOT = process.cwd()
 const SK = (p: string) => readFileSync(join(ROOT, '.claude/skills', p), 'utf8')
 const flat = (s: string) => s.replace(/\s+/g, ' ')
 const between = (text: string, start: string, end: string) => text.split(start)[1]?.split(end)[0] ?? ''
-const SKILL = SK('dflow-dev/SKILL.md')
+const SKILL = devAll()
 const DISC = SK('dflow-dev/references/dev-discipline.md')
 const PROMPT = SK('dflow-dev/references/phase-prompt.md')
 const BUILD = SK('dflow-dev/references/phase-build.md')

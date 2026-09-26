@@ -5,12 +5,13 @@
 // 이 파일은 그 개정(Verify 모델 sonnet, 워커 Refactor 생략, Gradle 은 단일 테스트도 heavy, Build 게이트 재시도,
 // 변이 검증 Build 일원화·Verify 는 감사)의 문구를 dflow-dev SKILL.md 와 dev-discipline.md 에 고정한다.
 import { describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { workerBlocks } from './_preserve'
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
-const SKILL = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
+const SKILL = devAll()
 const DISC = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 // Phase 규율은 Phase 파일로 나뉘었다(서브에이전트는 자기 파일만 읽는다). 줄바꿈 위치는 보지 않는다(flat).
 const ref = (f: string) => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references', f), 'utf8')

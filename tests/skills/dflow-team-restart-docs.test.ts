@@ -1,9 +1,10 @@
 // 자동 재시작 안내와 중단 표식 정리 주체(G3) 문장(스펙 §3 G3·§11).
 import { describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { readFileSync } from 'node:fs'
 
 const HELP = readFileSync('.claude/skills/dflow-team/references/help.md', 'utf8')
-const DEV = readFileSync('.claude/skills/dflow-dev/SKILL.md', 'utf8')
+const DEV = devAll()
 const KIT = readFileSync('kit/README.md', 'utf8')
 const HOOK = readFileSync('kit/hooks/heartbeat.sh', 'utf8')
 

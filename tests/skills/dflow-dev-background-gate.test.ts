@@ -7,11 +7,12 @@
 // dflow-dev/SKILL.md(Phase 서브에이전트 공통 프롬프트·오케스트레이터 규칙)와 dflow-team/SKILL.md(팀장의
 // TICK 무응답 점검)에 넣은 문구를 고정한다.
 import { describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
-const dflowDev = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
+const dflowDev = () => devAll()
 const dflowTeam = () => readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 const devDiscipline = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 // 서브에이전트에게 주는 문구는 phase-prompt.md 템플릿으로 옮겼다(줄바꿈 위치는 보지 않는다)

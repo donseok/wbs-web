@@ -2,6 +2,7 @@
 // 링크드 워크트리 팀장(같은 리포에서 다른 신원의 두 번째 /dflow-team)과 팀원 의존성 캐시.
 // 문서 계약만이 아니라 실제 git 샌드박스(가짜 origin)에서 명령을 돌려 동작을 확인한다.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -10,7 +11,7 @@ import { join } from 'node:path'
 const ROOT = process.cwd()
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-worktree.md'), 'utf8')
-const DEV = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
+const DEV = devAll()
 const LEAD_WT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-worktree.sh')
 const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.sh')
 const LIVE_LEADS = join(ROOT, '.claude/skills/dflow-team/scripts/live-leads.sh')

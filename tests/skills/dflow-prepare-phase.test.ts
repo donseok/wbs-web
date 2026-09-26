@@ -1,11 +1,12 @@
 // Phase 01 준비 단계(prepare, 2026-09-24) — 스킬(state.json 쓰기)·훅(보내는 값)·서버(받는 값)가 같은 이름을 쓰는지 본다.
 // 계기: dmes-standard 착수분이 Phase 01 기준선 동안 state.json phase=ready 라 훅이 5분 넘게 한 번도 보내지 않았다.
 import { describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { readFileSync } from 'node:fs'
 import { HEARTBEAT_PHASES } from '@/lib/domain/seatState'
 import { stripWorkerBlocks } from './_preserve'
 
-const skill = stripWorkerBlocks(readFileSync('.claude/skills/dflow-dev/SKILL.md', 'utf8'))
+const skill = stripWorkerBlocks(devAll())
 const hook = readFileSync('kit/hooks/heartbeat.sh', 'utf8')
 const between = (text: string, start: string, end: string) => text.split(start)[1]?.split(end)[0] ?? ''
 

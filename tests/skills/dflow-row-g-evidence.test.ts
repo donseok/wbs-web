@@ -2,12 +2,13 @@
 // 2026-09-22 결함 고정: /dflow-dev 「--worker」 행 G 의 기본 브랜치 반영 확인이 트레일러 하나에만 기대던 것을
 // head_sha 조상 확인 · 트레일러 · 머지 커밋 제목 세 증거로 넓히고, 트레일러 부착을 커밋 규칙으로 못 박은 변경.
 import { describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
 // 「--worker」 행 A~I 는 references/worker-mode.md 로 옮겼다(SKILL.md 에는 그 파일을 가리키는 머리 절만 있다)
-const dev = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8') + '\n' + readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
+const dev = devAll() + '\n' + readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
 // 판정 이력(실측 사례)은 실행체 머리 주석으로 옮겼다
 const predScript = readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/pred-reflected.sh'), 'utf8')
 const discipline = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')

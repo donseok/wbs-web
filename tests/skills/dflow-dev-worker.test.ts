@@ -1,5 +1,6 @@
 // tests/skills/dflow-dev-worker.test.ts
 import { describe, expect, it } from 'vitest'
+import { devAll, devFiles, devRouter } from './_dflow-dev'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { dropRanges, firstLostLine, parseFixture, stripWorkerBlocks, workerBlocks } from './_preserve'
@@ -14,7 +15,10 @@ import { dropRanges, firstLostLine, parseFixture, stripWorkerBlocks, workerBlock
 //    원문 줄을 CHANGED 에 이유 주석과 함께 더하고 스펙 §6-1 수정 목록도 갱신해 변경을 기록한다.
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
-const skill = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
+const skill = devAll()
+// 분할(2026-09-26) 뒤 원문 보존은 두 단계로 본다: 옛 원문 → 분할 전 SKILL.md(presplit fixture, 이 파일)와
+// 분할 전 SKILL.md → 안내 본문·단계 파일(이동 지도, dflow-dev-split.test.ts).
+const presplit = readFileSync(join(ROOT, 'tests/skills/fixtures/dflow-dev.SKILL.presplit.md'), 'utf8')
 const fixture = parseFixture(readFileSync(join(ROOT, 'tests/skills/fixtures/dflow-dev.SKILL.orig.md'), 'utf8'))
 const orig = fixture.text
 const manual = stripWorkerBlocks(skill)
@@ -87,7 +91,7 @@ const CHANGED_RANGES = [
 
 describe('/dflow-dev 원문 보존(스펙 §6-1)', () => {
   it('CHANGED 와 CHANGED_RANGES 밖의 원문 줄은 표지 블록을 뺀 본문에 같은 순서로 남아 있다', () => {
-    expect(firstLostLine(dropRanges(orig, CHANGED_RANGES), manual, CHANGED)).toBeNull()
+    expect(firstLostLine(dropRanges(orig, CHANGED_RANGES), stripWorkerBlocks(presplit), CHANGED)).toBeNull()
   })
 
   it('CHANGED 줄과 범위 경계 줄은 fixture 에 정확히 한 번씩 있다(fixture 가 낡지 않았다)', () => {
@@ -101,9 +105,10 @@ describe('/dflow-dev 원문 보존(스펙 §6-1)', () => {
   })
 
   it('description 사용법과 표지 블록 밖에는 --worker 가 없다', () => {
+    for (const [name, text] of Object.entries(devFiles())) expect(stripWorkerBlocks(text), name).not.toContain('--worker')
     const fm = skill.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
     expect(fm).not.toContain('--worker')
-    expect(manual).not.toContain('--worker')
+    expect(manual.replace(/^---\n[\s\S]*?\n---/, '')).not.toContain('--worker')
   })
 })
 
@@ -170,7 +175,7 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
   })
 
   it('Phase 5 4번: reported 를 커밋·push 하고 안내 문구가 실제 반영 경로와 맞는다', () => {
-    const p5 = between(manual, '## Phase 06', '## --only 옵션')
+    const p5 = between(manual, '## Phase 06', '**다음 단계**')
     expect(p5).toContain('그 파일을 파일명을 명시해 커밋한 뒤 `git push origin <agent 브랜치>` 한다')
     expect(p5).toContain('"승인 대기로 보고했습니다"')
     expect(p5).toContain('둘 다 원격 agent 브랜치까지 본다')
@@ -179,15 +184,17 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
 })
 
 describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
+  // devAll() 순서: 안내 본문(SKILL.md) → 단계 파일(sweep·start·…·close). 안내 본문의 블록 셋이 먼저 온다.
   const EXPECTED: { prev?: string; next?: string; tag: string }[] = [
     { prev: '인자: `$ARGUMENTS` (`<순번|TSK-ID>` + 옵션)', tag: '팀장 전용' },
+    { prev: '뒤 진행한다. 압축 요약의 기억으로 단계 절차를 대신하지 않는다.', tag: '`references/worker-mode.md` 도 다시 읽는다' },
+    { next: '## --only 옵션', tag: '## --worker 팀원 모드 (팀장 전용)' },
     { prev: '## Phase 01-가 — 승인 스윕(머지, 오케스트레이터 본인)', tag: '「--worker」 A' },
     { prev: '   작업이라 스윕이 못 봤을 수 있다 — 그 경우 지금 즉시 같은 머지 절차를 이 ref 하나로 실행 후 종료).', tag: '「--worker」 C' },
     { prev: '       있다). 머지 후 이어서 진행.', tag: '「--worker」 B' },
     { prev: '          남긴다** — 서버가 못 막는 우회를 스킬이 최소한 드러낸다.', tag: '「--worker」 G' },
     { prev: '   `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.', tag: '「--worker」 H' },
     { prev: '기본 브랜치 반영 확인이 이 트레일러를 증거로 쓴다.', tag: '「--worker」 E' },
-    { next: '## --only 옵션', tag: '## --worker 팀원 모드 (팀장 전용)' },
   ]
   // 마지막 표지 블록은 이제 worker-mode.md 를 가리키는 머리 절이다. 행 A~I 본문은 그 파일에 있다
   const section = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
@@ -195,11 +202,12 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
   it('첫 표지 블록이 worker-mode.md 를 지금 읽게 하고, 마지막 표지 블록은 같은 이름의 머리 절로 그 파일을 가리킨다', () => {
     const blocks = workerBlocks(skill)
     expect(blocks[0].body).toContain('**지금 `.claude/skills/dflow-dev/references/worker-mode.md` 를 Read 한다**')
-    expect(blocks.at(-1)?.body).toContain('## --worker 팀원 모드 (팀장 전용)')
-    expect(blocks.at(-1)?.body).toContain('`.claude/skills/dflow-dev/references/worker-mode.md`')
+    const last = workerBlocks(devRouter()).at(-1)
+    expect(last?.body).toContain('## --worker 팀원 모드 (팀장 전용)')
+    expect(last?.body).toContain('`.claude/skills/dflow-dev/references/worker-mode.md`')
   })
 
-  it('표지는 짝이 맞고 여덟 블록이 정한 자리에 정한 순서로 있다', () => {
+  it('표지는 짝이 맞고 아홉 블록이 정한 자리에 정한 순서로 있다', () => {
     const blocks = workerBlocks(skill)
     expect(blocks).toHaveLength(EXPECTED.length)
     EXPECTED.forEach((e, i) => {
@@ -239,7 +247,8 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
     expect(deps).toContain('yarn install --frozen-lockfile')
     expect(sec).toContain('failed deps')
     const h = workerBlocks(skill).find((b) => b.body.includes('「--worker」 H'))
-    expect(h?.next).toBe('4. **게이트 기준선 기록**: dev-discipline 의 기준선 절차 실행, state.json 에 저장(`api_base` 가 아직 없으면 함께 기록한다. 상태 모델).')
+    // 설치 뒤 곧바로 기준선 단계(orch/baseline.md 4번)로 간다
+    expect(h?.next).toContain('`orch/baseline.md`')
   })
 
   it('--worker 절은 기본 브랜치를 switch 하지 않는다', () => {

@@ -2,6 +2,7 @@
 // 게이트 기준선 캐시(.claude/skills/dflow-dev/scripts/baseline.sh). 같은 기점·같은 명령의 기준선을 팀원마다 다시 재지
 // 않는다(2026-09-24 dmes-standard: 팀원 셋이 같은 testAll 기준선을 각자 몇 분씩 돌렸다). 실제 git 샌드박스에서 돌린다.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { devAll } from './_dflow-dev'
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
@@ -9,7 +10,7 @@ import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const BASELINE = join(ROOT, '.claude/skills/dflow-dev/scripts/baseline.sh')
-const DEV = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
+const DEV = devAll()
 const DISCIPLINE = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 
 const GIT_ENV = {
