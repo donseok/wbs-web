@@ -104,8 +104,9 @@ Skill 도구가 `dflow-dev` 를 모르면 `.claude/skills/dflow-dev/SKILL.md` �
 
 ## 5. 서버 쓰기 범위
 
-`{ID8}` 외의 어떤 주문에도 claim·progress·release·done 을 하지 않는다. `list` 는 호출하지 않는다. 필요한
-조회는 `show {ID8}` 뿐이다(목록 캐시를 같은 머신의 팀장·팀원이 공유한다).
+`{ID8}` 외의 어떤 주문에도 claim·build-start·progress·heartbeat·release·done 을 하지 않는다. `list` 는 호출하지 않는다. 필요한
+조회는 `show {ID8}` 뿐이다(목록 캐시를 같은 머신의 팀장·팀원이 공유한다). `contract-ge` 는 `/me` 만 읽으므로 부를 수 있다.
+설계 선행(계약 2.9)의 `claim {ID8} --design-first`·`build-start {ID8}`·`heartbeat {ID8} --phase wait_pred` 는 이 범위 안이다.
 
 ## 6. 판단 규칙 (자동 모드)
 
@@ -165,7 +166,8 @@ Skill 도구가 `dflow-dev` 를 모르면 `.claude/skills/dflow-dev/SKILL.md` �
 | status | 언제 | 사유 |
 |---|---|---|
 | `done` | Phase 06 까지 마치고 `done --auto-links --decisions …` 가 exit 0 | 한 줄 요약. 6번의 확인 필요 결정이 있으면 끝에 `(결정 N건)` |
-| `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재` 중 하나 |
+| `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재` 중 하나. 설계 선행 claim 이 `DESIGN_FIRST_TOO_EARLY` 로 거부되면 `선행 미충족(설계 선행 불가: <ref…>)`(`<ref…>` 는 거부 본문 `unmet` 의 `external_ref` 를 공백으로 이은 것) |
+| `design_waiting` | 설계를 마치고 선행을 기다리며 멈춤(`/dflow-dev` 「설계 선행」 멈춤 절차 — design.md 커밋·state.json `wait_pred`·push·heartbeat `wait_pred` 뒤). 팀장은 실패로 보지 않고 워크트리를 남긴 채 좌석만 비운다 | 미충족 선행 ref 를 공백으로 이은 것. 재개했는데 기점을 정하지 못했으면 그 판정(예 `선행 승인 대기 <ref>`) |
 | `needs-merge` | 재개 판정이 approved(`/dflow-dev` 「--worker」 C) | `approved` |
 | `blocked` | 6번 판단 규칙(되돌리기 어려운 결정만) | 질문과 선택지 |
 | `cancelled` | 사람이 D'Flow 에서 이 작업을 중단했다. `dflow.sh` 의 progress·heartbeat·done 이 exit 10 이거나, heartbeat 훅이 세션을 세웠다(`/dflow-dev` 상태 모델) | 멈춘 Phase 와 호출(예 `build progress exit 10`). 산출물은 로컬 커밋만 하고 **push 하지 않는다** |

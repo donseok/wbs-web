@@ -24,7 +24,9 @@ describe('SKILL.md — 포인터 절과 바뀐 문구', () => {
     expect(readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')).toContain('컨텍스트 압축 뒤에도 그때 다시 읽는다')
   })
   it('최종 판정 목록 두 곳에 resolved 가 있다', () => {
-    expect(TEAM.split('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`)').length - 1).toBe(2)
+    // 설계 선행(2026-09-26): "살아 있는 팀원" 의 목록에는 design_waiting 이 뒤에 붙는다(재개 가능 목록은 그대로)
+    expect(TEAM.split('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`').length - 1).toBe(2)
+    expect(TEAM).toContain('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`)을 받지 않은 팀원이다')
   })
   it('spawn 우선순위: 재개 → 해소 → 대기 큐', () => {
     expect(TEAM).toContain('**재개 대상을 먼저**(「5-1. 재개 spawn」), 그 다음 **해소 큐**(「5-2. 해소 spawn」), 그 다음 대기 큐')

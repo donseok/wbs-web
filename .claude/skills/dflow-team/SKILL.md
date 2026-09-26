@@ -39,6 +39,7 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 | `references/worker-prompt.md` | 팀장은 읽지 않는다(팀원 규칙. 포인터로 넘기기만 한다) |
 | `references/resume.md` | 재개 spawn(「5-1」) 때 |
 | `references/restart.md` | TICK 판정·결과 줄 없는 `PANE_DEAD`·재투입·rate-limit 대기·중단 표식 정리 때 |
+| `references/design-ahead.md` | 빈 슬롯에 선행 대기 작업을 설계 선행으로 줄 때, `design_waiting` 결과·설계 완료 대기 워크트리(고아 스캔 0번)를 다룰 때 |
 | `references/merge-conflict.md` | 머지 충돌 접수·해소 spawn·해소 결과·사람 머지 감지 때 |
 | `references/issues.md` | 팀원의 SendMessage 이슈 보고가 도착했을 때(「2-4」) |
 | `references/closing.md` | 「7. 마감」 에 들어설 때(잠금 상실·lease 상실 마감 포함) |
@@ -241,7 +242,7 @@ done
   `merge-conflict.md` 「0」). 결과는 `references/merge-conflict.md` 「4. 해소 결과 처리」 표로 처리하고, 고아 스캔에서는
   backends.md 「고아 정리 규칙」 2-1번으로 가르며 "재개 가능" 으로 보내지 않는다. 워커 자동 재시작(H)의 대상도 아니다.
 - `team.result`·`team.blocked` 로 이미 판정한 작업, 제외 목록(`skipped` 는 일시, `failed`·`failed no-result`·
-  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit` 은 제외
+  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit`·`design_waiting` 은 제외
   없음), 차단기 상태(끝에서부터 연속한 `failed…` 수. `failed not-assignee`·`cancelled`·해소 워커의 내용 실패(`references/merge-conflict.md` 「6. 차단기」)는 세지도 끊지도 않고 건너뛴다. `team.lost` 는 `cause` 와 무관하게 실패 1건으로 센다. 단 `next=wait` 인 `team.lost` 는 세지도 끊지도 않는다), 결과 줄 경로별 마지막 처리 해시(경로는
   `<worktree>/<TASKS>/<tsk>/.result`)를 복원한다.
 - 단 사유가 `선행 미충족(사전 검사:` 로 시작하는 `skipped` 는 일시 제외가 아니라 **선행 대기**다. 선행 대기 목록은
@@ -262,7 +263,7 @@ done
 - 살아 있는 팀원의 워크트리는 그 `.dflow-agent` 슬롯 번호로 슬롯 표에 흡수한다. 그 안에 `.result` 가 있으면
   처리 여부를 해시로 가린 뒤 처리한다(「3. 결과 처리」).
 - 새로 줄 슬롯 번호는 흡수한 번호를 뺀 1..N 중 가장 작은 것이다(같은 `AGENT_ID` 를 다시 발급하지 않는다).
-- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`)을 받지 않은 팀원이다.
+- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`)을 받지 않은 팀원이다.
   화면이 떠 있는지로 판단하지 않는다. Orca 는 `.dflow-agent` 가 `w<slot>` 인 워크트리 중 최종 status 의
   `.result` 가 없는 것이며, tmux 는 거기에 더해 정본 표의 생존 칸이 `alive` 여야 한다. `blocked` 는 최종
   판정이 아니므로 그 팀원은 두 백엔드 모두 살아 있다. 실제로 죽은 Orca 팀원은 무응답 규칙(「3. 결과 처리」)이
@@ -280,6 +281,8 @@ done
 - **고아 스캔**: 값이 `<신원>/<host>/` 로 시작하는 `.dflow-agent` 워크트리(`parked` 포함) 중 살아 있는 팀원이
   없는 것을 **정리 가능·재개 가능·멈춤** 셋으로 가른다. 판정 순서는 정리 → 재개 → 멈춤이며, 앞의 갈래에
   걸리지 않은 것이 뒤로 간다.
+  0. **설계 완료 대기**: `<TASKS>/*/state.json` 이 `phase=wait_pred` 면 정리·멈춤으로 보내지 않는다. `references/design-ahead.md`
+     2번(재개 판정)을 통과할 때만 2번으로 보내고, 아니면 그대로 둔다(재시작·재개 후보가 아니다).
   1. **정리 가능**: backends.md 「고아 정리 규칙」 대로 깨끗하고(미커밋 변경 없음) HEAD 가 `origin/<그 브랜치>`
      와 같다. 그 규칙대로 지운다.
   2. **재개 가능**: 아래가 모두 참이다. 「5-1. 재개 spawn」 의 대상이며 `.dflow-agent` 를 `parked` 로 바꾸지
@@ -729,6 +732,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
    않은 `--resume` 지목분이다. 재시작 대기 목록(`references/restart.md` 「이벤트로 본 상태」 의 `RESTART_DUE`)도 재개 대상이며
    재투입 전 확인(`REINJECT_OK`)을 통과할 때만 띄운다. 재시작 대기는
    새 작업보다 먼저다. rate-limit 보류 중에는 재개·새 작업 모두 띄우지 않는다(`RL_DUE` 슬롯 자신의 재투입만 예외).
+   그러고도 빈 슬롯이 남으면 선행 대기 작업을 **설계 선행**으로 준다(`references/design-ahead.md` 3번, `DFLOW_DESIGN_AHEAD_MAX`).
 5. 끝나 있는 감시 루프를 다시 띄우고(`--may-skip` 은 「2-2」 의 조건일 때만), 재기동 조건(「2-1」)을 만족하면 poll.sh 를 다시 띄운다. 컨텍스트 압축 뒤
    poll 이 떠 있는지 모르면 재기동 조건에 따라 새로 띄운다. poll 이 겹쳐 떠도 poll exit 0 처리의 대조와 spawn 전
    확인(「5. 팀원 spawn」 1번)이 같은 작업을 두 번 띄우지 않게 막는다.
@@ -860,7 +864,7 @@ restart.md 는 이것을 가리킨다. 터미널 핸들이 없는 옛 Orca 런�
 커밋하지 않는다(「1. 시작」 exclude 의 `/docs/dflow-team/`).
 - 재료는 둘이다. 하나는 워커가 쓴 `<워크트리>/<TASKS>/<TSK>/.issues`(worker-prompt.md 「7-1」, 줄마다
   `<phase>\t<분류>\t<내용>`)이고, 다른 하나는 `done` 이 아닌 결과의 사유(결과 줄 7번째 칸부터)다.
-- `done`·`needs-merge` 이고 `.issues` 가 없거나 비었으면 붙이지 않는다. 그 밖의 status 는 `.issues` 가 없어도
+- `done`·`needs-merge`·`design_waiting` 이고 `.issues` 가 없거나 비었으면 붙이지 않는다. 그 밖의 status 는 `.issues` 가 없어도
   사유 한 줄로 항목을 만든다.
 - `failed no-result` 는 사유 대신 `pane_dead_status` 와 화면 마지막 20줄(tmux `capture-pane -p -J -S - | tail -n
   20`, Orca `orca terminal read`)을 코드 블록으로 붙인다. 화면을 읽지 못하면 `화면 없음` 한 줄을 쓴다.
@@ -868,11 +872,11 @@ restart.md 는 이것을 가리킨다. 터미널 핸들이 없는 옛 Orca 런�
 ```bash
 f='<MAIN>/docs/dflow-team/issues.md'; i='<워크트리>/<TASKS>/<TSK>/.issues'; st='<status>'
 reason=$(head -n 1 "$(dirname "$i")/.result" 2>/dev/null | cut -d' ' -f7-)
-if [ -s "$i" ] || { [ "$st" != done ] && [ "$st" != needs-merge ]; }; then
+if [ -s "$i" ] || { [ "$st" != done ] && [ "$st" != needs-merge ] && [ "$st" != design_waiting ]; }; then
   mkdir -p "$(dirname "$f")"
   [ -s "$f" ] || printf '# /dflow-team 문제 기록\n\n팀원이 보고한 에러·문제점. 스킬·환경 개선 재료이며 커밋하지 않는다.\n' > "$f"
   { printf '\n### %s · <TSK> (<id8>) · %s\n\n' "$(date '+%Y-%m-%d %H:%M')" "$st"
-    [ "$st" = done ] || [ "$st" = needs-merge ] || printf -- '- 결과 사유: %s\n' "$reason"
+    [ "$st" = done ] || [ "$st" = needs-merge ] || [ "$st" = design_waiting ] || printf -- '- 결과 사유: %s\n' "$reason"
     [ -s "$i" ] && awk -F'\t' 'NF{c=$2;p=$1;sub(/^[^\t]*\t[^\t]*\t/,"");printf "- [%s] %s: %s\n",c,p,$0}' "$i"
   } >> "$f" || echo ISSUE_LOG_FAIL
 fi
@@ -891,6 +895,7 @@ Bash 호출의 변수는 남지 않는다). `.result` 가 없으면(`failed no-r
 | `done` | 해제 | 없음 | 「고아 정리 규칙」 2번(미커밋 변경 없음, HEAD 가 `origin/<agent 브랜치>` 와 같거나 그 머지가 이미 기본 브랜치의 조상임)을 맞추면 그 자리에서 정리한다. 아니면 3번대로 경로와 미커밋 목록을 보고하고 남기며 `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼다 | 자동 머지(`AUTOMERGE_ON`)면 **먼저 승인 스윕을 곧바로 한다**(이 기상의 스윕 1회(「4-0」)를 spawn 보다 먼저 한다는 뜻이다. 방금 끝난 작업이 기본 브랜치에 들어가야 후속이 착수한다). 그 다음 대기 큐가 있으면 그 슬롯에 spawn 한다. 비어 있으면 poll 재기동 조건(「2-1」)을 따른다 |
 | `needs-merge` | 해제 | 없음 | `done` 과 같다 | 승인 스윕을 곧바로 한다. 이 기상의 스윕 1회이며, 워커가 approved 를 확인한 머지 대상이 있으므로 사전 검사 없이 부른다(「4-0」 의 예외) |
 | `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙, 아니면 `done` 과 같다 | 사유 보고 |
+| `design_waiting`(설계 완료·선행 대기, 사유는 미충족 선행 ref) | 해제 | 없음 | **지우지 않는다**. `.dflow-agent` 를 `parked` 로 | 실패가 아니다(차단기 연속 수를 0 으로). 재개는 `references/design-ahead.md` 2·4번 |
 | `blocked` | 유지 | 진행 중으로 영구 제외에 남긴다 | 그대로 둔다(두 백엔드 공통). 팀원이 pane 이나 탭에서 답을 기다린다 | 통지(「6. blocked」) |
 | `failed <사유>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산 |
 | `failed permission <명령>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 거부된 명령을 "권한 목록 재료" 로 보고한다(킷 허용 목록에 넣을 값). 서버에 claimed 로 남으므로 **"멈춤" 표**에 넣는다(사유는 그 status). 차단기 계산 |

@@ -371,6 +371,9 @@ orca worktree list        # 누수 확인. 옛 방식 워크트리(dflow-<id8>, 
 지운다. **아래에서 "Orca 정리 명령"은 「pane(Orca)」 「정리」의 전환 규칙(경로가 `orca worktree list --json` 에
 있으면 `orca worktree rm --worktree path:<경로>`, 없으면(새 방식) `git worktree remove --force <경로>`)을
 가리키는 줄임말이다.**
+0. **설계 완료 대기**(`<TASKS>/*/state.json` 이 `phase=wait_pred`, `references/design-ahead.md`): 깨끗하고 push 됐어도 **지우지 않는다**
+   (결과 처리·고아 스캔·마감 모두). 선행이 끝나면 같은 워크트리로 이어 구현한다 — 지우면 재개가 의존성 설치·기준선부터 다시 한다.
+   `.dflow-agent` 는 `parked` 로 둔다. 아래 1~5번을 보지 않는다.
 1. **부트스트랩 실패**(`.result` 의 branch 칸이 `-`, 브랜치를 만들기 전에 끝남): 미커밋 목록이 알려진
    부산물(`.dflow-agent`, `.dflow-prompt`, `.dflow-pane`, `.dflow-run`, `.result`, `.issues`, `<TASK_DIR>/spec.md`
    캐시, `.dflow.local`(레거시 `.env`) 링크, `.dflow` 링크, 스킬 링크(`.claude/skills` 또는 그 안의 `dflow-dev`·`dflow-work`))뿐일 때만 정리한다

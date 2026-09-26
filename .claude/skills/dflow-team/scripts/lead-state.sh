@@ -16,7 +16,7 @@
 #                                          resolved 는 같은 id8 의 team.result resolved 와 이웃한 것(다음 team.sweep 의 resolved),
 #                                          other 는 해소 건너뜀(REFLECTED)·사람 머지 감지로 푼 것
 #   HASH_OMITTED <n>                       상한(SLOT 이 아닌 경로 최근 50개)에 걸려 내지 않은 HASH 수
-#   EXCLUDE_PERM <id8,…|->                  영구 제외(진행 중·failed…·cancelled). failed rate-limit 은 넣지 않는다
+#   EXCLUDE_PERM <id8,…|->                  영구 제외(진행 중·failed…·cancelled). failed rate-limit·design_waiting(설계 완료·선행 대기 — claimed 라 poll 에 안 나온다)은 넣지 않는다
 #   EXCLUDE_TEMP <id8,…|->                  일시 제외(skipped. 사유가 「선행 미충족(사전 검사:」 인 것은 선행 대기 블록 몫이라 뺀다)
 # 그 뒤는 없는 항목이면 줄을 내지 않는다:
 #   ISSUE_PENDING <id8> <요약>              id8 마다 마지막 team.issue 의 decision 이 pending(dialect 줄 제외)
@@ -87,7 +87,7 @@ jq -R -c --arg a "$AGENT" --arg r "$REPO" 'select(test("\\S")) | (try fromjson c
     def excl($e):
       if $e.event == "team.spawn" or $e.event == "team.blocked" or $e.event == "team.lost" then "perm"
       else ($e.status // "") as $s
-        | if $s == "done" or $s == "needs-merge" or $s == "resolved" or $s == "failed rate-limit" then "none"
+        | if $s == "done" or $s == "needs-merge" or $s == "resolved" or $s == "failed rate-limit" or $s == "design_waiting" then "none"
           elif $s == "skipped" then (if (($e.reason // "") | startswith("선행 미충족(사전 검사:")) then "none" else "temp" end)
           else "perm" end
       end;

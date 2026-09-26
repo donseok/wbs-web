@@ -104,6 +104,9 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
   - **선행 대기**(서버 판정 `reached=false` 인 선행을 기다림) — `--exclude-wait`. 선행이 끝나기 전에는
     다시 봐도 결과가 같으므로 `--wait-cycles`(기본 24주기, 300초면 2시간) 뒤에야 스스로 푼다. 선행의 완료·머지를
     알게 되면 목록에서 빼고 재기동한다. 지금은 팀장(/dflow-team 「선행 사전 검사」)이 쓴다.
+    선행 대기 작업 가운데 빈 슬롯에 설계를 먼저 줄 후보(설계 선행, 계약 2.9)도 팀장이 자기 선행 대기 목록에서 고른다
+    (/dflow-team references/design-ahead.md) — poll 은 ready 만 돌려주고, 설계를 마치고 선행을 기다리는 주문은 claimed 라
+    poll 에 나오지 않으므로 poll 쪽에서 할 일이 없다.
 - 승인은 poll.sh 가 감지한다(exit 9 — 위 2번): 로컬 reported ↔ 서버 approved 대조.
 - 반려도 poll.sh 가 감지한다(exit 10): 로컬 reported·merged ↔ 서버 마지막 completion 리포트의
   review_action=reject 대조. **order.status 만 보면 영영 못 본다**(claimed 로 롤백된다).
