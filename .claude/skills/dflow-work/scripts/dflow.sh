@@ -11,7 +11,8 @@ set -u
 # 2.6: 완료 보고 decisions(과제 C). 2.7: 팀장 머지 충돌 표시(heartbeat --clear-merge-conflict).
 # 2.8: 강제 진행 — 의존 면제·스텁 제거 작업(stub-check, 과제 D).
 # 2.9: 설계 단계 ds — claim --design-first·build-start, heartbeat phase wait_pred(설계 선행).
-CONTRACT_VERSION=2.9
+# 2.10: heartbeat phase wait_review — 설계만 멈춤, 2026-09-26 설계 §14(dflow-dev-skill-router-design.md §14.5).
+CONTRACT_VERSION=2.10
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"

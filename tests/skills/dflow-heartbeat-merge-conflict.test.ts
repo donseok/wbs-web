@@ -76,12 +76,12 @@ describe('dflow.sh heartbeat — 팀장 머지 충돌 표시', () => {
     expect(run(['heartbeat', ORDER, '--agent', 'hong/mbp/lead', '--clear-merge-conflict'], '403', '{"code":"not_claim_owner"}').status).toBe(5)
     expect(run(['heartbeat', ORDER, '--agent', 'hong/mbp/lead', '--phase', 'merge_conflict', '--note', 'x'], '409', '{"code":"conflict"}').status).toBe(4)
   })
-  it('계약 버전은 2.9(2.7 변경점 유지), usage 에 --clear-merge-conflict 가 있다', () => {
+  it('계약 버전은 2.10 이상(2.7 변경점 유지), usage 에 --clear-merge-conflict 가 있다', () => {
     const src = readFileSync(DFLOW, 'utf8')
-    expect(src).toMatch(/^CONTRACT_VERSION=2\.9$/m)
+    expect(src).toMatch(/^CONTRACT_VERSION=2\.10$/m)
     expect(src).toContain('--clear-merge-conflict')
     const doc = readFileSync(join(process.cwd(), '.claude/skills/dflow-work/references/api-contract.md'), 'utf8')
-    expect(doc).toContain('# D\'Flow Agent API 계약 v2.9')
+    expect(doc).toContain('# D\'Flow Agent API 계약 v2.10')
     expect(doc).toContain('## v2.7 변경점')
   })
 })

@@ -65,8 +65,14 @@ const BY_STATE: Record<SeatState, readonly SeatOpKind[]> = {
   READY: [],
 }
 
-/** 설계 완료·선행 대기 좌석의 op. */
+/** 설계 완료·선행 대기 좌석의 op — 결재할 보고가 없어 멈춘 개발을 끄는 중단만 있다. wait_pred 는 팀장의 설계 완료
+ *  대기 자동 재개(design-ahead)가 선행이 풀리면 스스로 이어가므로 사람이 누를 재개 버튼이 없다. */
 const DESIGN_WAIT_OPS: readonly SeatOpKind[] = ['stop']
+/** 설계 완료·검토 대기 좌석의 op — wait_pred 와 달리 자동 재개가 없다(사람 검토가 관문이라 팀장이 대신 판단할 수
+ *  없다). 좌석표 「이어서 시작」이 검토를 마친 한 건만 구현으로 넘기는 손잡이가 된다(스펙 §14.4). 서버
+ *  (requestResumeOnOrder, src/app/actions/agentHub.ts)는 주문이 claimed 이기만 하면 받아 준다 — 상태(STALE·
+ *  OFFLINE)로 좁히지 않는다. */
+const REVIEW_WAIT_OPS: readonly SeatOpKind[] = ['resume', 'stop']
 
 export const ERR_NO_RIGHT = '권한이 없습니다 — 관리자 또는 서브트리 관리자만 할 수 있습니다.'
 export const ERR_NO_RIGHT_REVIEW = '권한이 없습니다 — 관리자 · 담당자 본인 · 서브트리 관리자만 할 수 있습니다.'
@@ -76,7 +82,7 @@ export function mayRun(seat: Pick<Seat, 'canManage' | 'assigneeMine'>, spec: Sea
 }
 
 /** 좌석 어포던스가 보는 최소 모양 — 재개 요청 표식까지 읽는다. */
-export type SeatOpsInput = Pick<Seat, 'state' | 'canManage' | 'assigneeMine' | 'designWait'> & {
+export type SeatOpsInput = Pick<Seat, 'state' | 'canManage' | 'assigneeMine' | 'designWait' | 'reviewWait'> & {
   resumeRequestedAt?: string | null
   /** 스텁 잔존(강제 진행 스펙 F6) — 있으면 승인을 잠그고 그 문구를 이유로 보인다(RPC 도 stub_pending 으로 거부). */
   stubPending?: Seat['stubPending']
@@ -85,8 +91,9 @@ export type SeatOpsInput = Pick<Seat, 'state' | 'canManage' | 'assigneeMine' | '
 /** 이 좌석에 그릴 결재 버튼 — 자격이 없는 것도 이유를 달아 비활성으로 남긴다(왜 못 누르는지 보여야 한다). */
 export function opsFor(seat: SeatOpsInput): Array<{ spec: SeatOpSpec; allowed: boolean; why: string }> {
   const pending = seat.resumeRequestedAt != null
-  // 설계 완료·선행 대기(스펙 2026-09-26 §6.4)는 WAIT 지만 결재할 보고가 없다 — 멈춘 개발을 끄는 중단만.
-  const kinds: readonly SeatOpKind[] = seat.designWait ? DESIGN_WAIT_OPS : BY_STATE[seat.state]
+  // 설계 완료·선행 대기·검토 대기(스펙 2026-09-26 §6.4, §14.5)는 WAIT 지만 결재할 보고가 없다 — 멈춘 개발을 끄는
+  // 중단(과 검토 대기만 재개)만 있다.
+  const kinds: readonly SeatOpKind[] = seat.designWait ? DESIGN_WAIT_OPS : seat.reviewWait ? REVIEW_WAIT_OPS : BY_STATE[seat.state]
   return kinds.map(kind => {
     const spec = SPEC[kind]
     // 요청이 이미 걸린 좌석의 재개 버튼은 자격이 있어도 잠근다 — 눌러 봐야 같은 값을 덮어쓸 뿐이다.

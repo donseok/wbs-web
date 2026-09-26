@@ -114,6 +114,13 @@ describe('POST /agent/work/[id]/heartbeat', () => {
     expect(res.status).toBe(200)
     expect((calls.agent_work_orders[0] as Record<string, unknown>).heartbeat_phase).toBe('wait_pred')
   })
+  it('wait_review(설계 완료·검토 대기, 계약 2.10, 스펙 §14.5)를 받는다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls)
+    const res = await post({ agent: 'hong/mbp/w1', phase: 'wait_review' })
+    expect(res.status).toBe(200)
+    expect((calls.agent_work_orders[0] as Record<string, unknown>).heartbeat_phase).toBe('wait_review')
+  })
   it('400 — agent 없음 / 모르는 phase / note 500자 초과', async () => {
     useAdmin(okQueues()); expect((await post({ phase: 'build' })).status).toBe(400)
     useAdmin(okQueues()); expect((await post({ agent: 'a', phase: 'lunch' })).status).toBe(400)

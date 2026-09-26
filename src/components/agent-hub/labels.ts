@@ -17,16 +17,23 @@ export const STATE_LABEL: Record<HubOrderState, string> = {
 /** 설계 완료·선행 대기(claimed ∧ heartbeat wait_pred, 스펙 2026-09-26 §6.4) — 좌석 상태는 WAIT 지만 승인 대기가 아니다. */
 export const DESIGN_WAIT_LABEL = '선행 대기'
 export const DESIGN_WAIT_TONE = 'bg-pending-weak text-pending'
+/** 설계 완료·검토 대기(claimed ∧ heartbeat wait_review, 스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5) —
+ *  DESIGN_WAIT 과 같은 축(WAIT 이지만 승인 대기가 아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). */
+export const REVIEW_WAIT_LABEL = '설계 검토 대기'
+export const REVIEW_WAIT_TONE = 'bg-pending-weak text-pending'
 
-/** 승인 대기 = WAIT 중 보고된(reported) 주문만. 설계 완료·선행 대기도 WAIT 라 state 만 보면 섞인다. */
+/** 승인 대기 = WAIT 중 보고된(reported) 주문만. 설계 완료·선행 대기·검토 대기도 WAIT 라 state 만 보면 섞인다. */
 export function isHubApprovalWait(order: { state: HubOrderState; status: string } | null): boolean {
   return order?.state === 'WAIT' && order.status === 'reported'
 }
-export function hubStateLabel(order: { state: HubOrderState; status: string }): string {
-  return order.state === 'WAIT' && order.status !== 'reported' ? DESIGN_WAIT_LABEL : STATE_LABEL[order.state]
+/** reviewWait 이 없으면(옛 픽스처·wait_pred) 선행 대기로 접는다 — 둘 다 표시 축은 같고 라벨만 다르다. */
+export function hubStateLabel(order: { state: HubOrderState; status: string; reviewWait?: boolean }): string {
+  if (order.state !== 'WAIT' || order.status === 'reported') return STATE_LABEL[order.state]
+  return order.reviewWait ? REVIEW_WAIT_LABEL : DESIGN_WAIT_LABEL
 }
-export function hubStateTone(order: { state: HubOrderState; status: string }): string {
-  return order.state === 'WAIT' && order.status !== 'reported' ? DESIGN_WAIT_TONE : STATE_TONE[order.state]
+export function hubStateTone(order: { state: HubOrderState; status: string; reviewWait?: boolean }): string {
+  if (order.state !== 'WAIT' || order.status === 'reported') return STATE_TONE[order.state]
+  return order.reviewWait ? REVIEW_WAIT_TONE : DESIGN_WAIT_TONE
 }
 
 /**
@@ -47,12 +54,13 @@ export const STATE_TONE: Record<HubOrderState, string> = {
 }
 
 /**
- * 착수 대기 사유 칩 색(waitReason.ts 의 다섯 종류 — 선행 머지 충돌은 선행 대기와 같은 색). 위 둘은 사람이 움직여야 풀리고, 아래 둘은
- * 시간이 지나면 저절로 풀린다 — 색이 그 차이를 말한다.
+ * 착수 대기 사유 칩 색(waitReason.ts 의 여섯 종류 — 선행 머지 충돌은 선행 대기와 같은 색). 위 셋은 사람이 움직여야 풀리고, 아래 둘은
+ * 시간이 지나면 저절로 풀린다 — 색이 그 차이를 말한다. 설계 검토 대기(design_review)도 사람이 검토해야 풀린다(§14.5).
  */
 export const REASON_TONE: Record<WaitReasonKind, string> = {
   dependency: 'bg-delayed-weak text-delayed',
   agent_off: 'bg-pending-weak text-accent-warning',
+  design_review: 'bg-delayed-weak text-delayed',
   agents_busy: 'bg-progress-weak text-progress',
   pickup: 'bg-pending-weak text-pending',
   merge_conflict: 'bg-delayed-weak text-delayed',

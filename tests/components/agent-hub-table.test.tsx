@@ -526,8 +526,11 @@ describe('DelegationTable — 승인 대기만·착수 대기 사유 펼침(2026
     // 설계 완료·선행 대기(claimed ∧ wait_pred) — 좌석 상태는 WAIT 지만 승인할 보고가 없다(스펙 2026-09-26 §6.4)
     row({ itemId: 'w3', code: 'TSK-W-03', name: '설계 끝', depth: 1, parentId: 'root', delegated: true, devWorkflow: true, stage: 'ds',
       order: { id: 'o8', status: 'claimed', state: 'WAIT', agent: 'hong/mbp', lastSignalAt: null } }),
+    // 설계 완료·검토 대기(claimed ∧ wait_review) — WAIT 지만 승인할 보고가 없고, 선행 대기와도 다른 라벨이다(스펙 §14.5)
+    row({ itemId: 'w4', code: 'TSK-W-04', name: '검토 대기', depth: 1, parentId: 'root', delegated: true, devWorkflow: true, stage: 'ds',
+      order: { id: 'o7', status: 'claimed', state: 'WAIT', agent: 'hong/mbp', lastSignalAt: null, reviewWait: true } }),
   ]
-  it('「승인 대기만」을 켜면 승인 대기(reported) 리프와 그 조상만 남는다 — 설계 완료·선행 대기는 빠진다', async () => {
+  it('「승인 대기만」을 켜면 승인 대기(reported) 리프와 그 조상만 남는다 — 설계 완료·선행 대기·검토 대기는 빠진다', async () => {
     render({ rows: WAIT_ROWS })
     expect(host.querySelector('[data-hub-row="w2"]')).not.toBeNull()
     expect((host.querySelector('[data-hub-only-wait]') as HTMLElement).textContent).toBe('승인 대기만 1')
@@ -536,12 +539,20 @@ describe('DelegationTable — 승인 대기만·착수 대기 사유 펼침(2026
     expect(host.querySelector('[data-hub-row="root"]')).not.toBeNull()
     expect(host.querySelector('[data-hub-row="w2"]')).toBeNull()
     expect(host.querySelector('[data-hub-row="w3"]')).toBeNull()
+    expect(host.querySelector('[data-hub-row="w4"]')).toBeNull()
   })
   it('설계 완료·선행 대기 행의 상태 칩은 승인 대기가 아니라 선행 대기다', () => {
     render({ rows: WAIT_ROWS })
     expect((host.querySelector('[data-hub-row="w3"]') as HTMLElement).textContent).toContain('선행 대기')
     expect((host.querySelector('[data-hub-row="w3"]') as HTMLElement).textContent).not.toContain('승인 대기')
     expect((host.querySelector('[data-hub-row="w1"]') as HTMLElement).textContent).toContain('승인 대기')
+  })
+  it('설계 완료·검토 대기 행의 상태 칩은 승인 대기도 선행 대기도 아니라 설계 검토 대기다', () => {
+    render({ rows: WAIT_ROWS })
+    const w4 = host.querySelector('[data-hub-row="w4"]') as HTMLElement
+    expect(w4.textContent).toContain('설계 검토 대기')
+    expect(w4.textContent).not.toContain('승인 대기')
+    expect((host.querySelector('[data-hub-row="w3"]') as HTMLElement).textContent).not.toContain('설계 검토 대기')
   })
   it('사유 칩은 단계·상태 칸이 아니라 사유 칸에 있다 — 행 높이가 사유 유무로 달라지지 않는다', () => {
     const rows = [row({ itemId: 'd1', code: 'TSK-D-01', name: '후속', delegated: true, devWorkflow: true, canToggle: true,

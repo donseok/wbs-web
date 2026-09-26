@@ -286,7 +286,7 @@ function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg'
   )
 }
 
-export const PHASE_KO: Record<string, string> = { prepare: '준비', design: '설계', build: '구현', verify: '검증', refactor: '리팩터', blocked: '결정 대기', rejected: '재작업', reported: '보고', merge_conflict: '머지 충돌', wait_pred: '선행 대기' }
+export const PHASE_KO: Record<string, string> = { prepare: '준비', design: '설계', build: '구현', verify: '검증', refactor: '리팩터', blocked: '결정 대기', rejected: '재작업', reported: '보고', merge_conflict: '머지 충돌', wait_pred: '선행 대기', wait_review: '설계 검토 대기' }
 
 /**
  * 프로필 카드 「단계 …」 — 보고된 단계를 한국어로 읽는다. 단계 보고가 없는 착수 좌석(seat.phase=prepare)은 비우지 않고

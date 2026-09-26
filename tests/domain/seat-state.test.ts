@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   OFFLINE_MS, STALE_MS, WATCHER_TTL_MS, HEARTBEAT_PHASES, LEAD_PHASES, animFor, deriveSeatState, fnv1a32, inferPhase, isApprovalWait, isDesignWait, isRejected,
-  isWatcherAlive, lastSignalMs, pickCharacter, type SeatInput,
+  isReviewWait, isWatcherAlive, lastSignalMs, pickCharacter, type SeatInput,
 } from '@/lib/domain/seatState'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
@@ -108,6 +108,29 @@ describe('wait_pred — 설계 완료·선행 대기(스펙 2026-09-26 §6.4)', 
   })
   it('wait_pred 가 아닌 점유 좌석은 종전대로 침묵으로 판정한다', () => {
     expect(deriveSeatState(base({ lastHeartbeatAt: ago(OFFLINE_MS + 1), updatedAt: ago(OFFLINE_MS + 1) }), NOW)).toBe('OFFLINE')
+  })
+})
+
+describe('wait_review — 설계 완료·검토 대기(스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5)', () => {
+  it('워커 phase 목록에 있어 서버가 받는다', () => {
+    expect(HEARTBEAT_PHASES).toContain('wait_review')
+  })
+  it('claimed ∧ wait_review 는 침묵 시간과 무관하게 WAIT — STALE·OFFLINE 로 보이지 않는다', () => {
+    const w = (ms: number) => base({ heartbeatPhase: 'wait_review', lastHeartbeatAt: ago(ms), updatedAt: ago(ms) })
+    expect(deriveSeatState(w(1000), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(STALE_MS + 1), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(OFFLINE_MS * 10), NOW)).toBe('WAIT')
+    expect(inferPhase(w(1000))).toBe('wait_review')
+  })
+  it('승인 대기 WAIT 와 구분한다 — isApprovalWait 은 reported 만, isReviewWait 은 claimed ∧ wait_review 만', () => {
+    expect(isApprovalWait(base({ heartbeatPhase: 'wait_review' }))).toBe(false)
+    expect(isReviewWait(base({ heartbeatPhase: 'wait_review' }))).toBe(true)
+    expect(isReviewWait(base({ status: 'reported', heartbeatPhase: 'wait_review' }))).toBe(false)
+    expect(isReviewWait(base({}))).toBe(false)
+  })
+  it('wait_pred 와 wait_review 는 서로 구분된다 — 둘 다 WAIT 지만 isDesignWait·isReviewWait 은 배타적이다', () => {
+    expect(isDesignWait(base({ heartbeatPhase: 'wait_review' }))).toBe(false)
+    expect(isReviewWait(base({ heartbeatPhase: 'wait_pred' }))).toBe(false)
   })
 })
 
