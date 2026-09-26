@@ -415,7 +415,7 @@ Verify 생략 문구(4e92b9de) → `--scope`(76f3c7b8) → 팀장 범위 인자(
 | 무거운 명령 절 | 절 안을 나눔 | 소제목 셋(분리·독점 / 슬롯·부하 / E2E·도커)을 달아 `=무거운 명령 줄 세우기` 로 핵심 2,409자만 읽는다 |
 | phase-prompt | 템플릿 절만 | `변수`·`템플릿`(감사자는 `감사 템플릿`)만 읽는다 |
 | 팀원 허용 목록 | `sections.sh` 추가 | `kit/worker-allow.json` 이 빈 목록이라 **바꾸지 않았다** |
-| 원문 보존 | 이동 지도 | `tests/skills/fixtures/dflow-dev.move-map.txt` + `CHANGED_SPLIT`(지우거나 바꾼 옛 줄 33개, 이유별 주석) |
+| 원문 보존 | 이동 지도 | `tests/skills/fixtures/dflow-dev.move-map.txt` + `CHANGED_SPLIT`(지우거나 바꾼 옛 줄 32개, 이유별 주석) |
 | 실행 범위 | §14 | 그대로. 더한 것: 검토 대기 재개 때 origin 의 사람 수정을 fast-forward 로 받고 갈라지면 멈춘다, `scope` 를 `build` 로 덮어쓴다, 승인 스윕이 `wait_review` 브랜치를 뺀다, 좌석 「설계 검토 대기」 에 「이어서 시작」 버튼 |
 | 함께 고친 것 | — | dev-discipline 도커 규칙의 MSSQL 예시를 제품 중립으로(dmes MSSQL 폐지), phase-verify 재실행 생략 조건에 모듈 범위 예외(dmes TSK-09-02 .issues) |
 
