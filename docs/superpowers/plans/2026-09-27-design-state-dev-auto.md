@@ -1759,3 +1759,1009 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
+## Task 4: 마이그레이션 0108 — 칸·단계 dd·전이 RPC·데이터 이전
+
+**Files:**
+- Create: `supabase/migrations/0108_design_state.sql`
+- Create: `supabase/migrations/0108_design_state_rollback.sql`
+- Test: `tests/migrations/0108-design-state.test.ts`
+
+**Interfaces:**
+- Consumes: Task 1 의 `DESIGN_MODES`·`DESIGN_STATES`·`CLAIM_SCOPES`, Task 3 의 `STAGE_CODES`·`HUMAN_STAGE_CODES`·`DEFAULT_STAGE_CREDITS`
+- Produces(Task 6 이후가 쓴다):
+  - 칸: `wbs_items.design_mode text not null default 'auto'`(CHECK auto·review·human), `agent_work_orders.design_state`(null·review·accepted)·`claim_scope`(null·full·design·build·legacy)·`design_note`(500자)·`runner`·`runner_seen_at timestamptz`
+  - RPC `apply_workflow_event(p_event, p_actor, p_item_id, p_order_id, p_stage, p_agent, p_agent_user_id, p_scope text, p_cas jsonb, p_note text, p_mode text, p_runner text)` — 새 사건 `design_done`·`design_accept`·`design_reopen`·`cancel`·`set_design_mode`. 새 실패 사유 `bad_scope`·`bad_mode`·`design_gate`·`design_mode_locked`. 응답에 `prev_status`·`design_state` 를 더한다.
+  - `p_cas` 가 받는 키: `design_state`·`design_mode`·`claim_scope`·`runner`·`runner_seen_at`(값이 다르면 `conflict`)
+
+**마이그레이션을 이 커밋 하나에만 담는다(코드와 섞지 않는다). 이 Task 는 파일을 쓰고 대조 테스트만 한다 — 스테이징 적용은 Task 5.**
+
+- [ ] **Step 1: 실패하는 대조 테스트를 쓴다**
+
+`tests/migrations/0108-design-state.test.ts`:
+
+```ts
+// tests/migrations/0108-design-state.test.ts — 설계 상태(스펙 2026-09-26-design-state-dev-auto-design.md, 계획 P1~P3·P12·P13).
+// SQL 이 도메인(designGate·stageLabels·stageCredits)과 같은지, 전이 RPC 가 0107 본문에서 정해진 곳만 바뀌었는지 대조한다.
+import { readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import { CLAIM_SCOPES, DESIGN_MODES, DESIGN_STATES } from '@/lib/domain/designGate'
+import { HUMAN_STAGE_CODES, STAGE_CODES } from '@/lib/domain/stageLabels'
+import { DEFAULT_STAGE_CREDITS } from '@/lib/domain/stageCredits'
+
+const s = () => readFileSync('supabase/migrations/0108_design_state.sql', 'utf8')
+const r = () => readFileSync('supabase/migrations/0108_design_state_rollback.sql', 'utf8')
+const prev = () => readFileSync('supabase/migrations/0107_wbs_design_stage.sql', 'utf8')
+const fnOf = (sql: string) => sql.split('create or replace function public.apply_workflow_event')[1]?.split('$$;')[0] ?? ''
+const fn = () => fnOf(s())
+const q = (xs: readonly string[]) => xs.map(x => `'${x}'`).join(',')
+const NEW_SIG = 'public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid, text, jsonb, text, text, text)'
+const OLD_SIG = 'public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid)'
+
+describe('0108 칸과 CHECK', () => {
+  it('단계 CHECK 가 도메인 STAGE_CODES 와 같다(dd 포함)', () => {
+    expect(s()).toContain(`add constraint wbs_items_stage_check check (stage in (${q(STAGE_CODES)}))`)
+  })
+  it('설계 방식·설계 상태·claim 범위 CHECK 가 designGate 상수와 같다', () => {
+    expect(s()).toContain(`check (design_mode in (${q(DESIGN_MODES)}))`)
+    expect(s()).toContain(`check (design_state is null or design_state in (${q(DESIGN_STATES)}))`)
+    expect(s()).toContain(`check (claim_scope is null or claim_scope in (${q(CLAIM_SCOPES)}))`)
+  })
+  it('design_mode 는 NOT NULL DEFAULT auto(D17)', () => {
+    expect(s()).toContain("add column if not exists design_mode text not null default 'auto'")
+  })
+})
+
+describe('0108 전이 RPC', () => {
+  it('옛 7인자 함수를 지우고 12인자로 만들며 service_role 만 실행한다(P2)', () => {
+    const b = s()
+    expect(b.indexOf(`drop function if exists ${OLD_SIG};`)).toBeGreaterThan(-1)
+    expect(b.indexOf(`drop function if exists ${OLD_SIG};`)).toBeLessThan(b.indexOf('create or replace function public.apply_workflow_event'))
+    expect(b).toContain(`revoke all on function ${NEW_SIG} from public, anon, authenticated;`)
+    expect(b).toContain(`grant execute on function ${NEW_SIG} to service_role;`)
+    expect(b).toContain("notify pgrst, 'reload schema';")
+  })
+  it('SQL 기본 크레딧 상수가 코드 기본값과 같다(dd 20)', () => {
+    const m = /c_default\s+constant\s+jsonb\s*:=\s*'(\{[\s\S]*?\})'::jsonb/.exec(fn())
+    expect(m).not.toBeNull()
+    expect(JSON.parse(m![1])).toEqual(DEFAULT_STAGE_CREDITS)
+  })
+  it('사건 목록에 새 사건 다섯이 있고, 주문 사건에 넷이 든다', () => {
+    const f = fn()
+    expect(f).toContain("'design_done','design_accept','design_reopen','cancel','set_design_mode'")
+    expect(f).toContain("v_is_order_event := p_event in ('claim','report_completion','approve','unapprove','reject','rework','release','build_start',\n                                  'design_done','design_accept','design_reopen','cancel');")
+  })
+  it('사람의 set_stage 는 dd 를 받지 않는다(HUMAN_STAGE_CODES)', () => {
+    expect(fn()).toContain(`if p_stage is not null and p_stage not in (${q(HUMAN_STAGE_CODES)}) then`)
+  })
+  it('CAS 키 다섯(P1) — JSON null 은 "없음"과 비교된다', () => {
+    const f = fn()
+    for (const k of ['design_state', 'claim_scope', 'runner']) {
+      expect(f).toContain(`(p_cas is not null and p_cas ? '${k}' and v_order_${k === 'runner' ? 'runner' : k} is distinct from (p_cas ->> '${k}'))`)
+    }
+    expect(f).toContain("(p_cas is not null and p_cas ? 'runner_seen_at' and v_order_runner_seen is distinct from (p_cas ->> 'runner_seen_at')::timestamptz)")
+    expect(f).toContain("if v_is_order_event and p_cas is not null and p_cas ? 'design_mode' and v_item_found")
+  })
+  it('claim 은 범위로 단계를 정하고 claim_scope·runner 를 적는다(D8·D25)', () => {
+    const f = fn()
+    expect(f).toContain('claim_scope = v_scope, runner = coalesce(p_runner, p_agent), runner_seen_at = v_now')
+    expect(f).toContain("if v_scope in ('full','design') then v_new_stage := 'ds'; v_credit_key := 'ds';")
+    expect(f).toContain("elsif v_scope = 'build' then v_new_stage := 'dd'; v_credit_key := 'dd';")
+    expect(f).toContain("else v_new_stage := case when p_stage = 'ds' then 'ds' else 'ip' end; v_credit_key := v_new_stage;")
+  })
+  it('build_start 는 ds·dd 에서만 ip, runner 를 호출자로 적는다', () => {
+    const f = fn()
+    expect(f).toContain("if v_old_stage in ('ds','dd') then v_apply := true; v_new_stage := 'ip'; v_credit_key := 'ip'; v_keep_max := true;")
+    expect(f).toContain('set runner = coalesce(p_runner, p_agent, runner), runner_seen_at = v_now, updated_at = v_now')
+  })
+  it('완료 보고·해제·취소는 runner 를 비운다', () => {
+    const f = fn()
+    expect(f).toContain("set status = 'reported', runner = null, runner_seen_at = null, updated_at = v_now")
+    expect(f).toContain('claim_scope = null, runner = null, runner_seen_at = null,')
+    expect(f).toContain("set status = 'cancelled', claimed_by = null, claimed_by_user_id = null, claimed_at = null,")
+  })
+  it('design_done — review 는 방식 review 이거나 claim_scope design 일 때, review 가 되면 runner 를 비운다', () => {
+    const f = fn()
+    expect(f).toContain("if v_order_design_state is null and (v_design_mode = 'review' or v_order_claim_scope = 'design') then v_new_design_state := 'review'; end if;")
+    expect(f).toContain("heartbeat_phase = case when v_new_design_state = 'review' then 'wait_review' else 'wait_pred' end,")
+  })
+  it('design_accept ① claimed 는 claim_scope 를 build 로, ② ready 는 단계 dd·실적 dd', () => {
+    const f = fn()
+    expect(f).toContain("claim_scope = case when v_order_status = 'claimed' then 'build' else claim_scope end,")
+    expect(f).toContain("if v_order_status = 'ready' then v_apply := true; v_new_stage := 'dd'; v_credit_key := 'dd'; v_keep_max := true; end if;")
+  })
+  it('design_reopen — human 은 as·실적 as·claimed 면 ready 로, 그 밖은 review 로, 둘 다 runner 를 비운다(L9)', () => {
+    const f = fn()
+    expect(f).toContain("if v_design_mode = 'human' and v_order_design_state = 'accepted' then v_apply := true; v_new_stage := 'as'; v_credit_key := 'as'; end if;")
+    expect(f).toContain("set design_state = 'review', design_note = p_note, runner = null, runner_seen_at = null, updated_at = v_now")
+  })
+  it('cancel — claimed 이거나 단계 dd 면 as 로(D14), 직전 status 를 돌려준다(P3)', () => {
+    const f = fn()
+    expect(f).toContain("if v_order_status = 'claimed' or v_old_stage = 'dd' then v_apply := true; v_new_stage := 'as'; v_credit_key := 'as'; end if;")
+    expect(f).toContain("'prev_status', case when v_is_order_event then v_order_status end,")
+  })
+  it('set_design_mode — 주문 행을 먼저 잠그고 항목을 잠근다(P3), 설계 상태·진행 주문이 있으면 거부', () => {
+    const f = fn()
+    const lockOrders = f.indexOf('perform 1 from public.agent_work_orders where wbs_item_id = p_item_id order by id for update;')
+    const lockItem = f.indexOf('select design_mode into v_design_mode from public.wbs_items where id = p_item_id for update;')
+    expect(lockOrders).toBeGreaterThan(-1)
+    expect(lockItem).toBeGreaterThan(lockOrders)
+    expect(f).toContain("'reason', 'design_mode_locked'")
+  })
+  it('앞으로 가는 사건은 실적을 낮추지 않는다(D19·P13)', () => {
+    expect(fn()).toContain('if v_keep_max and v_new_pct is not null and v_old_pct is not null and v_old_pct > v_new_pct then v_new_pct := v_old_pct; end if;')
+    expect(fn()).toContain("v_keep_max := p_event in ('report_completion','approve');")
+  })
+  it('dd 크레딧 채움은 greatest(ds, least(20, ip-5))(D18·P12)', () => {
+    expect(fn()).toContain('v_new_pct := greatest(v_ds, least(20, v_ip - 5));')
+  })
+  it('0107 의 나머지 규칙을 그대로 가진다 — stub 하위 제외 리프·스텁 잔존 거부·잠금·record 금지', () => {
+    const f = fn()
+    expect(f).toContain('v_is_leaf := not exists (select 1 from public.wbs_items where parent_id = v_item_id and stub_for is null);')
+    expect(f).toContain("'reason', 'stub_pending'")
+    expect(f).toContain("'agent' = any(coalesce(v_tags, '{}'::text[]))")
+    expect(f).toContain("'reason', 'locked'")
+    expect(f).not.toMatch(/\s+record;/)
+    expect(f.split('as $$')[0]).toContain('security invoker')
+  })
+})
+
+describe('0108 데이터 이전(8절·L4·L12·D26)', () => {
+  it('claimed·ds·wait_review 는 review·design·dd, wait_pred 는 dd 로(리프만)', () => {
+    const b = s()
+    expect(b).toContain("where o.status = 'claimed' and i.stage = 'ds' and o.heartbeat_phase in ('wait_review','wait_pred')")
+    expect(b).toContain("set design_state = 'review', claim_scope = 'design', runner = null, runner_seen_at = null where id = r.order_id;")
+  })
+  it('나머지 claimed 는 claim_scope legacy, runner 는 heartbeat_agent 먼저(L12)', () => {
+    expect(s()).toContain('runner = coalesce(runner, heartbeat_agent, claimed_by),')
+    expect(s()).toContain("claim_scope = coalesce(claim_scope, 'legacy'),")
+  })
+  it('이미 진행된 항목의 ready 주문을 취소하고 이력을 남긴다(D26)', () => {
+    expect(s()).toContain("'agent_order', 'ready', 'cancelled(0108 D26)'")
+  })
+  it('한 트랜잭션이다', () => {
+    expect(s()).toMatch(/^begin;$/m)
+    expect(s()).toMatch(/^commit;$/m)
+  })
+})
+
+describe('0108 rollback', () => {
+  it('dd 행을 ds 로 옮긴 뒤 CHECK 를 dd 없이 되돌린다', () => {
+    const rb = r()
+    const move = rb.indexOf("update public.wbs_items set stage = 'ds' where stage = 'dd';")
+    const chk = rb.indexOf("add constraint wbs_items_stage_check check (stage in ('as','ds','ip','im','xx'))")
+    expect(move).toBeGreaterThan(-1)
+    expect(chk).toBeGreaterThan(move)
+  })
+  it('크레딧 표의 dd 키를 지운다', () => {
+    expect(r()).toContain("(stage_credits -> 'default') - 'dd'")
+  })
+  it('새 12인자 함수를 지우고 0107 본문을 글자 그대로 되살린다', () => {
+    expect(r()).toContain(`drop function if exists ${NEW_SIG};`)
+    expect(fnOf(r())).toBe(fnOf(prev()))
+    expect(r()).toContain(`grant execute on function ${OLD_SIG} to service_role;`)
+  })
+  it('새 칸을 지운다', () => {
+    for (const c of ['design_mode', 'design_state', 'claim_scope', 'design_note', 'runner_seen_at']) expect(r()).toContain(`drop column if exists ${c}`)
+  })
+})
+```
+
+- [ ] **Step 2: 테스트가 실패하는지 본다**
+
+Run: `npx vitest run tests/migrations/0108-design-state.test.ts`
+Expected: FAIL — `ENOENT: no such file or directory, open 'supabase/migrations/0108_design_state.sql'`
+
+- [ ] **Step 3: 정방향 마이그레이션을 쓴다**
+
+`supabase/migrations/0108_design_state.sql`:
+
+```sql
+-- supabase/migrations/0108_design_state.sql
+-- 설계 상태·구현자동(docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md — 12절 우선,
+-- 계획서 docs/superpowers/plans/2026-09-27-design-state-dev-auto.md P1~P3·P12·P13).
+-- ① wbs_items.design_mode(auto·review·human, NOT NULL DEFAULT 'auto') — D1·D17.
+-- ② agent_work_orders: design_state·claim_scope·design_note·runner·runner_seen_at — 3절·D8·D25.
+-- ③ 단계 어휘에 dd(설계 완료)를 ds 와 ip 사이에(CHECK) — D6.
+-- ④ 크레딧 기본값에 dd 20. 표에 dd 가 없으면 RPC 가 greatest(ds, least(20, ip-5)) 로 채운다 — D18·P12.
+-- ⑤ apply_workflow_event 재정의 — 0107 본문 기준. 새 인자 p_scope·p_cas·p_note·p_mode·p_runner(모두 기본값 null) 때문에
+--    옛 7인자 함수를 drop 하고 다시 만든다(오버로드가 남으면 PostgREST 이름 인자 호출이 모호해진다, P2). 2.9·2.10 앱은
+--    새 인자를 보내지 않으므로 기본값으로 종전처럼 돈다(claim_scope 는 legacy, runner 는 p_agent).
+--    관문 규칙은 라우트(src/lib/domain/designGate.ts)가 집행한다. 여기는 원자 전이와 CAS, 사건별 전제 재확인만 한다(D7).
+-- ⑥ 데이터 이전(8절·L4·L12·W25·D26): 설계만 멈춤 잔재 → review·design·dd, 설계 선행 잔재(wait_pred) → dd,
+--    나머지 claimed 의 claim_scope·runner 채움, 이미 진행된 항목의 ready 주문 취소.
+-- 배포 순서: 이 마이그레이션이 코드보다 먼저다(새 칸·새 RPC 인자에 기본값이 있어 옛 앱이 그대로 돈다).
+-- 사전·사후 건수: 계획서 Task 5 Step 3·6.
+-- 적용: npm run db:apply -- supabase/migrations/0108_design_state.sql --target staging  (운영은 지시 뒤)
+begin;
+
+-- ① 설계 방식
+alter table public.wbs_items add column if not exists design_mode text not null default 'auto';
+alter table public.wbs_items drop constraint if exists wbs_items_design_mode_check;
+alter table public.wbs_items
+  add constraint wbs_items_design_mode_check check (design_mode in ('auto','review','human'));
+comment on column public.wbs_items.design_mode is
+  '설계 방식 — auto(완전자동)·review(설계 검토: 에이전트 설계 → 사람 승인)·human(구현자동: 사람 설계 → 확정). 설계 상태 스펙 D1';
+
+-- ② 주문의 설계 상태·범위·도는 PC
+alter table public.agent_work_orders
+  add column if not exists design_state text,
+  add column if not exists claim_scope text,
+  add column if not exists design_note text,
+  add column if not exists runner text,
+  add column if not exists runner_seen_at timestamptz;
+alter table public.agent_work_orders drop constraint if exists agent_work_orders_design_state_check;
+alter table public.agent_work_orders
+  add constraint agent_work_orders_design_state_check check (design_state is null or design_state in ('review','accepted'));
+alter table public.agent_work_orders drop constraint if exists agent_work_orders_claim_scope_check;
+alter table public.agent_work_orders
+  add constraint agent_work_orders_claim_scope_check check (claim_scope is null or claim_scope in ('full','design','build','legacy'));
+alter table public.agent_work_orders drop constraint if exists agent_work_orders_design_note_len;
+alter table public.agent_work_orders
+  add constraint agent_work_orders_design_note_len check (design_note is null or char_length(design_note) <= 500);
+comment on column public.agent_work_orders.design_state is '설계 상태 — null(없음)·review(설계 검토 대기)·accepted(승인·확정). 단계 ip 이상에서는 취소 말고 바뀌지 않는다(D24)';
+comment on column public.agent_work_orders.claim_scope is 'claim 범위 — null 은 legacy(2.9 앱·0108 이전 claim). 설계 승인(design_accept ①)이 build 로 바꾼다(D8)';
+comment on column public.agent_work_orders.runner is '도는 PC 의 에이전트 라벨(D25). claim·build-start·heartbeat 가 적고 완료 보고·설계 검토 멈춤·해제·취소·되돌림이 비운다';
+
+-- ③ 단계 dd
+alter table public.wbs_items drop constraint if exists wbs_items_stage_check;
+alter table public.wbs_items
+  add constraint wbs_items_stage_check check (stage in ('as','ds','dd','ip','im','xx'));
+
+-- ④ 크레딧 설명
+comment on column public.project_settings.stage_credits is
+  '단계 전이 실적 크레딧 {default:{as,ds,dd,ip,rw,im,xx}} — null 이면 코드 기본값. ds 가 없으면 10, dd 가 없으면 greatest(ds, least(20, ip-5)). 규칙: 정수·5단위·핵심 사슬 as<ip<rw<im<xx 간격>=10·as<=ds<=dd<=ip·xx=100';
+
+-- ⑤ 전이 RPC — 시그니처가 바뀌므로 옛 함수를 먼저 지운다.
+drop function if exists public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid);
+
+create or replace function public.apply_workflow_event(
+  p_event         text,
+  p_actor         uuid,
+  p_item_id       uuid default null,   -- assign|unassign|set_stage|set_design_mode 필수. 주문 사건은 주문의 wbs_item_id 를 쓴다(주면 일치해야 한다)
+  p_order_id      uuid default null,   -- 주문 사건 필수
+  p_stage         text default null,   -- set_stage 의 목표 단계 / claim(legacy): null(종전 ip) 또는 'ds'(설계 선행, 0107)
+  p_agent         text default null,   -- claim: 기록 / report_completion·release·build_start·design_done: 점유자 일치 조건
+  p_agent_user_id uuid default null,   -- 위와 같다(PAT 계정)
+  p_scope         text default null,   -- claim: full·design·build·legacy(null=legacy) / build_start: full·build·rework·legacy(0108)
+  p_cas           jsonb default null,  -- 라우트가 읽은 값: design_state·design_mode·claim_scope·runner·runner_seen_at 키가 있으면 같아야 한다(0108, P1)
+  p_note          text default null,   -- design_reopen 의 사유(0108)
+  p_mode          text default null,   -- set_design_mode 의 목표 방식(0108)
+  p_runner        text default null    -- claim·build_start·design_done 이 적을 호출 라벨(0108, D25)
+) returns jsonb
+language plpgsql
+security invoker
+as $$
+declare
+  c_default constant jsonb := '{"default":{"as":0,"ds":10,"dd":20,"ip":30,"rw":50,"im":80,"xx":100}}'::jsonb;
+  -- record 대신 스칼라를 쓴다: 항목이 지워진 주문처럼 SELECT INTO 를 건너뛴 경로에서 미할당 record 의
+  -- 필드를 참조하면 CASE 의 안 타는 분기라도 "record is not assigned yet" 로 실패한다.
+  v_is_order_event boolean;
+  v_order_status text;
+  v_order_claimed_by text;
+  v_order_claimed_by_user uuid;
+  v_order_item uuid;
+  v_order_design_state text;
+  v_order_claim_scope text;
+  v_order_runner text;
+  v_order_runner_seen timestamptz;
+  v_item_id uuid;
+  v_item_found boolean := false;
+  v_project_id uuid;
+  v_old_stage text;
+  v_old_pct numeric;
+  v_dev_workflow boolean;
+  v_tags text[];
+  v_design_mode text;
+  v_is_leaf boolean := false;
+  v_expect text;
+  v_next text;
+  v_scope text;
+  v_new_design_state text;
+  v_apply boolean := false;
+  v_keep_max boolean := false;
+  v_new_stage text;
+  v_credit_key text;
+  v_credits jsonb;
+  v_table jsonb;
+  v_new_pct numeric;
+  v_ds numeric;
+  v_ip numeric;
+  v_skipped text;
+  v_stage_changed boolean := false;
+  v_actual_changed boolean := false;
+  v_reached_first boolean := false;
+  v_stub_pending boolean := false;
+  v_now timestamptz := now();
+begin
+  if p_event is null or p_event not in ('assign','unassign','claim','report_completion','approve','unapprove','reject','rework','release','set_stage','build_start',
+                                        'design_done','design_accept','design_reopen','cancel','set_design_mode') then
+    return jsonb_build_object('ok', false, 'reason', 'bad_event');
+  end if;
+  -- claim 이 받는 p_stage 는 종전(null → ip)과 설계 선행(ds) 둘뿐이다(0107). 주문을 잠그기 전에 거부한다.
+  if p_event = 'claim' and p_stage is not null and p_stage <> 'ds' then
+    return jsonb_build_object('ok', false, 'reason', 'bad_stage');
+  end if;
+  -- 범위·방식 값 검사(0108) — 모르는 값을 legacy 로 삼키지 않는다.
+  if p_event = 'claim' and p_scope is not null and p_scope not in ('full','design','build','legacy') then
+    return jsonb_build_object('ok', false, 'reason', 'bad_scope');
+  end if;
+  if p_event = 'build_start' and p_scope is not null and p_scope not in ('full','build','rework','legacy') then
+    return jsonb_build_object('ok', false, 'reason', 'bad_scope');
+  end if;
+  if p_event = 'set_design_mode' and (p_mode is null or p_mode not in ('auto','review','human')) then
+    return jsonb_build_object('ok', false, 'reason', 'bad_mode');
+  end if;
+  v_scope := coalesce(p_scope, 'legacy');
+
+  -- 설계 방식 변경(4.1, P3) — claim 과 같은 잠금 순서(주문 → 항목)로 교착을 피한다.
+  -- 조건은 designGate.designModeChangeBlock 과 같다: 설계 상태가 있거나 claimed·reported·approved 주문이 있으면 거부.
+  if p_event = 'set_design_mode' then
+    if p_item_id is null then
+      return jsonb_build_object('ok', false, 'reason', 'item_required');
+    end if;
+    perform 1 from public.agent_work_orders where wbs_item_id = p_item_id order by id for update;
+    select design_mode into v_design_mode from public.wbs_items where id = p_item_id for update;
+    if not found then
+      return jsonb_build_object('ok', false, 'reason', 'item_not_found');
+    end if;
+    if exists (select 1 from public.agent_work_orders
+                where wbs_item_id = p_item_id
+                  and (status in ('claimed','reported','approved') or (status = 'ready' and design_state is not null))) then
+      return jsonb_build_object('ok', false, 'reason', 'design_mode_locked');
+    end if;
+    if v_design_mode is distinct from p_mode then
+      update public.wbs_items set design_mode = p_mode, updated_at = v_now where id = p_item_id;
+      insert into public.change_logs (user_id, wbs_item_id, field, old_value, new_value)
+        values (p_actor, p_item_id, 'design_mode', v_design_mode, p_mode);
+    end if;
+    return jsonb_build_object('ok', true, 'design_mode', p_mode, 'design_mode_changed', v_design_mode is distinct from p_mode);
+  end if;
+
+  v_is_order_event := p_event in ('claim','report_completion','approve','unapprove','reject','rework','release','build_start',
+                                  'design_done','design_accept','design_reopen','cancel');
+
+  -- 주문 사건: 주문을 잠그고 사건이 정한 기대 status·점유자 조건·CAS 로 본다
+  if v_is_order_event then
+    if p_order_id is null then
+      return jsonb_build_object('ok', false, 'reason', 'order_required');
+    end if;
+    select status, claimed_by, claimed_by_user_id, wbs_item_id, design_state, claim_scope, runner, runner_seen_at
+      into v_order_status, v_order_claimed_by, v_order_claimed_by_user, v_order_item,
+           v_order_design_state, v_order_claim_scope, v_order_runner, v_order_runner_seen
+      from public.agent_work_orders where id = p_order_id for update;
+    if not found then
+      return jsonb_build_object('ok', false, 'reason', 'order_not_found');
+    end if;
+    if p_item_id is not null and v_order_item is distinct from p_item_id then
+      return jsonb_build_object('ok', false, 'reason', 'order_item_mismatch');
+    end if;
+    v_item_id := v_order_item;
+    -- design_accept·design_reopen·cancel 은 ready·claimed 둘 다 받는다(아래 조건에서 가른다).
+    v_expect := case p_event
+      when 'claim' then 'ready'
+      when 'report_completion' then 'claimed'
+      when 'release' then 'claimed'
+      when 'approve' then 'reported'
+      when 'reject' then 'reported'
+      when 'unapprove' then 'approved'
+      when 'rework' then 'approved'
+      when 'build_start' then 'claimed'
+      when 'design_done' then 'claimed'
+      else v_order_status end;
+    v_next := case p_event
+      when 'claim' then 'claimed'
+      when 'report_completion' then 'reported'
+      when 'release' then 'ready'
+      when 'approve' then 'approved'
+      when 'reject' then 'claimed'
+      when 'unapprove' then 'reported'
+      when 'rework' then 'claimed'
+      when 'cancel' then 'cancelled'
+      else v_order_status end;
+    if v_order_status <> v_expect
+       or (p_event in ('design_accept','design_reopen','cancel') and v_order_status not in ('ready','claimed'))
+       or (p_event in ('report_completion','release','build_start','design_done') and p_agent_user_id is not null and v_order_claimed_by_user is distinct from p_agent_user_id)
+       or (p_event in ('report_completion','release','build_start','design_done') and p_agent is not null and v_order_claimed_by is distinct from p_agent)
+       or (p_cas is not null and p_cas ? 'design_state' and v_order_design_state is distinct from (p_cas ->> 'design_state'))
+       or (p_cas is not null and p_cas ? 'claim_scope' and v_order_claim_scope is distinct from (p_cas ->> 'claim_scope'))
+       or (p_cas is not null and p_cas ? 'runner' and v_order_runner is distinct from (p_cas ->> 'runner'))
+       or (p_cas is not null and p_cas ? 'runner_seen_at' and v_order_runner_seen is distinct from (p_cas ->> 'runner_seen_at')::timestamptz)
+    then
+      return jsonb_build_object('ok', false, 'conflict', true, 'order_status', v_order_status);
+    end if;
+  else
+    if p_item_id is null then
+      return jsonb_build_object('ok', false, 'reason', 'item_required');
+    end if;
+    v_item_id := p_item_id;
+  end if;
+
+  -- 항목 잠금. 주문 사건에서 항목이 지워진 주문이면 단계·실적만 건너뛴다(주문 전이는 한다).
+  if v_item_id is not null then
+    select project_id, stage, actual_pct, dev_workflow, tags, design_mode
+      into v_project_id, v_old_stage, v_old_pct, v_dev_workflow, v_tags, v_design_mode
+      from public.wbs_items where id = v_item_id for update;
+    v_item_found := found;
+    if v_item_found then
+      -- stub_for 하위(스텁 제거 Task)는 구조에 투명하다(스펙 F9) — 후행은 계속 리프다.
+      v_is_leaf := not exists (select 1 from public.wbs_items where parent_id = v_item_id and stub_for is null);
+    elsif not v_is_order_event then
+      return jsonb_build_object('ok', false, 'reason', 'item_not_found');
+    end if;
+  elsif not v_is_order_event then
+    return jsonb_build_object('ok', false, 'reason', 'item_required');
+  end if;
+
+  -- CAS(P1) — 라우트가 읽은 설계 방식과 같아야 한다(방식 변경과 claim 의 경합, 5차 W28).
+  if v_is_order_event and p_cas is not null and p_cas ? 'design_mode' and v_item_found
+     and v_design_mode is distinct from (p_cas ->> 'design_mode') then
+    return jsonb_build_object('ok', false, 'conflict', true, 'order_status', v_order_status);
+  end if;
+
+  -- 사건별 전제(0108) — 라우트·서버 액션의 관문과 같은 조건을 잠근 행으로 다시 본다. 판정과 쓰기 사이에 바뀌었으면 거부한다.
+  if p_event = 'design_done' and v_item_found and v_is_leaf and v_old_stage in ('ip','im','xx') then
+    return jsonb_build_object('ok', false, 'reason', 'design_gate', 'order_status', v_order_status);
+  end if;
+  if p_event = 'design_accept' then
+    if v_order_status = 'claimed' then
+      if v_order_design_state is distinct from 'review' or v_old_stage is distinct from 'dd' then
+        return jsonb_build_object('ok', false, 'conflict', true, 'order_status', v_order_status);
+      end if;
+    elsif v_design_mode is distinct from 'human' or not ('agent' = any(coalesce(v_tags, '{}'::text[])))
+          or v_order_design_state is not null or coalesce(v_old_stage, 'as') not in ('as','ds')
+          or coalesce(v_old_pct, 0) >= 100
+          or exists (select 1 from public.agent_work_orders where wbs_item_id = v_item_id and status = 'approved') then
+      return jsonb_build_object('ok', false, 'conflict', true, 'order_status', v_order_status);
+    end if;
+  end if;
+  if p_event = 'design_reopen' and v_order_design_state is distinct from 'review'
+     and (v_order_design_state is distinct from 'accepted' or v_old_stage is distinct from 'dd') then
+    return jsonb_build_object('ok', false, 'reason', 'design_gate', 'order_status', v_order_status);
+  end if;
+
+  -- 스텁 잔존(스펙 F6·F13) — forceProgress.pendingStubs 와 같은 조건. 승인과 사람의 xx 지정을 주문 갱신 전에 거부한다.
+  if v_item_found then
+    v_stub_pending := exists (select 1 from public.wbs_items
+      where parent_id = v_item_id and stub_for is not null and stage is distinct from 'xx');
+  end if;
+  if v_stub_pending and (p_event = 'approve' or (p_event = 'set_stage' and p_stage = 'xx')) then
+    return jsonb_build_object('ok', false, 'reason', 'stub_pending', 'order_status', v_order_status);
+  end if;
+
+  -- 주문 갱신
+  if v_is_order_event then
+    v_new_design_state := v_order_design_state;
+    if p_event = 'claim' then
+      update public.agent_work_orders
+         set status = 'claimed', claimed_by = p_agent, claimed_by_user_id = p_agent_user_id, claimed_at = v_now,
+             claim_scope = v_scope, runner = coalesce(p_runner, p_agent), runner_seen_at = v_now, updated_at = v_now
+       where id = p_order_id;
+    elsif p_event = 'release' then
+      update public.agent_work_orders
+         set status = 'ready', claimed_by = null, claimed_by_user_id = null, claimed_at = null,
+             last_heartbeat_at = null, heartbeat_phase = null, heartbeat_agent = null, heartbeat_note = null,
+             claim_scope = null, runner = null, runner_seen_at = null,
+             updated_at = v_now
+       where id = p_order_id;
+    elsif p_event = 'build_start' then
+      -- 주문 status 는 claimed 그대로다(0107). 도는 PC 를 호출자로 적는다(D25 — 라우트가 runner·runner_seen_at CAS 를 싣는다).
+      update public.agent_work_orders
+         set runner = coalesce(p_runner, p_agent, runner), runner_seen_at = v_now, updated_at = v_now
+       where id = p_order_id;
+    elsif p_event = 'report_completion' then
+      update public.agent_work_orders
+         set status = 'reported', runner = null, runner_seen_at = null, updated_at = v_now
+       where id = p_order_id;
+    elsif p_event = 'cancel' then
+      -- D14 공용 취소 — 위임 해제·「중단」·개발 워크플로 끄기·스텁 제거·import 의 표식 제거(L7)가 모두 이 사건이다.
+      v_new_design_state := null;
+      update public.agent_work_orders
+         set status = 'cancelled', claimed_by = null, claimed_by_user_id = null, claimed_at = null,
+             design_state = null, claim_scope = null, runner = null, runner_seen_at = null, updated_at = v_now
+       where id = p_order_id;
+    elsif p_event = 'design_done' then
+      -- 설계 상태: 없음 → review(방식 review 이거나 claim_scope design). accepted 는 그대로. review 가 되면 runner 를 비운다(D25).
+      if v_order_design_state is null and (v_design_mode = 'review' or v_order_claim_scope = 'design') then v_new_design_state := 'review'; end if;
+      update public.agent_work_orders
+         set design_state = v_new_design_state,
+             runner = case when v_new_design_state = 'review' then null else runner end,
+             runner_seen_at = case when v_new_design_state = 'review' then null else runner_seen_at end,
+             heartbeat_phase = case when v_new_design_state = 'review' then 'wait_review' else 'wait_pred' end,
+             heartbeat_agent = coalesce(p_runner, p_agent, heartbeat_agent), last_heartbeat_at = v_now, updated_at = v_now
+       where id = p_order_id;
+    elsif p_event = 'design_accept' then
+      -- ① 「설계 승인」(claimed·review·dd) 은 claim_scope 를 build 로(D8), ② 「설계 확정」(ready·human) 은 단계 dd 로(아래).
+      v_new_design_state := 'accepted';
+      update public.agent_work_orders
+         set design_state = 'accepted', design_note = null,
+             claim_scope = case when v_order_status = 'claimed' then 'build' else claim_scope end,
+             updated_at = v_now
+       where id = p_order_id;
+    elsif p_event = 'design_reopen' then
+      if v_order_design_state = 'review' then
+        -- 검토 대기 중이면 사유만 고친다(4.1).
+        update public.agent_work_orders set design_note = p_note, updated_at = v_now where id = p_order_id;
+      elsif v_design_mode = 'human' then
+        v_new_design_state := null;
+        if v_order_status = 'claimed' then
+          -- 사람 설계 대기로 — 주문을 ready 로 되돌리고 점유·heartbeat·재개 요청·범위·도는 PC 를 release 처럼 비운다.
+          v_next := 'ready';
+          update public.agent_work_orders
+             set status = 'ready', design_state = null, design_note = p_note,
+                 claimed_by = null, claimed_by_user_id = null, claimed_at = null,
+                 last_heartbeat_at = null, heartbeat_phase = null, heartbeat_agent = null, heartbeat_note = null,
+                 resume_requested_at = null, resume_requested_by = null, resume_requested_host = null,
+                 claim_scope = null, runner = null, runner_seen_at = null, updated_at = v_now
+           where id = p_order_id;
+        else
+          update public.agent_work_orders set design_state = null, design_note = p_note, updated_at = v_now where id = p_order_id;
+        end if;
+      else
+        -- review·auto 는 설계 검토 대기로. 방식과 관계없이 runner 를 비운다(L9 — 재승인 뒤 다른 PC 가 30분 기다리지 않게).
+        v_new_design_state := 'review';
+        update public.agent_work_orders
+           set design_state = 'review', design_note = p_note, runner = null, runner_seen_at = null, updated_at = v_now
+         where id = p_order_id;
+      end if;
+    else
+      -- approve·reject·unapprove·rework — 종전과 같다.
+      update public.agent_work_orders set status = v_next, updated_at = v_now where id = p_order_id;
+    end if;
+  end if;
+
+  -- 단계·실적 결정(스펙 §3.4·§4.2, 0108 설계 상태 스펙 4.1)
+  if v_is_order_event then
+    -- 주문의 존재가 워크플로 증거 — dev_workflow 를 보지 않는다(구 force 의 일반화). 리프에만.
+    if not v_item_found then v_skipped := 'no_item';
+    elsif not v_is_leaf then v_skipped := 'parent';
+    elsif p_event = 'build_start' then
+      -- 설계 끝 → 구현 시작. ds·dd 일 때만 옮긴다. 이미 ip 이상이면 아무것도 바꾸지 않는다(멱등).
+      if v_old_stage in ('ds','dd') then v_apply := true; v_new_stage := 'ip'; v_credit_key := 'ip'; v_keep_max := true;
+      elsif v_old_stage is null or v_old_stage not in ('ip','im','xx') then v_skipped := 'stage';
+      end if;
+    elsif p_event = 'claim' then
+      v_apply := true; v_keep_max := true;
+      if v_scope in ('full','design') then v_new_stage := 'ds'; v_credit_key := 'ds';
+      elsif v_scope = 'build' then v_new_stage := 'dd'; v_credit_key := 'dd';
+      else v_new_stage := case when p_stage = 'ds' then 'ds' else 'ip' end; v_credit_key := v_new_stage;
+      end if;
+    elsif p_event = 'design_done' then
+      if v_old_stage in ('ds','dd') then v_apply := true; v_new_stage := 'dd'; v_credit_key := 'dd'; v_keep_max := true;
+      else v_skipped := 'stage';
+      end if;
+    elsif p_event = 'design_accept' then
+      if v_order_status = 'ready' then v_apply := true; v_new_stage := 'dd'; v_credit_key := 'dd'; v_keep_max := true; end if;
+    elsif p_event = 'design_reopen' then
+      if v_design_mode = 'human' and v_order_design_state = 'accepted' then v_apply := true; v_new_stage := 'as'; v_credit_key := 'as'; end if;
+    elsif p_event = 'cancel' then
+      -- D14: claimed 취소면 as(종전과 같다), ready 취소면 dd 만 as 로.
+      if v_order_status = 'claimed' or v_old_stage = 'dd' then v_apply := true; v_new_stage := 'as'; v_credit_key := 'as'; end if;
+    elsif p_event = 'release' then
+      v_apply := true; v_new_stage := 'as'; v_credit_key := 'as';
+    else
+      v_apply := true;
+      v_new_stage := case p_event
+        when 'report_completion' then 'im' when 'approve' then 'xx' when 'unapprove' then 'im' when 'reject' then 'ip' when 'rework' then 'ip' end;
+      v_credit_key := case p_event
+        when 'report_completion' then 'im' when 'approve' then 'xx' when 'unapprove' then 'im' when 'reject' then 'rw' when 'rework' then 'rw' end;
+      v_keep_max := p_event in ('report_completion','approve');
+    end if;
+  elsif p_event = 'assign' then
+    if v_dev_workflow is not true then v_skipped := 'not_workflow';
+    elsif not v_is_leaf then v_skipped := 'parent';
+    elsif v_old_stage is not null then v_skipped := 'stage';
+    else v_apply := true; v_new_stage := 'as'; v_credit_key := 'as';
+    end if;
+  elsif p_event = 'unassign' then
+    if v_dev_workflow is not true then v_skipped := 'not_workflow';
+    elsif v_old_stage is distinct from 'as' then v_skipped := 'stage';
+    else v_apply := true; v_new_stage := null; v_credit_key := null;
+    end if;
+  else -- set_stage — 사람은 dd 를 고를 수 없다(dd 는 design_done·design_accept 로만 생긴다, 스펙 7절).
+    if p_stage is not null and p_stage not in ('as','ds','ip','im','xx') then
+      return jsonb_build_object('ok', false, 'reason', 'bad_stage');
+    end if;
+    -- 잠금(위임됨 ∨ 에이전트가 주문을 쥠)이면 해제(null)도 거부 — 단계는 승인·반려로만 바뀐다(§3.5).
+    -- ready 는 넣지 않는다: dev_workflow 리프마다 배정과 무관하게 상주한다. 조건은 agentWork.stageLockedForHuman 과 같다.
+    if 'agent' = any(coalesce(v_tags, '{}'::text[]))
+       or exists (select 1 from public.agent_work_orders
+                   where wbs_item_id = v_item_id and status in ('claimed','reported')) then
+      return jsonb_build_object('ok', false, 'reason', 'locked');
+    end if;
+    if p_stage is null then
+      -- 해제는 워크플로·리프와 무관하게 허용(잘못 찍힌 값을 지울 길). 실적 불변.
+      v_apply := true; v_new_stage := null; v_credit_key := null;
+    else
+      if v_dev_workflow is not true then return jsonb_build_object('ok', false, 'reason', 'not_workflow'); end if;
+      if not v_is_leaf then return jsonb_build_object('ok', false, 'reason', 'parent'); end if;
+      v_apply := true; v_new_stage := p_stage; v_credit_key := p_stage;
+    end if;
+  end if;
+
+  if v_apply then
+    if v_credit_key = 'xx' then
+      v_new_pct := 100;
+    elsif v_credit_key is not null then
+      select stage_credits into v_credits from public.project_settings where project_id = v_project_id;
+      v_credits := coalesce(v_credits, c_default);
+      -- 표는 하나다(2026-09-16) — 항목 credit_key 로 고르지 않는다.
+      v_table := coalesce(v_credits -> 'default', c_default -> 'default');
+      if v_credit_key = 'dd' and not (v_table ? 'dd') then
+        -- 0108 이전 표에는 dd 가 없다 — greatest(ds, least(20, ip-5)) 로 채운다(D18·P12, stageCredits.fillOptional 과 같은 식).
+        v_ds := coalesce((v_table ->> 'ds')::numeric, (c_default -> 'default' ->> 'ds')::numeric);
+        v_ip := coalesce((v_table ->> 'ip')::numeric, (c_default -> 'default' ->> 'ip')::numeric);
+        v_new_pct := greatest(v_ds, least(20, v_ip - 5));
+      else
+        v_new_pct := coalesce((v_table ->> v_credit_key)::numeric, (c_default -> 'default' ->> v_credit_key)::numeric);
+      end if;
+    end if;
+    -- 앞으로 가는 사건은 실적을 낮추지 않는다(D19·P13).
+    if v_keep_max and v_new_pct is not null and v_old_pct is not null and v_old_pct > v_new_pct then v_new_pct := v_old_pct; end if;
+    if v_new_stage is distinct from v_old_stage then
+      v_stage_changed := true;
+      v_reached_first := coalesce(v_new_stage in ('im','xx'), false) and not coalesce(v_old_stage in ('im','xx'), false);
+      insert into public.change_logs (user_id, wbs_item_id, field, old_value, new_value)
+        values (p_actor, v_item_id, 'stage', v_old_stage, v_new_stage);
+    end if;
+    if v_new_pct is not null and v_new_pct is distinct from v_old_pct then
+      v_actual_changed := true;
+      insert into public.change_logs (user_id, wbs_item_id, field, old_value, new_value)
+        values (p_actor, v_item_id, 'actual_pct', v_old_pct::text, v_new_pct::text);
+    end if;
+    if v_stage_changed or v_actual_changed then
+      update public.wbs_items
+         set stage = case when v_stage_changed then v_new_stage else stage end,
+             actual_pct = case when v_actual_changed then v_new_pct else actual_pct end,
+             updated_at = v_now
+       where id = v_item_id;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'order_status', case when v_is_order_event then v_next end,
+    'prev_status', case when v_is_order_event then v_order_status end,
+    'design_state', case when v_is_order_event then v_new_design_state end,
+    'stage', case when v_stage_changed then v_new_stage else v_old_stage end,
+    'actual_pct', case when v_actual_changed then v_new_pct else v_old_pct end,
+    'stage_changed', v_stage_changed,
+    'actual_changed', v_actual_changed,
+    'reached_first', v_reached_first,
+    'skipped', v_skipped);
+end;
+$$;
+
+revoke all on function public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid, text, jsonb, text, text, text) from public, anon, authenticated;
+grant execute on function public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid, text, jsonb, text, text, text) to service_role;
+
+-- ⑥-1 설계 멈춤 잔재(리프만): claimed ∧ ds ∧ heartbeat_phase wait_review(2.10 설계만, 스테이징) 또는 wait_pred(설계 선행, L4)
+--     → 단계 dd·실적 max(현재, dd). wait_review 는 설계 상태 review·claim_scope design·runner 없음(8절, W25).
+do $$
+declare
+  r record;
+  v_dd numeric;
+begin
+  for r in
+    select o.id as order_id, i.id as item_id, i.actual_pct as old_pct, i.project_id, o.heartbeat_phase as phase
+      from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+     where o.status = 'claimed' and i.stage = 'ds' and o.heartbeat_phase in ('wait_review','wait_pred')
+       and not exists (select 1 from public.wbs_items c where c.parent_id = i.id and c.stub_for is null)
+  loop
+    select coalesce((s.stage_credits -> 'default' ->> 'dd')::numeric,
+                    greatest(coalesce((s.stage_credits -> 'default' ->> 'ds')::numeric, 10),
+                             least(20, coalesce((s.stage_credits -> 'default' ->> 'ip')::numeric, 30) - 5)))
+      into v_dd from public.project_settings s where s.project_id = r.project_id;
+    v_dd := coalesce(v_dd, 20);
+    update public.wbs_items set stage = 'dd', actual_pct = greatest(coalesce(actual_pct, 0), v_dd), updated_at = now() where id = r.item_id;
+    insert into public.change_logs (user_id, wbs_item_id, field, old_value, new_value) values (null, r.item_id, 'stage', 'ds', 'dd');
+    if coalesce(r.old_pct, 0) < v_dd then
+      insert into public.change_logs (user_id, wbs_item_id, field, old_value, new_value)
+        values (null, r.item_id, 'actual_pct', r.old_pct::text, v_dd::text);
+    end if;
+    if r.phase = 'wait_review' then
+      update public.agent_work_orders set design_state = 'review', claim_scope = 'design', runner = null, runner_seen_at = null where id = r.order_id;
+    end if;
+  end loop;
+end $$;
+
+-- ⑥-2 나머지 claimed 의 범위·도는 PC — runner 는 마지막 heartbeat 의 라벨 먼저(L12: 다른 PC 가 이어받은 주문), 없으면 점유 라벨.
+update public.agent_work_orders
+   set claim_scope = coalesce(claim_scope, 'legacy'),
+       runner = coalesce(runner, heartbeat_agent, claimed_by),
+       runner_seen_at = coalesce(runner_seen_at, last_heartbeat_at)
+ where status = 'claimed' and design_state is null;
+
+-- ⑥-3 이미 진행된 항목(단계 ip 이상·실적 100·approved 주문)의 ready 주문을 취소하고 이력을 남긴다(D26, 5차 W9).
+do $$
+declare
+  r record;
+begin
+  for r in
+    select o.id, o.wbs_item_id
+      from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+     where o.status = 'ready'
+       and (i.stage in ('ip','im','xx') or coalesce(i.actual_pct, 0) >= 100
+            or exists (select 1 from public.agent_work_orders a where a.wbs_item_id = i.id and a.status = 'approved'))
+  loop
+    update public.agent_work_orders set status = 'cancelled', updated_at = now() where id = r.id;
+    insert into public.change_logs (user_id, wbs_item_id, field, old_value, new_value)
+      values (null, r.wbs_item_id, 'agent_order', 'ready', 'cancelled(0108 D26)');
+  end loop;
+end $$;
+
+notify pgrst, 'reload schema';
+
+commit;
+```
+
+- [ ] **Step 4: 되돌리기 파일을 쓴다**
+
+`supabase/migrations/0108_design_state_rollback.sql` 을 아래 머리로 만든다:
+
+```sql
+-- supabase/migrations/0108_design_state_rollback.sql
+-- 0108 되돌리기. 순서가 중요하다: dd 행을 ds 로 옮긴 뒤 CHECK 를 좁힌다(반대면 CHECK 재정의가 실패한다).
+-- 크레딧 표의 dd 키도 지운다 — 되돌린 코드의 검증(validateStageCredits)이 모르는 키로 설정 저장을 거부한다.
+-- 전이 RPC 는 12인자 함수를 지우고 0107 본문(7인자)으로 되살린다 — 새 사건을 부르는 코드를 먼저 되돌려야 한다(bad_event).
+-- 되돌리지 않는 것: ⑥-3 이 취소한 ready 주문(취소는 종착이다 — 필요하면 위임을 껐다 켜 새 주문을 받는다)과 change_logs 기록.
+-- 사전 확인: select count(*) from public.wbs_items where stage = 'dd';
+begin;
+
+update public.wbs_items set stage = 'ds' where stage = 'dd';
+alter table public.wbs_items drop constraint if exists wbs_items_stage_check;
+alter table public.wbs_items
+  add constraint wbs_items_stage_check check (stage in ('as','ds','ip','im','xx'));
+
+update public.project_settings
+   set stage_credits = jsonb_set(stage_credits, '{default}', (stage_credits -> 'default') - 'dd')
+ where stage_credits is not null and (stage_credits -> 'default') ? 'dd';
+
+comment on column public.project_settings.stage_credits is
+  '단계 전이 실적 크레딧 {default:{as,ds,ip,rw,im,xx}} — null 이면 코드 기본값, ds 가 없으면 기본값(10). 규칙: 정수·5단위·as<ds<ip<rw<im<xx·간격>=10·xx=100';
+
+drop function if exists public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid, text, jsonb, text, text, text);
+
+-- 전이 RPC 를 0107 본문으로 되살린다(아래 블록은 0107_wbs_design_stage.sql 에서 글자 그대로 옮긴다).
+```
+
+이어서 0107 의 함수 정의를 글자 그대로 붙인다(테스트가 `fnOf(rollback) === fnOf(0107)` 을 본다):
+
+```bash
+sed -n '/^create or replace function public.apply_workflow_event(/,/^\$\$;/p' supabase/migrations/0107_wbs_design_stage.sql >> supabase/migrations/0108_design_state_rollback.sql
+```
+
+그리고 꼬리를 붙인다:
+
+```sql
+
+revoke all on function public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid) from public, anon, authenticated;
+grant execute on function public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid) to service_role;
+
+alter table public.agent_work_orders
+  drop constraint if exists agent_work_orders_design_state_check,
+  drop constraint if exists agent_work_orders_claim_scope_check,
+  drop constraint if exists agent_work_orders_design_note_len;
+alter table public.agent_work_orders
+  drop column if exists design_state,
+  drop column if exists claim_scope,
+  drop column if exists design_note,
+  drop column if exists runner,
+  drop column if exists runner_seen_at;
+alter table public.wbs_items drop constraint if exists wbs_items_design_mode_check;
+alter table public.wbs_items drop column if exists design_mode;
+
+notify pgrst, 'reload schema';
+
+commit;
+```
+
+- [ ] **Step 5: 대조 테스트가 통과하는지 본다**
+
+Run: `npx vitest run tests/migrations/0108-design-state.test.ts tests/migrations/0107-wbs-design-stage.test.ts`
+Expected: PASS. 문자열 대조가 실패하면 SQL 의 공백·줄바꿈이 테스트의 기대 문자열과 같은지 먼저 본다(테스트는 Step 3 의 SQL 에서 줄을 그대로 옮겼다).
+
+- [ ] **Step 6: 커밋(마이그레이션만 — 코드와 섞지 않는다)**
+
+```bash
+git add supabase/migrations/0108_design_state.sql supabase/migrations/0108_design_state_rollback.sql tests/migrations/0108-design-state.test.ts
+git commit -m "feat(db): 0108 설계 상태 — design_mode·design_state·claim_scope·runner, 단계 dd, 전이 RPC 새 사건
+
+설계 방식·설계 상태·도는 PC 를 서버에 두고, 전이 RPC 가 design_done·design_accept·design_reopen·cancel·set_design_mode 를
+원자적으로 처리한다(관문은 라우트, RPC 는 CAS). 옛 7인자 함수를 지워 오버로드 모호성을 없애고, 새 인자는 기본값이 있어
+2.9·2.10 앱이 그대로 돈다. 설계 멈춤 잔재·claimed 범위·진행된 항목의 ready 주문을 이전한다.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+(스테이징 리허설 뒤 Task 5 가 이 커밋에 트레일러를 단다. 대조 테스트 파일은 SQL 을 읽는 테스트라 마이그레이션 커밋에 함께 넣는다 — G1 은 `src/**` 코드와의 혼합만 막는다.)
+
+---
+
+## Task 5: 스테이징 리허설 — 0108 을 스테이징 DB 에 먼저 적용
+
+**Files:** 없음(스크래치 SQL 만. 결과는 커밋 트레일러와 사용자 보고로 남긴다)
+
+**Interfaces:**
+- Consumes: Task 4 의 `0108_design_state.sql`
+- Produces: 스테이징 DB 에 0108 적용. `Staging-verified:` 트레일러가 붙은 마이그레이션 커밋. 전후 건수 표.
+
+스테이징 DB 가 먼저 올라가도 지금 스테이징 앱(계약 2.10)은 그대로 돈다(새 칸 기본값·RPC 새 인자 기본값). 그래서 코드보다 먼저 한다.
+
+- [ ] **Step 1: 스테이징에 살아 있는 팀장·2.10 잔재가 있는지 본다(Y6, sync 전)**
+
+`/tmp/claude-design-state/pre-sync.sql`:
+
+```sql
+select 'live_watchers' k, count(*)::text v from public.agent_watchers where last_seen_at > now() - interval '70 minutes'
+union all select 'live_leases', count(*)::text from public.agent_lead_leases where expires_at > now()
+union all select 'wait_review_orders', count(*)::text from public.agent_work_orders where status = 'claimed' and heartbeat_phase = 'wait_review'
+union all select 'wait_review_list', coalesce(string_agg(left(id::text, 8), ','), '-') from public.agent_work_orders where status = 'claimed' and heartbeat_phase = 'wait_review';
+```
+
+```bash
+mkdir -p /tmp/claude-design-state
+npm run db:apply -- /tmp/claude-design-state/pre-sync.sql --target staging
+```
+
+Expected: 네 줄의 값. `live_watchers`·`live_leases` 가 0 이 아니면 스테이징에서 누가 팀장을 돌리는 중이다 — **멈추고 사용자에게 목록을 보여 준 뒤 지시를 받는다.** `wait_review_list` 는 2.10 "설계만" 잔재다. 다음 단계의 sync 가 지우므로(운영에는 2.10 이 없다) 목록만 보고에 남긴다.
+
+- [ ] **Step 2: 사용자 확인을 받고 staging:sync 를 한다**
+
+`staging:sync` 는 스테이징 데이터를 운영 복제로 덮는다(되돌릴 수 없다). **실행 직전에 사용자에게 "스테이징 데이터를 운영 복제로 덮어도 되는지"를 묻고 명시적 동의를 받는다.** 동의하면:
+
+```bash
+npm run staging:sync
+```
+
+Expected: 확인 프롬프트에 답하면 복제가 끝난다. 활성 접속 경고가 나오면 멈추고 사용자에게 알린다(`--yes` 로 우회하지 않는다).
+
+- [ ] **Step 3: 적용 전 건수를 센다**
+
+`/tmp/claude-design-state/counts.sql`:
+
+```sql
+select 'a_claimed_ds_wait_review' k, count(*) v from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+  where o.status = 'claimed' and i.stage = 'ds' and o.heartbeat_phase = 'wait_review'
+union all select 'b_claimed_ds_wait_pred', count(*) from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+  where o.status = 'claimed' and i.stage = 'ds' and o.heartbeat_phase = 'wait_pred'
+union all select 'c_claimed', count(*) from public.agent_work_orders where status = 'claimed'
+union all select 'd_ready_on_progressed', count(*) from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+  where o.status = 'ready' and (i.stage in ('ip','im','xx') or coalesce(i.actual_pct, 0) >= 100
+    or exists (select 1 from public.agent_work_orders a where a.wbs_item_id = i.id and a.status = 'approved'))
+union all select 'e_stage_dd', count(*) from public.wbs_items where stage = 'dd';
+```
+
+```bash
+npm run db:apply -- /tmp/claude-design-state/counts.sql --target staging
+```
+
+Expected: 다섯 줄. 이 숫자를 기록해 둔다(Step 6 과 사용자 보고에 쓴다). 이 단계는 0108 전이라 `e_stage_dd` 는 CHECK 때문에 0 이다.
+
+- [ ] **Step 4: 0108 을 스테이징에 적용한다**
+
+```bash
+npm run db:apply -- supabase/migrations/0108_design_state.sql --target staging
+```
+
+Expected: 성공. 실패하면 오류 문장을 그대로 기록하고, SQL 을 고쳐 Task 4 Step 5 대조 테스트부터 다시 돈 뒤 이 Step 을 반복한다(스테이징은 트랜잭션이라 실패하면 아무것도 남지 않는다).
+
+- [ ] **Step 5: RPC 를 한 트랜잭션에서 돌려 보고 되돌린다**
+
+`/tmp/claude-design-state/verify.sql` — 끝의 `raise exception` 이 모든 변경을 되돌린다(스테이징에 흔적이 남지 않는다):
+
+```sql
+do $$
+declare
+  v_order uuid; v_item uuid; v_actor uuid; r jsonb;
+  v_stage text; v_pct numeric; v_ds text; v_scope text; v_runner text; v_phase text;
+begin
+  select o.id, o.wbs_item_id into v_order, v_item
+    from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+   where o.status = 'ready' and coalesce(i.stage, 'as') = 'as' and coalesce(i.actual_pct, 0) < 100
+     and not exists (select 1 from public.wbs_items c where c.parent_id = i.id and c.stub_for is null)
+     and not exists (select 1 from public.agent_work_orders a where a.wbs_item_id = i.id and a.status = 'approved')
+   limit 1;
+  if v_order is null then raise exception 'VERIFY_SKIP 후보 ready 주문 없음'; end if;
+  select id into v_actor from auth.users limit 1;
+  update public.wbs_items set design_mode = 'review' where id = v_item;
+
+  -- 1) claim(design) → ds·design·runner
+  r := public.apply_workflow_event(p_event => 'claim', p_actor => v_actor, p_order_id => v_order, p_agent => 'verify/pca/w1',
+         p_scope => 'design', p_cas => '{"design_state":null,"design_mode":"review"}'::jsonb, p_runner => 'verify/pca/w1');
+  if (r ->> 'ok')::boolean is not true then raise exception 'VERIFY_FAIL claim %', r; end if;
+  select stage into v_stage from public.wbs_items where id = v_item;
+  select claim_scope, runner into v_scope, v_runner from public.agent_work_orders where id = v_order;
+  if v_stage <> 'ds' or v_scope <> 'design' or v_runner <> 'verify/pca/w1' then raise exception 'VERIFY_FAIL claim 결과 % % %', v_stage, v_scope, v_runner; end if;
+
+  -- 2) 방식 변경은 claimed 가 있으면 거부
+  r := public.apply_workflow_event(p_event => 'set_design_mode', p_actor => v_actor, p_item_id => v_item, p_mode => 'human');
+  if r ->> 'reason' is distinct from 'design_mode_locked' then raise exception 'VERIFY_FAIL set_design_mode %', r; end if;
+
+  -- 3) CAS 불일치는 conflict
+  r := public.apply_workflow_event(p_event => 'design_done', p_actor => v_actor, p_order_id => v_order, p_agent => 'verify/pca/w1',
+         p_cas => '{"design_state":"accepted"}'::jsonb);
+  if (r ->> 'conflict')::boolean is not true then raise exception 'VERIFY_FAIL cas %', r; end if;
+
+  -- 4) design_done → dd·review·runner 없음·wait_review
+  r := public.apply_workflow_event(p_event => 'design_done', p_actor => v_actor, p_order_id => v_order, p_agent => 'verify/pca/w1',
+         p_runner => 'verify/pca/w1');
+  select stage, actual_pct into v_stage, v_pct from public.wbs_items where id = v_item;
+  select design_state, runner, heartbeat_phase into v_ds, v_runner, v_phase from public.agent_work_orders where id = v_order;
+  if v_stage <> 'dd' or v_ds <> 'review' or v_runner is not null or v_phase <> 'wait_review' then
+    raise exception 'VERIFY_FAIL design_done % % % %', v_stage, v_ds, v_runner, v_phase;
+  end if;
+
+  -- 5) 사람의 set_stage 는 dd 를 받지 않는다
+  r := public.apply_workflow_event(p_event => 'set_stage', p_actor => v_actor, p_item_id => v_item, p_stage => 'dd');
+  if r ->> 'reason' is distinct from 'bad_stage' then raise exception 'VERIFY_FAIL set_stage dd %', r; end if;
+
+  -- 6) design_accept ① → accepted·build
+  r := public.apply_workflow_event(p_event => 'design_accept', p_actor => v_actor, p_order_id => v_order,
+         p_cas => '{"design_state":"review"}'::jsonb);
+  select design_state, claim_scope into v_ds, v_scope from public.agent_work_orders where id = v_order;
+  if v_ds <> 'accepted' or v_scope <> 'build' then raise exception 'VERIFY_FAIL design_accept % %', v_ds, v_scope; end if;
+
+  -- 7) build_start(build) → ip·runner
+  r := public.apply_workflow_event(p_event => 'build_start', p_actor => v_actor, p_order_id => v_order, p_agent => 'verify/pca/w1',
+         p_scope => 'build', p_cas => '{"design_state":"accepted","runner":null}'::jsonb, p_runner => 'verify/pca/w1');
+  select stage into v_stage from public.wbs_items where id = v_item;
+  select runner into v_runner from public.agent_work_orders where id = v_order;
+  if v_stage <> 'ip' or v_runner <> 'verify/pca/w1' then raise exception 'VERIFY_FAIL build_start % %', v_stage, v_runner; end if;
+
+  -- 8) 완료 보고 → im·runner 없음
+  r := public.apply_workflow_event(p_event => 'report_completion', p_actor => v_actor, p_order_id => v_order, p_agent => 'verify/pca/w1',
+         p_cas => '{"runner":"verify/pca/w1"}'::jsonb);
+  select stage into v_stage from public.wbs_items where id = v_item;
+  select runner into v_runner from public.agent_work_orders where id = v_order;
+  if v_stage <> 'im' or v_runner is not null then raise exception 'VERIFY_FAIL report % %', v_stage, v_runner; end if;
+
+  raise exception 'VERIFY_OK 8/8 — 이 오류는 의도한 되돌림이다';
+end $$;
+```
+
+```bash
+npm run db:apply -- /tmp/claude-design-state/verify.sql --target staging
+```
+
+Expected: 명령은 오류로 끝나고, 오류 문장에 `VERIFY_OK 8/8` 이 보인다(의도한 되돌림). `VERIFY_FAIL` 이면 그 줄의 값을 기록하고 Task 4 로 돌아가 SQL 을 고친다 — 스테이징에는 되돌리기 파일(`0108_design_state_rollback.sql`)을 먼저 적용한 뒤 다시 적용한다. `VERIFY_SKIP` 이면 후보가 없는 것이다 — 사용자에게 알리고, 검증은 Task 27 의 API E2E 로 넘긴다.
+
+- [ ] **Step 6: 적용 뒤 건수를 다시 세고 표로 남긴다**
+
+`/tmp/claude-design-state/post.sql`:
+
+```sql
+select 'a_review_design_dd' k, count(*) v from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+  where o.status = 'claimed' and o.design_state = 'review' and o.claim_scope = 'design' and i.stage = 'dd'
+union all select 'b_claimed_dd_wait_pred', count(*) from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+  where o.status = 'claimed' and i.stage = 'dd' and o.heartbeat_phase = 'wait_pred'
+union all select 'c_claimed_without_scope', count(*) from public.agent_work_orders where status = 'claimed' and claim_scope is null
+union all select 'c_claimed_without_runner', count(*) from public.agent_work_orders where status = 'claimed' and design_state is null and runner is null
+union all select 'd_ready_on_progressed', count(*) from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+  where o.status = 'ready' and (i.stage in ('ip','im','xx') or coalesce(i.actual_pct, 0) >= 100
+    or exists (select 1 from public.agent_work_orders a where a.wbs_item_id = i.id and a.status = 'approved'))
+union all select 'd_cancelled_by_0108', count(*) from public.change_logs where new_value = 'cancelled(0108 D26)'
+union all select 'f_design_mode_default', count(*) from public.wbs_items where design_mode <> 'auto';
+```
+
+```bash
+npm run db:apply -- /tmp/claude-design-state/post.sql --target staging
+```
+
+Expected(Step 3 값을 A·B·C·D 라 하면): `a_review_design_dd` = A, `b_claimed_dd_wait_pred` = B, `c_claimed_without_scope` = 0, `c_claimed_without_runner` = 0, `d_ready_on_progressed` = 0, `d_cancelled_by_0108` = D, `f_design_mode_default` = 0. 다르면 멈추고 사용자에게 두 표를 보여 준다.
+
+- [ ] **Step 7: 마이그레이션 커밋에 트레일러를 단다**
+
+Task 4 커밋 뒤에 다른 커밋이 없으면 amend, 있으면 빈 커밋으로 단다(범위 안 빈 커밋 트레일러도 G4 가 인정한다):
+
+```bash
+git log --oneline -1   # Task 4 커밋인지 본다
+git commit --amend --no-edit --trailer "Staging-verified: $(date +%F) db 리허설 통과"
+# 또는(뒤에 커밋이 있으면)
+git commit --allow-empty -m "0108 스테이징 리허설" --trailer "Staging-verified: $(date +%F) db 리허설 통과"
+```
+
+- [ ] **Step 8: 사용자에게 건수 표를 보고한다**
+
+Step 1·3·6 의 숫자를 한 표로 보고한다(스테이징 = 운영 복제이므로 운영에 적용될 때의 예상 건수다). 보고 문장은 완전한 한국어로 쓴다. 예: "운영 복제 기준으로 설계 선행 대기 주문 2건이 설계 완료(dd)로 옮겨지고, 작업 중 주문 5건에 도는 PC 가 채워지며, 이미 진행된 항목의 대기 주문 1건이 취소됩니다."
+
+---
