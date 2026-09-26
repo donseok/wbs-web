@@ -239,6 +239,33 @@ describe('assembleSeatmap — 착수 대기 사유(waitReason)', () => {
     expect(seatOf(pick).waitReason?.kind).toBe('pickup')
     expect(seatOf(pick).anim).toBe('empty')
   })
+  it('설계 완료·선행 대기(claimed ∧ wait_pred)는 오래 침묵해도 WAIT·선행 대기(dependency)·실루엣이다(스펙 2026-09-26 §6.4)', () => {
+    const waitPred = order({ heartbeat_phase: 'wait_pred', last_heartbeat_at: ago(OFFLINE_MS * 5), updated_at: ago(OFFLINE_MS * 5) })
+    const base = { orders: [waitPred], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 10, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }
+    const m = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'ip', order_approved: false }] }), NOW)
+    const s = seatOf(m)
+    expect(s.state).toBe('WAIT')
+    expect(s.phase).toBe('wait_pred')
+    expect(s.waitReason).toMatchObject({ kind: 'dependency', label: '선행 대기' })
+    expect(s.waitReason?.text).toContain('X x(현재 ip(작업 중))')
+    expect(s.anim).toBe('waiting')
+    expect(m.attention).toEqual([]) // 끊김·무응답으로 확인 필요 띠에 오르지 않는다
+    expect(s.designWait).toBe(true)
+    // 「승인 대기」 타일·구역 요약에 세지 않는다 — 레인처럼 빈자리(선행 대기) 쪽이다
+    expect(m.counters).toMatchObject({ idle: 0, offline: 1 })
+    expect(m.floors[0].zones[0].summary).toMatchObject({ wait: 0, ready: 1 })
+    // 선행이 모두 풀렸는데 아직 재개 전이면 — 에이전트 꺼짐·착수 대기로 새지 않고 선행 대기(재개 대기)로 말한다
+    const freed = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'im', order_approved: false }] }), NOW)
+    expect(seatOf(freed).waitReason?.kind).toBe('dependency')
+    expect(seatOf(freed).waitReason?.text).toContain('재개')
+  })
+  it('승인 대기(reported) WAIT 에는 대기 사유를 붙이지 않는다', () => {
+    const m = assembleSeatmap(rows({ orders: [order({ status: 'reported' })] }), NOW)
+    expect(seatOf(m).state).toBe('WAIT')
+    expect(seatOf(m).waitReason).toBeNull()
+    expect(seatOf(m).designWait).toBe(false)
+    expect(m.counters.idle).toBe(1)
+  })
   it('선행은 같은 프로젝트의 external_ref 로만 맞춘다 — 다른 프로젝트의 같은 ref 는 무시(미충족 = dependency)', () => {
     const base = { orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }
     const other = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P2, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'xx', order_approved: true }] }), NOW)

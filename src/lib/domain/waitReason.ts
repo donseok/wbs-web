@@ -98,3 +98,24 @@ export function deriveWaitReason(args: {
     text: `집어갈 수 있는 에이전트가 있습니다(${free.map(w => w.agent).join(', ')}). 다음 확인 주기에 착수합니다. 이 상태가 오래 가면 그 에이전트의 로그를 확인하세요.`,
   }
 }
+
+/**
+ * 설계 완료·선행 대기 좌석(claimed ∧ heartbeat wait_pred, 스펙 2026-09-26 §6.4)의 사유 — 늘 선행 대기(dependency)다.
+ * 선행이 이미 모두 풀렸어도 워커가 아직 재개하지 않았으면 선행 대기로 말한다: deriveWaitReason 으로 넘기면
+ * 에이전트 꺼짐·착수 대기(빈자리의 사유)로 새어 점유 중인 좌석을 빈자리처럼 말한다.
+ */
+export function designWaitReason(
+  depends: string[] | null, byRef: (ref: string) => PredecessorLike | undefined, waived: readonly string[] = [],
+): WaitReason {
+  const unmet = unmetDepends(depends, byRef, waived)
+  if (unmet.length > 0) {
+    return {
+      kind: 'dependency', label: '선행 대기',
+      text: `설계를 마치고 선행 작업을 기다립니다: ${unmetDependsList(unmet)}. 선행이 검수 대기(im) 이상이 되거나, 그 주문이 승인되거나, 실적이 100% 가 되면 구현을 시작합니다.`,
+    }
+  }
+  return {
+    kind: 'dependency', label: '선행 대기',
+    text: '설계를 마치고 선행을 기다리던 작업입니다. 선행은 모두 풀렸고, 팀장이 다음 확인 주기에 재개합니다. 이 상태가 오래 가면 팀장(/dflow-team)이 켜져 있는지 확인하세요.',
+  }
+}

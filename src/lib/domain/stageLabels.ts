@@ -1,13 +1,14 @@
 /**
  * 단계 코드·라벨 정본(스펙 2026-09-15 §3.2) — 한 벌만. fp 는 0096 에서 ip 로 이관돼 어휘에 없다.
+ * ds(설계 중)는 0107 에서 as 와 ip 사이에 들어왔다(스펙 2026-09-26 §6.2) — 설계 선행 claim 이 ds, build_start 가 ip.
  * i18n ko 사전(wbs.stage*)은 이 값과 같아야 한다(tests/domain/stage-labels.test.ts 가 고정).
  * 허브 표·대기 사유 문구처럼 i18n 을 쓰지 않는 서버 문구는 이 모듈을 쓴다.
  */
-export const STAGE_CODES = ['as', 'ip', 'im', 'xx'] as const
+export const STAGE_CODES = ['as', 'ds', 'ip', 'im', 'xx'] as const
 export type StageCode = (typeof STAGE_CODES)[number]
 
 export const STAGE_LABEL_KO: Readonly<Record<StageCode, string>> = {
-  as: '할당됨', ip: '작업 중', im: '검수 대기', xx: '완료',
+  as: '할당됨', ds: '설계 중', ip: '작업 중', im: '검수 대기', xx: '완료',
 }
 export const STAGE_NONE_LABEL_KO = '미착수'
 

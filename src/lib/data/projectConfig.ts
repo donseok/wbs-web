@@ -1,6 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import type { SupabaseServerClient } from '@/lib/repositories/supabase/common'
-import type { StageCredits } from '@/lib/domain/stageCredits'
+import { normalizeStageCredits, type StageCredits } from '@/lib/domain/stageCredits'
 import { DEFAULT_BOTTLENECK, type BottleneckSettings } from '@/lib/domain/forceProgress'
 
 /**
@@ -15,7 +15,7 @@ export interface ProjectConfig {
   extraAxisLabel: string | null
   milestoneKeywords: string[]
   excelProfile: Record<string, unknown>
-  /** 단계 전이 실적 크레딧 표(0096) — null 이면 코드 기본값(DEFAULT_STAGE_CREDITS). 검증은 저장 경로(updateStageCredits)가 한다. */
+  /** 단계 전이 실적 크레딧 표(0096) — null 이면 코드 기본값(DEFAULT_STAGE_CREDITS). 검증은 저장 경로(updateStageCredits)가 한다. ds 가 없으면 기본값으로 채워 싣는다(0107). */
   stageCredits: StageCredits | null
   /** 병목 제안 기준(0103, 강제 진행 스펙 F14) — 행 없으면 DEFAULT_BOTTLENECK. */
   bottleneck: BottleneckSettings
@@ -56,7 +56,8 @@ export async function getProjectConfig(projectId: string, client?: SupabaseServe
     // §7.4 함정 2 — isMilestoneLeaf 는 lowercase 비교. 주입 전에 정규화해 계약을 로더가 보증한다.
     milestoneKeywords: (row.milestone_keywords ?? []).map(k => k.toLowerCase()),
     excelProfile: row.excel_profile ?? {},
-    stageCredits: row.stage_credits ?? null,
+    // 0107 이전 표에는 ds 가 없다 — RPC 가 채우는 기본값과 같은 값으로 채워 화면과 전이가 어긋나지 않게 한다.
+    stageCredits: normalizeStageCredits(row.stage_credits),
     bottleneck: {
       minSuccessors: row.force_bottleneck_min_successors ?? DEFAULT_BOTTLENECK.minSuccessors,
       minHours: row.force_bottleneck_min_hours ?? DEFAULT_BOTTLENECK.minHours,

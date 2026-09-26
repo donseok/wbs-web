@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
 import { myMemberIds } from '@/lib/agent/assignee'
-import { ITEM_DETAIL_COLUMNS, loadDependsInfo, type DependInfo } from '@/lib/agent/depends'
+import { ITEM_DETAIL_COLUMNS, designFirstTooEarly, loadDependsInfo, type DependInfo } from '@/lib/agent/depends'
 import { emitNotification } from '@/lib/notify/emit'
 import { applyWorkflowEvent, notifyOnReached } from '@/lib/agent/workflowEvent'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
@@ -19,6 +19,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!isUuidLike(id)) return apiBadRequest('경로 id 형식이 올바르지 않습니다.')
   let raw: unknown
   try { raw = await req.json() } catch { return apiBadRequest('잘못된 요청입니다.') }
+  // 설계 선행(계약 v2.9, 스펙 2026-09-26 §6.3) — true 일 때만 켠다. 없거나 false 면 종전과 글자 그대로 같다.
+  const designFirstRaw = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>).design_first : undefined
+  if (designFirstRaw !== undefined && typeof designFirstRaw !== 'boolean') return apiBadRequest('design_first는 불리언이어야 합니다.')
+  const designFirst = designFirstRaw === true
+  let unmetOut: { external_ref: string; stage: string | null }[] = []
   try {
     const admin = createAdminClient()
     const actor = await resolveWriteActor(req, admin, raw, 'work:claim')
@@ -66,7 +71,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         // 영구히 막던 교착), **또는** 선행 실적 100(위임하지 않은 사람 Task). 응답에 실린 reached 와 같은
         // 값으로 막아야 스킬과 서버가 서로 다른 판정을 하지 않는다.
         const unmet = dependsInfo.filter((d) => !d.reached)
-        if (unmet.length > 0) {
+        unmetOut = unmet.map((d) => ({ external_ref: d.external_ref, stage: d.stage }))
+        // 설계 선행: 미충족 선행이 모두 ip(구현 중)면 claim 을 허용한다. 미착수·as·ds(선행도 설계만 하는 중)나
+        // 프로젝트에 없는 선행이 하나라도 있으면 거부한다 — 설계 선행은 한 단계 깊이까지만(스펙 §6.3).
+        if (designFirst && unmet.length > 0 && designFirstTooEarly(unmet)) {
+          return NextResponse.json({
+            error: '설계 선행은 미충족 선행이 모두 구현 중(ip)일 때만 할 수 있습니다.', code: 'dependency_not_met',
+            reason: 'design_first_too_early', unmet: unmetOut,
+          }, { status: 403 })
+        }
+        if (!designFirst && unmet.length > 0) {
           return NextResponse.json({
             error: '선행 작업이 끝나지 않았습니다(검수 대기 이상도, 승인도, 실적 100% 도 아님).', code: 'dependency_not_met',
             unmet: unmet.map((d) => ({ external_ref: d.external_ref, stage: d.stage })),
@@ -75,11 +89,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       }
     }
 
-    // 원자 전이(스펙 2026-09-15 §4) — 주문 ready→claimed CAS + 단계 ip + 실적 크레딧이 한 트랜잭션.
+    // 원자 전이(스펙 2026-09-15 §4) — 주문 ready→claimed CAS + 단계 ip(설계 선행이면 ds) + 실적 크레딧이 한 트랜잭션.
     // 점유자 신원은 서버 유도값이다(claimed_by_user_id 는 PAT 경로에서만 — body 에서 받지 않는다).
     // 항목이 지워진 주문은 RPC 가 단계·실적만 건너뛴다(skipped:'no_item') — claim 자체는 종전처럼 된다.
     const transition = await applyWorkflowEvent(admin, {
       event: 'claim', actorUserId: loaded.userId, orderId: id,
+      stage: designFirst ? 'ds' : null,
       agent: actor.agentLabel,
       agentUserId: actor.principal.kind === 'pat' ? (actor.userId as string) : null,
     })
@@ -125,7 +140,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }
     if (transition.reachedFirst && loaded.order.wbs_item_id) await notifyOnReached(admin, loaded.order.wbs_item_id, loaded.userId)
 
-    return NextResponse.json({ ok: true, status: 'claimed', item, depends_evidence: dependsInfo })
+    return NextResponse.json({
+      ok: true, status: 'claimed', item, depends_evidence: dependsInfo,
+      ...(designFirst ? { design_first: true, unmet: unmetOut } : {}),
+    })
   } catch (e) {
     console.error('[agent-api] claim 처리 실패:', e instanceof Error ? e.message : e)
     return apiInternalError()

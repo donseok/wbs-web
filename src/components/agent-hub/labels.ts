@@ -14,6 +14,21 @@ export const STATE_LABEL: Record<HubOrderState, string> = {
   DONE: '승인됨',
 }
 
+/** 설계 완료·선행 대기(claimed ∧ heartbeat wait_pred, 스펙 2026-09-26 §6.4) — 좌석 상태는 WAIT 지만 승인 대기가 아니다. */
+export const DESIGN_WAIT_LABEL = '선행 대기'
+export const DESIGN_WAIT_TONE = 'bg-pending-weak text-pending'
+
+/** 승인 대기 = WAIT 중 보고된(reported) 주문만. 설계 완료·선행 대기도 WAIT 라 state 만 보면 섞인다. */
+export function isHubApprovalWait(order: { state: HubOrderState; status: string } | null): boolean {
+  return order?.state === 'WAIT' && order.status === 'reported'
+}
+export function hubStateLabel(order: { state: HubOrderState; status: string }): string {
+  return order.state === 'WAIT' && order.status !== 'reported' ? DESIGN_WAIT_LABEL : STATE_LABEL[order.state]
+}
+export function hubStateTone(order: { state: HubOrderState; status: string }): string {
+  return order.state === 'WAIT' && order.status !== 'reported' ? DESIGN_WAIT_TONE : STATE_TONE[order.state]
+}
+
 /**
  * 상태 칩 색 — globals.css 의 기존 토큰만 쓴다(새 색을 만들지 않으므로 .dark 오버라이드가 그대로 따라온다).
  * 기준은 "지금 누가 손대야 하나" 다. 사람 차례(승인 대기·결정 대기·반려)는 눈에 띄게, 기계 차례

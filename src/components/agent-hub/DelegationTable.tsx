@@ -22,7 +22,7 @@ import { PendingSaveChip } from '@/components/wbs/PendingSaveChip'
 import { usePendingDelegations } from './usePendingDelegations'
 import {
   DELEGATE_OFF_TITLE, DELEGATE_ON_TITLE, NEEDS_DELEGATION, NEEDS_DELEGATION_TONE, NO_ORDER, NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE,
-  REASON_TONE, STAGE_CODES, STAGE_NONE_LABEL, STATE_LABEL, STATE_TONE, TOGGLE_DENIED_TITLE,
+  REASON_TONE, STAGE_CODES, STAGE_NONE_LABEL, TOGGLE_DENIED_TITLE, hubStateLabel, hubStateTone, isHubApprovalWait,
 } from './labels'
 import s from './delegationTable.module.css'
 import { stubBadgeText } from '@/lib/domain/forceProgress'
@@ -160,7 +160,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
     onError: (message, sent) => setRowErr(m => { const n = new Map(m); for (const c of sent) n.set(c.itemId, message); return n }),
   })
 
-  // 표시 행: mine 이면 내 담당 리프 + 내가 서브트리 관리자인 리프(트랙 B), 「승인 대기만」이면 WAIT 리프,
+  // 표시 행: mine 이면 내 담당 리프 + 내가 서브트리 관리자인 리프(트랙 B), 「승인 대기만」이면 승인 대기(reported) 리프,
   // 그리고 그 조상만. 접힌 부모의 자손은 숨긴다.
   const visible = useMemo(() => {
     let keep: Set<string> | null = null
@@ -168,7 +168,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
       keep = new Set()
       for (const r of rows) {
         if (filter === 'mine' && !(r.isLeaf && (r.assigneeMine || r.canManage))) continue
-        if (onlyWait && r.order?.state !== 'WAIT') continue
+        if (onlyWait && !isHubApprovalWait(r.order)) continue
         keep.add(r.itemId)
         let p = r.parentId
         while (p) { keep.add(p); p = byId.get(p)?.parentId ?? null }
@@ -185,7 +185,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
     return out
   }, [rows, filter, onlyWait, folded, byId])
 
-  const waitCount = useMemo(() => rows.filter(r => r.order?.state === 'WAIT').length, [rows])
+  const waitCount = useMemo(() => rows.filter(r => isHubApprovalWait(r.order)).length, [rows])
 
   const mapWith = <V,>(m: ReadonlyMap<string, V>, k: string, v: V | null) => { const n = new Map(m); if (v === null) n.delete(k); else n.set(k, v); return n }
   const setWith = (s2: ReadonlySet<string>, k: string, on: boolean) => { const n = new Set(s2); if (on) n.add(k); else n.delete(k); return n }
@@ -402,7 +402,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
               const zebra = r.isLeaf && leafSeq++ % 2 === 1
               return [
                 <tr key={r.itemId} data-hub-row={r.itemId}
-                  className={cls(s.row, !r.isLeaf && s.band, zebra && s.zebra, r.order?.state === 'WAIT' && s.mark)}>
+                  className={cls(s.row, !r.isLeaf && s.band, zebra && s.zebra, isHubApprovalWait(r.order) && s.mark)}>
                   <td className={colCls('check')}>
                     {r.isLeaf
                       ? <input type="checkbox" data-hub-toggle checked={checked} disabled={!r.canToggle}
@@ -461,7 +461,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                           ? <span data-hub-stage-text className="shrink-0 text-[11px] text-ink-muted">{stageLabelKo(r.stage)}</span>
                           : null}
                       {r.order
-                        ? <span className={`chip shrink-0 ${STATE_TONE[r.order.state]}`}>{STATE_LABEL[r.order.state]}</span>
+                        ? <span className={`chip shrink-0 ${hubStateTone(r.order)}`}>{hubStateLabel(r.order)}</span>
                         : <span className="shrink-0 text-ink-subtle">{NO_ORDER}</span>}
                     </span>
                   </td>

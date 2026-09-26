@@ -23,8 +23,12 @@ describe('predecessorReached — 선행 충족 세 축', () => {
     expect(predecessorReached({ stage: null, actualPct: null })).toBe(false)
   })
   it('fp 는 어휘에 없다', () => {
-    expect([...STAGE_ORDER]).toEqual(['as', 'ip', 'im', 'xx'])
+    expect([...STAGE_ORDER]).toEqual(['as', 'ds', 'ip', 'im', 'xx'])
     expect(REACHED_STAGES.has('fp')).toBe(false)
+  })
+  it('ds(설계 중)는 도달이 아니다 — 설계만 끝난 선행은 후행을 풀지 않는다(0107)', () => {
+    expect(REACHED_STAGES.has('ds')).toBe(false)
+    expect(predecessorReached({ stage: 'ds' })).toBe(false)
   })
 })
 

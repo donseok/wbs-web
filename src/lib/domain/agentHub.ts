@@ -1,7 +1,7 @@
 // 에이전트 허브 조립 — 순수 함수. 트리 순서·행 상태·카운터·승인 큐·감시자를 한 번에 만든다. DB·세션을 모른다.
 // 좌석 층은 여기서 만들지 않는다 — /agents/office 가 좌석표 로더로 그린다(2026-09-14 스튜디오 분리 스펙 §4-2).
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
-import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
+import { deriveSeatState, isApprovalWait, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 import { deriveWaitReason, type WaitReason } from './waitReason'
 import { parseDecisions, stageLockedForHuman, type DecisionsParse } from './agentWork'
@@ -40,7 +40,7 @@ export interface HubRow {
    *  (requireSubtreeManagerOrAdmin, agent/subtreeManager.ts)와 같은 축으로 맞춘다. */
   canManage: boolean
   delegated: boolean; devWorkflow: boolean
-  /** WBS 단계(as/ip/im/xx, 미지정 null). 허브의 단계 직접 조정(§11)이 보이는 값이자 select 의 현재값. */
+  /** WBS 단계(as/ds/ip/im/xx, 미지정 null). 허브의 단계 직접 조정(§11)이 보이는 값이자 select 의 현재값. */
   stage: string | null
   /** 사람의 단계 지정 잠금(스펙 2026-09-15 §3.5) = 위임됨 ∨ 주문 claimed·reported. 서버가 계산하고 화면은 이 값만 읽는다(8상태에서 재파생 금지). */
   stageLocked: boolean
@@ -191,7 +191,8 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         lastSignalAt: sig > 0 ? new Date(sig).toISOString() : null,
       }
       if (state === 'READY') counters.ready++
-      else if (state === 'WAIT') counters.waiting++
+      // 승인 대기만 센다 — 설계 완료·선행 대기(claimed ∧ wait_pred)도 WAIT 지만 결재할 것이 아니다.
+      else if (state === 'WAIT' && isApprovalWait(input)) counters.waiting++
       else if (WORKING.includes(state)) counters.working++
     }
     if (isLeaf && delegated) counters.delegated++

@@ -143,6 +143,8 @@ export { collectLeaves } from '@/lib/domain/tree'
  */
 const STAGE_META: Record<string, { key: DictKey; cls: string }> = {
   as: { key: 'wbs.stageAs', cls: 'bg-pending-weak text-pending' },
+  // ds(설계 중, 0107) — 할당됨과 작업 중 사이. 두 칩 어느 쪽과도 헷갈리지 않게 보조 강조색을 쓴다.
+  ds: { key: 'wbs.stageDs', cls: 'bg-accent-secondary/15 text-accent-secondary' },
   ip: { key: 'wbs.stageIp', cls: 'bg-progress-weak text-progress' },
   im: { key: 'wbs.stageIm', cls: 'bg-brand-weak text-brand' },
   xx: { key: 'wbs.stageXx', cls: 'bg-done-weak text-done' },

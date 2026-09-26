@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  OFFLINE_MS, STALE_MS, WATCHER_TTL_MS, HEARTBEAT_PHASES, LEAD_PHASES, animFor, deriveSeatState, fnv1a32, inferPhase, isRejected,
+  OFFLINE_MS, STALE_MS, WATCHER_TTL_MS, HEARTBEAT_PHASES, LEAD_PHASES, animFor, deriveSeatState, fnv1a32, inferPhase, isApprovalWait, isDesignWait, isRejected,
   isWatcherAlive, lastSignalMs, pickCharacter, type SeatInput,
 } from '@/lib/domain/seatState'
 
@@ -85,6 +85,29 @@ describe('prepare — Phase 01 준비 단계(2026-09-24)', () => {
   })
   it('ACTIVE 의 prepare 는 전용 시트가 없어 typing 으로 그린다', () => {
     expect(animFor('ACTIVE', 'prepare')).toBe('typing')
+  })
+})
+
+describe('wait_pred — 설계 완료·선행 대기(스펙 2026-09-26 §6.4)', () => {
+  it('워커 phase 목록에 있어 서버가 받는다', () => {
+    expect(HEARTBEAT_PHASES).toContain('wait_pred')
+  })
+  it('claimed ∧ wait_pred 는 침묵 시간과 무관하게 WAIT — STALE·OFFLINE 로 보이지 않는다', () => {
+    const w = (ms: number) => base({ heartbeatPhase: 'wait_pred', lastHeartbeatAt: ago(ms), updatedAt: ago(ms) })
+    expect(deriveSeatState(w(1000), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(STALE_MS + 1), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(OFFLINE_MS * 10), NOW)).toBe('WAIT')
+    expect(inferPhase(w(1000))).toBe('wait_pred')
+  })
+  it('승인 대기 WAIT 와 구분한다 — isApprovalWait 은 reported 만, isDesignWait 은 claimed ∧ wait_pred 만', () => {
+    expect(isApprovalWait(base({ status: 'reported' }))).toBe(true)
+    expect(isApprovalWait(base({ heartbeatPhase: 'wait_pred' }))).toBe(false)
+    expect(isDesignWait(base({ heartbeatPhase: 'wait_pred' }))).toBe(true)
+    expect(isDesignWait(base({ status: 'reported', heartbeatPhase: 'wait_pred' }))).toBe(false)
+    expect(isDesignWait(base({}))).toBe(false)
+  })
+  it('wait_pred 가 아닌 점유 좌석은 종전대로 침묵으로 판정한다', () => {
+    expect(deriveSeatState(base({ lastHeartbeatAt: ago(OFFLINE_MS + 1), updatedAt: ago(OFFLINE_MS + 1) }), NOW)).toBe('OFFLINE')
   })
 })
 

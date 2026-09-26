@@ -25,6 +25,12 @@ describe('wbsImport 변환(순수부)', () => {
     expect('error' in toRpcNode('MES', { ...n, stage: 'dd' }, 0)).toBe(true)
     expect('error' in toRpcNode('MES', { ...n, priority: 'urgent' as never }, 0)).toBe(true)
   })
+  it('stage:"ds"(설계 중, 0107) 를 받는다', () => {
+    const n = { id: 'T1', parent_id: null, kind: 'task' as const, title: 't', stage: 'ds', category: null, domain: null, assignee: null, schedule: null, depends: [], acceptance: [], priority: null, model: null, tags: [], prd_ref: null, entry_point: null, spec_sections: null }
+    const r = toRpcNode('MES', n, 0)
+    expect('error' in r).toBe(false)
+    expect(r).toMatchObject({ stage: 'ds' })
+  })
   it('stage:"todo" 는 null 로 정규화(v2.1) — STAGES set 은 todo 를 더는 허용하지 않는다', () => {
     const n = { id: 'T1', parent_id: null, kind: 'task' as const, title: 't', stage: 'todo', category: null, domain: null, assignee: null, schedule: null, depends: [], acceptance: [], priority: null, model: null, tags: [], prd_ref: null, entry_point: null, spec_sections: null }
     const r = toRpcNode('MES', n, 0)

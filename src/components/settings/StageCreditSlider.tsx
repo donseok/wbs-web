@@ -1,6 +1,7 @@
 'use client'
 
-// 개발 워크플로 크레딧(스펙 2026-09-15 §5.1, 목업 2f1a7669) — 트랙 하나에 AS·IP·RW·IM 핸들과 100 에 잠긴 XX.
+// 개발 워크플로 크레딧(스펙 2026-09-15 §5.1, 목업 2f1a7669) — 트랙 하나에 AS·DS·IP·RW·IM 핸들과 100 에 잠긴 XX.
+// DS(설계 중)는 0107 에서 들어왔다 — ds 가 없는 옛 표는 기본값(10)으로 채워 그린다(RPC 와 같은 값).
 // 표는 프로젝트마다 하나다(2026-09-16). 카테고리별 if·doc 표를 없앴고 항목 credit_key 는 전이 계산에 쓰지 않는다.
 // 값은 핸들 위에서 바로 고치고, XX 는 승인으로만 100 이 되므로 입력 없이 자물쇠로 굳힌다.
 // 아래 미리보기는 지금 값으로 위임 Task 의 사건 흐름을 보여 준다(저장과 무관한 계산기).
@@ -13,7 +14,7 @@ import { updateStageCredits } from '@/app/actions/project'
 import { statusOf } from '@/lib/domain/progress'
 import type { DictKey } from '@/lib/i18n/dict'
 import {
-  CREDIT_GAP, CREDIT_KEYS, CREDIT_STEP, DEFAULT_STAGE_CREDITS, clampCredit, validateStageCredits,
+  CREDIT_GAP, CREDIT_KEYS, CREDIT_STEP, DEFAULT_STAGE_CREDITS, clampCredit, normalizeStageCredits, validateStageCredits,
   type CreditKey, type CreditTable, type StageCredits,
 } from '@/lib/domain/stageCredits'
 
@@ -22,15 +23,15 @@ type Status = ReturnType<typeof statusOf>
 type Cursor = CreditKey | 'manual'
 
 const KEY_LABEL: Record<CreditKey, DictKey> = {
-  as: 'settings.creditKey_as', ip: 'settings.creditKey_ip', rw: 'settings.creditKey_rw',
+  as: 'settings.creditKey_as', ds: 'settings.creditKey_ds', ip: 'settings.creditKey_ip', rw: 'settings.creditKey_rw',
   im: 'settings.creditKey_im', xx: 'settings.creditKey_xx',
 }
 /** 색 — WBS 단계 칩과 같은 계열. RW 는 단계가 아니라 반려·재작업 사건이라 범례에서 마름모다. */
 const DOT_CLS: Record<CreditKey, string> = {
-  as: 'bg-pending', ip: 'bg-progress', rw: 'bg-delayed', im: 'bg-brand', xx: 'bg-done',
+  as: 'bg-pending', ds: 'bg-accent-secondary', ip: 'bg-progress', rw: 'bg-delayed', im: 'bg-brand', xx: 'bg-done',
 }
 const RING_CLS: Record<CreditKey, string> = {
-  as: 'border-pending', ip: 'border-progress', rw: 'border-delayed', im: 'border-brand', xx: 'border-done',
+  as: 'border-pending', ds: 'border-accent-secondary', ip: 'border-progress', rw: 'border-delayed', im: 'border-brand', xx: 'border-done',
 }
 const STATUS_LABEL: Record<Status, DictKey> = {
   not_started: 'settings.creditPvNotStarted', in_progress: 'settings.creditPvInProgress',
@@ -43,10 +44,11 @@ const STATUS_CHIP: Record<Status, string> = {
 /** 눈금 — 입력 가능한 값(5)마다 긋고 10 마다 숫자를 붙인다. 이웃 최소 간격(10)을 눈으로 세도록. */
 const SCALE_TICKS = Array.from({ length: 100 / CREDIT_STEP + 1 }, (_, i) => i * CREDIT_STEP)
 
-/** 미리보기 흐름 — 위임 Task 하나가 거치는 사건 순서(스펙 §3.4 사건 표). */
+/** 미리보기 흐름 — 위임 Task 하나가 거치는 사건 순서(스펙 §3.4 사건 표). 에이전트는 설계 선행으로 claim 해 ds 를 거친다(0107). */
 const FLOW: { ev: DictKey; order: string; stage: Exclude<CreditKey, 'rw'>; cur: Cursor; same?: boolean }[] = [
   { ev: 'settings.creditPvEvAssign', order: 'ready', stage: 'as', cur: 'as' },
-  { ev: 'settings.creditPvEvClaim', order: 'claimed', stage: 'ip', cur: 'ip' },
+  { ev: 'settings.creditPvEvClaim', order: 'claimed', stage: 'ds', cur: 'ds' },
+  { ev: 'settings.creditPvEvBuildStart', order: 'claimed', stage: 'ip', cur: 'ip' },
   { ev: 'settings.creditPvEvManual', order: 'claimed', stage: 'ip', cur: 'manual', same: true },
   { ev: 'settings.creditPvEvReport', order: 'reported', stage: 'im', cur: 'im' },
   { ev: 'settings.creditPvEvApprove', order: 'approved', stage: 'xx', cur: 'xx' },
@@ -72,7 +74,7 @@ export function StageCreditSlider({ projectId, initial, editable }: {
   const router = useRouter()
   const { t } = useLocale()
   const [pending, startTransition] = useTransition()
-  const [table, setTable] = useState<CreditTable>(() => ({ ...(initial?.default ?? DEFAULT_STAGE_CREDITS.default) }))
+  const [table, setTable] = useState<CreditTable>(() => ({ ...(normalizeStageCredits(initial)?.default ?? DEFAULT_STAGE_CREDITS.default) }))
   const [dirty, setDirty] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)

@@ -234,6 +234,7 @@ export const wbsKo = {
   // 2026-09-15 한 벌로 통일 — 정본은 src/lib/domain/stageLabels.ts(테스트가 대조). ip=작업 중, im=검수 대기. fp 는 0096 에서 제거.
   'wbs.stageNoneOption': '미착수',
   'wbs.stageAs': '할당됨',
+  'wbs.stageDs': '설계 중',
   'wbs.stageIp': '작업 중',
   'wbs.stageIm': '검수 대기',
   'wbs.stageXx': '완료',

@@ -2,7 +2,6 @@
 // 크레딧 표 단일화(2026-09-16) — SQL 상수가 코드 기본값과 같고, 항목 credit_key 로 표를 고르지 않는다.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_STAGE_CREDITS } from '@/lib/domain/stageCredits'
 
 const s = () => readFileSync('supabase/migrations/0097_stage_credits_single_table.sql', 'utf8')
 const r = () => readFileSync('supabase/migrations/0097_stage_credits_single_table_rollback.sql', 'utf8')
@@ -13,10 +12,10 @@ const constOf = (sql: string) => {
 }
 
 describe('0097 크레딧 표 단일화', () => {
-  it('SQL 기본 크레딧 상수가 코드 기본값과 같고 표는 default 하나다', () => {
+  it('SQL 기본 크레딧 상수는 0097 당시의 단일 표다(ds 는 0107 이 더한다 — 현재 코드와의 대조는 0107 테스트)', () => {
     const c = constOf(s())
     expect(Object.keys(c)).toEqual(['default'])
-    expect(c).toEqual(DEFAULT_STAGE_CREDITS)
+    expect(c).toEqual({ default: { as: 0, ip: 30, rw: 50, im: 80, xx: 100 } })
   })
   it('항목 credit_key 를 읽지도, 표 선택에 쓰지도 않는다', () => {
     const body = s()

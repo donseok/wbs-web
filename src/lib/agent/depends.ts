@@ -79,3 +79,13 @@ export async function loadDependsInfo(
   }
   return out
 }
+
+/**
+ * 설계 선행(계약 v2.9, 스펙 2026-09-26 §6.3)이 너무 이른가 — 미충족 선행 중 하나라도 ip(구현 중)가 아니면 참.
+ * 미착수(null)·as·ds(선행도 설계만 하는 중)·프로젝트에 없는 ref(stage null) 가 여기에 든다. im·xx 는 이미 reached 라
+ * 미충족 목록에 없다. 호출부는 미충족(reached=false) 목록만 넘긴다.
+ */
+export const DESIGN_FIRST_PRED_STAGE = 'ip'
+export function designFirstTooEarly(unmet: readonly Pick<DependInfo, 'stage'>[]): boolean {
+  return unmet.some((d) => d.stage !== DESIGN_FIRST_PRED_STAGE)
+}

@@ -346,7 +346,7 @@ describe('DelegationTable — 개발 프로세스 조정·단계 직접 조정(�
     runHubProcessOp.mockResolvedValueOnce({ ok: true, hub: HUB })
     const { onHub } = render({ rows: NOTE_ROWS, isAdmin: true })
     expect(stageSel('w')!.value).toBe('im'); expect(stageSel('n')!.value).toBe('')
-    expect([...stageSel('n')!.options].map(o => o.textContent)).toEqual(['미착수', '할당됨', '작업 중', '검수 대기', '완료'])
+    expect([...stageSel('n')!.options].map(o => o.textContent)).toEqual(['미착수', '할당됨', '설계 중', '작업 중', '검수 대기', '완료'])
     await pick(stageSel('n')!, 'ip')
     expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'stage', itemId: 'n', stage: 'ip' })
     expect(onHub).toHaveBeenCalledWith(HUB)
@@ -523,14 +523,25 @@ describe('DelegationTable — 승인 대기만·착수 대기 사유 펼침(2026
     row({ itemId: 'w1', code: 'TSK-W-01', name: '보고됨', depth: 1, parentId: 'root', delegated: true, devWorkflow: true, canToggle: true,
       order: { id: 'o9', status: 'reported', state: 'WAIT', agent: 'hong/mbp', lastSignalAt: null } }),
     row({ itemId: 'w2', code: 'TSK-W-02', name: '그냥', depth: 1, parentId: 'root', delegated: true, devWorkflow: true }),
+    // 설계 완료·선행 대기(claimed ∧ wait_pred) — 좌석 상태는 WAIT 지만 승인할 보고가 없다(스펙 2026-09-26 §6.4)
+    row({ itemId: 'w3', code: 'TSK-W-03', name: '설계 끝', depth: 1, parentId: 'root', delegated: true, devWorkflow: true, stage: 'ds',
+      order: { id: 'o8', status: 'claimed', state: 'WAIT', agent: 'hong/mbp', lastSignalAt: null } }),
   ]
-  it('「승인 대기만」을 켜면 WAIT 리프와 그 조상만 남는다', async () => {
+  it('「승인 대기만」을 켜면 승인 대기(reported) 리프와 그 조상만 남는다 — 설계 완료·선행 대기는 빠진다', async () => {
     render({ rows: WAIT_ROWS })
     expect(host.querySelector('[data-hub-row="w2"]')).not.toBeNull()
+    expect((host.querySelector('[data-hub-only-wait]') as HTMLElement).textContent).toBe('승인 대기만 1')
     await click(host.querySelector('[data-hub-only-wait]') as HTMLButtonElement)
     expect(host.querySelector('[data-hub-row="w1"]')).not.toBeNull()
     expect(host.querySelector('[data-hub-row="root"]')).not.toBeNull()
     expect(host.querySelector('[data-hub-row="w2"]')).toBeNull()
+    expect(host.querySelector('[data-hub-row="w3"]')).toBeNull()
+  })
+  it('설계 완료·선행 대기 행의 상태 칩은 승인 대기가 아니라 선행 대기다', () => {
+    render({ rows: WAIT_ROWS })
+    expect((host.querySelector('[data-hub-row="w3"]') as HTMLElement).textContent).toContain('선행 대기')
+    expect((host.querySelector('[data-hub-row="w3"]') as HTMLElement).textContent).not.toContain('승인 대기')
+    expect((host.querySelector('[data-hub-row="w1"]') as HTMLElement).textContent).toContain('승인 대기')
   })
   it('사유 칩은 단계·상태 칸이 아니라 사유 칸에 있다 — 행 높이가 사유 유무로 달라지지 않는다', () => {
     const rows = [row({ itemId: 'd1', code: 'TSK-D-01', name: '후속', delegated: true, devWorkflow: true, canToggle: true,

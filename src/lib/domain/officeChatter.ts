@@ -163,6 +163,8 @@ const MEMBER_TALK_EVERY = 3
 export function memberChatter(d: Pick<RosterDesk, 'seat'>, nowMs: number): string | null {
   const seat = d.seat
   if (!seat || (seat.state !== 'ACTIVE' && seat.state !== 'WAIT')) return null
+  // 설계 완료·선행 대기는 WAIT 지만 승인을 조를 것이 없다(스펙 2026-09-26 §6.4).
+  if (seat.designWait) return null
   const key = seat.orderId // 어느 보기에서든 같은 좌석이 같은 때 같은 말을 한다
   const slot = slotOf(nowMs)
   if ((slot + fnv1a32(key)) % MEMBER_TALK_EVERY !== 0) return null
