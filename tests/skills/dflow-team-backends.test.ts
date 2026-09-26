@@ -68,11 +68,12 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     expect(b()).toContain('enabledPlugins')
     expect(b()).toContain('DFLOW_WORKER_PLUGINS')
     expect(b()).toContain('DFLOW_WORKER_MCP')
-    expect(b()).toContain('set -- --no-chrome --strict-mcp-config')
-    expect(b()).toContain('`--mcp-config` 는 쓰지 않는다')
-    // exec 줄 자체(가변 인자 문제가 나는 자리)에는 --mcp-config 를 쓰지 않는다. 설명 문장의 언급만 있다.
+    expect(b()).toContain('set -- --strict-mcp-config')
+    expect(b()).toContain('|| set -- --no-chrome "$@"')
+    // --mcp-config 는 가변 인자라 exec 줄에 직접 쓰지 않고, auto 가 만든 파일이 있을 때만 맨 앞에 더한다(바로 뒤에 늘 옵션이 온다)
+    expect(b()).toContain('[ -f "$M" ] && set -- --mcp-config "$M" "$@"')
     const runTail = b().match(/cat >> "\$WT\/\.dflow-run" <<'RUNEOF'\n([\s\S]*?)\nRUNEOF/)![1]
-    expect(runTail).not.toContain('--mcp-config')
+    for (const l of runTail.split('\n').filter((x) => x.startsWith('exec '))) expect(l).not.toContain('--mcp-config')
     // 목록을 하드코딩하지 않는다: 특정 플러그인 이름을 문서에 적지 않는다
     expect(b()).not.toMatch(/vercel@/)
     expect(b()).not.toContain('claude-in-chrome@')

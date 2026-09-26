@@ -92,14 +92,18 @@ D'Flow 에서 나에게 배정되고 `agent` 태그가 켜진 ready 작업을 �
 `.dflow.local` 에 아래 키를 적는다. 적지 않으면 지금과 같다. 다음 spawn(재개·재시작 포함)부터 반영된다.
 
 ```
-worker_keep_skills=<남길 사용자 스킬, 쉼표>     # 예: 브라우저 E2E 스킬. 나머지 사용자 스킬과 claude.ai 동기화 스킬을 숨긴다. 없으면 none
+worker_keep_skills=auto       # 내 전역 지침(~/.claude/CLAUDE.md)에 이름이 나오는 사용자 스킬만 남긴다(예: 브라우저 E2E 스킬). auto,<이름> 로 더할 수 있다
+worker_keep_plugins=auto      # 지침이 쓰라는 플러그인만 켜 둔다(그 플러그인의 MCP 도 살린다). 나머지는 지금처럼 끈다
 worker_skills_off=<끌 스킬 이름, 쉼표>          # 예: 팀원이 쓰지 않는 Claude Code 내장 스킬
-worker_keep_plugins=<켜 둘 플러그인@마켓, 쉼표>  # 나머지 플러그인은 지금처럼 끄고 claude.ai 동기화 플러그인도 숨긴다. 없으면 none
-worker_output_style=default                    # 팀원의 출력 스타일
+worker_output_style=default   # 팀원의 출력 스타일
 ```
 
 - `dflow-*` 와 대상 리포의 프로젝트 스킬(`.claude/skills`)은 어떤 값을 적어도 남는다.
 - 적은 스킬·플러그인·스타일이 그 PC 에 없으면 팀장이 경고 한 줄만 내고 그대로 띄운다.
+- `auto` 는 PC 마다 다른 도구(브라우저 스킬이냐 플러그인이냐 등)를 킷에 이름 없이 맞추려는 값이다. 지침에서 부정문("…을 먼저 고르지
+  않는다" 등)에 나온 이름은 남기지 않는다. 무엇이 남았는지는 spawn 때 `WORKER_SKILLS_AUTO`·`WORKER_PLUGINS_AUTO` 줄로 보인다 —
+  틀리면 이름을 직접 적는다(예 `worker_keep_plugins=<이름>@<마켓>`). 지침 파일을 못 읽으면 사용자 스킬은 하나도 끄지 않는다.
+- 이름을 직접 적는 방식도 그대로 쓸 수 있다(`worker_keep_skills=<이름,…>`, 남길 것이 없으면 `none`).
 - 사용자 전역 설정(`~/.claude/settings.json`)은 고치지 않는다. 팀원 전용 설정 파일(`~/.dflow/limits/<id8>.settings.json`)에만
   들어간다. 근거·실측은 `references/rationale.md` 「팀원 첫 턴 컨텍스트 줄이기」.
 

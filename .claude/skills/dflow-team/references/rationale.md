@@ -289,6 +289,17 @@ SKILL.md 에서 뺀 근거(이유)와 이력(날짜·실측·옛 방식)을 절�
 - **「팀원 첫 턴 컨텍스트 줄이기」(2026-09-26, PC별 opt-in)**: 팀원과 그 서브에이전트는 첫 턴부터 싣는 기본 컨텍스트를 매 턴 다시 읽는다(dmes-standard 팀장 보고: 가중 토큰의 17~19%). 실제 팀원 기록(dmes-standard, Opus 1M)을 보면 스킬 목록이 67개 약 27K자, 출력 스타일 지시가 약 5.8K자(JSON 기준)였다. 사용자 스킬(`~/.claude/skills`)·claude.ai 동기화 스킬·동기화 플러그인 스킬·Claude Code 내장 스킬이 섞여 있었다. 플러그인 스킬은 이미 없었다(종전 enabledPlugins 끄기가 먹었다).
   - 방법은 공식 설정 키만 쓴다. `skillOverrides`(스킬 이름 → `"on"`·`"name-only"`·`"user-invocable-only"`·`"off"`, `"off"` 는 모델과 `/이름` 양쪽에서 숨긴다. 플러그인 스킬에는 먹지 않는다), `syncClaudeAiSkills: false`·`syncClaudeAiPlugins: false`(`--settings` 로 주면 그 실행에서만 동기화분을 막고 숨기며 파일은 옮기지 않는다 — 사용자 파일에 적으면 `~/.claude/skills/.trash` 로 옮기므로 사용자 설정에는 넣지 않는다), `outputStyle`. 근거는 Claude Code 2.1.283 설정 스키마의 설명 문자열(`claude` 실행 파일에 든 설정 키 설명)이며, 모두 실측으로 확인했다. `outputStyle` 은 소문자 `default` 로 기본 스타일이 됐다(실측).
   - **PC별 opt-in 인 이유**: 킷은 다른 PC·다른 리포로 배포된다. 어느 스킬·플러그인을 남길지는 PC(사람)마다 다르므로 킷에 이름을 박지 않는다 — 킷이 아는 이름은 `dflow-*` 뿐이다. 사람이 `.dflow.local`(개인, 커밋 안 함)에 `worker_keep_skills`·`worker_skills_off`·`worker_keep_plugins`·`worker_output_style` 을 적는다. 키가 없으면 조각이 `{}` 라 종전과 같다(종전 enabledPlugins 끄기는 그대로 기본 동작이다).
+  - **`auto` 를 둔 이유(2026-09-26 사용자 요청)**: 브라우저 도구가 PC 마다 다르다(사용자 스킬일 수도, MCP 를 주는 플러그인일 수도,
+    claude-in-chrome 일 수도 있다). 그 PC 의 사람이 이미 전역 지침(`~/.claude/CLAUDE.md`)에 "무엇을 쓴다" 고 적어 두었으므로 그것을
+    판단 근거로 삼는다 — 킷은 여전히 이름을 모른다. 부정 문장을 빼는 이유: 이 킷을 만든 PC 의 지침은 "X 스킬을 쓴다. Y MCP·
+    claude-in-chrome 을 먼저 고르지 않는다" 처럼 쓰지 말라는 도구도 이름으로 적는다. 플러그인만 "플러그인·plugin·MCP 가 함께 든
+    문장" 으로 더 좁힌 이유: 짧은 플러그인 이름이 일반 낱말과 겹친다(실측: 그 PC 에서 `dev` 플러그인이 다른 지침 파일의 "dev" 낱말에
+    걸려 켜졌다). 지침을 못 읽으면 사용자 스킬을 하나도 끄지 않는 이유: 쓰라는 도구를 모르는 채 끄면 E2E 가 통째로 막힌다 — 줄이기는
+    이득이 몇 K 토큰이지만 잘못 끄면 작업이 멈춘다.
+  - **플러그인 MCP 를 `--mcp-config` 로 살리는 이유(실측, 2026-09-26, 2.1.283)**: 팀원은 `--strict-mcp-config` 로 뜬다. 플러그인을
+    켜 둬도 그 플러그인의 MCP 서버는 이 플래그에 막혀 도구가 0개였다. 그 플러그인의 `.mcp.json`(또는 `plugin.json` 의 `mcpServers`,
+    `${CLAUDE_PLUGIN_ROOT}` 는 설치 폴더로 바꿈)만 담은 파일을 `--mcp-config` 로 주면 살아났다(도구 이름은 `mcp__<서버>__*` 로,
+    플러그인 경로의 이름과 다르다). `--mcp-config` 는 가변 인자라 바로 뒤에 옵션이 오게 맨 앞에 둔다(종전에 쓰지 않던 이유).
   - **목록을 "남길 것"으로 받는 이유**: 사용자 스킬 폴더는 PC 가 늘 바뀐다. 남길 것만 적게 하면 새로 깐 스킬이 저절로 꺼진다. 내장 스킬은 셸에서 목록을 얻을 수 없어 끌 것을 이름으로 따로 받는다(`worker_skills_off`).
   - **dflow-* 와 프로젝트 스킬을 늘 지키는 이유**: `skillOverrides` 는 이름으로 끈다. 사용자 스킬이나 내장 스킬이 프로젝트 스킬과 이름이 같으면 프로젝트 스킬까지 꺼진다. 그래서 `<MAIN>/.claude/skills` 의 폴더 이름과 머리말 `name` 은 어느 목록에 있어도 거른다.
   - **`disableBundledSkills` 를 쓰지 않는 이유(실측)**: 내장 스킬을 통째로 끄면 Workflow 도구 설명이 8,958자 → 42,868자로 커졌다(작성 안내 스킬이 사라지자 그 내용을 도구 설명에 싣는다). 첫 턴이 26,044 → 31,588 토큰으로 오히려 늘었다. 같은 이유로 `worker_skills_off` 에 Workflow 작성 안내 스킬(`workflow-authoring`)을 넣지 않는다.

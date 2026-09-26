@@ -211,3 +211,103 @@ describe('「팀원 워크트리 준비」 블록과의 결합', () => {
     expect(s.skillOverrides).toEqual({ u2: 'off' })
   })
 })
+
+// 2026-09-26 보강: auto — 그 PC 의 사용자 전역 지침(~/.claude/CLAUDE.md + @ 포함)에서 쓰라는 스킬·플러그인만 남긴다.
+describe('worker-trim.sh — auto(사용자 전역 지침 기준)', () => {
+  const guide = (text: string, inc?: [string, string]) => {
+    mkdirSync(join(home, '.claude'), { recursive: true })
+    writeFileSync(join(home, '.claude/CLAUDE.md'), text)
+    if (inc) writeFileSync(join(home, '.claude', inc[0]), inc[1])
+  }
+  function plugin(key: string, mcp?: object, viaPluginJson = false) {
+    const dir = join(home, '.claude/plugins/cache', key.replace('@', '_'))
+    mkdirSync(join(dir, '.claude-plugin'), { recursive: true })
+    if (mcp && !viaPluginJson) writeFileSync(join(dir, '.mcp.json'), JSON.stringify(mcp))
+    writeFileSync(join(dir, '.claude-plugin/plugin.json'), JSON.stringify(viaPluginJson ? { name: key, mcpServers: mcp } : { name: key }))
+    const f = join(home, '.claude/plugins/installed_plugins.json')
+    let j: { plugins: Record<string, unknown> } = { plugins: {} }
+    try { j = JSON.parse(readFileSync(f, 'utf8')) } catch { /* 처음 */ }
+    j.plugins[key] = [{ installPath: dir }]
+    writeFileSync(f, JSON.stringify(j))
+    return dir
+  }
+  const trim3 = (p: string, env: Record<string, string>) => {
+    const pre = join(tmp, 'lim', 'abcd1234'); mkdirSync(join(tmp, 'lim'), { recursive: true })
+    const r = spawnSync('sh', [SCRIPT, main, p, pre], { encoding: 'utf8', env: { ...baseEnv(), ...env } })
+    expect(r.status, r.stderr).toBe(0)
+    return { out: JSON.parse(r.stdout), err: r.stderr, pre }
+  }
+
+  it('지침(와 @ 포함 파일)의 긍정 문장에 이름이 나오는 사용자 스킬만 남기고 kept 줄을 낸다. 부정 문장의 이름은 남기지 않는다', () => {
+    userSkill('browse-x'); userSkill('graph-y'); userSkill('other-z'); userSkill('avoid-w')
+    guide('@INC.md\n- 브라우저 일은 browse-x 스킬을 쓴다. avoid-w 를 먼저 고르지 않는다.\n', ['INC.md', '- graph-y 로 그래프를 만든다\n'])
+    const { out, err } = trim3('{}', { DFLOW_WORKER_KEEP_SKILLS: 'auto' })
+    expect(err).toContain('WORKER_SKILLS_AUTO kept=browse-x,graph-y')
+    expect(out.skillOverrides).toEqual({ 'other-z': 'off', 'avoid-w': 'off' })
+    expect(out.syncClaudeAiSkills).toBe(false)
+  })
+
+  it('auto,<이름> 으로 섞어 쓸 수 있다', () => {
+    userSkill('browse-x'); userSkill('extra'); userSkill('other-z')
+    guide('- browse-x 를 쓴다\n')
+    const { out } = trim3('{}', { DFLOW_WORKER_KEEP_SKILLS: 'auto,extra' })
+    expect(out.skillOverrides).toEqual({ 'other-z': 'off' })
+  })
+
+  it('지침이 없으면 사용자 스킬을 하나도 끄지 않는다(안전한 쪽) — 명시 이름이 섞여 있어도', () => {
+    userSkill('browse-x'); userSkill('other-z')
+    const { out, err } = trim3('{}', { DFLOW_WORKER_KEEP_SKILLS: 'auto,browse-x' })
+    expect(err).toContain('WORKER_SKILLS_AUTO kept=-')
+    expect(out.skillOverrides).toBeUndefined()
+    expect(out.syncClaudeAiSkills).toBeUndefined()
+  })
+
+  it('플러그인 auto: 플러그인·MCP 가 함께 든 긍정 문장의 이름만 켜 두고, 일반 낱말에는 걸리지 않는다. 그 MCP 를 <id8>.mcp.json 으로', () => {
+    const d = plugin('pw@m', { pw: { command: 'npx', args: ['${CLAUDE_PLUGIN_ROOT}/srv'] } })
+    plugin('dev@m')
+    guide('- 브라우저 E2E 는 pw 플러그인을 쓴다\n- dev 서버는 로컬에서 띄운다\n')
+    const { out, err, pre } = trim3('{"pw@m":false,"dev@m":false}', { DFLOW_WORKER_KEEP_PLUGINS: 'auto' })
+    expect(err).toContain('WORKER_PLUGINS_AUTO kept=pw@m')
+    expect(out.enabledPlugins).toEqual({ 'dev@m': false })
+    const mcp = JSON.parse(readFileSync(pre + '.mcp.json', 'utf8'))
+    expect(mcp).toEqual({ mcpServers: { pw: { command: 'npx', args: [`${d}/srv`] } } })
+  })
+
+  it('플러그인 auto: 부정 문장("… MCP 를 먼저 고르지 않는다")의 플러그인은 켜지 않고, MCP 파일·chrome 표지도 만들지 않는다', () => {
+    plugin('pw@m', { pw: { command: 'npx', args: [] } })
+    guide('- 브라우저는 스킬을 쓴다. pw MCP·claude-in-chrome 을 먼저 고르지 않는다.\n')
+    const { out, err, pre } = trim3('{"pw@m":false}', { DFLOW_WORKER_KEEP_PLUGINS: 'auto' })
+    expect(err).toContain('WORKER_PLUGINS_AUTO kept=-')
+    expect(out.enabledPlugins).toEqual({ 'pw@m': false })
+    expect(() => readFileSync(pre + '.mcp.json')).toThrow()
+    expect(() => readFileSync(pre + '.chrome')).toThrow()
+  })
+
+  it('plugin.json 의 mcpServers 도 읽고, 지침이 claude-in-chrome 을 쓰면 chrome 표지를 만든다. 지난 실행의 파일은 먼저 지운다', () => {
+    plugin('pw@m', { pw2: { command: 'x' } }, true)
+    guide('- E2E 는 pw@m 과 claude-in-chrome 을 쓴다\n')
+    const { pre, err } = trim3('{"pw@m":false}', { DFLOW_WORKER_KEEP_PLUGINS: 'auto' })
+    expect(JSON.parse(readFileSync(pre + '.mcp.json', 'utf8')).mcpServers).toEqual({ pw2: { command: 'x' } })
+    expect(err).toContain('WORKER_CHROME_AUTO on')
+    readFileSync(pre + '.chrome')
+    // 지침이 바뀌면 다음 spawn 에서 지난 파일이 남지 않는다
+    guide('- 아무것도 쓰지 않는다\n')
+    trim3('{"pw@m":false}', { DFLOW_WORKER_KEEP_PLUGINS: 'auto' })
+    expect(() => readFileSync(pre + '.mcp.json')).toThrow()
+    expect(() => readFileSync(pre + '.chrome')).toThrow()
+  })
+
+  it('auto 를 쓰지 않으면 지침을 읽지 않고 종전과 같다(MCP 파일·chrome 표지 없음)', () => {
+    plugin('pw@m', { pw: { command: 'npx' } })
+    guide('- pw 플러그인과 claude-in-chrome 을 쓴다\n')
+    const { out, pre } = trim3('{"pw@m":false}', {})
+    expect(out).toEqual({})
+    expect(() => readFileSync(pre + '.mcp.json')).toThrow()
+    expect(() => readFileSync(pre + '.chrome')).toThrow()
+  })
+
+  it('킷 문서·스크립트에 특정 스킬·플러그인 이름을 적지 않는다(auto 예시도 일반화)', () => {
+    const texts = [read('.claude/skills/dflow-team/scripts/worker-trim.sh'), read('.claude/skills/dflow-team/references/help.md'), B()]
+    for (const t of texts) for (const bad of ['ego-browser', 'playwright@', 'playwright mcp', 'oasis-', 'mantine-']) expect(t.toLowerCase(), bad).not.toContain(bad)
+  })
+})

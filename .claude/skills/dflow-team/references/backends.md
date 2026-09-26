@@ -123,9 +123,9 @@ else
       "$f" 2>/dev/null) && P="$q"
   done
 fi
-W=$(sh .claude/skills/dflow-team/scripts/worker-trim.sh "<MAIN>" "$P")
-printf '%s' "$W" | jq -e 'type == "object"' >/dev/null 2>&1 || W='{}'
 LIM="$HOME/.dflow/limits"; mkdir -p "$LIM"
+W=$(sh .claude/skills/dflow-team/scripts/worker-trim.sh "<MAIN>" "$P" "$LIM/<id8>")
+printf '%s' "$W" | jq -e 'type == "object"' >/dev/null 2>&1 || W='{}'
 jq -n --arg f "$LIM/<id8>.json" --argjson plugins "$P" --argjson trim "$W" \
   '{statusLine: {type: "command", command: ("jq -c \"{at: (now | floor), rate_limits: (.rate_limits // null)}\" > \"" + $f + ".tmp\" && mv -f \"" + $f + ".tmp\" \"" + $f + "\"; printf dflow")}}
    + {hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", timeout: 5,
@@ -134,8 +134,12 @@ jq -n --arg f "$LIM/<id8>.json" --argjson plugins "$P" --argjson trim "$W" \
    + $trim' \
   > "$LIM/<id8>.settings.json"
 cat >> "$WT/.dflow-run" <<'RUNEOF'
-S="$HOME/.dflow/limits/<id8>.settings.json"
-if [ "${DFLOW_WORKER_MCP-}" = keep ]; then set --; else set -- --no-chrome --strict-mcp-config; fi
+S="$HOME/.dflow/limits/<id8>.settings.json"; M="$HOME/.dflow/limits/<id8>.mcp.json"
+if [ "${DFLOW_WORKER_MCP-}" = keep ]; then set --; else
+  set -- --strict-mcp-config
+  [ -f "$HOME/.dflow/limits/<id8>.chrome" ] || set -- --no-chrome "$@"
+  [ -f "$M" ] && set -- --mcp-config "$M" "$@"
+fi
 [ -f "$S" ] && exec claude --dangerously-skip-permissions --settings "$S" "$@" --effort <EFFORT> <모델 플래그> "$(cat .dflow-prompt)"
 exec claude --dangerously-skip-permissions "$@" --effort <EFFORT> <모델 플래그> "$(cat .dflow-prompt)"
 RUNEOF
@@ -164,8 +168,11 @@ cat "$WT/.dflow-pane"
   `true` 인 키를 모아 전부 `false` 로 덮어 `<id8>.settings.json` 에 합친다. 목록을 하드코딩하지 않는다(PC 마다 켜 둔
   플러그인이 다르다 — 특정 플러그인 이름을 이 문서에 적지 않는다). 파일이 없거나 jq 가 읽지 못하면 그 파일만 건너뛴다.
   `.dflow-run` 의 두 `exec` 줄 모두 `--no-chrome --strict-mcp-config` 를 붙여 MCP 서버를 끈다(claude.ai 커넥터 포함.
-  `claude-in-chrome` 은 `--no-chrome` 으로 빠진다). `--mcp-config` 는 쓰지 않는다(가변 인자라 뒤의 프롬프트까지 설정 파일
-  경로로 먹는다). **`--setting-sources` 는 쓰지 않는다**(user 설정의 heartbeat 훅이 함께 빠져 좌석표가 진척을 못 본다).
+  `claude-in-chrome` 은 `--no-chrome` 으로 빠진다). 예외는 `worker_keep_plugins`·`worker_keep_skills` 의 `auto` 가 만든 두 파일뿐이다:
+  `<id8>.mcp.json`(켜 둔 플러그인이 제공하는 MCP 서버만 — `--strict-mcp-config` 는 플러그인 MCP 까지 끈다)이 있으면
+  `--mcp-config <파일>` 을 맨 앞에 더하고, `<id8>.chrome`(사용자 지침이 claude-in-chrome 을 쓴다)이 있으면 `--no-chrome` 을 뺀다.
+  `--mcp-config` 는 가변 인자라 뒤의 인자까지 설정 파일 경로로 먹으므로 **바로 뒤에 늘 다른 옵션(`--strict-mcp-config` 등)이
+  오게** 맨 앞에 둔다 — exec 줄의 프롬프트 바로 앞에는 두지 않는다. **`--setting-sources` 는 쓰지 않는다**(user 설정의 heartbeat 훅이 함께 빠져 좌석표가 진척을 못 본다).
   전역 `~/.claude/settings.json` 자체는 읽기만 하고 건드리지 않는다.
   사람이 끄고 싶지 않으면 `DFLOW_WORKER_PLUGINS=keep`(플러그인, 팀장 세션 환경에서 읽는다)·`DFLOW_WORKER_MCP=keep`(MCP·
   `claude-in-chrome`, 팀원 실행 시점에 `.dflow-run` 이 읽는다. Orca 새 탭은 로그인 셸 환경이므로 셸 프로필에 export 한다)으로
@@ -176,9 +183,9 @@ cat "$WT/.dflow-pane"
   맨 뒤에 덮어 합친다. **키가 없으면 조각이 `{}` 라 종전과 똑같다.**
   | 키 | 설정에 들어가는 것 |
   |---|---|
-  | `worker_keep_skills=<쉼표 목록>` | 사용자 스킬(`~/.claude/skills`) 가운데 목록 밖의 것을 `skillOverrides` 에서 `"off"`, claude.ai 동기화 스킬을 `syncClaudeAiSkills: false` 로 숨긴다. 남길 것이 없으면 `none` |
+  | `worker_keep_skills=<쉼표 목록>` | 사용자 스킬(`~/.claude/skills`) 가운데 목록 밖의 것을 `skillOverrides` 에서 `"off"`, claude.ai 동기화 스킬을 `syncClaudeAiSkills: false` 로 숨긴다. 남길 것이 없으면 `none`. **`auto`**(단독 또는 `auto,<이름>`)면 그 PC 의 사용자 전역 지침(`~/.claude/CLAUDE.md` 와 `@` 포함 파일)의 부정문이 아닌 문장에 이름이 나오는 사용자 스킬을 남긴다(`WORKER_SKILLS_AUTO kept=<목록>` 한 줄). 지침을 못 읽으면 사용자 스킬을 하나도 끄지 않는다 |
   | `worker_skills_off=<쉼표 목록>` | 그 이름들을 `skillOverrides` 에서 `"off"`(예: 쓰지 않는 Claude Code 내장 스킬) |
-  | `worker_keep_plugins=<쉼표 목록>` | 켜진 플러그인을 끄는 종전 규칙에서 목록의 `<이름>@<마켓>` 을 빼고, claude.ai 동기화 플러그인을 `syncClaudeAiPlugins: false` 로 숨긴다. 남길 것이 없으면 `none` |
+  | `worker_keep_plugins=<쉼표 목록>` | 켜진 플러그인을 끄는 종전 규칙에서 목록의 `<이름>@<마켓>` 을 빼고, claude.ai 동기화 플러그인을 `syncClaudeAiPlugins: false` 로 숨긴다. 남길 것이 없으면 `none`. **`auto`** 면 지침에 `<이름>@<마켓>` 이 나오거나, 플러그인·plugin·MCP 가 함께 든 부정문이 아닌 문장에 `<이름>` 이 나오는 켜진 플러그인을 켜 둔다(`WORKER_PLUGINS_AUTO kept=<목록>`). 켜 둔 플러그인이 MCP 서버를 제공하면 `<id8>.mcp.json` 을 만들어 `--mcp-config` 로 넘긴다. 지침(부정문 제외)에 claude-in-chrome 이 나오면 `<id8>.chrome` 을 만들어 `--no-chrome` 을 뺀다 |
   | `worker_output_style=<값>` | `outputStyle`(예: `default`) |
 
   `dflow-*` 와 대상 리포의 프로젝트 스킬(`<MAIN>/.claude/skills` 의 폴더 이름과 머리말 `name`)은 어느 목록에 적혀도 끄지

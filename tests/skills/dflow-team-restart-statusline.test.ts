@@ -87,6 +87,15 @@ describe('statusLine 덤프', () => {
     expect(r.status).toBe(0)
     expect(r.stdout.trim().split('\n')).toEqual(['--dangerously-skip-permissions', '--no-chrome', '--strict-mcp-config', '--effort', 'high', '--model', 'opus', 'POINTER'])
   })
+  // 2026-09-26: worker_keep_plugins·worker_keep_skills 의 auto 가 만든 <id8>.mcp.json·<id8>.chrome 이 있을 때만 달라진다
+  it('auto 가 만든 MCP 파일이 있으면 --mcp-config 를 맨 앞에(바로 뒤가 옵션), chrome 표지가 있으면 --no-chrome 을 뺀다', () => {
+    const lim = join(home, '.dflow/limits'); mkdirSync(lim, { recursive: true })
+    writeFileSync(join(lim, 'abcd1234.mcp.json'), '{"mcpServers":{}}')
+    writeFileSync(join(lim, 'abcd1234.chrome'), '')
+    const r = runTail(false)
+    expect(r.status).toBe(0)
+    expect(r.stdout.trim().split('\n')).toEqual(['--dangerously-skip-permissions', '--mcp-config', join(lim, 'abcd1234.mcp.json'), '--strict-mcp-config', '--effort', 'high', '--model', 'opus', 'POINTER'])
+  })
   it('DFLOW_WORKER_MCP=keep 이면 --no-chrome --strict-mcp-config 를 붙이지 않는다', () => {
     const r = runTail(false, { DFLOW_WORKER_MCP: 'keep' })
     expect(r.status).toBe(0)
