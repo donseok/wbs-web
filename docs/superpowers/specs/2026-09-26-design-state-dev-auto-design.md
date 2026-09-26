@@ -26,6 +26,21 @@
 | 개발자동 | `human` | 사람 | design.md 를 개발 브랜치에 올리고 「설계 확정」 | 확정된 작업만 구현부터(`build`)로 띄운다. 확정 전에는 건드리지 않는다 |
 | 수동 | (위임 표식 없음) | 사람 | 직접 코딩하거나 `/dflow-dev` 를 손으로 실행 | 가져가지 않는다 |
 
+```mermaid
+flowchart TD
+    T["WBS 작업"] --> A{"위임 표식(agent)?"}
+    A -- 없음 --> M["수동: 사람이 직접 개발"]
+    A -- 있음 --> D{"설계 방식"}
+    D -- auto --> F["팀장: 처음부터 끝까지(full)"]
+    D -- review --> R1["팀장: 설계만(design)"]
+    R1 --> R2["설계 검토 대기"]
+    R2 -- 사람이 검토·수정 후 승인 --> B["팀장: 구현부터(build)"]
+    D -- human --> H1["사람이 design.md 를 개발 브랜치에 올림"]
+    H1 -- 설계 확정 --> B
+    F --> C["Verify·마감·완료 보고"]
+    B --> C
+```
+
 「승인」과 「설계 확정」은 화면에서 이름만 다르고, 서버에는 같은 값(`approved`)으로 기록된다. 사람 설계는 5개 절이 모두 있어야 하며, 빠진 절이
 있으면 워커가 착수하지 않고 그 사실을 보고한다(지금 구현부터 규칙과 같다).
 
@@ -34,9 +49,17 @@
 설계 상태는 주문(`agent_work_orders`)에 기록하고 값은 없음(`null`), `review`, `approved` 셋이다. 주문 상태(`ready`·`claimed`·`reported`)는
 그대로 두고 이 칸만 더한다.
 
-```
-없음 ──(에이전트가 설계를 마침: design_review)──▶ review ──(사람 「승인」: design_approve)──▶ approved ──▶ 팀장이 구현부터 띄움
-없음 ──(사람 설계 「설계 확정」: design_approve)─────────────────────────────▶ approved ──▶ 팀장이 구현부터 띄움
+```mermaid
+stateDiagram-v2
+    direction LR
+    none: 없음
+    review: review (설계 검토 대기)
+    approved: approved (승인·확정)
+    [*] --> none
+    none --> review: 에이전트가 설계를 마침 / design_review
+    review --> approved: 사람이 승인 / design_approve
+    none --> approved: 사람 설계를 확정 / design_approve
+    approved --> [*]: 팀장이 구현부터 띄움
 ```
 
 | 상황 | 주문 상태 | 설계 상태 | 좌석·화면 표시 |
