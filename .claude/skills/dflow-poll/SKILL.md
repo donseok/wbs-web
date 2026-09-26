@@ -50,7 +50,8 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
    - **0 = ready 발견**: stdout 각 줄이 `순번<TAB>id8<TAB>이름`. **착수 전에 dflow-dev
      Phase 01 의 착수 가능 판정(spec 실재·선행 검사)을 먼저 통과시킨다** — 불가 판정이면
      사유를 통지하고 그 id8 을 exclude 에 넣어 즉시 재기동한다(서버는 spec 부재·선행 미충족
-     작업도 ready 로 노출한다 — 2026-08-22 실증). 통과하면 사용자에게 한 줄 통지
+     작업도 ready 로 노출한다 — 2026-08-22 실증). 서버 계약이 2.9 여도 `reached` 가 거짓인 선행은 여기서 불가(선행 대기)로
+     본다 — dflow-dev 의 「v2.9 설계 선행 후보」 로 넘기지 않는다(설계 선행은 상한이 있는 /dflow-team 팀장만 준다). 통과하면 사용자에게 한 줄 통지
      ("`<id8> <이름>` 착수") 후 **첫 줄의 id8 로** `/dflow-dev <id8>` 사이클을 실행한다.
      순번은 그 시점 목록 캐시 기준이라 시간이 지나면 어긋날 수 있다 — **claim 은 반드시 id8 로.**
    - **9 = 승인 감지(머지 대상)**: stdout 각 줄이 `TSK<TAB>order-id` — 로컬 state.json 이
@@ -105,8 +106,9 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
     다시 봐도 결과가 같으므로 `--wait-cycles`(기본 24주기, 300초면 2시간) 뒤에야 스스로 푼다. 선행의 완료·머지를
     알게 되면 목록에서 빼고 재기동한다. 지금은 팀장(/dflow-team 「선행 사전 검사」)이 쓴다.
     선행 대기 작업 가운데 빈 슬롯에 설계를 먼저 줄 후보(설계 선행, 계약 2.9)도 팀장이 자기 선행 대기 목록에서 고른다
-    (/dflow-team references/design-ahead.md) — poll 은 ready 만 돌려주고, 설계를 마치고 선행을 기다리는 주문은 claimed 라
-    poll 에 나오지 않으므로 poll 쪽에서 할 일이 없다.
+    (/dflow-team references/design-ahead.md). poll 은 ready 만 돌려주고 설계를 마치고 선행을 기다리는 주문은 claimed 라 poll 에
+    나오지 않는다. poll 루프가 스스로 설계 선행을 하지 않는 이유: 상한(`DFLOW_DESIGN_AHEAD_MAX`) 없이 선행 대기 작업을 하나씩
+    전부 설계해 쌓게 되고, 선행이 계약을 바꾸면 그만큼 재작업이 된다.
 - 승인은 poll.sh 가 감지한다(exit 9 — 위 2번): 로컬 reported ↔ 서버 approved 대조.
 - 반려도 poll.sh 가 감지한다(exit 10): 로컬 reported·merged ↔ 서버 마지막 completion 리포트의
   review_action=reject 대조. **order.status 만 보면 영영 못 본다**(claimed 로 롤백된다).
