@@ -15,7 +15,7 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 | D | 사람 판단이 필요한 분기(AskUserQuestion, `--only` 확인) | 지금처럼 묻는다 | **AskUserQuestion 을 쓰지 않는다.** 합리적으로 고른 뒤 나중에 알린다. 기본값이 있으면 택해 한 줄 남기고 진행한다. 없어도 근거가 더 강한 쪽을 골라 진행하고, design.md `## 담당자 확인 필요 결정` 절에 질문·선택지·택한 것·근거·반려 시 재작업 방향을 남긴다. Phase 06 `done` 요약 끝에 `확인 필요 결정 N건: …` 을 싣는다. 결정마다 `D` 번호를 붙이고, Phase 06 에서 그 절을 `<TASKS>/<TSK>/decisions.json` 으로 옮겨 `done --decisions` 로 넘긴다(0건이면 `[]`). `blocked` 는 되돌리기 어려운 결정(데이터 삭제·외부 공개·다른 Task 산출물의 대폭 수정·보안·권한 변경)에만 쓴다(worker-prompt.md 판단 규칙). 팀장은 `--only` 를 넘기지 않으므로 `--only` 확인은 워커 경로에 없다 |
 | E | Phase 02~05 공통 프롬프트 | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로를 글자 그대로 적어 호출한다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다" 한 줄을 덧붙인다(템플릿의 `{WORKER_LINES}`). 오케스트레이터 자신도 같은 규칙을 따른다 |
 | F | Phase 01 2번 claim exit 4 재시도 | `git fetch origin` 뒤 기점을 다시 정해 1회 재시도하고, 그래도 4 면 중단·보고한다(merge 없음) | 같다. 그래도 4 면 `.result` 에 `skipped` 를 쓴다 |
-| G | Phase 01 2번 `head_sha` 없는 선행의 갈래 1·2 | 갈래 1(미승인·stage 미달)은 로컬 선행 산출물이 있으면 스택하고, 갈래 2(`stage >= im`·`order_approved:false`, 완료 보고 뒤 승인 대기)는 한 줄 남기고 진행한다 | **스택하지 않는다.** 갈래 1(`reached` 가 거짓)은 `skipped 선행 미승인` 으로 끝내고 팀장이 일시 제외한다. 갈래 2(`reached` 가 참인데 `head_sha` 가 없음)는 아래 **기본 브랜치 반영 확인**을 거쳐, 반영이 확인되면 `origin/<기본브랜치>` 기점으로 **스택 없이 진행**하고 그 사실을 한 줄 남긴다. 확인되지 않으면 `skipped 선행 승인 대기` 로 끝낸다(승인 전에 기본 브랜치로 머지하는 운영에서는 선행 산출물이 이미 기점에 있다). 워커의 스택은 `head_sha` 가 있는 선행(행 B)에만 한다. `waived:true` 간선은 이 행의 대상이 아니다 — Phase 01 2번의 강제 진행 갈래로 간다(기본 브랜치 반영 확인 없음) |
+| G | Phase 01 2번 `head_sha` 없는 선행의 갈래 1·2 | 갈래 1(미승인·stage 미달)은 로컬 선행 산출물이 있으면 스택하고, 갈래 2(`stage >= im`·`order_approved:false`, 완료 보고 뒤 승인 대기)는 한 줄 남기고 진행한다 | **스택하지 않는다.** 갈래 1(`reached` 가 거짓)은 `skipped 선행 미승인` 으로 끝내고 팀장이 일시 제외한다. 갈래 2(`reached` 가 참인데 `head_sha` 가 없음)는 아래 **기본 브랜치 반영 확인**을 거쳐, 반영이 확인되면 `origin/<기본브랜치>` 기점으로 **스택 없이 진행**하고 그 사실을 한 줄 남긴다. 확인되지 않으면 `skipped 선행 승인 대기` 로 끝낸다(승인 전에 기본 브랜치로 머지하는 운영에서는 선행 산출물이 이미 기점에 있다). 워커의 스택은 `head_sha` 가 있는 선행(행 B)에만 한다. `waived:true` 간선은 이 행의 대상이 아니다 — Phase 01 2번의 강제 진행 갈래로 간다(기본 브랜치 반영 확인 없음). 서버 계약이 2.9 이상이면 갈래 1 은 아래 「설계 선행」 이 대신한다 |
 | H | Phase 01 3번의 브랜치 생성 또는 재개 판정으로 agent 브랜치에 들어온 직후 | 설치하지 않는다. 사람의 체크아웃에는 의존성이 이미 있다 | 생성 또는 재개로 agent 브랜치에 들어온 직후, 4번 기준선과 Phase 02~05 게이트 전에 아래 블록으로 설치한다. `blocked` 답을 받아 재spawn 된 워커처럼 재개 판정으로 기존 agent 브랜치에 들어온 경우도 같다(새 격리 워크트리에는 `node_modules` 가 없다). lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만 설치하며, lockfile 이 없으면 설치하지 않는다. 설치가 실패하면 `.result` 에 `failed deps <실패한 명령과 exit>` 를 쓰고 끝낸다. `DEPS_BUSY <폴더>`(exit 75)는 실패가 아니다 — heavy 슬롯이 없어 설치를 미룬 것이므로 잠시 뒤 같은 명령을 다시 부른다(이어서 설치한다). 설치는 브랜치 기점의 lockfile 로 고정한다(스택이면 선행이 lockfile 을 바꿨을 수 있다) |
 | I | Phase 05 Refactor | supervised 에서 기본 실행한다(커밋이 없으면 Refactor 게이트 생략) | **실행하지 않는다.** Verify 게이트 통과 뒤 곧바로 Phase 06 으로 간다. Refactor 서브에이전트를 띄우지 않고 state.json 의 `phase` 도 `refactor` 로 쓰지 않는다 — dev-discipline.md 「Phase 05」 의 "무인 모드에서는 실행하지 않는다" |
 
@@ -57,6 +57,23 @@ state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 �
 스택할 이유도 없다. 판정 이력(실측 사례)은 `scripts/pred-reflected.sh` 머리 주석에 있다.
 트레일러 패턴(증거 2)의 콜론 뒤 **공백을 반드시 넣고 따옴표로 감싼다.** 실제 트레일러가 `DFlow-Order: <uuid>` 라
 공백을 빼면 매치가 0 건이 되고, 그 0 건은 「반영되지 않음」 과 구분되지 않아 정상인 선행까지 `skipped` 로 만든다.
+
+## 설계 선행 (계약 2.9)
+
+SKILL.md 「설계 선행」 이 정본이다. 워커에서 달라지는 것만 적는다.
+
+- **행 G 갈래 1 대신**: `dflow.sh contract-ge 2.9` 가 exit 0 이면 `reached` 가 거짓인 선행은 `skipped 선행 미승인` 으로 끝내지 않고
+  `claim --design-first` 로 간다(SKILL.md Phase 01 2번 「v2.9 설계 선행 후보」). 팀장은 선행 대기 작업을 빈 슬롯에만 설계 선행으로
+  준다(`/dflow-team` 「선행 대기의 설계 선행」). 서버가 `DESIGN_FIRST_TOO_EARLY` 로 거부하면 `.result` 에
+  `skipped 선행 미충족(설계 선행 불가: <ref…>)` 를 쓴다(`<ref…>` 는 그 JSON 의 `external_ref` 를 공백으로 이은 것).
+- **멈춤**: 멈춤 절차 5번의 `.result` 는 `{TSK} {ID8} <agent 브랜치> <push 한 head_sha> - design_waiting <미충족 선행 ref…>` 다.
+  재개했는데 여전히 미충족이거나 기점을 정하지 못했으면 같은 status 에 사유만 바꾼다(`design_waiting 선행 승인 대기 <ref>` 등).
+  팀장은 이 status 를 실패로 보지 않고 워크트리를 남긴 채 좌석만 비운다.
+- **선행 반영 머지**: 재개 3번의 머지(정한 기점을 agent 브랜치에 한 번)는 워커도 한다. 기본 브랜치를 체크아웃하거나 기본 브랜치에
+  머지하는 것이 아니라 agent 브랜치 위의 머지이므로, 아래 「그 밖의 워커 규칙」 의 "기본 브랜치를 switch·pull·merge·push 하는
+  지점은 행 A·B·C 뿐" 과 부딪치지 않는다. git 은 행 E 의 절대경로 규칙대로 부른다.
+- 재개는 팀장이 같은 워크트리로 다시 띄운 워커가 한다(claim 하지 않는다). 좌석 번호가 바뀌어 `.dflow-agent` 가 달라져도 서버는
+  PAT 사용자로 점유자를 가르므로 `build-start` 가 통한다.
 
 ## 행 H — 의존성 설치
 

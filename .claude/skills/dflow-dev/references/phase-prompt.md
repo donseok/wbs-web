@@ -22,6 +22,7 @@
 | `{FAILURES}` | (재시도) 신규 실패 테스트 이름과 출력 꼬리, 또는 Verify 실패 사유 |
 | `{AUDIT_FINDINGS}` | (Verify 작성자를 새로 띄울 때만) 감사자 셋의 지적 목록(`{TASK_DIR}/audit-<역할>.md` 내용). 같은 작성자에게는 SendMessage 로 넘기므로 비운다 |
 | `{FORCE_STUB}` | 강제 진행 간선이 있으면 대신할 선행과 SKILL.md Phase 01 「강제 진행 스텁 규칙」 전문 |
+| `{DESIGN_FIRST}` | (Design) 설계 선행 모드(SKILL.md 「설계 선행」)면 `설계 선행 모드다 — 미충족 선행의 코드가 기점에 없다. phase-design.md 「선행 기준」 대로 design.md 에 ## 선행 기준 절을 쓴다.` 한 줄과 선행마다 `<선행 ref> — 읽을 곳: <head_sha \| origin/agent/… @<sha> \| 없음>`. 재개의 검토 모드면 그 앞에 `검토 모드다 — 종전 design.md 의 ## 선행 기준 과 아래 바뀐 파일이 어긋나는 절만 고친다.` 와 바뀐 파일의 diff 요지. 아니면 지운다 |
 | `{DOCKER_LINE}` | dev-discipline.md 「도커 사용 규칙」 의 프롬프트 문구(금지 모드냐 아니냐에 따라 둘 중 하나) |
 | `{WORKER_LINES}` | `--worker` 면 SKILL.md 표지 블록 「--worker」 E 의 두 줄(git 절대경로·`.issues`). 아니면 지운다 |
 
@@ -45,6 +46,7 @@
 - 고칠 실패: {FAILURES}
 - 감사 지적(phase-verify.md 4번대로 판정하고 수용한 것을 고친다): {AUDIT_FINDINGS}
 {FORCE_STUB}
+{DESIGN_FIRST}
 {DOCKER_LINE}
 {WORKER_LINES}
 

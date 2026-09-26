@@ -60,9 +60,12 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   Phase 마다 바뀐다.
   `build_unit`(선택)은 지금 도는 구현 단위(`B1`…)다. 병렬 묶음이면 동시에 도는 단위를 쉼표로 잇는다(`"B1,B2"`).
   단위가 몇 개든 `phase` 는 Build 동안 `build` 하나다.
+  `design_first`(선택)는 설계 선행 모드의 표식 `{"unmet": ["<선행 external_ref>", …]}` 이다(「설계 선행」). 재개한 뒤에도 기록으로 남긴다.
   `phase` 값: `ready`·`design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.
   `ready` 는 `dflow.sh scaffold` 가 만든 초기값이다(주문 전 폴더 자리). 진행 중 phase 가 아니므로 스윕·재개 판정은 건너뛴다.
   `rejected` 는 서버가 반려를 통지한 상태다 — 승인 대기(reported)와 구분해야 스윕이 헛돌지 않는다.
+  `wait_pred` 는 설계를 마치고 선행을 기다리며 멈춘 상태다(「설계 선행」 2). 진행 중 phase 가 아니며 heartbeat 훅도 보내지 않는다 —
+  재개는 Phase 01 1번이 「설계 선행」 3 으로 보낸다.
   **`order` 는 전체 UUID(하이픈 포함 36자)로 기록한다 — id8 금지.** 주문이 approved 가 되면
   목록에서 빠져 id8 접두 해석이 죽고, poll 의 승인 감지(exit 9)와 머지 판정이 그 주문을
   영영 못 본다(2026-08-25 실증). 기존 파일이 id8 이면 발견 즉시 전체 UUID 로 고쳐 커밋한다.
@@ -166,6 +169,9 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
      되돌리지 말고 머지된 코드 위에 수정 커밋을 얹는 것이 계약이다.
    - claim 을 다시 하지 않는다. 서버는 이미 claimed 로 롤백해 두었다.
    - 재작업 완료 후 마감은 Phase 06 그대로(`done --auto-links`) — state 는 다시 `reported`.
+
+   **설계 선행 재개** — 서버 `status=claimed`·`mine=true` 이고 로컬 state.json 이 `phase=wait_pred` 면 claim·격리를 하지 않고
+   아래 「설계 선행」 3 으로 간다(반려 판정은 먼저 한다).
 2. **착수 가능 판정 — 서버는 이걸 안 해준다.** claim 전에 오케스트레이터가 직접:
    - **spec 검사**: show 의 `.order.item.spec` 이 비어 있으면 착수 불가. 제목만으로 요구사항을
      지어내지 않는다. 스킵하고 사유 보고.
@@ -211,6 +217,10 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
           <!-- worker:end -->
        3. `order_approved:true` 인데 `head_sha` 없음 → 승인은 됐으나 evidence 가 비었거나 주문
           재발행으로 옛 완료 보고가 가려진 경우. 한 줄 남기고 진행한다.
+   - **v2.9 설계 선행 후보**: `dflow.sh contract-ge 2.9` 가 exit 0 이면 `reached` 가 거짓인 선행(위 갈래 1)은 스택·착수 불가로
+     가르지 않고 **설계 선행 후보**로 둔다 — 아래 claim 을 `--design-first` 로 하고 그 출력으로 모드를 정한다(「설계 선행」 1).
+     기점 계산에서는 그 선행을 뺀다(코드가 아직 없다). 선행이 아직 구현 전(`as`·`ds`·미착수)인지는 스킬이 판정하지 않는다 —
+     서버가 거부한다(exit 4 + `DESIGN_FIRST_TOO_EARLY`). exit 1 이면(옛 서버) 위 갈래 그대로다.
    - **강제 진행 스텁 규칙**(스펙 2026-09-23 §3.4):
      1. 후행 소유 경로에 둔다 — 선행이 만들 파일을 먼저 만들지 않는다. 예: `src/__stubs__/<선행 TSK-ID>/order.ts` 에 계약대로
         쓰고 주입 지점 한 곳에서만 바꿔 끼운다. 공유 등록 목록의 같은 줄을 고치지 않는다.
@@ -241,6 +251,10 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    - claim 이 `PROJECT_MISMATCH`(exit 2)로 거부되면 그 주문은 이 리포에 바인딩된 D'Flow 프로젝트 밖이거나 리포에
      바인딩(`.dflow` 의 `project_id`·`.dflow.local` 의 `project_map`)이 없다. 재시도하지 않고 원래 위치로 돌아가 중단·보고한다.
      워커는 `.result` 에 `failed project <메시지>` 를 쓴다.
+   - **claim 명령**: `dflow.sh contract-ge 2.9` 가 exit 0 이면 늘 `dflow.sh claim <ref> --design-first` 다(선행이 모두 충족돼도
+     그렇다 — 단계 `ds` 가 "설계 중" 이라는 뜻을 늘 갖게 한다). 아니면 종전 `dflow.sh claim <ref>`. 출력에 `DESIGN_FIRST_UNMET` 줄이
+     있으면 설계 선행 모드다(「설계 선행」 1). exit 4 에 stderr `DESIGN_FIRST_TOO_EARLY` 면 아래 재시도를 하지 않는다(선행이
+     착수하기 전에는 다시 해도 같다) — 원래 위치로 돌아가 "선행 <ref:stage…> 이 구현 전이라 설계 선행 불가" 로 보고한다.
    - claim 이 exit 4(선행·상태로 인한 진행 불가. 서버 403 `dependency_not_met` 재매핑 포함)면
      `git fetch origin` 뒤 기점을 다시 정해(다시 옮겨) 1회 재시도하고, 그래도 4 면 중단·보고한다. 우회
      금지. merge 는 하지 않는다(기본 브랜치를 사용자의 현재 브랜치에 섞는다).
@@ -284,6 +298,65 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 5. spec.md 읽기(필수) + 복잡도 판정(dev-discipline 의 점수표) → 설계 모델 결정, 한 줄 출력.
 6. **준비 끝 표시**: state.json 의 `phase` 가 `prepare` 이면 `design` 으로 바꾼다(Design 서브에이전트를 띄우기 전, 커밋하지
    않는다). 빠뜨리면 Design 동안 좌석이 계속 「준비」로 보인다.
+
+## 설계 선행 (계약 2.9)
+
+선행이 구현 중(`ip`)인 동안 후속의 Design 을 먼저 해 두고, 선행이 끝나면 선행 코드를 한 번 들여 Build 로 간다. 서버 단계는
+claim 때 `ds`(설계 중), `build-start` 뒤 `ip` 다. 설계 정본은 wbs-web 리포 docs/superpowers/specs/2026-09-26-dflow-parallel-token-design.md
+§6(킷에는 미동봉)이고, 이유는 rationale.md 「설계 선행」 이다.
+
+1. **claim 과 모드**(Phase 01 2번 「claim 명령」): `DESIGN_FIRST_UNMET <JSON>` 줄이 없으면 종전 그대로다. 있으면 **설계 선행 모드**다.
+   - state.json 에 `design_first: {"unmet": [<그 JSON 의 external_ref>…]}` 를 적는다(Phase 01 3번의 `prepare` 쓰기와 같은 자리).
+   - 기점은 미충족 선행을 뺀 Phase 01 규칙으로 정한 것이다. 충족된 선행이 없으면 `origin/<기본브랜치>` 끝이다. 기준선은 종전대로
+     잰다(재개 때 기점이 바뀌면 다시 잰다 — 3).
+   - Design 프롬프트의 `{DESIGN_FIRST}`(phase-prompt.md)를 채운다. 미충족 선행마다 계약을 읽을 곳을 이 순서로 찾아 적는다.
+     `<선행TSK>` 는 그 external_ref 의 마지막 `/` 뒤다.
+     1. show 의 그 선행 `depends_evidence` 원소의 `head_sha`. 승인된 선행에만 있으므로 미충족 선행에는 대개 없다.
+     2. 그 선행 Task 폴더를 가진 원격 agent 브랜치. 선행 id8 을 모르므로 폴더로 찾는다 — `git fetch origin` 뒤
+        `git for-each-ref --format='%(refname:short) %(objectname:short)' refs/remotes/origin/agent/` 로 목록을 보고, 브랜치마다
+        `git ls-tree --name-only <브랜치> <TASKS>/<선행TSK>/` 가 비지 않는 것의 이름과 tip sha 를 적는다.
+     3. 둘 다 없으면 "읽을 곳 없음 — 이 작업의 spec 과 선행 ref 로 가정한 계약" 이다. 선행이 구현 중이면 원격 브랜치가 아직
+        없는 것이 보통이다(워커는 Phase 06 에서만 push 한다).
+     워커는 다른 주문을 show 하지 않는다(worker-prompt.md 「5」) — 위 셋은 자기 show 와 git 만 쓴다.
+2. **Design 게이트 뒤**(Phase 02~05 「Phase 종료마다」 1번): `dflow.sh build-start <ref>` 의 결과로 가른다. 모드와 무관하게 늘 부른다.
+
+   | 결과 | 처리 |
+   |---|---|
+   | exit 0 | Build 로 간다(종전) |
+   | exit 0 + stderr `BUILD_START_UNSUPPORTED` | 옛 서버다(claim 이 이미 `ip` 로 보냈다). Build 로 간다 |
+   | exit 4 | 설계 완료·선행 대기로 멈춘다(아래 멈춤 절차) |
+   | exit 10 | 중단(상태 모델) |
+   | 그 밖 | Build 로 가지 않고 중단·보고한다. `phase` 는 `design` 그대로라 재실행하면 Design 게이트 뒤에서 다시 부른다. 워커는 `failed build-start <exit>` |
+
+   **멈춤 절차**(순서 고정):
+   1. design.md 커밋을 확인한다(없으면 파일명 명시 커밋).
+   2. state.json `phase` 를 `wait_pred` 로, `design_first.unmet` 을 stderr 본문의 `unmet[].external_ref` 로 쓰고(없던 필드면 만든다)
+      파일명을 명시해 커밋한다(`DFlow-Order` 트레일러). 그 다음 `progress 25 "설계 완료(선행 대기)"` 를 보낸다.
+   3. `git push origin <agent 브랜치>` 로 설계를 원격에 남긴다(다른 PC·새 워크트리가 이어받는다). 훅에 거부되면 우회하지 않고 보고한다.
+   4. `dflow.sh heartbeat <ref> --phase wait_pred` 를 부른다. 실패해도(옛 서버는 400) 멈춤을 계속한다. heartbeat 훅은 `wait_pred` 를
+      보내지 않으므로 이 한 번이 좌석을 「선행 대기」 로 바꾼다. 2번 뒤에 부른다 — 앞이면 훅의 다음 신호가 `design` 으로 덮는다.
+   5. supervised 는 `"{TSK} 설계 완료·선행 대기 — 선행 <ref…> 가 끝나면 /dflow-dev {TSK} 로 이어 간다"` 로 알리고 끝낸다. 워커는
+      `.result` 에 `design_waiting <미충족 선행 ref…>` 를 쓴다(worker-mode.md 「설계 선행」).
+3. **재개**(Phase 01 1번 「설계 선행 재개」): claim 하지 않는다(이미 claimed·`ds`).
+   1. show 의 `depends_evidence` 가 모두 `reached`(면제 포함)인지 본다. 아니면 다시 멈춘다 — 멈춤 절차의 4·5 만 한다(커밋·push 할
+      것이 없다).
+   2. 모두 참이면 **Phase 01 2번의 기점 선정을 그대로 다시 탄다**(`head_sha` 와 기본 브랜치 반영 확인·직접 머지, `head_sha` 없는
+      세 갈래, 여러 선행의 공통 기점. 워커는 행 B·G). `reached` 는 완료 보고 뒤나 승인 뒤 머지 전에도 참이라 선행 코드가 기본
+      브랜치에 없을 수 있다. 기점을 정하지 못하면(착수 불가·공통 기점 없음·워커의 `선행 승인 대기`) 그 판정을 사유로 멈춤 절차의
+      4·5 를 한다(워커 `.result` 는 `design_waiting <그 사유>`).
+   3. 정한 기점을 agent 브랜치에 **한 번** 머지한다. agent 브랜치에는 Task 문서 커밋뿐이라 코드 충돌이 없다. dev-discipline
+      「개발 브랜치 재머지」 의 허용 한 번이 이것이며, 사유는 build-log.md 대신 머지 커밋 메시지에 남긴다(build-log 는 아직 없다).
+      ```bash
+      git merge --no-ff <기점> -m "merge: <TSK> 설계 선행 재개 — 선행 반영 기점 <기점 sha>" -m "DFlow-Order: <order>"
+      ```
+   4. state.json `branch_base`·`baseline.base` 를 새 기점 sha 로 바꾸고 `baseline.cmds` 를 모듈 기준선까지 모두 비운 뒤 `phase` 를
+      `prepare` 로 쓰고 Phase 01 4번대로 다시 잰다. 트리의 코드가 새 기점과 같으므로 이 작업 트리에서 잰다. Verify 감사자가
+      `{BASE}..{BUILD_HEAD}` 를 읽으므로 기점을 바꾸지 않으면 선행의 코드까지 감사한다.
+   5. **선행 계약 재확인**: design.md `## 선행 기준` 표의 파일마다 `git diff --name-only <적힌 sha>..<새 기점> -- <파일>` 을 본다. 적힌
+      sha 가 없거나(읽을 곳 없음) 로컬에 없으면(`git cat-file -e <sha>^{commit}` 실패 — 선행 브랜치 삭제·squash) 바뀐 것으로 본다.
+      하나라도 바뀌었으면 Design 을 **검토 모드**로 다시 띄운다(`phase=design`, `{DESIGN_FIRST}` 에 검토 모드임과 종전 design.md 의
+      `## 선행 기준`·바뀐 파일의 `git diff <적힌 sha>..<새 기점> -- <파일>` 요지). 어긋난 절만 고치고 Design 게이트를 다시 돈다.
+   6. 2 의 표대로 `build-start` 를 다시 부른다. exit 0 이면 「Phase 종료마다」 1번의 Design 게이트 뒤 모듈 기준선부터 이어 Build 로 간다.
 
 ## Phase 02~05 — Design → Build → Verify → Refactor
 
@@ -378,6 +451,9 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 
 Phase 종료마다 오케스트레이터가:
 1. 게이트 집행(위 원칙 — 직접 실행).
+   - **Design 게이트 뒤 구현 전환**: Design 게이트가 통과하면 아래 모듈 기준선보다 먼저 `dflow.sh build-start <ref>` 를 부른다(늘
+     부른다 — 옛 서버는 `BUILD_START_UNSUPPORTED` 로 넘어간다). exit 4 면 Build 로 가지 않고 설계 완료·선행 대기로 멈춘다. 갈래와
+     멈춤 절차는 「설계 선행」 2.
    - **Design 게이트 뒤(대응표가 있을 때만)**: 첫 Build 단위를 띄우기 전에 모듈 게이트 명령의 기준선을 잰다. design.md
      「변경 파일 목록」 의 경로를 파일에 적어 `gate-scope.sh --base <기점> --ignore <TASKS>/<TSK>/ --paths-file <파일>` 로
      예측 범위를 보고, `module` 줄의 명령마다 `baseline.sh run --base <기점> --task-dir <TASKS>/<TSK> -- '<명령>'` 으로 잰다.
