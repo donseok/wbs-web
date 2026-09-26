@@ -1,6 +1,6 @@
 # Phase 프롬프트 템플릿 (Design·Build·Verify·Refactor 공통)
 
-오케스트레이터(`/dflow-dev` SKILL.md 「Phase 02~05」)는 Phase 서브에이전트를 띄울 때 아래 「템플릿」 을 그대로 보내고
+오케스트레이터(`/dflow-dev` `orch/phase-common.md`)는 Phase 서브에이전트를 띄울 때 아래 「템플릿」 을 그대로 보내고
 `{…}` 만 채운다. 문구를 고쳐 쓰지 않는다. 값이 없는 변수는 그 변수를 위한 줄(변수가 든 입력 줄 또는 변수만 있는 줄)을
 지운다. `{TSK}`·`{PHASE}`·`{TASK_DIR}`·`{ORDER}` 는 늘 값이 있다. `{MODEL}`·`{ADVISOR_POLICY}` 도 늘 값이 있다. 이 파일은 서브에이전트에게 주는 문구의 정본이고,
 규칙 자체의 정본은 각 규칙 끝에 적은 절이다.
@@ -18,15 +18,15 @@
 | `{AGENT_PROMPT}` | show 의 `item.agent_prompt`(Design 만. 뒤 Phase 는 design.md 머리의 인용을 본다) |
 | `{BASELINE}` | 기준선 수치(명령마다 총수·실패 수·실패 목록) |
 | `{VERIFY_CMDS}` | 기준선(Phase 01 4번)에서 **실제로 돌린** 명령 줄(`baseline.sh` 의 `--` 뒤) 글자 그대로 |
-| `{NARROW_CMDS}` | (Build·Verify) 그 명령 줄의 cwd·러너 실행 파일·도커 제외 인자(`-x mssqlMigrationTest` 등)는 그대로 두고 좁히는 인자(vitest `related <파일…> --run`·`--bail=1`, jest `--findRelatedTests`·`--bail`, Gradle `:<모듈>:test`·`--tests <클래스>`·`--fail-fast`)만 더한 꼴. 리포에 `.dflow-gates` 가 있으면 Design 뒤 예측 범위의 모듈 게이트 명령(`GATE_SCOPE module` 줄)도 넣고 "변이 검증이 대상 테스트로 잡히지 않으면 전체 대신 이 명령" 이라고 적는다 |
+| `{NARROW_CMDS}` | (Build·Verify) 그 명령 줄의 cwd·러너 실행 파일·도커 제외 인자(`-x dbContainerTest` 등)는 그대로 두고 좁히는 인자(vitest `related <파일…> --run`·`--bail=1`, jest `--findRelatedTests`·`--bail`, Gradle `:<모듈>:test`·`--tests <클래스>`·`--fail-fast`)만 더한 꼴. 리포에 `.dflow-gates` 가 있으면 Design 뒤 예측 범위의 모듈 게이트 명령(`GATE_SCOPE module` 줄)도 넣고 "변이 검증이 대상 테스트로 잡히지 않으면 전체 대신 이 명령" 이라고 적는다 |
 | `{BUILD_GATE}` | (Verify) state.json 의 `build_gate` — HEAD sha·명령 줄·통과/실패 수·신규 실패 목록, 대응표가 있으면 `scope`(`module`·`full`) |
 | `{HANDOFF}` | (Build 이어 띄우기) build-log.md `## 인계 <단위>` 절 |
 | `{FAILURES}` | (재시도) 신규 실패 테스트 이름과 출력 꼬리, 또는 Verify 실패 사유 |
 | `{AUDIT_FINDINGS}` | (Verify 작성자를 새로 띄울 때만) 감사자 셋의 지적 목록(`{TASK_DIR}/audit-<역할>.md` 내용). 같은 작성자에게는 SendMessage 로 넘기므로 비운다 |
-| `{FORCE_STUB}` | 강제 진행 간선이 있으면 대신할 선행과 SKILL.md Phase 01 「강제 진행 스텁 규칙」 전문 |
-| `{DESIGN_FIRST}` | (Design) 설계 선행 모드(SKILL.md 「설계 선행」)면 `설계 선행 모드다 — 미충족 선행의 코드가 기점에 없다. phase-design.md 「선행 기준」 대로 design.md 에 ## 선행 기준 절을 쓴다.` 한 줄과 선행마다 `<선행 ref> — 읽을 곳: <head_sha \| origin/agent/… @<sha> \| 없음>`. 재개의 검토 모드면 그 앞에 `검토 모드다 — 종전 design.md 의 ## 선행 기준 과 아래 바뀐 파일이 어긋나는 절만 고친다.` 와 바뀐 파일의 diff 요지. 아니면 지운다 |
+| `{FORCE_STUB}` | 강제 진행 간선이 있으면 대신할 선행과 `orch/base.md` 「강제 진행 스텁 규칙」 전문 |
+| `{DESIGN_FIRST}` | (Design) 설계 선행 모드(`orch/design-first.md`)면 `설계 선행 모드다 — 미충족 선행의 코드가 기점에 없다. phase-design.md 「선행 기준」 대로 design.md 에 ## 선행 기준 절을 쓴다.` 한 줄과 선행마다 `<선행 ref> — 읽을 곳: <head_sha \| origin/agent/… @<sha> \| 없음>`. 재개의 검토 모드면 그 앞에 `검토 모드다 — 종전 design.md 의 ## 선행 기준 과 아래 바뀐 파일이 어긋나는 절만 고친다.` 와 바뀐 파일의 diff 요지. 아니면 지운다 |
 | `{DOCKER_LINE}` | dev-discipline.md 「도커 사용 규칙」 의 프롬프트 문구(금지 모드냐 아니냐에 따라 둘 중 하나) |
-| `{WORKER_LINES}` | `--worker` 면 SKILL.md 표지 블록 「--worker」 E 의 두 줄(git 절대경로·`.issues`). 아니면 지운다 |
+| `{WORKER_LINES}` | `--worker` 면 `orch/phase-common.md` 표지 블록 「--worker」 E 의 두 줄(git 절대경로·`.issues`). 아니면 지운다 |
 
 ## 템플릿
 
@@ -146,7 +146,7 @@ reset·stash)·테스트·빌드 실행을 하지 않는다. 결과는 보고로
 
 | 공통 규칙 | 정본 |
 |---|---|
-| 1 커밋·트레일러 | 이 파일(서브에이전트 커밋). 오케스트레이터 커밋과 머지 커밋의 차이는 SKILL.md 「Phase 02~05」 커밋 규칙 문단 |
+| 1 커밋·트레일러 | 이 파일(서브에이전트 커밋). 오케스트레이터 커밋과 머지 커밋의 차이는 `orch/phase-common.md` 커밋 규칙 문단 |
 | 2 읽기 | 이 파일 |
 | 3 병렬 조사와 단일 작성자 | 이 파일 |
 | 4 포그라운드 | dev-discipline.md 「포그라운드 실행(백그라운드 게이트 금지)」 |

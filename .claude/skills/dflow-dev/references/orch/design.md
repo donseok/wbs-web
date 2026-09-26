@@ -13,7 +13,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
      트리가 기점과 코드가 같을 때(`git diff --name-only <기점>..HEAD` 와 `git status --porcelain` 이 Task 문서 밖에서 빔)만
      잰다. 결과는 state.json `baseline.cmds` 에 `"scope": "module"` 을 붙여 더한다. 정본은 dev-discipline 「게이트 범위 대응표(.dflow-gates)」.
 
-2. **Design 게이트 뒤**(Phase 02~05 「Phase 종료마다」 1번): `dflow.sh build-start <ref>` 의 결과로 가른다. 모드와 무관하게 늘 부른다.
+2. **Design 게이트 뒤**(위 「Design 게이트」): `dflow.sh build-start <ref>` 의 결과로 가른다. 모드와 무관하게 늘 부른다.
 
    | 결과 | 처리 |
    |---|---|

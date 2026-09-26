@@ -14,7 +14,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
 고정 경로는 쓰지 않는다.
 
 1. `dflow.sh doctor` (세션 첫 호출 시). `dflow.sh show <ref>` 로 상태 확인:
-   ready → 착수 가능 판정(2번) 후 claim / claimed → **반려 판정 먼저(아래), 아니면** 재개 판정(위 상태 모델) /
+   ready → 착수 가능 판정(2번) 후 claim / claimed → **반려 판정 먼저(아래), 아니면** 재개 판정(SKILL.md 상태 모델) /
    reported → 종료 / approved → 위 Phase 01-가 스윕이 이미 처리했어야 함(로컬 state.json 이 없는
    작업이라 스윕이 못 봤을 수 있다 — 그 경우 지금 즉시 같은 머지 절차를 이 ref 하나로 실행 후 종료).
    <!-- worker:begin -->
@@ -29,7 +29,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
    반려면 `orch/rework.md` 를 읽고 그대로 한다.
 
    **설계 선행 재개** — 서버 `status=claimed`·`mine=true` 이고 이 작업의 agent 브랜치(로컬 `agent/<주문id8>-*`, 없으면
-   `origin/agent/<주문id8>-*`) tip 의 state.json 이 `phase=wait_pred` 면 claim·격리를 하지 않고 아래 「설계 선행」 3 으로 간다(반려
+   `origin/agent/<주문id8>-*`) tip 의 state.json 이 `phase=wait_pred` 면 claim·격리를 하지 않고 `orch/design-first.md` 「3」 으로 간다(반려
    판정은 먼저 한다). 현재 트리가 아니라 그 브랜치에서 읽는다 — `git show <그 브랜치>:<TASKS>/<TSK>/state.json`. 워커는 부트스트랩이
    기본 브랜치로 detach 해 두었고, 거기 있는 state.json 은 scaffold 의 `ready` 이거나 없다.
 

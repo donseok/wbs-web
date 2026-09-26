@@ -32,6 +32,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
        있다). 머지 후 이어서 진행.
        <!-- worker:begin -->
        `--worker` 면 머지하지 않고 그 `head_sha` 를 기점으로 삼아 아래 claim 절차대로 스택한다(「--worker」 B).
+       행 B·G 의 세부는 worker-mode.md 「행 G」 다 — 처음 닿을 때 `.claude/skills/dflow-dev/scripts/sections.sh .claude/skills/dflow-dev/references/worker-mode.md '행 G'` 로 읽는다.
        <!-- worker:end -->
      - `head_sha` 가 없으면 갈래 셋을 나눈다 — **"선행 미승인" 하나로 뭉개지 않는다**(뭉개면
        틀린 전제로 스택을 쌓거나 착수를 포기하고, 그 오분류가 무음이라 아무도 못 알아챈다):

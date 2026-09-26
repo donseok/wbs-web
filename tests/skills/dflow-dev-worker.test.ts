@@ -187,7 +187,7 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
   // devAll() 순서: 안내 본문(SKILL.md) → 단계 파일(sweep·start·…·close). 안내 본문의 블록 셋이 먼저 온다.
   const EXPECTED: { prev?: string; next?: string; tag: string }[] = [
     { prev: '인자: `$ARGUMENTS` (`<순번|TSK-ID>` + 옵션)', tag: '팀장 전용' },
-    { prev: '뒤 진행한다. 압축 요약의 기억으로 단계 절차를 대신하지 않는다.', tag: '`references/worker-mode.md` 도 다시 읽는다' },
+    { prev: '그리고 그 앞 단계들의 규율 절을 다시 읽은 뒤 진행한다. 압축 요약의 기억으로 단계 절차를 대신하지 않는다.', tag: '「그 밖의 워커 규칙」 도 다시 읽는다' },
     { next: '## --only 옵션', tag: '## --worker 팀원 모드 (팀장 전용)' },
     { prev: '## Phase 01-가 — 승인 스윕(머지, 오케스트레이터 본인)', tag: '「--worker」 A' },
     { prev: '   작업이라 스윕이 못 봤을 수 있다 — 그 경우 지금 즉시 같은 머지 절차를 이 ref 하나로 실행 후 종료).', tag: '「--worker」 C' },
@@ -201,7 +201,9 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
 
   it('첫 표지 블록이 worker-mode.md 를 지금 읽게 하고, 마지막 표지 블록은 같은 이름의 머리 절로 그 파일을 가리킨다', () => {
     const blocks = workerBlocks(skill)
-    expect(blocks[0].body).toContain('**지금 `.claude/skills/dflow-dev/references/worker-mode.md` 를 Read 한다**')
+    // 2026-09-26 분할: 통째로가 아니라 머리 표와 「그 밖의 워커 규칙」 만 지금 읽고, 행 G·H·설계 선행은 그 단계에서 읽는다
+    expect(blocks[0].body).toContain('**지금 `.claude/skills/dflow-dev/references/worker-mode.md` 의 머리(아홉 행 표)와 「그 밖의 워커 규칙」 을 읽는다**')
+    expect(blocks[0].body).toContain("worker-mode.md '=/dflow-dev --worker' '그 밖의 워커 규칙'")
     const last = workerBlocks(devRouter()).at(-1)
     expect(last?.body).toContain('## --worker 팀원 모드 (팀장 전용)')
     expect(last?.body).toContain('`.claude/skills/dflow-dev/references/worker-mode.md`')

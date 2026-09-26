@@ -12,7 +12,7 @@ D'Flow 작업 1건을 구현하는 **과정 규율**의 단일 정본(2026-08-21
 
 | 읽는 쪽 | 파일 |
 |---|---|
-| 오케스트레이터 | 이 파일(`/dflow-dev` SKILL.md 「위치 선언」 이 절 목록을 정한다) |
+| 오케스트레이터 | 이 파일(`/dflow-dev` SKILL.md 「단계 지도」 의 규율 열이 단계마다 읽을 절을 정한다. 통째로 읽지 않는다) |
 | Phase 서브에이전트 | `phase-prompt.md`(프롬프트로 받는다) + `phase-design.md`·`phase-build.md`·`phase-verify.md`·`phase-refactor.md` 중 자기 것 |
 | Verify 감사자(읽기 전용) | `phase-prompt.md` 「감사 템플릿」(프롬프트로 받는다)만 |
 | 화면 작업의 Design·Build·Verify | 위에 더해 `e2e.md`(Verify 는 작성자만) |
@@ -133,7 +133,7 @@ LLM 의 자기 신고를 게이트 판정에 쓰지 않는다.
   가졌으면 그 명령들만 돈다. 기준선이 없는 명령이 하나라도 있으면(예측 밖 모듈을 건드렸다) `full` 명령으로 돈다.
   `full` 이면 `full` 명령, `none`·`invalid` 면 기준선 명령 전체다. 판정은 명령마다 그 명령의 기준선과 차분 비교한다.
 - **Verify 게이트**: Build 게이트가 모듈 범위였으면 `full` 명령을 **재실행 생략 없이 한 번** 돈다 — 머지 전 최종 증거다.
-  Build 게이트가 이미 전체였으면 종전 재실행 생략 규칙(`/dflow-dev` SKILL.md 「Phase 종료마다」 1번)을 그대로 쓴다(같은
+  Build 게이트가 이미 전체였으면 종전 재실행 생략 규칙(`/dflow-dev` `orch/verify.md` 「Verify·Refactor 게이트」)을 그대로 쓴다(같은
   트리의 전체 실행을 두 번 하지 않는다). Refactor 게이트는 코드가 바뀌었으면 `full` 명령이다(최종 증거 뒤의 변경이다).
 - **변이 검증**: 대상 테스트로 잡히지 않을 때 넘어가는 곳은 전체 스위트가 아니라 영향 모듈 게이트 명령이다(phase-build.md).
 - 대응표의 명령은 Task 도중 바꾸지 않는다. 대응표를 고치는 Task 자신은 `.dflow-gates` 변경이 `full` 로 판정된다.
@@ -271,8 +271,8 @@ worker-prompt.md·resolve-prompt.md, `/dflow-merge` 「방언 검증」 은 이 
 
 ### 금지 모드가 아닐 때: 도커 슬롯
 
-- 도커를 쓰는 명령(아래 목록의 명령, 또는 그런 태스크·테스트를 포함하는 명령 줄 — 예 `testAll` 이 `mssqlMigrationTest` 를
-  포함한다)은 일반 `heavy.sh` 가 아니라 `.claude/skills/dflow-dev/scripts/heavy.sh --pool docker <명령>` 으로 감싼다.
+- 도커를 쓰는 명령(아래 목록의 명령, 또는 그런 태스크·테스트를 포함하는 명령 줄 — 예 `testAll` 이 DB 컨테이너 시험
+  태스크를 포함한다)은 일반 `heavy.sh` 가 아니라 `.claude/skills/dflow-dev/scripts/heavy.sh --pool docker <명령>` 으로 감싼다.
   도커 슬롯(PC 전체 1개)과 일반 슬롯을 함께 잡으므로 PC 전체의 무거운 명령 수도 늘지 않는다.
 - 기준선은 `baseline.sh run … --pool docker -- '<명령>'` 으로 잰다. 바깥에서 `baseline.sh` 를 `heavy.sh --pool docker` 로
   감싸지 않는다(측정 잠금을 도커 슬롯을 쥔 채 기다리게 된다 — 「무거운 명령 줄 세우기」 의 교착 불변식).
@@ -284,8 +284,8 @@ worker-prompt.md·resolve-prompt.md, `/dflow-merge` 「방언 검증」 은 이 
 도커나 Testcontainers 를 쓰는 명령을 돌리지 않는다.
 
 - 도커 CLI: `docker …`·`docker compose`·`docker-compose`·`podman`·`nerdctl`·`orb`·`orbctl`·`colima`.
-- 이름에 `mssql`·`container`·`testcontainers`·`docker` 가 든(대소문자 무시) 빌드 태스크·스크립트. 예: Gradle
-  `mssqlMigrationTest`·`containerTest`, npm `test:docker`.
+- 이름에 `container`·`testcontainers`·`docker`, 또는 컨테이너로 띄우는 DB 제품명(`mssql`·`oracle` 등)이 든(대소문자 무시) 빌드
+  태스크·스크립트. 예: Gradle `containerTest`·`dbContainerTest`, npm `test:docker`.
 - Testcontainers 를 쓰는 테스트 클래스·파일. 테스트 폴더에서 `grep -rliE 'testcontainers' <테스트 폴더>` 로 찾는다
   (`org.testcontainers`·`@Testcontainers`·npm·pip 의 `testcontainers` 모두 걸린다).
 - 테스트 셋업이 compose 파일이나 컨테이너를 띄우는 러너 설정(`globalSetup` 등).
@@ -299,7 +299,7 @@ worker-prompt.md·resolve-prompt.md, `/dflow-merge` 「방언 검증」 은 이 
   총수가 줄어 「게이트 기준선」 의 총수 미감소 규칙에 걸린다. Phase 프롬프트의 검증 명령은 기준선에서 실제로 돌린 명령
   줄 그대로이므로 제외도 그 줄에 실려 간다.
 - 금지 모드면 오케스트레이터는 Phase 02~05 공통 프롬프트(`{DOCKER_LINE}`)에 이 문구를 넣는다: "도커 금지 모드다. docker·Testcontainers
-  를 쓰는 명령과 테스트(이름에 mssql·container·testcontainers·docker 가 든 태스크, docker·docker compose·orb 명령,
+  를 쓰는 명령과 테스트(이름에 container·testcontainers·docker 나 컨테이너로 띄우는 DB 제품명이 든 태스크, docker·docker compose·orb 명령,
   Testcontainers 를 쓰는 테스트 클래스)를 돌리지 않고, 도커 런타임을 켜지 않는다. 검증 명령은 기준선 명령 줄(제외
   포함)만 쓴다. 생략한 검증과 그 때문에 확인하지 못한 수용 기준은 보고에 올린다. 정본: dev-discipline.md 「도커 사용
   규칙」." 금지 모드가 아니면 "도커 런타임을 켜지 않는다(`orb start`·`open -a Docker` 등). 도커를 쓰는 명령은
@@ -325,7 +325,7 @@ worker-prompt.md·resolve-prompt.md, `/dflow-merge` 「방언 검증」 은 이 
 ## Phase 정의 (정본은 Phase 파일)
 
 Phase 서브에이전트는 `references/phase-prompt.md` 템플릿으로 띄우고, 각자 자기 Phase 파일만 읽는다. 띄우기·게이트·회수
-절차는 `/dflow-dev` SKILL.md 「Phase 02~05」 다.
+절차는 `/dflow-dev` `orch/phase-common.md`(「Phase 02~05」)와 각 Phase 파일이다.
 
 | Phase | 서브에이전트가 읽는 파일 | 오케스트레이터가 알 것 |
 |---|---|---|
@@ -340,7 +340,7 @@ Phase 서브에이전트는 `references/phase-prompt.md` 템플릿으로 띄우�
 
 design.md `## 구현 단위` 표(phase-design.md 「구현 단위 표」)의 단위마다 새 Build 서브에이전트에 맡기고, 단위마다 상한을
 둔다(phase-build.md 「구현 단위」). 표가 없으면 단위 하나(B1)이며 종전 Build 와 같다. 같은 `묶음` 의 단위는 동시에 돈다
-(컴파일 범위가 다르고 서로 기대지 않는 단위만 — phase-design.md 「구현 단위 표」, 실행은 SKILL.md 「Phase 02~05」 「묶음」).
+(컴파일 범위가 다르고 서로 기대지 않는 단위만 — phase-design.md 「구현 단위 표」, 실행은 `orch/build.md` 「묶음」).
 
 ## Phase 05 — Refactor (선택)
 
@@ -397,14 +397,14 @@ design.md `## 구현 단위` 표(phase-design.md 「구현 단위 표」)의 단
   줄은 띄우기 직전에 쓰고(결과·경과·토큰은 `-`), 보고를 받으면 채운다. 다음 단위 커밋이나 Build 산출물 커밋에 함께 실린다.
   나머지 지표는 이미 있는 기록에서 모은다 — 게이트 신규 실패 수는 `## 게이트 기록`·state.json `build_gate.new_failures`, 단위
   재작업은 이 표의 같은 단위 줄 수(인계)와 `재시도` 줄, 승급률은 승급 칸, Verify 지적 수는 state.json `verify_findings`
-  (SKILL.md 「Phase 02~05」 Verify — 감사 파일을 지우기 전에 적는다), advisor 호출 수는 이 표의 `advisor` 칸(Build)과 state.json
+  (`orch/verify.md` — 감사 파일을 지우기 전에 적는다), advisor 호출 수는 이 표의 `advisor` 칸(Build)과 state.json
   `verify_advisor`(Verify 작성자·감사자 따로).
 
 ### sonnet Build 의 opus 승급
 
 Build 단위를 도는 에이전트의 모델이 sonnet 이면(시험이든 원래 배정이든) 두 경우에 opus 새 에이전트로 올린다. 횟수는 늘리지
-않는다 — 기존 자리(Build 게이트 재시도 1회, 단위마다 인계 2회)를 opus 가 대신 쓴다. 절차의 정본은 SKILL.md 「Phase 02~05」
-(단위 절차와 4번).
+않는다 — 기존 자리(Build 게이트 재시도 1회, 단위마다 인계 2회)를 opus 가 대신 쓴다. 절차의 정본은 `orch/build.md`
+「승급」(단위 절차)과 `orch/phase-common.md` 4번(게이트 재시도).
 
 - **(a) Build 게이트 1차 실패**: 같은 sonnet 에이전트에 이어 붙이지 않고 opus 새 에이전트(`<TSK>-build-retry`)에 실패 목록과
   "재시도 때는 단위 범위 제한 없이 Build 전체를 고친다" 를 넘긴다. 신규 실패가 모두 부하 민감 테스트면 「부하 민감 테스트
@@ -511,6 +511,8 @@ Flyway 의 `V<버전>__<설명>.sql` 처럼 파일명이 곧 버전인 마이그
   들게 한다 — 못 얻으면 `HEAVY_BUSY` 로 곧 끝나 다시 부르면 된다. **명령이 10분을 넘을 것 같으면 아래 분리 실행
   (`--detach`)으로 돌린다.** `baseline.sh` 는 측정 대기와 슬롯 대기가 마감 하나를 나눠 쓰므로 90초 + 측정 시간이면 된다.
   측정이 6분을 넘으면 그 호출만 `DFLOW_BASELINE_WAIT` 를 줄인다(못 기다리면 `BASELINE_BUSY` 로 곧 끝나 다시 부르면 된다).
+### 분리 실행·독점 실행
+
 - **분리 실행(한 번에 10분을 넘는 명령)**: `heavy.sh --detach <명령>` 으로 띄우고 `heavy.sh wait <id>` 로 폴링한다.
   `run_in_background` 로 띄우지 않는다(「포그라운드 실행」).
   ```bash
@@ -539,6 +541,8 @@ Flyway 의 `V<버전>__<설명>.sql` 처럼 파일명이 곧 버전인 마이그
   일반 풀에 살아 있는 hold(E2E 풀을 끈 acquire)가 있으면 표식 없이 곧바로 `HEAVY_BUSY … 독점 불가: E2E hold 보유 중` 이다. `--pool docker` 와는 함께 쓰지 않는다. 독점은 일반 풀만 막는다
   — 다른 세션의 E2E 풀(떠 있는 E2E 서버)은 멈추지 않는다. 독점은 겹치면 안 되는 명령에만 쓴다(PC 전체를 세우므로 스위트
   전체를 독점으로 돌리지 않는다).
+### 슬롯 수·부하·오피스 표시
+
 - **K**: 기본 max(1, ⌊RAM_GB / 8⌋) — 16GB 면 2, 32GB 면 4. 사람이 `DFLOW_HEAVY_SLOTS` 로 덮는다. 워커는 이 값을
   바꾸지 않는다. `heavy.sh status` 가 `HEAVY_STATUS slots=K held=N waiting=M` 과 지금 슬롯을 쥔 명령을 보여 준다.
 - **부하를 보고 슬롯을 준다**: K 는 RAM 기준이라 CPU 가 바닥나도 슬롯이 남을 수 있다. 그래서 `heavy.sh` 는 **새 일반 슬롯**을
@@ -551,6 +555,8 @@ Flyway 의 `V<버전>__<설명>.sql` 처럼 파일명이 곧 버전인 마이그
 - **오피스 표시**: `/dflow-team` 팀장의 lease 갱신(`dflow.sh lease keep`, 60초)이 `heavy.sh snapshot` 을 읽어 팀원
   워크트리(`dflow-<id8>`)의 실행·대기를 서버에 싣는다 — 오피스 좌석에 「🔥 무거운 작업 중」 말풍선, 팀장 칩에 슬롯 게이지.
   워커가 할 일은 없다(감싸 돌리기만 하면 된다). 명령 줄은 허용 목록으로 가려 보낸다(경로는 마지막 조각만, `a=값`·비밀 류 플래그 뒤 값·URL 은 `***`).
+### E2E 풀·도커 슬롯
+
 - **E2E 서버는 서버를 띄울 때 슬롯을 붙잡고(`heavy.sh acquire`), 서버를 끌 때 푼다(`heavy.sh release`).** `acquire` 는
   일반 슬롯이 아니라 **E2E 풀**(`e2e-<i>`, `DFLOW_HEAVY_E2E_SLOTS`, 기본 1)을 잡는다 — E2E 서버가 오래 떠 있어도 다른
   팀원의 게이트가 굶지 않는다. 그 세션의 `heavy.sh <명령>` 은 E2E 슬롯을 다시 쓰고(`HEAVY_REUSE`), `--pool docker` 는 도커
@@ -606,7 +612,7 @@ Task 브랜치는 기점에서 만든 뒤 **개발 브랜치를 다시 머지하
     `git worktree remove` 로 지운다.
   - 게이트는 새 기점 기준으로 돈다 — `.dflow-gates` 가 있으면 `gate-scope.sh --base <새 기점>` 의 영향 모듈만 돈다.
   - 한 Task 에서 한 번을 넘기지 않는다. 두 번째가 필요하면 멈추고 `.issues` 에 `env` 로 적어 사람에게 넘긴다.
-- **설계 선행 재개**(SKILL.md 「설계 선행」 3)의 선행 반영 머지가 이 허용 한 번이다. Design 만 끝나 agent 브랜치에 Task 문서
+- **설계 선행 재개**(`orch/design-first.md` 「3」)의 선행 반영 머지가 이 허용 한 번이다. Design 만 끝나 agent 브랜치에 Task 문서
   커밋뿐이므로 코드가 새 기점과 같다 — 기준선을 이 작업 트리에서 재고(위 임시 워크트리가 필요 없다), 사유는 build-log.md 대신
   머지 커밋 메시지에 남긴다. 그 뒤의 재머지는 위 규칙대로 두 번째다.
 
@@ -622,6 +628,6 @@ Task 브랜치는 기점에서 만든 뒤 **개발 브랜치를 다시 머지하
   - 하네스가 잘라 파일로 저장한 긴 출력을 Read 로 통째로 다시 읽기 — `tail`·`grep` 으로 필요한 부분만 본다.
   - 읽기 전용 조사 서브에이전트(Explore 등)를 `model` 없이 띄우기 — Agent 호출에 모델을 적는다. 파일·선례·위치 찾기 같은 읽기
     전용 위치 조사는 `haiku` 가 기본이고(Design·Build·Verify 어디서 띄우든 같다), 조사 결과를 해석·판단해야 하는 조사(설계 대안
-    비교, 코드 의미 검토)는 `sonnet` 을 적는다. Verify 감사자 셋은 조사가 아니라 감사라 이 규칙 밖이다(sonnet — SKILL.md 「Phase 02~05」).
+    비교, 코드 의미 검토)는 `sonnet` 을 적는다. Verify 감사자 셋은 조사가 아니라 감사라 이 규칙 밖이다(sonnet — `orch/verify.md`).
   - Phase 서브에이전트가 이 문서 전체를 읽기 — 자기 Phase 파일과 프롬프트에 인용된 절만 읽는다(필요하면 그 절 제목으로
     grep 해 그 범위만).

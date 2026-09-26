@@ -60,10 +60,10 @@ state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 �
 
 ## 설계 선행 (계약 2.9)
 
-SKILL.md 「설계 선행」 이 정본이다. 워커에서 달라지는 것만 적는다.
+`orch/design-first.md` 「설계 선행 (계약 2.9)」 이 정본이다. 워커에서 달라지는 것만 적는다.
 
 - **행 G 갈래 1 대신**: `dflow.sh contract-ge 2.9` 가 exit 0 이면 `reached` 가 거짓인 선행은 `skipped 선행 미승인` 으로 끝내지 않고
-  `claim --design-first` 로 간다(SKILL.md Phase 01 2번 「v2.9 설계 선행 후보」). 팀장은 선행 대기 작업을 빈 슬롯에만 설계 선행으로
+  `claim --design-first` 로 간다(`orch/base.md` 2번 「v2.9 설계 선행 후보」). 팀장은 선행 대기 작업을 빈 슬롯에만 설계 선행으로
   준다(`/dflow-team` 「선행 대기의 설계 선행」). 서버가 `DESIGN_FIRST_TOO_EARLY` 로 거부하면 `.result` 에
   `skipped 선행 미충족(설계 선행 불가: <ref…>)` 를 쓴다(`<ref…>` 는 그 JSON 의 `external_ref` 를 공백으로 이은 것).
 - **멈춤**: 멈춤 절차 5번의 `.result` 는 `{TSK} {ID8} <agent 브랜치> <push 한 head_sha> - design_waiting <미충족 선행 ref…>` 다.

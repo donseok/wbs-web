@@ -12,7 +12,7 @@ export const devOrch = (name: string): string => readFileSync(join(DEV_DIR, 'ref
 
 /** 안내 본문 「단계 지도」 의 fail-closed 문장이 정한 단계 파일 순서(정본은 SKILL.md 한 곳). */
 export function orchOrder(router = devRouter()): string[] {
-  const m = router.match(/((?:[a-z-]+·){3,}[a-z-]+) 순서로 모두 읽는다/)
+  const m = router.match(/((?:[a-z-]+·){3,}[a-z-]+) 순서로 모두 읽/)
   if (!m) throw new Error('SKILL.md 「단계 지도」 에서 단계 파일 순서를 찾지 못했다')
   return m[1].split('·')
 }

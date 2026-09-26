@@ -262,7 +262,7 @@ describe('/dflow-dev 「설계 선행」 흐름 문구', () => {
     expect(WM).toContain('서버 계약이 2.9 이상이면 갈래 1 은 아래 「설계 선행」 이 대신한다')
     expect(WM).toContain('`{TSK} {ID8} <agent 브랜치> <push 한 head_sha> - design_waiting <미충족 선행 ref…>`')
     expect(WM).toContain('agent 브랜치 위의 머지이므로')
-    expect(flat(read('.claude/skills/dflow-dev/references/dev-discipline.md'))).toContain('**설계 선행 재개**(SKILL.md 「설계 선행」 3)의 선행 반영 머지가 이 허용 한 번이다')
+    expect(flat(read('.claude/skills/dflow-dev/references/dev-discipline.md'))).toContain('**설계 선행 재개**(`orch/design-first.md` 「3」)의 선행 반영 머지가 이 허용 한 번이다')
   })
   it('/dflow-poll 루프는 설계 선행을 하지 않는다(상한은 팀장에만 있다)', () => {
     expect(flat(read('.claude/skills/dflow-poll/SKILL.md'))).toContain('서버 계약이 2.9 여도 `reached` 가 거짓인 선행은 여기서 불가(선행 대기)로 본다')

@@ -2,6 +2,8 @@
 
 SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 단계를 시작하지 않는다. 모든 단계에 공통인 규칙(게이트 집행 원칙·상태 모델·서버 통신)은 SKILL.md 에 있다.
 
+감사 템플릿: `.claude/skills/dflow-dev/scripts/sections.sh .claude/skills/dflow-dev/references/phase-prompt.md '감사 템플릿'`.
+
 **Verify 는 읽기 전용 감사자 셋과 작성자 하나를 한 메시지에 동시에 띄운다**(phase-verify.md). research/docs 특례 작업은
 감사자 없이 작성자만 띄운다(첫 보고가 곧 `PHASE_RESULT`).
 - 감사자: 역할 spec·review·tests 셋. **이름(`name`)을 붙이지 않고 띄운다** — 이름을 붙인 에이전트는 실행 환경에 따라 별도
@@ -16,12 +18,14 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
   더한다 — 감사 파일은 게이트 뒤 지워지므로 비교 지표(dev-discipline 「Build 모델 시험(build_model_trial)」)는 여기에 남긴다.
   작성자의 advisor 호출 수는 보고(`VERIFY_EXEC`·`PHASE_RESULT`·재시도 보고)를 받을 때마다 `verify_advisor.writer` 에 덮어쓴다(보고가
   누적 값이다. 작성자를 새로 띄웠으면 앞 작성자의 마지막 값에 더한다).
+  `verify_findings`(선택)는 Verify 감사자 역할별 지적 수 `{"spec":n,"review":n,"tests":n}` 이고, `verify_advisor`(선택)는 Verify 의
+  advisor 호출 수 `{"writer":n,"audit":<감사자 셋의 합>}` 다(비교 지표 — 감사 파일은 지워진다).
 - 작성자의 `VERIFY_EXEC` 와 감사 셋이 모두 오면: 지적이 한 건이라도 있으면 세 파일의 지적을 모아 **같은 작성자에게 SendMessage 로**
   넘기고 `PHASE_RESULT verify done|fail` 을 기다린다. 지적이 0건이면 `VERIFY_EXEC` 를 최종 보고로 받는다(`done` 은 통과, `fail` 은
-  Verify 실패 — 아래 4번). SendMessage 가 안 되면 sonnet 작성자를 새로 띄우고 `{AUDIT_FINDINGS}` 에 지적을 넣는다. 이 왕복은 Verify
+  Verify 실패 — 「Phase 02~05 공통」 4번). SendMessage 가 안 되면 sonnet 작성자를 새로 띄우고 `{AUDIT_FINDINGS}` 에 지적을 넣는다. 이 왕복은 Verify
   재시도 1회에 세지 않는다.
 - 재개할 때 `audit-<역할>.md` 가 있는 감사자는 다시 띄우지 않는다. Verify 게이트 판정이 끝나면 `audit-*.md` 를 지운다.
-- Verify 재시도(아래 4번)는 작성자에게만 이어 붙이고 감사자는 다시 띄우지 않는다.
+- Verify 재시도(「Phase 02~05 공통」 4번)는 작성자에게만 이어 붙이고 감사자는 다시 띄우지 않는다.
 
 ### Verify·Refactor 게이트
 

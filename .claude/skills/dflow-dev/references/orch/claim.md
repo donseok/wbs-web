@@ -57,6 +57,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
    `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.
    <!-- worker:begin -->
    `--worker` 면 여기서 의존성을 설치한 뒤 4번으로 간다(「--worker」 H).
+   설치 절차는 worker-mode.md 「행 H」 다 — `.claude/skills/dflow-dev/scripts/sections.sh .claude/skills/dflow-dev/references/worker-mode.md '행 H'` 로 읽는다.
    <!-- worker:end -->
 
 **다음 단계**: claim 출력에 `DESIGN_FIRST_UNMET` 줄이 있으면 `orch/design-first.md` 「1」 을 한 뒤, `orch/baseline.md`.

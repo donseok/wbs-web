@@ -10,6 +10,7 @@ claim 때 `ds`(설계 중), `build-start` 뒤 `ip` 다. 설계 정본은 wbs-web
 
 1. **claim 과 모드**(Phase 01 2번 「claim 명령」): `DESIGN_FIRST_UNMET <JSON>` 줄이 없으면 종전 그대로다. 있으면 **설계 선행 모드**다.
    - state.json 에 `design_first: {"unmet": [<그 JSON 의 external_ref>…]}` 를 적는다(Phase 01 3번의 `prepare` 쓰기와 같은 자리).
+  `design_first`(선택)는 설계 선행 모드의 표식 `{"unmet": ["<선행 external_ref>", …]}` 이다(「설계 선행」). 재개한 뒤에도 기록으로 남긴다.
    - 기점은 미충족 선행을 뺀 Phase 01 규칙으로 정한 것이다. 충족된 선행이 없으면 `origin/<기본브랜치>` 끝이다. 기준선은 종전대로
      잰다(재개 때 기점이 바뀌면 다시 잰다 — 3).
    - Design 프롬프트의 `{DESIGN_FIRST}`(phase-prompt.md)를 채운다. 미충족 선행마다 계약을 읽을 곳을 이 순서로 찾아 적는다.
@@ -60,7 +61,7 @@ claim 때 `ds`(설계 중), `build-start` 뒤 `ip` 다. 설계 정본은 wbs-web
       sha 가 없거나(읽을 곳 없음) 로컬에 없으면(`git cat-file -e <sha>^{commit}` 실패 — 선행 브랜치 삭제·squash) 바뀐 것으로 본다.
       하나라도 바뀌었으면 Design 을 **검토 모드**로 다시 띄운다(`phase=design`, `{DESIGN_FIRST}` 에 검토 모드임과 종전 design.md 의
       `## 선행 기준`·바뀐 파일의 `git diff <적힌 sha>..<새 기점> -- <파일>` 요지). 어긋난 절만 고치고 Design 게이트를 다시 돈다.
-   6. 2 의 표대로 `build-start` 를 다시 부른다. exit 0 이면 「Phase 종료마다」 1번의 Design 게이트 뒤 모듈 기준선부터 이어 Build 로 간다.
+   6. `orch/design.md` 「Design 게이트」 의 표대로 `build-start` 를 다시 부른다. exit 0 이면 그 절의 모듈 기준선부터 이어 Build 로 간다.
 
 
 **다음 단계**: 1 을 마치면 `orch/claim.md` 의 다음 단계(`orch/baseline.md`)로. 2 의 멈춤이면 끝. 3 재개는 2 에서 `orch/base.md`, 4 에서 `orch/baseline.md` 절차로 다시 재고, 5 가 검토 모드면 `orch/phase-common.md` → `orch/design.md`, 6 뒤 Build 는 `orch/phase-common.md` → `orch/build.md`.

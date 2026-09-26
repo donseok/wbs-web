@@ -85,7 +85,7 @@ describe('dev-discipline 「도커 사용 규칙」(정본)', () => {
     expect(slot).toContain('`HEAVY_DOCKER_BUSY`(exit 75)')
   })
   it('금지 모드에서 빼는 명령: mssql·container·testcontainers 태스크, docker·docker compose·orb, Testcontainers 클래스', () => {
-    for (const c of ['`mssql`', '`container`', '`testcontainers`', '`docker compose`', '`orb`', 'Testcontainers 를 쓰는 테스트 클래스', '`mssqlMigrationTest`'])
+    for (const c of ['`mssql`', '`container`', '`testcontainers`', '`docker compose`', '`orb`', 'Testcontainers 를 쓰는 테스트 클래스', '`dbContainerTest`'])
       expect(RULE, c).toContain(c)
     expect(RULE).toContain('**명령행 수단만 쓴다.** Gradle `-x <태스크>`')
     expect(RULE).toContain('빌드 파일·테스트 코드를 고쳐 빼지 않는다')

@@ -280,7 +280,9 @@ describe('Build 구현 단위(단위마다 서브에이전트, 상한과 인계)
   })
   it('화면 작업의 정의가 Build·Verify 파일과 오케스트레이터 읽기 목록에 있다', () => {
     for (const doc of [BUILD, VERIFY]) expect(flat(doc)).toContain('spec 에 `entry-point` 가 있거나 domain 이 `fullstack`·`frontend`')
-    expect(flat(SKILL)).toContain('「화면 작업의 브라우저 E2E」·「도커 사용 규칙」')
+    // 2026-09-26 분할: 착수 때 일괄 읽기 목록 대신 단계 지도의 규율 열(도커)과 조건부 절(화면 작업)로 읽는다
+    expect(flat(SKILL)).toContain('화면 작업이면 `화면 작업의 브라우저 E2E`')
+    expect(flat(SKILL)).toContain('`도커 사용 규칙`')
   })
 })
 
@@ -288,7 +290,9 @@ describe('게이트 범위 대응표(.dflow-gates) — 2026-09-26 성능 감사'
   const sec = flat(between(DISC, '### 게이트 범위 대응표(.dflow-gates)', '### 강제 재실행'))
   it('대응표가 없으면 절 전체를 건너뛴다(지금 동작 그대로)', () => {
     expect(sec).toContain('**대응표가 없으면 이 절 전체를 건너뛴다**')
-    expect(flat(SKILL)).toContain('대응표가 없으면 위 그대로다')
+    // 2026-09-26 분할: 안내 본문의 요약 문장은 지웠다. 정본(dev-discipline)과 단계 지도의 조건부 읽기가 같은 뜻이다
+    expect(flat(DISC)).toContain('**대응표가 없으면 이 절 전체를 건너뛴다**')
+    expect(flat(SKILL)).toContain('리포에 `.dflow-gates` 가 있으면 `게이트 범위 대응표`')
     expect(flat(SKILL)).toContain('`none` 이면 위 그대로, `invalid` 면 사유를 한 줄 보고하고 위 그대로다')
   })
   it('형식: full·prepare 예약어, - 줄, 의존 모듈은 명령이 포함, 리포 최상위 cwd', () => {
@@ -360,7 +364,7 @@ describe('Verify 는 읽기 전용 감사자 셋과 작성자 하나', () => {
     expect(k).toContain('Verify 작성자의 `VERIFY_EXEC` 는 게이트 시점이 아니다')
     expect(k).toContain('**같은 작성자에게 SendMessage 로**')
     expect(k).toContain('이 왕복은 Verify 재시도 1회에 세지 않는다')
-    expect(k).toContain('Verify 재시도(아래 4번)는 작성자에게만 이어 붙이고 감사자는 다시 띄우지 않는다')
+    expect(k).toContain('Verify 재시도(「Phase 02~05 공통」 4번)는 작성자에게만 이어 붙이고 감사자는 다시 띄우지 않는다')
   })
   it('감사 템플릿: 커밋된 내용만 읽고(diff 를 파일마다), 쓰기 금지, 역할 셋, 호출 약 40회, 보고 첫 줄', () => {
     const t = flat(PROMPT.slice(PROMPT.indexOf('## 감사 템플릿'), PROMPT.indexOf('## 규칙의 정본')))

@@ -11,8 +11,9 @@ description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕
 <!-- worker:begin -->
 > `--worker` 는 `/dflow-team` 팀장 전용 플래그다(사람이 직접 쓰지 않는다). 있으면 아래 「--worker 팀원 모드」
 > 절의 아홉 행(A~I)만 달라지고, 없으면 이 문서 절차 그대로다.
-> `--worker` 면 **지금 `.claude/skills/dflow-dev/references/worker-mode.md` 를 Read 한다** — 아홉 행과 워커 규칙이 그 파일에
-> 있고, 아래 절차가 행 A 부터 곧바로 가리킨다.
+> `--worker` 면 **지금 `.claude/skills/dflow-dev/references/worker-mode.md` 의 머리(아홉 행 표)와 「그 밖의 워커 규칙」 을 읽는다**:
+> `.claude/skills/dflow-dev/scripts/sections.sh .claude/skills/dflow-dev/references/worker-mode.md '=/dflow-dev --worker' '그 밖의 워커 규칙'`.
+> 그 파일의 「행 G」·「행 H」 는 단계 파일의 표지 블록이 가리킬 때, 「설계 선행」 은 `orch/design-first.md` 를 읽을 때 같은 방법으로 읽는다.
 <!-- worker:end -->
 
 > **위치 선언**: 이 스킬은 자율 러너 설계(wbs-web 리포 docs/superpowers/specs, 킷에는 미동봉)의
@@ -21,11 +22,12 @@ description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕
 > `.claude/skills/dflow-dev/references/` 의 규율 문서다(Phase 서브에이전트는 자기 Phase 파일만 읽는다). 이 파일은 규율을
 > 중복 서술하지 않고 오케스트레이션(순서·게이트 집행·상태·서버 보고)만 정의한다.
 >
-> **시작할 때 읽는 것**: **`.claude/skills/dflow-dev/references/dev-discipline.md`** 의 「게이트 기준선」(「기준선 캐시」·
-> 「게이트 범위 대응표(.dflow-gates)」·「강제 재실행」·「게이트 기록」·「부하 민감 테스트(타이밍·성능)의 단독 재실행」·「research/docs 작업 특례」 포함)·「화면 작업의 브라우저 E2E」·「도커 사용 규칙」·「Phase 정의」·「Phase 05 — Refactor」·「모델 배정」·「무거운 명령 줄
-> 세우기」·「포그라운드 실행(백그라운드 게이트 금지)」·「공통 금지」 절을 읽고 그대로 따른다. 「공용 결정 기록(decisions.md)의
-> 번호」·「마이그레이션 버전」 은 그 일이 생길 때 읽는다. Phase 서브에이전트에게 주는 문구는 `references/phase-prompt.md` 다.
-> 규칙의 이유·사고 이력은 `references/rationale.md` 에 있다(실행 중에는 읽지 않는다).
+> **규율 읽기**: 구현 과정 규율의 정본 `.claude/skills/dflow-dev/references/dev-discipline.md` 는 **통째로 읽지 않는다.** 아래
+> 「단계 지도」 의 규율 열에 적힌 절은 그 단계를 시작할 때, 단계 파일이 dev-discipline 「절 이름」 을 가리키면 그 자리에서 그
+> 절만 읽는다(같은 세션에서 이미 읽었고 압축이 없었으면 다시 읽지 않는다). 절은 `.claude/skills/dflow-dev/scripts/sections.sh
+> .claude/skills/dflow-dev/references/dev-discipline.md '<절 제목 앞부분>' …` 로 뽑는다 — 제목 앞에 `=` 를 붙이면 딸린 절 없이
+> 그 제목의 본문만 나온다. exit 3(`SECTION_MISSING`)이면 그 파일 전체를 Read 한다. Phase 서브에이전트에게 주는 문구는
+> `references/phase-prompt.md` 다. 규칙의 이유·사고 이력은 `references/rationale.md` 에 있다(실행 중에는 읽지 않는다).
 >
 > 서버 통신은 전부 dflow.sh 로 하고 산문 파싱 금지 — exit code 로 분기한다. dflow-work 의
 > 금지사항 전부 상속. **dflow.sh 경로**: 대상 리포(cwd)의 `.claude/skills/dflow-work/scripts/dflow.sh`
@@ -42,11 +44,7 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 - Build/Verify/Refactor 게이트: **오케스트레이터가 테스트 명령을 직접 실행**하고 exit code 와
   출력을 기준선과 차분 비교한다(신규 실패 0 + 테스트 총수 미감소). 서브에이전트가 "통과했다"고
   말해도 직접 실행 결과가 판정이다.
-  전체 스위트는 **Build 게이트에서 한 번** 돈다. Verify·Refactor 게이트는 그 Phase 가 코드를 바꿨을 때만 다시 돌고,
-  아니면 Build 게이트 결과를 그대로 쓴다(아래 「Phase 종료마다」 1번). 게이트 명령은 `heavy.sh` 로 감싼다.
-  **리포에 게이트 대응표(`.dflow-gates`)가 있으면** Build 게이트는 이 Task 가 바꾼 모듈의 명령만 돌고, 전체 스위트는
-  Verify 게이트에서 한 번 돈다(dev-discipline 「게이트 범위 대응표(.dflow-gates)」). 대응표가 없으면 위 그대로다.
-  게이트를 돌릴 때마다 build-log.md `## 게이트 기록` 에 한 줄을 남긴다(dev-discipline 「게이트 기록」).
+  게이트별 명령·범위(대응표)·재실행 생략·기록은 그 Phase 파일의 「Design 게이트」·「Build 게이트」·「Verify·Refactor 게이트」 가 정한다.
 - 도커: 기준선 전에 금지 모드를 판정해 기준선·게이트·Phase 프롬프트에서 도커 명령을 빼거나, 금지가 아니면 도커 슬롯
   (`heavy.sh --pool docker`)에서만 돌린다. 도커 런타임은 켜지 않는다. 정본은 dev-discipline.md 「도커 사용 규칙」.
 
@@ -56,15 +54,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 
 - 로컬 `<TASKS>/<TSK>/state.json`:
   `{ "tsk", "order", "api_base", "phase", "baseline": {"failures": N, "tests": M}, "last": {"phase","event"} }`
-  `model`(선택)은 **지금 도는 Phase 서브에이전트의 모델**이다(아래 Phase 02~05). heartbeat 훅이 서버로 실어 좌석표 명찰이
-  Phase 마다 바뀐다.
-  `build_unit`(선택)은 지금 도는 구현 단위(`B1`…)다. 병렬 묶음이면 동시에 도는 단위를 쉼표로 잇는다(`"B1,B2"`).
-  단위가 몇 개든 `phase` 는 Build 동안 `build` 하나다.
-  `build_model_base`·`build_model_trial`(Phase 01 5번)은 배정표가 정한 Build 모델과 Build 모델 시험 여부(`true`|`false`)다 —
-  한 번 적으면 재개해도 다시 판정하지 않는다(dev-discipline 「Build 모델 시험(build_model_trial)」).
-  `verify_findings`(선택)는 Verify 감사자 역할별 지적 수 `{"spec":n,"review":n,"tests":n}` 이고, `verify_advisor`(선택)는 Verify 의
-  advisor 호출 수 `{"writer":n,"audit":<감사자 셋의 합>}` 다(비교 지표 — 감사 파일은 지워진다).
-  `design_first`(선택)는 설계 선행 모드의 표식 `{"unmet": ["<선행 external_ref>", …]}` 이다(「설계 선행」). 재개한 뒤에도 기록으로 남긴다.
+  선택 필드(`model`·`build_unit`·`build_model_base`·`build_model_trial`·`verify_findings`·`verify_advisor`·`design_first`·`branch_base`·
+  `risk`·게이트 기록 등)의 뜻과 쓰는 때는 그 필드를 쓰는 단계 파일에 있다.
   `phase` 값: `ready`·`design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.
   `ready` 는 `dflow.sh scaffold` 가 만든 초기값이다(주문 전 폴더 자리). 진행 중 phase 가 아니므로 스윕·재개 판정은 건너뛴다.
   `rejected` 는 서버가 반려를 통지한 상태다 — 승인 대기(reported)와 구분해야 스윕이 헛돌지 않는다.
@@ -94,35 +85,42 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 ## 단계 지도
 
 이 문서는 모든 단계에 공통인 규칙만 담는다. 단계별 절차는 `.claude/skills/dflow-dev/references/orch/` 의 단계 파일에 있다(아래
-`orch/…` 는 그 폴더 기준). **단계를 시작하기 전에 그 행의 파일을 Read 한다** — 읽기 전에는 그 단계를 시작하지 않는다. 같은 세션에서
-이미 읽었고 그 뒤 컨텍스트 압축이 없었으면 다시 읽지 않는다. 단계 파일 끝의 「다음 단계」 가 다음에 읽을 파일을 가리킨다.
+`orch/…` 는 그 폴더 기준). **단계를 시작하기 전에 그 행의 파일을 Read 하고 규율 열의 절을 읽는다** — 읽기 전에는 그 단계를
+시작하지 않는다. 같은 세션에서 이미 읽었고 그 뒤 컨텍스트 압축이 없었으면 다시 읽지 않는다. 단계 파일 끝의 「다음 단계」 가 다음에
+읽을 파일을 가리킨다. 규율 열은 dev-discipline.md 의 절 제목 앞부분이다(위 「규율 읽기」 의 `sections.sh` 인자 그대로).
 
-| 지금 | 판별 | 읽을 파일(순서대로) |
-|---|---|---|
-| 수동 착수 | 플래그 없음, 세션 시작 | `orch/sweep.md` → `orch/start.md` |
-| 팀원 착수 | 팀원 모드(첫 표지 블록), 세션 시작 | `orch/start.md` |
-| 새 claim | `orch/start.md` 의 ready 갈래 | `orch/base.md` → `orch/claim.md` |
-| 설계 선행 모드 | claim 출력에 `DESIGN_FIRST_UNMET` | `orch/design-first.md` |
-| 반려 재작업 | `orch/start.md` 의 반려 갈래, state.json `phase=rejected` | `orch/rework.md` |
-| 설계 선행 재개 | `orch/start.md` 의 설계 선행 재개 갈래, state.json `phase=wait_pred` | `orch/design-first.md` → `orch/base.md` |
-| 준비 | state.json `phase=prepare` | `orch/baseline.md` |
-| Design | state.json `phase=design` | `orch/phase-common.md` → `orch/design.md` |
-| Build | state.json `phase=build` | `orch/phase-common.md` → `orch/build.md` |
-| Verify | state.json `phase=verify` | `orch/phase-common.md` → `orch/verify.md` |
-| Refactor | state.json `phase=refactor`(수동만) | `orch/phase-common.md` → `orch/refactor.md` |
-| 마감 | Verify(수동은 Refactor) 게이트 뒤 | `orch/close.md` |
-| 그 밖 | state.json 이 없음·`ready`·`reported`·`merged`·`cancelled` | `orch/start.md` |
+| 지금 | 판별 | 읽을 파일(순서대로) | 규율(dev-discipline 절) |
+|---|---|---|---|
+| 수동 착수 | 플래그 없음, 세션 시작 | `orch/sweep.md` → `orch/start.md` | `공통 금지` `포그라운드 실행` |
+| 팀원 착수 | 팀원 모드(첫 표지 블록), 세션 시작 | `orch/start.md` | `공통 금지` `포그라운드 실행` |
+| 새 claim | `orch/start.md` 의 ready 갈래 | `orch/base.md` → `orch/claim.md` | — |
+| 설계 선행 모드 | claim 출력에 `DESIGN_FIRST_UNMET` | `orch/design-first.md` | — |
+| 반려 재작업 | `orch/start.md` 의 반려 갈래, state.json `phase=rejected` | `orch/rework.md` | — |
+| 설계 선행 재개 | `orch/start.md` 의 설계 선행 재개 갈래, state.json `phase=wait_pred` | `orch/design-first.md` → `orch/base.md` | `개발 브랜치 재머지` |
+| 준비 | state.json `phase=prepare` | `orch/baseline.md` | `=게이트 기준선` `기준선 캐시` `research/docs` `도커 사용 규칙` `=무거운 명령 줄 세우기` `=모델 배정` `Build 모델 시험` |
+| Design | state.json `phase=design` | `orch/phase-common.md` → `orch/design.md` | `Phase 정의` `게이트 기록` `advisor 호출` |
+| Build | state.json `phase=build` | `orch/phase-common.md` → `orch/build.md` | `sonnet Build 의 opus 승급` |
+| Verify | state.json `phase=verify` | `orch/phase-common.md` → `orch/verify.md` | — |
+| Refactor | state.json `phase=refactor`(수동만) | `orch/phase-common.md` → `orch/refactor.md` | `Phase 05` |
+| 마감 | Verify(수동은 Refactor) 게이트 뒤 | `orch/close.md` | — |
+| 그 밖 | state.json 이 없음·`ready`·`reported`·`merged`·`cancelled` | `orch/start.md` | — |
+
+- 조건이 있는 절은 단계 파일이 가리킬 때 읽는다: 리포에 `.dflow-gates` 가 있으면 `게이트 범위 대응표`, 화면 작업이면
+  `화면 작업의 브라우저 E2E`, 신규 실패가 모두 타이밍·성능 테스트면 `부하 민감 테스트`, 명령이 10분을 넘을 것 같으면
+  `분리 실행·독점 실행`, 결정 번호가 필요하면 `공용 결정 기록`, 마이그레이션을 더하면 `마이그레이션 버전`.
+- 이전 단계에서 읽은 절은 다음 단계에서도 유효하다(예: Build 도 「준비」 에서 읽은 `기준선 캐시`·`무거운 명령` 을 따른다).
 
 **모르면 전부 읽는다**(fail-closed): state.json 을 못 읽거나 `phase` 가 표에 없거나 어느 행인지 애매하면 `orch/` 의 파일을
-sweep·start·rework·base·claim·baseline·design-first·phase-common·design·build·verify·refactor·close 순서로 모두 읽는다.
+sweep·start·rework·base·claim·baseline·design-first·phase-common·design·build·verify·refactor·close 순서로 모두 읽고
+dev-discipline.md 도 전체를 Read 한다.
 
 ## 압축 뒤
 
 컨텍스트 압축 요약 뒤 첫 행동은 단계 지도의 행을 다시 찾는 것이다. 이 작업의 agent 브랜치(`agent/<주문id8>-*`) 위면
-`<TASKS>/<TSK>/state.json` 의 `phase` 로, agent 브랜치 전이면 「수동 착수」·「팀원 착수」 행으로 찾는다. 그 행의 파일을 다시 Read 한
-뒤 진행한다. 압축 요약의 기억으로 단계 절차를 대신하지 않는다.
+`<TASKS>/<TSK>/state.json` 의 `phase` 로, agent 브랜치 전이면 「수동 착수」·「팀원 착수」 행으로 찾는다. 그 행의 파일과 규율 절,
+그리고 그 앞 단계들의 규율 절을 다시 읽은 뒤 진행한다. 압축 요약의 기억으로 단계 절차를 대신하지 않는다.
 <!-- worker:begin -->
-`--worker` 면 `references/worker-mode.md` 도 다시 읽는다.
+`--worker` 면 `references/worker-mode.md` 의 머리 표와 「그 밖의 워커 규칙」 도 다시 읽는다.
 <!-- worker:end -->
 
 <!-- worker:begin -->

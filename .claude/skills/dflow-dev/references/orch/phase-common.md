@@ -2,6 +2,8 @@
 
 SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 단계를 시작하지 않는다. 모든 단계에 공통인 규칙(게이트 집행 원칙·상태 모델·서버 통신)은 SKILL.md 에 있다.
 
+**띄울 Phase 의 프롬프트 템플릿만 읽는다**: `.claude/skills/dflow-dev/scripts/sections.sh .claude/skills/dflow-dev/references/phase-prompt.md '변수' '템플릿'` (Verify 감사자는 `orch/verify.md` 가 「감사 템플릿」 을 더 읽게 한다).
+
 ## Phase 02~05 — Design → Build → Verify → Refactor
 
 각 Phase 는 Agent 도구의 서브에이전트로 실행한다. **이름을 붙여 띄운다** —
@@ -11,6 +13,8 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 않는다** — 에이전트 모델은 spawn 시점에 고정된다.
 
 
+  `model`(선택)은 **지금 도는 Phase 서브에이전트의 모델**이다. heartbeat 훅이 서버로 실어 좌석표 명찰이
+  Phase 마다 바뀐다.
 **띄우기 직전에 state.json 의 `model` 을 그 서브에이전트의 모델로 쓴다** — Agent 도구에 넘기는 값 그대로
 (`opus`·`sonnet`·`haiku`, 전체 id 를 넘겼으면 그 id). 커밋은 하지 않는다(다음 Phase 산출물 커밋에 같이 실린다).
 재시도를 새 에이전트로 띄워 모델이 바뀌면 다시 쓴다. Phase 01·06(오케스트레이터가 직접)은 `model` 을 지우지 않는다.
@@ -43,7 +47,7 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 <!-- worker:end -->
 
 Phase 종료마다 오케스트레이터가:
-1. 게이트 집행(위 원칙 — 직접 실행).
+1. 게이트 집행(SKILL.md 「게이트 집행 원칙」 — 직접 실행).
    게이트별 절차는 그 Phase 파일의 「Design 게이트」(`orch/design.md`)·「Build 게이트」(`orch/build.md`)·「Verify·Refactor 게이트」(`orch/verify.md`)다.
    - **게이트 기록**: 위 게이트 명령과 모듈 기준선 측정을 돌릴 때마다 build-log.md `## 게이트 기록` 에 명령·범위(모듈|전체|재사용)·
      경과 시간·1분 부하 평균·결과를 한 줄 더한다(판정 직후, 재시도를 넘기기 전). 아래 2번의 Phase 산출물 커밋에 함께 싣는다.
@@ -69,7 +73,7 @@ Phase 종료마다 오케스트레이터가:
    이어 붙이지 않는다** — TaskStop 한 뒤 opus 새 에이전트 `<TSK>-build-retry` 에 같은 두 가지(`{FAILURES}`, `{UNIT}` 은 재시도 표기 —
    phase-prompt.md 변수표)를 넘겨 띄운다. 이 opus 재시도가 1회 재시도 자리를 대신한다(횟수는 늘지 않는다). 띄우기 전의 기록
    (`## 실행 모델` 줄 `재시도`·승급 칸 `sonnet→opus(게이트 실패)`, progress `escalated: sonnet→opus 재시도(게이트 실패)`, 그 뒤
-   state.json `model`)은 위 「승급」 2·3 과 같다. 위 부하 민감 단독 재실행이 먼저다(통과하면 재시도도 승급도 없다). 마지막 단위
+   state.json `model`)은 `orch/build.md` 「승급」 2·3 과 같다. 위 부하 민감 단독 재실행이 먼저다(통과하면 재시도도 승급도 없다). 마지막 단위
    에이전트가 이미 opus 면(승급했거나 원래 opus) 종전대로 이어 붙인다. 재시도 중 인계(`UNIT_HANDOFF`)는
    단위 상한 2회에 포함하고, 이어 띄운 에이전트에도 같은 두 가지를 넣는다(같은 1회 재시도다. opus 재시도의 이어받기는
    `<TSK>-build-retry-c<n>` 이고 opus 이며, 인계 커밋의 트레일러는 마지막 단위 이름이다). Verify 가 실패해도 같은 Verify 서브에이전트에 실패 사유를 넘긴다. 두 번째 실패는 중단한다.
@@ -86,9 +90,9 @@ Phase 종료마다 오케스트레이터가:
    오케스트레이터가 포그라운드에서 그 프로세스가 끝날 때까지 직접 기다린 뒤(예: `kill -0 <PID>` 로 생존을
    확인하며 짧은 간격으로 재확인하거나 로그·산출물 파일을 폴링 — `wait <PID>` 는 그 PID 가 이 Bash 호출의
    자식일 때만 되므로, 다른 호출이나 다른 서브에이전트가 띄운 프로세스에는 쓰지 않는다) 게이트를 돌린다.
-   이미 끝나 있고 남은 작업이 없으면 위 「게이트 집행 원칙」대로 게이트를 오케스트레이터가 바로 직접
+   이미 끝나 있고 남은 작업이 없으면 SKILL.md 「게이트 집행 원칙」대로 게이트를 오케스트레이터가 바로 직접
    돌린다. 오지 않을 알림을 기다리며 입력 대기로 멈추지 않는다. 단, Verify 작성자의 `VERIFY_EXEC` 는 게이트 시점이 아니다 —
-   감사 셋의 보고를 받아 위 「Verify」 절차(지적 전달·최종 `PHASE_RESULT`)를 마친 뒤에 게이트를 돈다. 구현 단위가 여럿이면 마지막이 아닌 단위에서는
+   감사 셋의 보고를 받아 `orch/verify.md` 의 Verify 절차(지적 전달·최종 `PHASE_RESULT`)를 마친 뒤에 게이트를 돈다. 구현 단위가 여럿이면 마지막이 아닌 단위에서는
    "게이트를 돌린다" 를 "그 단위 커밋을 확인하고 다음 단위를 띄운다" 로 읽는다.
 
 **다음 단계**: 지금 Phase 의 파일 — `orch/design.md`·`orch/build.md`·`orch/verify.md`·`orch/refactor.md`.
