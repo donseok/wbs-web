@@ -86,6 +86,23 @@ D'Flow 에서 나에게 배정되고 `agent` 태그가 켜진 ready 작업을 �
 - 팀원이 결정을 물으면(`blocked`) 팀장이 알린다. 그 탭이나 pane 에서 직접 답하거나, 팀장 세션에 `<id8> <답>` 으로
   답한다.
 
+## 팀원 첫 턴을 가볍게 (선택, PC별)
+
+팀원은 켜진 플러그인과 MCP 를 끈 채로 뜬다(기본). 그 밖에 사용자 스킬 목록·출력 스타일까지 줄이려면 팀장 체크아웃의
+`.dflow.local` 에 아래 키를 적는다. 적지 않으면 지금과 같다. 다음 spawn(재개·재시작 포함)부터 반영된다.
+
+```
+worker_keep_skills=<남길 사용자 스킬, 쉼표>     # 예: 브라우저 E2E 스킬. 나머지 사용자 스킬과 claude.ai 동기화 스킬을 숨긴다. 없으면 none
+worker_skills_off=<끌 스킬 이름, 쉼표>          # 예: 팀원이 쓰지 않는 Claude Code 내장 스킬
+worker_keep_plugins=<켜 둘 플러그인@마켓, 쉼표>  # 나머지 플러그인은 지금처럼 끄고 claude.ai 동기화 플러그인도 숨긴다. 없으면 none
+worker_output_style=default                    # 팀원의 출력 스타일
+```
+
+- `dflow-*` 와 대상 리포의 프로젝트 스킬(`.claude/skills`)은 어떤 값을 적어도 남는다.
+- 적은 스킬·플러그인·스타일이 그 PC 에 없으면 팀장이 경고 한 줄만 내고 그대로 띄운다.
+- 사용자 전역 설정(`~/.claude/settings.json`)은 고치지 않는다. 팀원 전용 설정 파일(`~/.dflow/limits/<id8>.settings.json`)에만
+  들어간다. 근거·실측은 `references/rationale.md` 「팀원 첫 턴 컨텍스트 줄이기」.
+
 ## 여러 날 무인으로 돌릴 때
 
 - macOS 면 팀장이 절전 방지(`caffeinate`)를 건다. 뚜껑을 닫으면 막지 못하므로 전원을 연결하고 연 채로 둔다.

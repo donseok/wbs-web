@@ -123,12 +123,15 @@ else
       "$f" 2>/dev/null) && P="$q"
   done
 fi
+W=$(sh .claude/skills/dflow-team/scripts/worker-trim.sh "<MAIN>" "$P")
+printf '%s' "$W" | jq -e 'type == "object"' >/dev/null 2>&1 || W='{}'
 LIM="$HOME/.dflow/limits"; mkdir -p "$LIM"
-jq -n --arg f "$LIM/<id8>.json" --argjson plugins "$P" \
+jq -n --arg f "$LIM/<id8>.json" --argjson plugins "$P" --argjson trim "$W" \
   '{statusLine: {type: "command", command: ("jq -c \"{at: (now | floor), rate_limits: (.rate_limits // null)}\" > \"" + $f + ".tmp\" && mv -f \"" + $f + ".tmp\" \"" + $f + "\"; printf dflow")}}
    + {hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", timeout: 5,
        command: "if [ -x \"${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.sh\" ]; then /bin/sh \"${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.sh\"; else cat >/dev/null 2>&1 || :; fi"}]}]}}
-   + (if ($plugins | length) > 0 then {enabledPlugins: $plugins} else {} end)' \
+   + (if ($plugins | length) > 0 then {enabledPlugins: $plugins} else {} end)
+   + $trim' \
   > "$LIM/<id8>.settings.json"
 cat >> "$WT/.dflow-run" <<'RUNEOF'
 S="$HOME/.dflow/limits/<id8>.settings.json"
@@ -168,6 +171,22 @@ cat "$WT/.dflow-pane"
   `claude-in-chrome`, 팀원 실행 시점에 `.dflow-run` 이 읽는다. Orca 새 탭은 로그인 셸 환경이므로 셸 프로필에 export 한다)으로
   각각 되돌린다. 이 설정은 tmux spawn·Orca spawn·재개(`references/resume.md`)·재투입(`references/restart.md` 「재투입」)이
   모두 이 블록으로 얻는다.
+- **첫 턴 컨텍스트 줄이기(PC별 opt-in)**: `W=$(sh .claude/skills/dflow-team/scripts/worker-trim.sh …)` 가
+  `.dflow.local`(개인 설정. 이미 export 된 `DFLOW_WORKER_*` env 가 이긴다)의 네 키를 읽어 설정 조각을 내고, 블록이 그것을
+  맨 뒤에 덮어 합친다. **키가 없으면 조각이 `{}` 라 종전과 똑같다.**
+  | 키 | 설정에 들어가는 것 |
+  |---|---|
+  | `worker_keep_skills=<쉼표 목록>` | 사용자 스킬(`~/.claude/skills`) 가운데 목록 밖의 것을 `skillOverrides` 에서 `"off"`, claude.ai 동기화 스킬을 `syncClaudeAiSkills: false` 로 숨긴다. 남길 것이 없으면 `none` |
+  | `worker_skills_off=<쉼표 목록>` | 그 이름들을 `skillOverrides` 에서 `"off"`(예: 쓰지 않는 Claude Code 내장 스킬) |
+  | `worker_keep_plugins=<쉼표 목록>` | 켜진 플러그인을 끄는 종전 규칙에서 목록의 `<이름>@<마켓>` 을 빼고, claude.ai 동기화 플러그인을 `syncClaudeAiPlugins: false` 로 숨긴다. 남길 것이 없으면 `none` |
+  | `worker_output_style=<값>` | `outputStyle`(예: `default`) |
+
+  `dflow-*` 와 대상 리포의 프로젝트 스킬(`<MAIN>/.claude/skills` 의 폴더 이름과 머리말 `name`)은 어느 목록에 적혀도 끄지
+  않는다. 킷이 아는 스킬 이름은 `dflow-*` 뿐이다 — 다른 이름은 이 문서·스크립트에 적지 않고 사람이 `.dflow.local` 에 적는다.
+  가리키는 스킬·플러그인·스타일 파일이 이 PC 에 없으면 `WORKER_SKILL_NOT_FOUND`·`WORKER_PLUGIN_NOT_FOUND`·
+  `WORKER_OUTPUT_STYLE_NOT_FOUND` 한 줄만 내고 진행한다(스크립트는 늘 exit 0, 실패하면 `{}`). **`disableBundledSkills` 는
+  쓰지 않는다**(Workflow 도구 설명이 도리어 커진다). 사용자 전역 훅(`~/.claude/settings.json` 의 heartbeat·가드 등)은 건드리지
+  않는다. 근거와 실측은 `references/rationale.md` 「팀원 첫 턴 컨텍스트 줄이기」.
 - **timeout 가드 훅**: 같은 설정 파일에 `hooks.PreToolUse`(matcher `Bash`, timeout 5)로
   `.claude/skills/dflow-dev/scripts/timeout-guard.sh` 를 건다. 팀원과 그 Phase 서브에이전트가 `heavy.sh`·`baseline.sh run`·
   `gradlew`·`mvn`·`playwright test` 를 timeout 없이(또는 300000 미만으로) 부르거나 `run_in_background` 로 부르면 exit 2 로

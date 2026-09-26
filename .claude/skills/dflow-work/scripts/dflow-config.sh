@@ -13,6 +13,8 @@ _dfc_env() {
     no_docker) echo DFLOW_NO_DOCKER ;; dialect_check) echo DFLOW_DIALECT_CHECK ;;
     build_model_trial) echo DFLOW_BUILD_MODEL_TRIAL ;; build_model_trial_rate) echo DFLOW_BUILD_MODEL_TRIAL_RATE ;;
     build_model_trial_tasks) echo DFLOW_BUILD_MODEL_TRIAL_TASKS ;;
+    worker_keep_skills) echo DFLOW_WORKER_KEEP_SKILLS ;; worker_skills_off) echo DFLOW_WORKER_SKILLS_OFF ;;
+    worker_keep_plugins) echo DFLOW_WORKER_KEEP_PLUGINS ;; worker_output_style) echo DFLOW_WORKER_OUTPUT_STYLE ;;
     *) return 1 ;;
   esac
 }
@@ -21,6 +23,7 @@ _dfc_scope() {
     api_base|project_id|release_branch) echo common ;;
     pats|pat|as|dev_branch|automerge|project_map) echo personal ;;
     build_model_trial|build_model_trial_rate|build_model_trial_tasks) echo personal ;;
+    worker_keep_skills|worker_skills_off|worker_keep_plugins|worker_output_style) echo personal ;;
     no_docker|dialect_check) echo both ;;
     *) echo unknown ;;
   esac

@@ -32,3 +32,9 @@ automerge=0
 # build_model_trial=sonnet
 # build_model_trial_rate=30
 # build_model_trial_tasks=TSK-02-05,WP-03,dict/WP-01
+# /dflow-team 팀원의 첫 턴 컨텍스트 줄이기(선택). 적지 않으면 종전과 같다. dflow-* 와 이 리포의 프로젝트 스킬은 늘 남는다.
+# 적은 이름이 이 PC 에 없으면 경고 한 줄만 내고 진행한다. 정본: .claude/skills/dflow-team/references/backends.md 「첫 턴 컨텍스트 줄이기」.
+# worker_keep_skills=<남길 사용자 스킬 이름, 쉼표. 예: 브라우저 E2E 스킬. 없으면 none>
+# worker_skills_off=<그 밖에 끌 스킬 이름, 쉼표. 예: 쓰지 않는 Claude Code 내장 스킬>
+# worker_keep_plugins=<켜 둘 플러그인 이름@마켓, 쉼표. 없으면 none>
+# worker_output_style=default
