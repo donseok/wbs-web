@@ -356,6 +356,7 @@ describe('Verify 는 읽기 전용 감사자 셋과 작성자 하나', () => {
     expect(k).toContain('`<TSK>-audit-spec`·`<TSK>-audit-review`·`<TSK>-audit-tests`')
     expect(k).toContain('`model: "sonnet"`')
     expect(k).toContain('**이 보고로 회수하지 않는다.**')
+    expect(k).toContain('Verify 작성자의 `VERIFY_EXEC` 는 게이트 시점이 아니다')
     expect(k).toContain('**같은 작성자에게 SendMessage 로**')
     expect(k).toContain('이 왕복은 Verify 재시도 1회에 세지 않는다')
     expect(k).toContain('Verify 재시도(아래 4번)는 작성자에게만 이어 붙이고 감사자는 다시 띄우지 않는다')

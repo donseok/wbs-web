@@ -330,8 +330,8 @@ Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의
 
 **Verify 는 읽기 전용 감사자 셋과 작성자 하나를 한 메시지에 동시에 띄운다**(phase-verify.md). research/docs 특례 작업은
 감사자 없이 작성자만 띄운다(첫 보고가 곧 `PHASE_RESULT`).
-- 감사자: `<TSK>-audit-spec`·`<TSK>-audit-review`·`<TSK>-audit-tests`. 부모 컨텍스트를 물려받지 않는 쓰기 도구 없는 읽기 전용
-  유형(Explore 등, fork 금지)에 `model: "sonnet"` 을 준다. 프롬프트는 phase-prompt.md 「감사 템플릿」 에 `{ROLE}`(spec·review·tests)·
+- 감사자: `<TSK>-audit-spec`·`<TSK>-audit-review`·`<TSK>-audit-tests`. 부모 컨텍스트를 물려받지 않는 새 서브에이전트(general-purpose,
+  fork 금지)에 `model: "sonnet"` 을 준다 — 쓰기 금지는 템플릿이 정한다(Explore 는 위치 찾기용이라 리뷰가 얕아진다). 프롬프트는 phase-prompt.md 「감사 템플릿」 에 `{ROLE}`(spec·review·tests)·
   `{BASE}`(state.json `baseline.base`)·`{BUILD_HEAD}`(`build_gate.head`)를 채운 것이다. 감사자는 커밋된 내용만 읽으므로 작성자의
   변이·E2E 와 겹쳐도 된다.
 - 작성자: `<TSK>-verify`, 종전 Verify 템플릿과 모델(sonnet) 그대로다. 첫 보고는 `VERIFY_EXEC done|fail` 이고 **이 보고로 회수하지
@@ -433,7 +433,8 @@ Phase 종료마다 오케스트레이터가:
    확인하며 짧은 간격으로 재확인하거나 로그·산출물 파일을 폴링 — `wait <PID>` 는 그 PID 가 이 Bash 호출의
    자식일 때만 되므로, 다른 호출이나 다른 서브에이전트가 띄운 프로세스에는 쓰지 않는다) 게이트를 돌린다.
    이미 끝나 있고 남은 작업이 없으면 위 「게이트 집행 원칙」대로 게이트를 오케스트레이터가 바로 직접
-   돌린다. 오지 않을 알림을 기다리며 입력 대기로 멈추지 않는다. 구현 단위가 여럿이면 마지막이 아닌 단위에서는
+   돌린다. 오지 않을 알림을 기다리며 입력 대기로 멈추지 않는다. 단, Verify 작성자의 `VERIFY_EXEC` 는 게이트 시점이 아니다 —
+   감사 셋의 보고를 받아 위 「Verify」 절차(지적 전달·최종 `PHASE_RESULT`)를 마친 뒤에 게이트를 돈다. 구현 단위가 여럿이면 마지막이 아닌 단위에서는
    "게이트를 돌린다" 를 "그 단위 커밋을 확인하고 다음 단위를 띄운다" 로 읽는다.
 
 Refactor 는 supervised 에서 기본 실행, 실패 시 Refactor 커밋만 되돌린다.
