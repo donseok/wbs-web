@@ -32,7 +32,12 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$data" ] && printf '%s\\n' "$data" >> "$BODY_FILE"
 case "$url" in
-  *"/agent/me") code=200; body="{\\"contract_version\\":\\"\${FAKE_ME:-2.9}\\"}" ;;
+  *"/agent/me")
+    case "\${FAKE_ME:-2.9}" in
+      fail) code=500; body='{"error":"x"}' ;;
+      none) code=200; body='{"ok":true}' ;;
+      *) code=200; body="{\\"contract_version\\":\\"\${FAKE_ME:-2.9}\\"}" ;;
+    esac ;;
   *"/agent/work/mine"*) code=200; body='{"claimed":[],"assigned":[],"available":[{"id":"${WORK_ID}","project_id":"${PID}","status":"ready","priority":1,"item":{"name":"t"}}]}' ;;
   *"/agent/work/${WORK_ID}/claim")
     case "\${FAKE_CLAIM:-ok}" in
@@ -156,12 +161,30 @@ describe('dflow.sh build-start', () => {
     expect(r.stderr).toContain('"unmet"')
   })
 
-  it('옛 서버(404)는 본문이 HTML 이어도 읽지 않고 BUILD_START_UNSUPPORTED 로 알린 뒤 exit 0', () => {
-    const r = run(['build-start', WORK_ID], { FAKE_BS: 'old' })
+  it('옛 서버(404, 계약 < 2.9)는 본문이 HTML 이어도 읽지 않고 BUILD_START_UNSUPPORTED 로 알린 뒤 exit 0', () => {
+    const r = run(['build-start', WORK_ID], { FAKE_BS: 'old', FAKE_ME: '2.8' })
     expect(r.status).toBe(0)
     expect(r.stderr).toContain('BUILD_START_UNSUPPORTED')
     expect(r.stderr).not.toContain('DOCTYPE')
     expect(r.stdout).not.toContain('build-started')
+  })
+
+  it('새 서버(계약 ≥ 2.9)의 404(프로젝트 게이트·PAT 범위)는 넘기지 않고 종전대로 exit 7 — 선행 관문을 건너뛰지 않는다', () => {
+    for (const v of ['2.9', '2.10']) {
+      const r = run(['build-start', WORK_ID], { FAKE_BS: 'old', FAKE_ME: v })
+      expect(r.status, v).toBe(7)
+      expect(r.stderr, v).not.toContain('BUILD_START_UNSUPPORTED')
+    }
+  })
+
+  it('404 인데 계약 버전을 확인하지 못하면 실패로 본다(fail-closed)', () => {
+    const f = run(['build-start', WORK_ID], { FAKE_BS: 'old', FAKE_ME: 'fail' })
+    expect(f.status).toBe(6)
+    expect(f.stderr).toContain('BUILD_START_FAILED')
+    expect(f.stderr).not.toContain('BUILD_START_UNSUPPORTED')
+    const n = run(['build-start', WORK_ID], { FAKE_BS: 'old', FAKE_ME: 'none' })
+    expect(n.status).toBe(6)
+    expect(n.stderr).not.toContain('BUILD_START_UNSUPPORTED')
   })
 
   it('점유자가 아니면 exit 5, 사람이 중단했으면 exit 10 — 흡수하지 않는다', () => {
@@ -175,6 +198,10 @@ describe('dflow.sh contract-ge — 숫자 비교', () => {
     ['2.9', '2.9', 0], ['2.10', '2.9', 0], ['3.0', '2.9', 0], ['2.8', '2.9', 1], ['1.12', '2.9', 1],
   ])('서버 %s ≥ %s → exit %i', (server, want, code) => {
     expect(run(['contract-ge', want], { FAKE_ME: server }).status).toBe(code)
+  })
+  it('조회 실패·contract_version 없음은 0·1 이 아닌 exit 6', () => {
+    expect(run(['contract-ge', '2.9'], { FAKE_ME: 'fail' }).status).toBe(6)
+    expect(run(['contract-ge', '2.9'], { FAKE_ME: 'none' }).status).toBe(6)
   })
 })
 

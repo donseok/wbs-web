@@ -245,7 +245,9 @@ Build·Verify·Refactor 개정과 「무거운 명령 줄 세우기」 의 감�
   `design_first_too_early` 로 집행한다. 스킬이 같은 판정을 따로 하면 두 판정이 어긋나는 날 "서버는 통과시키는데 스킬만 막는다" 가
   된다(선행 검사가 `reached` 를 그대로 쓰는 것과 같은 이유).
 - **build-start 를 모드와 무관하게 늘 부르는 이유**: 선행이 충족된 채 claim 한 작업도 `ds` 에 있다. 옛 서버는 404 라 스크립트가
-  `BUILD_START_UNSUPPORTED` 로 넘기므로 스킬을 서버보다 먼저 배포해도 종전 동작으로 물러난다.
+  `BUILD_START_UNSUPPORTED` 로 넘기므로 스킬을 서버보다 먼저 배포해도 종전 동작으로 물러난다. 404 를 옛 서버로 보는 것은 `/me` 의
+  계약이 2.9 미만일 때뿐이다 — 새 서버도 프로젝트 게이트·PAT 범위로 404 를 내고, 그것을 넘기면 선행 관문을 건너뛴다(버전을
+  모르면 실패로 본다).
 - **`wait_pred` heartbeat 를 직접 보내는 이유**: 킷 heartbeat 훅은 진행 중 phase(`prepare`·`design`·`build`·`verify`·`refactor`·
   `rejected`)만 보낸다(`blocked` 도 같은 이유로 직접 보낸다). 훅에 `wait_pred` 를 더하면 PC 마다 훅을 다시 설치해야 한다. state.json
   을 먼저 바꾸는 이유는 그 사이 훅이 `design` 을 한 번 더 보내 좌석을 덮지 않게 하기 위해서다. 좌석이 WAIT 로 보이지 않으면 멈춘

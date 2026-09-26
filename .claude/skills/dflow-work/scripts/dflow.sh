@@ -35,8 +35,9 @@ usage() {
                          주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH).
                          --design-first(계약 2.9): 선행이 구현 중이어도 설계부터 잡는다(단계 ds). 미충족 선행이 있으면
                          DESIGN_FIRST_UNMET <JSON 배열> 한 줄을 더 낸다. 너무 이른 선행이면 exit 4 + stderr DESIGN_FIRST_TOO_EARLY
-  build-start <ref>      설계를 마치고 구현으로 넘긴다(ds→ip, 계약 2.9). 선행 미충족이면 exit 4(claim 과 같다),
-                         옛 서버(404)면 stderr BUILD_START_UNSUPPORTED 에 exit 0
+  build-start <ref>      설계를 마치고 구현으로 넘긴다(ds→ip, 계약 2.9). 선행 미충족이면 exit 4(claim 과 같다).
+                         404 는 서버 계약이 2.9 미만일 때만 stderr BUILD_START_UNSUPPORTED 에 exit 0, 2.9 이상이면 exit 7,
+                         계약 버전을 확인하지 못하면 그 조회의 exit(실패로 본다)
   contract-ge <x.y>      서버 계약 버전이 x.y 이상이면 exit 0, 아니면 1(숫자 비교 — 2.10 > 2.9). 조회 실패는 그 exit
   progress <ref> <pct 0-99> <요약>
   heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id] [--model m] [--clear-merge-conflict]
@@ -400,32 +401,51 @@ cmd_claim() {
 
 # 설계를 마치고 구현으로 넘긴다(계약 2.9, 단계 ds→ip). 점유자 본인만 부른다 — claim·progress 와 같은 신원 산출.
 # 선행 미충족은 403 dependency_not_met(api_raw 가 exit 4 로 바꾼다 — claim 의 선행 대기와 같은 코드).
-# 옛 서버에는 이 경로가 없어 404 다. 본문이 JSON 이 아닐 수 있으므로(HTML 404) 읽지 않고 표식만 낸 뒤 성공으로 넘긴다 —
-# 옛 서버의 claim 은 이미 ip 로 보냈다.
+# 404 는 두 가지다. 옛 서버(계약 < 2.9)에는 이 경로가 없고, 새 서버도 프로젝트 게이트·PAT 범위로 404 를 낸다. 옛 서버면
+# 본문(HTML 일 수 있다)을 읽지 않고 표식만 낸 뒤 성공으로 넘긴다 — 옛 서버의 claim 은 이미 ip 로 보냈다. 새 서버의 404 를
+# 그렇게 넘기면 선행 관문을 건너뛰므로 /me 의 계약 버전으로 가르고, 버전을 모르면 실패로 본다(fail-closed).
 cmd_build_start() {
   _id=$(resolve_ref "$1")
   _err="$CACHE_DIR/dflow_bs_err.$$"; mkdir -p "$CACHE_DIR"
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/build-start" \
     "$(jq -nc --arg a "$(agent_id_default)" '{agent:$a}')" 2>"$_err"); _rc=$?
   if [ "$_rc" -eq 7 ]; then
-    rm -f "$_err"
-    printf 'BUILD_START_UNSUPPORTED 서버에 build-start 가 없다(계약 < 2.9) — 구현으로 넘어간다\n' >&2
-    return 0
+    _cv=$(server_contract_version); _vrc=$?
+    if [ "$_vrc" -ne 0 ]; then
+      rm -f "$_err"
+      die "$_vrc" "BUILD_START_FAILED 404 인데 서버 계약 버전을 확인하지 못했다 — 구현으로 넘어가지 않는다"
+    fi
+    if ! version_ge "$_cv" 2.9; then
+      rm -f "$_err"
+      printf 'BUILD_START_UNSUPPORTED 서버에 build-start 가 없다(계약 %s < 2.9) — 구현으로 넘어간다\n' "$_cv" >&2
+      return 0
+    fi
   fi
   cat "$_err" >&2; rm -f "$_err"
   [ "$_rc" -eq 0 ] || exit "$_rc"
   printf 'build-started %s\n' "$(printf '%s' "$_id" | cut -c1-8)"
 }
 
-# 서버 계약 버전이 인자 이상인가. 문자열로 견주면 2.10 이 2.9 보다 작게 나온다 — 칸마다 숫자로 본다.
-cmd_contract_ge() {
-  case "$1" in [0-9]*.[0-9]*) ;; *) usage ;; esac
-  _me=$(TOKEN="$TOK" api_raw GET /api/v1/agent/me) || exit $?
+# /me 의 contract_version. 조회 실패는 api_raw 의 exit 그대로, 값이 없으면 exit 6(출력 없음).
+server_contract_version() {
+  _me=$(TOKEN="$TOK" api_raw GET /api/v1/agent/me 2>/dev/null) || return $?
   _cv=$(printf '%s' "$_me" | jq -r '.contract_version // empty' 2>/dev/null)
-  [ -n "$_cv" ] || die 6 "계약 버전 확인 불가 — /me 응답에 contract_version 이 없다"
-  awk -v a="$_cv" -v b="$1" 'BEGIN { split(a, x, "."); split(b, y, ".")
+  [ -n "$_cv" ] || return 6
+  printf '%s' "$_cv"
+}
+# $1 >= $2 인가. 문자열로 견주면 2.10 이 2.9 보다 작게 나온다 — 칸마다 숫자로 본다.
+version_ge() {
+  awk -v a="$1" -v b="$2" 'BEGIN { split(a, x, "."); split(b, y, ".")
     for (i = 1; i <= 2; i++) { if (x[i] + 0 > y[i] + 0) exit 0; if (x[i] + 0 < y[i] + 0) exit 1 }
     exit 0 }'
+}
+
+# 서버 계약 버전이 인자 이상인가(exit 0/1). 조회 실패는 그 exit, contract_version 이 없으면 exit 6.
+cmd_contract_ge() {
+  case "$1" in [0-9]*.[0-9]*) ;; *) usage ;; esac
+  _cv=$(server_contract_version); _vrc=$?
+  [ "$_vrc" -eq 0 ] || die "$_vrc" "계약 버전 확인 불가(exit $_vrc) — /me 조회 실패 또는 contract_version 없음"
+  version_ge "$_cv" "$1"
 }
 
 # 주문의 작업 폴더(리포 최상위 기준 상대경로). 스킬 문서의 <TASKS>/<TSK> 가 이 값이다.

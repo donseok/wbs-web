@@ -323,7 +323,7 @@ claim 때 `ds`(설계 중), `build-start` 뒤 `ip` 다. 설계 정본은 wbs-web
    | 결과 | 처리 |
    |---|---|
    | exit 0 | Build 로 간다(종전) |
-   | exit 0 + stderr `BUILD_START_UNSUPPORTED` | 옛 서버다(claim 이 이미 `ip` 로 보냈다). Build 로 간다 |
+   | exit 0 + stderr `BUILD_START_UNSUPPORTED` | 옛 서버다(404 이고 계약 < 2.9 — claim 이 이미 `ip` 로 보냈다). Build 로 간다 |
    | exit 4 | 설계 완료·선행 대기로 멈춘다(아래 멈춤 절차) |
    | exit 10 | 중단(상태 모델) |
    | 그 밖 | Build 로 가지 않고 중단·보고한다. `phase` 는 `design` 그대로라 재실행하면 Design 게이트 뒤에서 다시 부른다. 워커는 `failed build-start <exit>` |

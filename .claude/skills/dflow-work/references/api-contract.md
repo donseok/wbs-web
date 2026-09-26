@@ -17,8 +17,9 @@
   옛 서버는 400 으로 거부할 뿐이다. 킷 heartbeat 훅은 진행 중 phase 만 보내므로 `wait_pred` 는 `/dflow-dev` 가
   `dflow.sh heartbeat <ref> --phase wait_pred` 로 직접 보낸다.
 - CLI: `dflow.sh claim <ref> --design-first`(미충족 선행이 있으면 `DESIGN_FIRST_UNMET <JSON 배열>` 한 줄, 너무 이르면 exit 4 + stderr
-  `DESIGN_FIRST_TOO_EARLY <JSON>`), `dflow.sh build-start <ref>`(403 `dependency_not_met` 은 exit 4, 404 는 stderr `BUILD_START_UNSUPPORTED`
-  에 exit 0), `dflow.sh contract-ge <x.y>`(서버 계약이 그 이상이면 exit 0, 칸마다 숫자 비교).
+  `DESIGN_FIRST_TOO_EARLY <JSON>`), `dflow.sh build-start <ref>`(403 `dependency_not_met` 은 exit 4. 404 는 `/me` 의 계약이 2.9 미만일 때만 stderr
+  `BUILD_START_UNSUPPORTED` 에 exit 0 이고, 2.9 이상이면 종전 exit 7 — 새 서버도 프로젝트 게이트·PAT 범위로 404 를 내므로 넘기면
+  선행 관문을 건너뛴다. 버전을 확인하지 못하면 실패로 본다), `dflow.sh contract-ge <x.y>`(서버 계약이 그 이상이면 exit 0, 칸마다 숫자 비교).
 - 설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-26-dflow-parallel-token-design.md §6(킷에는 미동봉).
 
 ## v2.8 변경점 (2026-09-23)
