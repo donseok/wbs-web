@@ -3,7 +3,7 @@
 작성 2026-09-26. 사용자 요청: "한 문서 안에 너무 많은 내용이 들어 있다. 구조화해서 중복을 줄이고 각 상황에 맞는 지시만
 들어가도록 스킬 문서를 나눠서 관리하자."
 대상: `.claude/skills/dflow-dev/`(SKILL.md·references). 기준 커밋 staging 9ce09cce(= main aeca4762 의 스킬, 킷 cb25883).
-상태: **설계안. 구현은 착수 지시 뒤.**
+상태: **설계안. 구현은 착수 지시 뒤.** §14 실행 범위(설계만·구현부터) 확장 포함.
 
 ## 1. 결정 요약
 
@@ -310,3 +310,91 @@ dev-discipline.md 머리의 "오케스트레이터 절 목록은 SKILL.md 「위
 1. 폴더 이름 `references/orch/`(제안) — 오케스트레이터 전용임을 드러낸다.
 2. 판별 스크립트 `route.sh` 를 두지 않는 것(제안). 대신 표와 fail-closed 규칙.
 3. 착수 시점: dmes-standard 쪽 dflow-dev 수정이 잠잠할 때.
+4. §14 실행 범위의 정할 것(§14.7).
+
+## 14. 확장: 실행 범위(설계만·구현부터·전체)
+
+사용자 요청(2026-09-26): 설계만 먼저 진행할 수 있어야 한다. idea.md 「에이전트 스킬」 의 완전자동·개발자동·수동을 처리하려면
+설계만이 기본 부품이 된다. 새 스킬은 만들지 않고, `/dflow-dev` 에 실행 범위 플래그를 두고 팀장이 그 범위를 넘긴다. 분할(§1~§12)
+뒤에 얹는다 — 분할 뒤에는 단계 지도에 시작점·멈춤점 몇 행을 더하는 일로 끝나고, 지금 구조에 먼저 넣으면 분기가 또 흩어진다.
+
+### 14.1 모드와 범위
+
+| 모드(idea.md) | 설계 | 구현 | `/dflow-dev` 범위 | 팀장 |
+|---|---|---|---|---|
+| 완전자동 | 에이전트 | 에이전트 | `--scope full`(기본, 지금 그대로) | 기본 |
+| 설계만(새 부품) | 에이전트 → 사람 검토 | 사람 또는 뒤이은 개발자동 | `--scope design` | 인자 "설계만" |
+| 개발자동 | 사람(또는 앞서 설계만으로 만든 설계) | 에이전트 | `--scope build` | 인자 "구현부터"·"개발자동" |
+| 수동 | 사람 | 사람 | 에이전트 없음 | `tags:agent` 가 없어 팀장이 보지 않는다 |
+
+- 흐름 예: 설계만 → 사람이 design.md 를 검토·수정 → 개발자동으로 이어 구현. 이것이 "사람 검토 관문이 있는 완전자동" 이다.
+- `--only` 와 다르다. `--only` 는 서버 보고·state.json 전진이 없는 부분 실행이고, `--scope` 는 claim·단계·보고가 모두 도는 정식
+  실행에서 시작점과 멈춤점만 바꾼다.
+- 사람이 직접 `/dflow-dev <ref> --scope design` 으로 쓸 수도 있다(수동 모드에서 설계만 도움받기).
+
+### 14.2 `--scope design`: 설계 뒤 멈춤
+
+설계 선행(§3 `orch/design-first.md`)의 멈춤 절차를 **사유만 바꿔** 쓴다.
+
+1. claim·기준선·Design·Design 게이트는 지금과 같다(claim 은 늘 `--design-first` 라 서버 단계는 `ds`).
+2. Design 게이트 뒤 `build-start` 를 **부르지 않는다**(부르면 서버 단계가 `ip` 로 넘어간다).
+3. 멈춤: design.md 커밋 확인 → state.json `phase=wait_review`, `scope: "design"` 기록·커밋 → `progress 25 "설계 완료(검토 대기)"` →
+   agent 브랜치 push → `heartbeat --phase wait_review` → supervised 는 "설계 완료·검토 대기 — 검토 뒤 `--scope build` 로 이어 간다",
+   워커는 `.result` 에 `design_review <branch> <head_sha>`.
+4. 미충족 선행이 있어도 같다(`design_first.unmet` 도 함께 적는다). 이어 갈 때 선행 판정은 §14.3 이 한다.
+
+**새 phase 값 `wait_review` 를 쓰는 이유**: 팀장의 설계 완료 대기 목록(design-ahead.md 「1」)은 로컬 state.json `phase=wait_pred`
+를 골라 선행이 풀리면 **자동으로 Build 를 재개**한다. 설계만 멈춘 작업이 `wait_pred` 면 사람 검토 없이 구현이 시작된다. 다른 값을
+쓰면 자동 재개 대상에서 저절로 빠진다.
+
+### 14.3 `--scope build`: 구현부터
+
+설계의 출처가 둘이다.
+
+| 출처 | 판별 | 처리 |
+|---|---|---|
+| 앞서 설계만으로 만든 설계 | 서버 `claimed`·`mine` 이고 agent 브랜치 state.json `phase=wait_review` | 설계 선행 재개(`orch/design-first.md` 「3」)를 그대로 탄다: 브랜치로 switch → 선행 판정 → 기점 재판정·머지 → 기준선 다시 잼 → **Design 게이트를 다시 돈다**(사람이 design.md 를 고쳤을 수 있다) → `build-start` → Build |
+| 사람이 쓴 설계(개발자동) | 서버 `ready`, 개발 브랜치의 `<TASKS>/<TSK>/design.md` 가 있다 | **claim 전에** `git show origin/<기본브랜치>:<TASKS>/<TSK>/design.md` 로 읽어 Design 게이트의 최소 구조 5절을 본다. 없거나 빠진 절이 있으면 claim 하지 않고 건너뛴다(워커 `.result` `skipped design_missing` 또는 `skipped design_invalid <빠진 절>`). 통과하면 claim → 브랜치 → 기준선 → Design 서브에이전트 없이 Design 게이트 → `build-start` → Build |
+
+- 에이전트가 빠진 절을 스스로 채우지 않는다. 개발자동의 전제가 "사람이 설계한다" 이기 때문이다.
+- 선행이 미충족이면 지금처럼 `build-start` exit 4 로 `wait_pred` 멈춤이 된다 — 이때부터는 선행 대기라 팀장 자동 재개가 맞다.
+- 사람이 쓸 설계 형식은 phase-design.md 의 design.md 구조를 따른다. 빈 틀을 내는 명령(예: `dflow.sh design-template <ref>`)은 쓰임을
+  보고 더한다.
+
+### 14.4 팀장(`/dflow-team`)
+
+- 인자: 자연어로 "설계만" → `design`, "구현부터"·"개발자동" → `build`, 없으면 `full`. 팀장 상태에 기록해 재시작·압축 뒤에도
+  유지한다. 팀원 spawn 명령에 `--scope <값>` 을 붙인다(`full` 이면 붙이지 않아 지금 명령과 같다).
+- 후보
+  - `design`: 지금과 같은 ready 후보. 설계 선행 상한(`DFLOW_DESIGN_AHEAD_MAX`)은 적용하지 않는다(모든 슬롯이 설계를 한다).
+  - `build`: ① 이 PC 의 `wait_review` 워크트리(design-ahead.md 「1」 목록을 `wait_review` 로도 뽑는다) → 재개 spawn, ② ready 후보 중
+    개발 브랜치에 design.md 가 있는 것. 없는 것은 poll 단계에서 거른다(워커를 띄워 곧 `skipped` 로 끝내는 낭비를 막는다).
+  - `full`: 지금 그대로. `wait_review` 워크트리는 재개하지 않는다.
+- 결과 `design_review`: 좌석을 비우고 워크트리를 지운다(브랜치는 push 돼 있어 재개 때 `origin/agent/…` 에서 다시 만든다 —
+  resume.md 3항). 설계만으로 여러 건을 돌리면 워크트리가 쌓이기 때문이다.
+- 좌석표 「이어서 시작」 요청은 `wait_review` 에도 받는다 — 사람이 검토를 마친 한 건만 구현으로 넘기는 손잡이가 된다(그 요청은
+  `--scope build` 로 띄운다).
+
+### 14.5 서버·화면
+
+- `heartbeat_phase` 에는 DB CHECK 가 없다(0107 주석) — **마이그레이션 없음.** `src/lib/domain/seatState.ts` 의 `HEARTBEAT_PHASES` 에
+  `wait_review` 를 더하고, 좌석·대기 사유·허브 집계(`seatmap.ts`·`waitReason.ts`·`agentHub.ts`)에 "설계 검토 대기" 를 `wait_pred`
+  와 구분해 표시한다(결재 대기 수에는 넣지 않는다).
+- 서버 단계는 `ds`(설계 중)로 남는다. WBS 에서 "설계 완료·검토 대기" 로 보이게 할지는 화면 쪽 선택이다.
+- 계약 버전을 올린다(2.10). 옛 서버에서는 `heartbeat --phase wait_review` 가 400 이지만 멈춤은 계속한다 — 좌석 이름표만 틀리고
+  자동 재개 판정은 로컬 state.json 이 하므로 안전하다.
+
+### 14.6 나중 단계
+
+- **작업별 모드**: 팀장 인자는 그 팀이 처리하는 모든 작업에 같이 적용된다. 작업마다 다르게 하려면 D'Flow 태그(예: `mode:design`·
+  `mode:build`)를 팀장이 읽어 인자보다 우선하게 한다.
+- **설계 승인 버튼**: 지금은 사람이 검토 뒤 팀장을 `구현부터` 로 돌리거나 좌석 「이어서 시작」 을 누른다. D'Flow 에 "설계 승인"
+  을 두면 팀장이 감지해 자동으로 넘길 수 있다(서버 계약 변경).
+- 다른 코딩 에이전트(idea.md)는 범위 플래그와 무관하다 — 그때 스킬 경계를 다시 본다.
+
+### 14.7 정할 것
+
+1. 플래그 이름 `--scope design|build|full`(제안). `--until`·`--from` 은 팀장 인자의 종료 시각(`--until`)과 헷갈린다.
+2. 사람이 쓴 설계를 두는 곳: 개발 브랜치의 `<TASKS>/<TSK>/design.md`(제안). D'Flow spec 첨부로 받는 안도 있지만 게이트가 파일을
+   읽는 지금 구조와 맞지 않는다.
+3. 설계만 멈춤의 phase 값 `wait_review`(제안)와 좌석 문구 "설계 검토 대기".
