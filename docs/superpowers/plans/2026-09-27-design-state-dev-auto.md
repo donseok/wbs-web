@@ -57,6 +57,7 @@
 - **문구:** 사용자에게 보이는 문구와 보고는 완전한 한국어 문장.
 - **테스트:** `npx vitest run <파일>`. 전체 실행 때만 흔들리는 테스트 4개(`tests/skills/heartbeat-hook.test.ts`·`dflow-lead-lease.test.ts`·`dflow-lead-worktree.test.ts`·`dflow-done-decisions.test.ts`)는 단독 실행으로 확인한다.
 - **브라우저 확인:** ego-browser 스킬(`~/.claude/skills/ego-browser`). Playwright MCP·claude-in-chrome 을 쓰지 않는다.
+- **임시 파일:** 리허설 SQL·검사 출력은 실행하는 세션의 scratchpad 폴더에 둔다. 계획서는 그 폴더를 `<SCRATCH>` 로 적는다(리포 안에 두지 않는다).
 
 ## 계획에서 새로 정한 것(스펙 12절 끝의 "계획서에서 같은 원칙으로 정한다")
 
@@ -1827,8 +1828,16 @@ describe('0108 전이 RPC', () => {
   })
   it('사건 목록에 새 사건 다섯이 있고, 주문 사건에 넷이 든다', () => {
     const f = fn()
+    const flat = (x: string) => x.replace(/\s+/g, ' ')
     expect(f).toContain("'design_done','design_accept','design_reopen','cancel','set_design_mode'")
-    expect(f).toContain("v_is_order_event := p_event in ('claim','report_completion','approve','unapprove','reject','rework','release','build_start',\n                                  'design_done','design_accept','design_reopen','cancel');")
+    expect(flat(f)).toContain("v_is_order_event := p_event in ('claim','report_completion','approve','unapprove','reject','rework','release','build_start', 'design_done','design_accept','design_reopen','cancel');")
+  })
+  it('완료 보고는 검토 대기면·리프가 ip 가 아니면 design_gate(Y2·W23), 반납은 D13 조건이면 design_gate', () => {
+    const f = fn()
+    expect(f).toContain("if p_event = 'report_completion' and (v_order_design_state = 'review'")
+    expect(f).toContain("or (v_item_found and v_is_leaf and v_old_stage is distinct from 'ip')) then")
+    expect(f).toContain("if p_event = 'release' and (v_order_design_state is not null")
+    expect(f).toContain("or (v_order_claim_scope = 'design' and v_item_found and v_old_stage in ('ds','dd'))) then")
   })
   it('사람의 set_stage 는 dd 를 받지 않는다(HUMAN_STAGE_CODES)', () => {
     expect(fn()).toContain(`if p_stage is not null and p_stage not in (${q(HUMAN_STAGE_CODES)}) then`)
@@ -2218,6 +2227,16 @@ begin
      and (v_order_design_state is distinct from 'accepted' or v_old_stage is distinct from 'dd') then
     return jsonb_build_object('ok', false, 'reason', 'design_gate', 'order_status', v_order_status);
   end if;
+  -- 완료 보고: 설계 검토 대기면 거부(W23), 리프는 단계 ip 에서만(Y2). 부모·지워진 항목은 단계를 보지 않는다.
+  if p_event = 'report_completion' and (v_order_design_state = 'review'
+       or (v_item_found and v_is_leaf and v_old_stage is distinct from 'ip')) then
+    return jsonb_build_object('ok', false, 'reason', 'design_gate', 'order_status', v_order_status);
+  end if;
+  -- 반납(D13): 설계 상태가 있거나, 설계만 하던 주문(claim_scope design)이 ds·dd 면 거부 — 웹의 「중단」을 쓴다.
+  if p_event = 'release' and (v_order_design_state is not null
+       or (v_order_claim_scope = 'design' and v_item_found and v_old_stage in ('ds','dd'))) then
+    return jsonb_build_object('ok', false, 'reason', 'design_gate', 'order_status', v_order_status);
+  end if;
 
   -- 스텁 잔존(스펙 F6·F13) — forceProgress.pendingStubs 와 같은 조건. 승인과 사람의 xx 지정을 주문 갱신 전에 거부한다.
   if v_item_found then
@@ -2589,7 +2608,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: 스테이징에 살아 있는 팀장·2.10 잔재가 있는지 본다(Y6, sync 전)**
 
-`/tmp/claude-design-state/pre-sync.sql`:
+`<SCRATCH>/pre-sync.sql`:
 
 ```sql
 select 'live_watchers' k, count(*)::text v from public.agent_watchers where last_seen_at > now() - interval '70 minutes'
@@ -2599,8 +2618,8 @@ union all select 'wait_review_list', coalesce(string_agg(left(id::text, 8), ',')
 ```
 
 ```bash
-mkdir -p /tmp/claude-design-state
-npm run db:apply -- /tmp/claude-design-state/pre-sync.sql --target staging
+mkdir -p "<SCRATCH>"
+npm run db:apply -- <SCRATCH>/pre-sync.sql --target staging
 ```
 
 Expected: 네 줄의 값. `live_watchers`·`live_leases` 가 0 이 아니면 스테이징에서 누가 팀장을 돌리는 중이다 — **멈추고 사용자에게 목록을 보여 준 뒤 지시를 받는다.** `wait_review_list` 는 2.10 "설계만" 잔재다. 다음 단계의 sync 가 지우므로(운영에는 2.10 이 없다) 목록만 보고에 남긴다.
@@ -2617,7 +2636,7 @@ Expected: 확인 프롬프트에 답하면 복제가 끝난다. 활성 접속 �
 
 - [ ] **Step 3: 적용 전 건수를 센다**
 
-`/tmp/claude-design-state/counts.sql`:
+`<SCRATCH>/counts.sql`:
 
 ```sql
 select 'a_claimed_ds_wait_review' k, count(*) v from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
@@ -2632,7 +2651,7 @@ union all select 'e_stage_dd', count(*) from public.wbs_items where stage = 'dd'
 ```
 
 ```bash
-npm run db:apply -- /tmp/claude-design-state/counts.sql --target staging
+npm run db:apply -- <SCRATCH>/counts.sql --target staging
 ```
 
 Expected: 다섯 줄. 이 숫자를 기록해 둔다(Step 6 과 사용자 보고에 쓴다). 이 단계는 0108 전이라 `e_stage_dd` 는 CHECK 때문에 0 이다.
@@ -2647,7 +2666,7 @@ Expected: 성공. 실패하면 오류 문장을 그대로 기록하고, SQL 을 
 
 - [ ] **Step 5: RPC 를 한 트랜잭션에서 돌려 보고 되돌린다**
 
-`/tmp/claude-design-state/verify.sql` — 끝의 `raise exception` 이 모든 변경을 되돌린다(스테이징에 흔적이 남지 않는다):
+`<SCRATCH>/verify.sql` — 끝의 `raise exception` 이 모든 변경을 되돌린다(스테이징에 흔적이 남지 않는다):
 
 ```sql
 do $$
@@ -2720,14 +2739,14 @@ end $$;
 ```
 
 ```bash
-npm run db:apply -- /tmp/claude-design-state/verify.sql --target staging
+npm run db:apply -- <SCRATCH>/verify.sql --target staging
 ```
 
 Expected: 명령은 오류로 끝나고, 오류 문장에 `VERIFY_OK 8/8` 이 보인다(의도한 되돌림). `VERIFY_FAIL` 이면 그 줄의 값을 기록하고 Task 4 로 돌아가 SQL 을 고친다 — 스테이징에는 되돌리기 파일(`0108_design_state_rollback.sql`)을 먼저 적용한 뒤 다시 적용한다. `VERIFY_SKIP` 이면 후보가 없는 것이다 — 사용자에게 알리고, 검증은 Task 27 의 API E2E 로 넘긴다.
 
 - [ ] **Step 6: 적용 뒤 건수를 다시 세고 표로 남긴다**
 
-`/tmp/claude-design-state/post.sql`:
+`<SCRATCH>/post.sql`:
 
 ```sql
 select 'a_review_design_dd' k, count(*) v from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
@@ -2744,7 +2763,7 @@ union all select 'f_design_mode_default', count(*) from public.wbs_items where d
 ```
 
 ```bash
-npm run db:apply -- /tmp/claude-design-state/post.sql --target staging
+npm run db:apply -- <SCRATCH>/post.sql --target staging
 ```
 
 Expected(Step 3 값을 A·B·C·D 라 하면): `a_review_design_dd` = A, `b_claimed_dd_wait_pred` = B, `c_claimed_without_scope` = 0, `c_claimed_without_runner` = 0, `d_ready_on_progressed` = 0, `d_cancelled_by_0108` = D, `f_design_mode_default` = 0. 다르면 멈추고 사용자에게 두 표를 보여 준다.
