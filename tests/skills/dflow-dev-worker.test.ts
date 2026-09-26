@@ -188,13 +188,15 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
   const EXPECTED: { prev?: string; next?: string; tag: string }[] = [
     { prev: '인자: `$ARGUMENTS` (`<순번|TSK-ID>` + 옵션)', tag: '팀장 전용' },
     { prev: '그리고 그 앞 단계들의 규율 절을 다시 읽은 뒤 진행한다. 압축 요약의 기억으로 단계 절차를 대신하지 않는다.', tag: '「그 밖의 워커 규칙」 도 다시 읽는다' },
-    { next: '## --only 옵션', tag: '## --worker 팀원 모드 (팀장 전용)' },
+    { next: '## 실행 범위 (--scope)', tag: '## --worker 팀원 모드 (팀장 전용)' },
     { prev: '## Phase 01-가 — 승인 스윕(머지, 오케스트레이터 본인)', tag: '「--worker」 A' },
     { prev: '   작업이라 스윕이 못 봤을 수 있다 — 그 경우 지금 즉시 같은 머지 절차를 이 ref 하나로 실행 후 종료).', tag: '「--worker」 C' },
+    { prev: '   Design 단계에서는 Design 서브에이전트를 띄우지 않고 곧바로 Design 게이트를 돈다(`orch/design.md`).', tag: '`skipped design_missing`' },
     { prev: '       있다). 머지 후 이어서 진행.', tag: '「--worker」 B' },
     { prev: '          남긴다** — 서버가 못 막는 우회를 스킬이 최소한 드러낸다.', tag: '「--worker」 G' },
     { prev: '   `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.', tag: '「--worker」 H' },
     { prev: '기본 브랜치 반영 확인이 이 트레일러를 증거로 쓴다.', tag: '「--worker」 E' },
+    { prev: '재개한다 — 사람이 검토하기 전에 구현이 시작되면 안 된다.', tag: '- design_review` 를 쓰고 끝낸다' },
   ]
   // 마지막 표지 블록은 이제 worker-mode.md 를 가리키는 머리 절이다. 행 A~I 본문은 그 파일에 있다
   const section = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
@@ -209,7 +211,7 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
     expect(last?.body).toContain('`.claude/skills/dflow-dev/references/worker-mode.md`')
   })
 
-  it('표지는 짝이 맞고 아홉 블록이 정한 자리에 정한 순서로 있다', () => {
+  it('표지는 짝이 맞고 열한 블록이 정한 자리에 정한 순서로 있다', () => {
     const blocks = workerBlocks(skill)
     expect(blocks).toHaveLength(EXPECTED.length)
     EXPECTED.forEach((e, i) => {

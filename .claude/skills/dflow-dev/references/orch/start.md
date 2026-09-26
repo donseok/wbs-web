@@ -33,4 +33,26 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
    판정은 먼저 한다). 현재 트리가 아니라 그 브랜치에서 읽는다 — `git show <그 브랜치>:<TASKS>/<TSK>/state.json`. 워커는 부트스트랩이
    기본 브랜치로 detach 해 두었고, 거기 있는 state.json 은 scaffold 의 `ready` 이거나 없다.
 
+   **설계 검토 대기** — 위와 같은 조건에서 그 브랜치 tip 의 state.json 이 `phase=wait_review`(설계만으로 멈춤)면 claim·격리를 하지 않는다.
+   범위가 `build` 가 아니면 이어 가지 않는다 — supervised 는 `"{TSK} 설계 검토 대기 — design.md 를 검토한 뒤 /dflow-dev {TSK} --scope build
+   로 이어 간다"` 로 알리고 끝낸다. 범위가 `build` 면 `orch/design-first.md` 「3」 재개를 그대로 타되 둘이 다르다:
+   - 3 의 1 에서 선행이 미충족이라 다시 멈추면, 멈춤 절차 4·5 전에 state.json `phase` 를 `wait_pred` 로 바꿔 파일명을 명시해 커밋하고
+     push 한다. 검토는 끝났고 이제 선행만 기다리므로 선행이 풀리면 팀장이 자동으로 이어 가는 것이 맞다.
+   - 3 의 6(`build-start`) 앞에 **Design 게이트를 늘 다시 돈다** — 사람이 검토하며 design.md 를 고쳤을 수 있다. 통과하지 못하면 Build 로
+     가지 않고 빠진 절을 적어 보고하고 멈춘다(`phase` 는 `wait_review` 그대로).
+
+### 구현부터 (`--scope build`)
+
+ready 갈래에서 범위가 `build` 면 **claim 전에** 사람이 쓴 설계를 확인한다(개발자동 — 설계는 사람, 구현은 에이전트).
+1. `git fetch origin` 뒤 `git show origin/<기본브랜치>:<TASKS>/<TSK>/design.md` 로 읽는다(`<TASKS>/<TSK>` 는 `dflow.sh taskdir <ref>`). 없으면
+   착수하지 않고 "설계 문서 없음" 으로 보고한다.
+2. SKILL.md 「게이트 집행 원칙」 의 Design 게이트 최소 구조 5절이 모두 있는지 본다. 빠진 절이 있으면 착수하지 않고 빠진 절을 적어
+   보고한다. **빠진 절을 스스로 채우지 않는다** — 이 범위의 전제는 사람이 설계한다는 것이다.
+3. 통과하면 종전대로 `orch/base.md` → `orch/claim.md` 로 간다. design.md 가 든 그 폴더는 재claim 격리 대상이 아니다(`orch/claim.md`).
+   Design 단계에서는 Design 서브에이전트를 띄우지 않고 곧바로 Design 게이트를 돈다(`orch/design.md`).
+<!-- worker:begin -->
+`--worker` 면 보고 대신 `.result` 를 쓰고 끝낸다: 1 은 `skipped design_missing`, 2 는 `skipped design_invalid <빠진 절>`, 「설계 검토
+대기」 에서 범위가 `build` 가 아니면 `design_review`(형식 정본은 worker-prompt.md).
+<!-- worker:end -->
+
 **다음 단계**: ready 는 `orch/base.md` → `orch/claim.md`, 반려는 `orch/rework.md`, 설계 선행 재개는 `orch/design-first.md` 「3」, 그 밖의 재개는 state.json `phase` 의 단계 지도 행.

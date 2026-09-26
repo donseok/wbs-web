@@ -12,6 +12,8 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
   **scaffold 가 만든 폴더도 예외다.** 폴더 안에 `state.json` 하나만 있고 `phase=ready` 이면 잔재가 아니다(`dflow.sh scaffold`
   가 미리 만든 자리). 옮기지 않고 `order`·`api_base` 를 이번 claim 값으로 덮어쓴 뒤 진행한다(남이 만든 ready 파일도 같다).
   파일이 더 있거나 `phase` 가 `ready` 가 아니면 종전대로 격리한다.
+  **구현부터(`--scope build`)의 설계 폴더도 예외다.** 사람이 쓴 design.md 가 든 폴더는 입력이다. 옮기지 않고, state.json 이 있으면
+  `order`·`api_base` 를 이번 claim 값으로 덮어쓴다(없으면 `prepare` 쓰기에서 만든다).
 
 ### 기점 이동과 claim
 
@@ -53,6 +55,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
      반려 재작업 경로(`phase=rejected`)에서는 쓰지 않는다.
    - 이 쓰기가 state.json 의 첫 기록이면 `order`(전체 UUID)와 `api_base`(상태 모델)를 함께 적는다. 커밋은 하지 않는다
      (다음 커밋에 실린다).
+   - 범위가 `full` 이 아니면(SKILL.md 「실행 범위」) 같은 쓰기에서 `scope`(`design`|`build`)를 함께 적는다.
    이미 해당 브랜치면 재개. **main·staging 위에서 사이클 진행 금지** — Phase 진입 전
    `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.
    <!-- worker:begin -->

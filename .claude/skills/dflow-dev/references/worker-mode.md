@@ -103,7 +103,9 @@ state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 �
   `NO_DOCKER` 는 보지 않는다. 기준선 전에 판정하고 출처를 기준선 기록에 남긴다. 판정·제외·도커 슬롯·기록의 정본은
   dev-discipline.md 「도커 사용 규칙」 이며, 도커 런타임을 켜지 않는 규칙은 금지 모드와 무관하게 늘 지킨다.
 
-- 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다.
+- 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다. `--scope` 는 팀장이 넘긴 그대로 따른다(SKILL.md
+  「실행 범위」). 범위 때문에 끝나면 `.result` 는 `design_review`(설계만 멈춤)·`skipped design_missing`·`skipped design_invalid <빠진 절>`
+  (구현부터인데 사람 설계가 없거나 모자람)이다.
 - `.result` 형식과 status 뜻은 `.claude/skills/dflow-team/references/worker-prompt.md` 가 정본이다. 끝날 때
   status·agent 브랜치·head·`done` exit·한 줄 사유를 마지막에 요약해 워커가 `.result` 로 옮기게 한다.
 - 중단(exit 10, 상태 모델)이면 `.result` 에 `{TSK} {ID8} <branch|-> <head_sha|-> - cancelled <멈춘 Phase 와 호출>` 을

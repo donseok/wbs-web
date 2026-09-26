@@ -132,7 +132,7 @@ describe('참조 문서는 정본을 가리키기만 한다', () => {
     expect(sec).toContain('`DOCKER` 값')
     expect(sec).toContain('`allow` 일 때만')
     expect(sec).toContain('dev-discipline.md 「도커 사용 규칙」')
-    expect(workerBlocks(DEV)).toHaveLength(9) // 2026-09-26 분할: 안내 본문 「압축 뒤」 에 한 블록
+    expect(workerBlocks(DEV)).toHaveLength(11) // 2026-09-26 분할: 「압축 뒤」 한 블록, 실행 범위(start 「구현부터」·design 「설계만 멈춤」) 두 블록
   })
   it('worker-prompt: 변수표에 DOCKER(없으면 금지), 「10」 이 정본을 가리킨다', () => {
     expect(WORKER).toContain('| `{DOCKER}` | `DOCKER` |')

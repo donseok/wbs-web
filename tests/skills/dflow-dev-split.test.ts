@@ -54,6 +54,14 @@ const CHANGED_SPLIT: readonly string[] = [
   '   state.json `model`)은 위 「승급」 2·3 과 같다. 위 부하 민감 단독 재실행이 먼저다(통과하면 재시도도 승급도 없다). 마지막 단위',
   '   이미 끝나 있고 남은 작업이 없으면 위 「게이트 집행 원칙」대로 게이트를 오케스트레이터가 바로 직접',
   '   감사 셋의 보고를 받아 위 「Verify」 절차(지적 전달·최종 `PHASE_RESULT`)를 마친 뒤에 게이트를 돈다. 구현 단위가 여럿이면 마지막이 아닌 단위에서는',
+  // 실행 범위(--scope, 설계 §14): 사용법 줄에 --scope 를 더한다
+  'description: D\'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕→claim→설계→TDD구현→검증→완료보고). 시작 시 승인된(approved) 로컬 작업을 먼저 main 에 머지한다(/dflow-merge 흡수, 2026-08-24). 대화형 supervised 전용 — 무인 실행은 자율 러너 설계(2026-08-20)의 영역이다. 구현 규율 정본은 이 스킬의 references/dev-discipline.md. 트리거 - "/dflow-dev", "작업 구현해", "D\'Flow 작업 개발". 사용법 - /dflow-dev <순번|TSK-ID> [--only design|build|verify|refactor] [--model opus|sonnet]',
+  // 안내 본문 9,000자 상한 안에 실행 범위 절을 넣으려고 위치 선언을 두 줄로 줄인다(러너 구도 설명은 설계 문서에 있다)
+  '> **위치 선언**: 이 스킬은 자율 러너 설계(wbs-web 리포 docs/superpowers/specs, 킷에는 미동봉)의',
+  '> **L0(supervised)** 대화형 경로다. 무인 루프는 러너의 영역이며 이 스킬은 사람이 기동·관찰하는',
+  '> 세션에서만 쓴다. 구현 과정 규율(Phase 정의·TDD·게이트 기준선·모델 배정·공통 금지)의 정본은',
+  '> `.claude/skills/dflow-dev/references/` 의 규율 문서다(Phase 서브에이전트는 자기 Phase 파일만 읽는다). 이 파일은 규율을',
+  '> 중복 서술하지 않고 오케스트레이션(순서·게이트 집행·상태·서버 보고)만 정의한다.',
 ]
 
 describe('이동 지도(분할 전 SKILL.md → 안내 본문·단계 파일)', () => {

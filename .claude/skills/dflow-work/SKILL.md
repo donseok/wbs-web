@@ -160,6 +160,7 @@ dflow.sh progress <순번> <0-99> "<요약>"
   답을 받은 뒤의 첫 heartbeat(훅이든 명시든, `--phase` 가 blocked 가 아닌 것)가 이 상태를 푼다.
 - Phase 경계를 명시하고 싶을 때: `--phase prepare|design|build|verify|refactor|rejected|reported`(`prepare` = Phase 01 준비).
 - 설계를 마치고 선행을 기다리며 멈추기 직전: `--phase wait_pred`(계약 2.9). 훅은 이 값을 보내지 않으므로 직접 부른다.
+- 설계만(`/dflow-dev --scope design`) 마치고 사람의 검토를 기다리며 멈추기 직전: `--phase wait_review`(계약 2.10). 훅은 보내지 않는다.
 `--model` 은 지금 도는 Phase 서브에이전트의 모델(좌석표 명찰·등급). 훅은 state.json 의 `model` 을 싣는다 — 생략하면 서버 값을 그대로 둔다.
 `--agent` 기본값은 워크트리 루트 `.dflow-agent` 첫 줄, 없으면 `claude-<host>`. 값이 `*/parked` 면 보내지 않는다.
 claimed 가 아니면 exit 4, 사람이 중단한 주문(`cancelled`)이면 exit 10, 소유자가 아니면 exit 5. progress·done 도 같다.

@@ -1,6 +1,6 @@
 ---
 name: dflow-dev
-description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕→claim→설계→TDD구현→검증→완료보고). 시작 시 승인된(approved) 로컬 작업을 먼저 main 에 머지한다(/dflow-merge 흡수, 2026-08-24). 대화형 supervised 전용 — 무인 실행은 자율 러너 설계(2026-08-20)의 영역이다. 구현 규율 정본은 이 스킬의 references/dev-discipline.md. 트리거 - "/dflow-dev", "작업 구현해", "D'Flow 작업 개발". 사용법 - /dflow-dev <순번|TSK-ID> [--only design|build|verify|refactor] [--model opus|sonnet]
+description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕→claim→설계→TDD구현→검증→완료보고). 시작 시 승인된(approved) 로컬 작업을 먼저 main 에 머지한다(/dflow-merge 흡수, 2026-08-24). 대화형 supervised 전용 — 무인 실행은 자율 러너 설계(2026-08-20)의 영역이다. 구현 규율 정본은 이 스킬의 references/dev-discipline.md. 트리거 - "/dflow-dev", "작업 구현해", "D'Flow 작업 개발". 사용법 - /dflow-dev <순번|TSK-ID> [--scope design|build|full] [--only design|build|verify|refactor] [--model opus|sonnet]
 ---
 <!-- dflow-caps: worker — 팀장·워커가 이 줄로 기능 지원을 판정한다. 지우거나 바꾸지 않는다. -->
 
@@ -16,11 +16,8 @@ description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕
 > 그 파일의 「행 G」·「행 H」 는 단계 파일의 표지 블록이 가리킬 때, 「설계 선행」 은 `orch/design-first.md` 를 읽을 때 같은 방법으로 읽는다.
 <!-- worker:end -->
 
-> **위치 선언**: 이 스킬은 자율 러너 설계(wbs-web 리포 docs/superpowers/specs, 킷에는 미동봉)의
-> **L0(supervised)** 대화형 경로다. 무인 루프는 러너의 영역이며 이 스킬은 사람이 기동·관찰하는
-> 세션에서만 쓴다. 구현 과정 규율(Phase 정의·TDD·게이트 기준선·모델 배정·공통 금지)의 정본은
-> `.claude/skills/dflow-dev/references/` 의 규율 문서다(Phase 서브에이전트는 자기 Phase 파일만 읽는다). 이 파일은 규율을
-> 중복 서술하지 않고 오케스트레이션(순서·게이트 집행·상태·서버 보고)만 정의한다.
+> **위치 선언**: 사람이 기동·관찰하는 supervised(L0) 대화형 경로다(무인 루프는 자율 러너의 영역). 이 파일은 규율을 되풀이하지
+> 않고 오케스트레이션(순서·게이트 집행·상태·서버 보고)의 공통 규칙만 정의한다. 단계별 절차는 「단계 지도」 의 단계 파일에 있다.
 >
 > **규율 읽기**: 구현 과정 규율의 정본 `.claude/skills/dflow-dev/references/dev-discipline.md` 는 **통째로 읽지 않는다.** 아래
 > 「단계 지도」 의 규율 열에 적힌 절은 그 단계를 시작할 때, 단계 파일이 dev-discipline 「절 이름」 을 가리키면 그 자리에서 그
@@ -61,6 +58,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   `rejected` 는 서버가 반려를 통지한 상태다 — 승인 대기(reported)와 구분해야 스윕이 헛돌지 않는다.
   `wait_pred` 는 설계를 마치고 선행을 기다리며 멈춘 상태다(「설계 선행」 2). 진행 중 phase 가 아니며 heartbeat 훅도 보내지 않는다 —
   재개는 Phase 01 1번이 「설계 선행」 3 으로 보낸다.
+  `wait_review` 는 설계만(`--scope design`)으로 설계를 마치고 사람의 설계 검토를 기다리며 멈춘 상태다. 진행 중 phase 가 아니며
+  heartbeat 훅도 보내지 않는다 — `--scope build` 로만 이어 간다(「실행 범위」). 선행 대기(`wait_pred`)와 달리 저절로 재개되지 않는다.
   **`order` 는 전체 UUID(하이픈 포함 36자)로 기록한다 — id8 금지.** 주문이 approved 가 되면
   목록에서 빠져 id8 접두 해석이 죽고, poll 의 승인 감지(exit 9)와 머지 판정이 그 주문을
   영영 못 본다(2026-08-25 실증). 기존 파일이 id8 이면 발견 즉시 전체 UUID 로 고쳐 커밋한다.
@@ -103,7 +102,7 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 | Verify | state.json `phase=verify` | `orch/phase-common.md` → `orch/verify.md` | — |
 | Refactor | state.json `phase=refactor`(수동만) | `orch/phase-common.md` → `orch/refactor.md` | `Phase 05` |
 | 마감 | Verify(수동은 Refactor) 게이트 뒤 | `orch/close.md` | — |
-| 그 밖 | state.json 이 없음·`ready`·`reported`·`merged`·`cancelled` | `orch/start.md` | — |
+| 그 밖 | state.json 이 없음·`ready`·`reported`·`merged`·`cancelled`·`wait_review` | `orch/start.md` | — |
 
 - 조건이 있는 절은 단계 파일이 가리킬 때 읽는다: 리포에 `.dflow-gates` 가 있으면 `게이트 범위 대응표`, 화면 작업이면
   `화면 작업의 브라우저 E2E`, 신규 실패가 모두 타이밍·성능 테스트면 `부하 민감 테스트`, 명령이 10분을 넘을 것 같으면
@@ -130,6 +129,13 @@ dev-discipline.md 도 전체를 Read 한다.
 `.claude/skills/dflow-dev/references/worker-mode.md` 다 — 이 문서 머리의 첫 표지 블록에서 이미 읽었다. 이 문서의 「--worker」
 A~I 는 그 파일의 행이다.
 <!-- worker:end -->
+
+## 실행 범위 (--scope)
+
+`--scope design|build|full`(없으면 state.json `scope`, 그것도 없으면 `full`)은 정식 실행의 시작점과 멈춤점만 바꾼다. 다른 값이거나
+`--only` 와 함께 오면 사용법을 알리고 멈춘다. `design` 은 Design 게이트 뒤 `build-start` 없이 `wait_review` 로 멈추고(`orch/design.md`
+「설계만 멈춤」), `build` 는 사람이 쓴 설계나 `wait_review` 의 설계에서 시작한다(`orch/start.md` 「구현부터」). `full` 이 아니면
+state.json `prepare` 를 쓸 때 `scope` 를 함께 적는다(`orch/claim.md`).
 
 ## --only 옵션
 

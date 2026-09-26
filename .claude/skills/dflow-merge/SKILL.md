@@ -54,7 +54,7 @@ description 의 사용법에도 노출하지 않는다. 반려되지 않은 `sta
          id8=$(printf '%s' "${ref#origin/agent/}" | cut -c1-8)
          git diff --name-only "origin/<기본브랜치>...$ref" -- "$@" | while IFS= read -r p; do
            git show "$ref:$p" | jq -r --arg ref "$ref" --arg id8 "$id8" --arg api "$api" --arg p "$p" \
-             'select((.order // "") | startswith($id8)) | select(.phase != "merged" and .phase != "wait_pred")
+             'select((.order // "") | startswith($id8)) | select(.phase != "merged" and .phase != "wait_pred" and .phase != "wait_review")
               | [$ref, .tsk, .order, .phase, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end), $p] | @tsv'
          done
        done
@@ -64,8 +64,8 @@ description 의 사용법에도 노출하지 않는다. 반려되지 않은 `sta
      멈춘다(블록이 `rc`·빈 값을 먼저 본다). `$dirs` 를 here-doc(`<<EOF`)으로 넘기지 않는다. 여섯째 칸(`$p`)은 그 state.json 의
      정확한 경로이며, 4번이 `<후보 state.json 경로>` 로 그대로 쓴다 — 다시 `dflow.sh taskdir` 를 부르지 않는다.
      브랜치 이름의 id8 과 state.json `order` 의 앞 8자가 일치하고 **`phase` 가 `merged` 가 아니면 전부 후보**다(tip 의 phase 에
-     기대지 않는다. 판정은 서버 `show` 로 한다). 단 `wait_pred`(설계 완료·선행 대기, `/dflow-dev` 「설계 선행」)는 뺀다 — 완료 보고
-     전에 설계만 push 한 브랜치라 머지할 것이 없고, 넣으면 선행이 끝날 때까지 스윕마다 후보로 잡힌다. 일치하는 state.json 이 없는 브랜치는 후보가 아니다. 원격에만 있는 후보의
+     기대지 않는다. 판정은 서버 `show` 로 한다). 단 `wait_pred`(설계 완료·선행 대기, `/dflow-dev` 「설계 선행」)와 `wait_review`(설계만 하고 검토 대기, `/dflow-dev` 「실행 범위」)는
+     뺀다 — 완료 보고 전에 설계만 push 한 브랜치라 머지할 것이 없고, 넣으면 선행이 끝나거나 검토가 끝날 때까지 스윕마다 후보로 잡힌다. 일치하는 state.json 이 없는 브랜치는 후보가 아니다. 원격에만 있는 후보의
      머지 대상은 `origin/agent/<id8>-<slug>` 다.
    - **로컬 스캔**: `<TASKS>/*/state.json` 중 `phase=reported` 이거나, `phase=merged` 이고 `unapproved=true` 인 것.
      ```bash

@@ -14,7 +14,7 @@
 #           작업 트리와 origin/<dev> 트리를 **둘 다** 본다. 팀장 체크아웃은 스윕 끝에만 origin/<dev> 로 다시 detach 하므로,
 #           그사이 해소 워커(--on-report)가 origin/<dev> 에 올린 승인 전 머지분을 작업 트리만 보면 놓친다.
 #   원격  : origin/agent/* 마다 git diff --name-only origin/<dev>...<ref> -- <폴더>/*/state.json 으로 찾은 state.json 중
-#           order 가 브랜치 id8 로 시작하고 phase 가 merged·wait_pred(설계 완료·선행 대기, 보고 전) 가 아닌 것.
+#           order 가 브랜치 id8 로 시작하고 phase 가 merged·wait_pred(설계 완료·선행 대기)·wait_review(설계만·검토 대기) 가 아닌 것(둘 다 보고 전).
 #   api_base 필터(중복 제거 뒤): 로컬 후보는 값이 없거나 같으면, 원격 전용 후보는 값이 같을 때만 후보다. 로컬과 원격에
 #           같은 order 가 있으면 로컬로 합친다(값이 서로 다르면 정본은 건너뛰지만 여기서는 후보로 남긴다 — 상위 집합).
 #
@@ -64,7 +64,7 @@ trap 'rm -f "$ROWS"' EXIT
 # jq 필터 — 정본 1번과 같은 판정. 줄: <src>\t<order>\t<api 분류>
 LOCAL_JQ='select(.phase == "reported" or (.phase == "merged" and .unapproved == true))
   | ["L", (.order // ""), (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end)] | @tsv'
-REMOTE_JQ='select((.order // "") | startswith($id8)) | select(.phase != "merged" and .phase != "wait_pred")
+REMOTE_JQ='select((.order // "") | startswith($id8)) | select(.phase != "merged" and .phase != "wait_pred" and .phase != "wait_review")
   | ["R", .order, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end)] | @tsv'
 
 set --

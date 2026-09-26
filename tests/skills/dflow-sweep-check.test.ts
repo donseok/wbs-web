@@ -124,6 +124,13 @@ describe('sweep-check.sh — 스윕 후보 사전 검사', { timeout: 60000 }, (
     expect(last(r.out)).toBe('SWEEP_NONE')
   })
 
+  it('설계만 하고 검토를 기다리는 agent 브랜치(phase=wait_review)는 후보가 아니다 — 보고 전이다', () => {
+    pushAgent('45454545', 'TSK-02-08', state('TSK-02-08', '45454545-0000', 'wait_review', { scope: 'design' }))
+    const r = check()
+    ok(r)
+    expect(last(r.out)).toBe('SWEEP_NONE')
+  })
+
   it('개발 브랜치에 이미 머지된 agent 브랜치(차분에 state.json 없음)는 후보가 아니다', () => {
     pushAgent('33333333', 'TSK-03-01', state('TSK-03-01', '33333333-0000', 'reported'))
     ok(sh(repo, `
