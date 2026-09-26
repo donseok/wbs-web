@@ -53,7 +53,9 @@ describe('구현부터(--scope build)', () => {
   it('wait_review 는 범위 build 에서만 이어 가고, 선행 미충족이면 wait_pred 로 바꾸며, Design 게이트를 다시 돈다', () => {
     expect(s).toContain('범위가 `build` 가 아니면 이어 가지 않는다')
     expect(s).toContain('state.json `phase` 를 `wait_pred` 로 바꿔')
-    expect(s).toContain('**Design 게이트를 늘 다시 돈다**')
+    // 행동 검증(2026-09-26): 게이트는 phase 를 바꾸기 전에 돌아야 실패 때 wait_review 가 그대로 남는다
+    expect(s).toContain('받아 온 **바로 뒤, 아무것도 커밋하기 전에 Design 게이트를 다시 돈다**')
+    expect(s).toContain('`## 선행 기준` 절이 있을 때만 한다')
   })
   it('검토 대기 재개는 origin 의 사람 수정을 받아 오고(갈라지면 멈춤), scope 를 build 로 바꾼다', () => {
     expect(s).toContain('**사람이 고친 설계를 받아 온다.**')
@@ -64,7 +66,7 @@ describe('구현부터(--scope build)', () => {
   it('Design 서브에이전트를 띄우지 않고, 설계 폴더는 재claim 격리하지 않으며, scope 를 state.json 에 적는다', () => {
     expect(flat(devOrch('design'))).toContain('범위가 `build` 면(`orch/start.md` 「구현부터」·「설계 검토 대기」) Design 서브에이전트를 띄우지 않는다')
     const c = flat(devOrch('claim'))
-    expect(c).toContain('**구현부터(`--scope build`)의 설계 폴더도 예외다.**')
+    expect(c).toContain('**구현부터(`--scope build`)의 설계 폴더도 예외다** — 위 scaffold 예외의 「`state.json` 하나만」 조건과 무관하다.')
     expect(c).toContain('같은 쓰기에서 `scope`(`design`|`build`)를 함께 적는다')
   })
 })

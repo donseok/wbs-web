@@ -2,7 +2,7 @@
 
 SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 단계를 시작하지 않는다. 모든 단계에 공통인 규칙(게이트 집행 원칙·상태 모델·서버 통신)은 SKILL.md 에 있다.
 
-**띄울 Phase 의 프롬프트 템플릿만 읽는다**: `.claude/skills/dflow-dev/scripts/sections.sh .claude/skills/dflow-dev/references/phase-prompt.md '변수' '템플릿'` (Verify 감사자는 `orch/verify.md` 가 「감사 템플릿」 을 더 읽게 한다).
+**띄울 Phase 의 프롬프트 템플릿만 읽는다**: `.claude/skills/dflow-dev/scripts/sections.sh .claude/skills/dflow-dev/references/phase-prompt.md '변수' '템플릿'` (Verify 감사자는 `orch/verify.md` 가 「감사 템플릿」 을 더 읽게 한다). 템플릿은 Phase 공통이라 같은 세션에서 이미 읽었고 압축이 없었으면 다시 읽지 않는다.
 
 ## Phase 02~05 — Design → Build → Verify → Refactor
 

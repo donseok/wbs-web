@@ -12,7 +12,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
   **scaffold 가 만든 폴더도 예외다.** 폴더 안에 `state.json` 하나만 있고 `phase=ready` 이면 잔재가 아니다(`dflow.sh scaffold`
   가 미리 만든 자리). 옮기지 않고 `order`·`api_base` 를 이번 claim 값으로 덮어쓴 뒤 진행한다(남이 만든 ready 파일도 같다).
   파일이 더 있거나 `phase` 가 `ready` 가 아니면 종전대로 격리한다.
-  **구현부터(`--scope build`)의 설계 폴더도 예외다.** 사람이 쓴 design.md 가 든 폴더는 입력이다. 옮기지 않고, state.json 이 있으면
+  **구현부터(`--scope build`)의 설계 폴더도 예외다** — 위 scaffold 예외의 「`state.json` 하나만」 조건과 무관하다. 사람이 쓴 design.md 가 든 폴더는 입력이다. 옮기지 않고, state.json 이 있으면
   `order`·`api_base` 를 이번 claim 값으로 덮어쓴다(없으면 `prepare` 쓰기에서 만든다).
 
 ### 기점 이동과 claim

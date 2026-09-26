@@ -4,6 +4,10 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
 
 ### Design 게이트
 
+이 절(게이트 판정·`build-start`·모듈 기준선)은 `orch/phase-common.md` 「Phase 종료마다」 1번(게이트 집행)에 속한다 — 2번(커밋 확인·
+state.json 전진·`progress 25`)과 3번(회수)은 이 절을 마친 뒤 한다. `build-start` 가 exit 4 면 2번 대신 `orch/design-first.md` 「2」 의
+멈춤 절차를, 범위가 `design` 이면 2번 대신 아래 「설계만 멈춤」 을 하고, 어느 쪽이든 3번 회수는 한다.
+
 범위가 `build` 면(`orch/start.md` 「구현부터」·「설계 검토 대기」) Design 서브에이전트를 띄우지 않는다 — 이미 있는 design.md 로 곧바로
 Design 게이트를 돈다. 게이트가 통과하면 design.md 를 새로 커밋할 것은 없다(개발 브랜치나 agent 브랜치에 이미 있다).
 
@@ -40,7 +44,8 @@ Design 게이트를 돈다. 게이트가 통과하면 design.md 를 새로 커�
    이어 갈지는 로컬 state.json 으로 판정한다.
 5. supervised 는 `"{TSK} 설계 완료·검토 대기 — design.md 를 검토·수정한 뒤 /dflow-dev {TSK} --scope build 로 이어 간다"` 로 알리고 끝낸다.
 
-미충족 선행이 있어도 같다(claim 이 설계 선행 모드였으면 `design_first.unmet` 이 이미 적혀 있다). 선행 판정은 `--scope build` 로 이어 갈
+design.md 의 `## 담당자 확인 필요 결정` 절은 이 멈춤에서 서버로 넘기지 않는다 — 사람이 검토하며 design.md 에서 바로 답하고, `--scope build`
+로 이어 가 마감(`orch/close.md`)에서 `decisions.json` 으로 넘긴다. 미충족 선행이 있어도 같다(claim 이 설계 선행 모드였으면 `design_first.unmet` 이 이미 적혀 있다). 선행 판정은 `--scope build` 로 이어 갈
 때 `orch/design-first.md` 「3」 이 한다. `wait_pred` 를 쓰지 않는 이유: 팀장은 선행이 풀린 `wait_pred` 워크트리를 자동으로 Build 로
 재개한다 — 사람이 검토하기 전에 구현이 시작되면 안 된다.
 <!-- worker:begin -->

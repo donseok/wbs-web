@@ -22,6 +22,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
    `.claude/skills/dflow-dev/scripts/build-trial.sh <external_ref> <build_model_base>` 로 시험 여부를 판정해 두 값을 state.json 에
    적는다(커밋하지 않는다 — Design 산출물 커밋에 실린다). 있으면(재개) 다시 판정하지 않는다. 한 줄 출력:
    `Build 모델: <sonnet|opus> (배정 <base>, 시험 <BUILD_TRIAL 줄의 on|off·reason>)`. 규칙은 dev-discipline 「Build 모델 시험(build_model_trial)」.
+   범위가 `build` 면 Design 서브에이전트를 띄우지 않으므로 설계 모델은 정하지 않는다(복잡도 판정은 Build 모델 배정에 쓴다).
   `build_model_base`·`build_model_trial`(Phase 01 5번)은 배정표가 정한 Build 모델과 Build 모델 시험 여부(`true`|`false`)다 —
   한 번 적으면 재개해도 다시 판정하지 않는다(dev-discipline 「Build 모델 시험(build_model_trial)」).
 6. **준비 끝 표시**: state.json 의 `phase` 가 `prepare` 이면 `design` 으로 바꾼다(Design 서브에이전트를 띄우기 전, 커밋하지
