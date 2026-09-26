@@ -2975,7 +2975,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Create: `src/lib/agent/cancelOrder.ts`
-- Modify: `src/lib/agent/delegation.ts:145-191`, `src/app/actions/agentHub.ts:175-205`, `src/app/actions/wbsAssign.ts:549-559`, `src/lib/agent/forceProgress.ts:59-78`, `src/lib/agent/wbsImport.ts:212-300`
+- Modify: `src/lib/agent/delegation.ts:145-191`, `src/app/actions/agentHub.ts:175-205`, `src/app/actions/wbsAssign.ts:549-559`, `src/lib/agent/forceProgress.ts:59-78`, `src/lib/agent/wbsImport.ts:212-300`, `src/app/api/v1/wbs/import/route.ts:85-86`
 - Test: `tests/agent/cancel-order.test.ts`(새), 그리고 네 경로의 기존 테스트(`tests/actions/wbs-spec-delegation-right.test.ts`·`tests/actions/agent-hub-actions.test.ts`·`tests/actions/wbs-dev-workflow.test.ts`·`tests/domain/force-progress.test.ts` 등 — 아래 Step 5)
 
 **Interfaces:**
@@ -3176,22 +3176,49 @@ export async function cancelOrders(admin: AdminClient, args: { orderIds: string[
 - [ ] **Step 5: 기존 테스트를 새 경로에 맞춘다**
 
 Run: `npx vitest run tests/agent/cancel-order.test.ts tests/actions tests/agent tests/domain/force-progress.test.ts`
-Expected: 새 테스트 PASS. 기존 테스트 중 "주문 UPDATE status=cancelled" 나 "set_stage as" 호출을 단언하던 것은 이제 `admin.rpc('apply_workflow_event', expect.objectContaining({ p_event: 'cancel', p_order_id: … }))` 를 단언하도록 고친다. 목이 `rpc` 를 갖고 있지 않으면 `rpc: vi.fn(async () => ({ data: { ok: true, order_status: 'cancelled', prev_status: '<직전>', stage_changed: false, actual_changed: false, reached_first: false, skipped: null }, error: null }))` 를 더한다. import 테스트(`tests/agent/wbs-import*.test.ts`)는 새 `wbs_items` 조회(표식 확인)가 upsert 전에 끼므로 큐에 `{ data: [] }` 를 그 자리에 하나 더하고, 결과 단언에 `delegationCancelled: 0` 을 더한다. 표식이 빠지는 항목을 하나 넣어 취소가 불리는 테스트를 `tests/agent/wbs-import.test.ts` 에 하나 더한다:
+Expected: 새 테스트 PASS. 기존 테스트는 셋을 고친다.
+
+1. "주문 UPDATE status=cancelled" 나 "set_stage as" 호출을 단언하던 테스트는 `admin.rpc('apply_workflow_event', expect.objectContaining({ p_event: 'cancel', p_order_id: … }))` 를 단언하도록 바꾼다. 목에 `rpc` 가 없으면 `rpc: vi.fn(async () => ({ data: { ok: true, order_status: 'cancelled', prev_status: '<직전 status>', stage_changed: false, actual_changed: false, reached_first: false, skipped: null }, error: null }))` 를 더한다.
+2. import 라우트 테스트(`tests/agent/wbs-import.test.ts`·`wbs-import-nlevel.test.ts`)는 표식 확인 조회가 upsert 전에 `wbs_items` 큐를 하나 먼저 소비한다. 노드의 `tags` 에 `agent` 가 없는 테스트마다 `wbs_items` 큐 맨 앞에 `{ data: [] }`(표식이 빠지는 기존 항목 없음)를 넣는다.
+3. `src/app/api/v1/wbs/import/route.ts:85-86` 응답에 `delegation_cancelled: result.delegationCancelled,` 를 더한다(웹 업로드 액션 `src/app/actions/wbsMarkdown.ts:182` 은 결과를 그대로 넘기므로 고칠 것이 없다).
+
+그리고 `tests/agent/wbs-import.test.ts` 의 `describe('POST /wbs/import'` 안에 L7 테스트를 더한다:
 
 ```ts
   it('업로드가 위임 표식을 떼면 그 항목의 ready·claimed 주문을 cancel 로 취소한다(L7)', async () => {
-    // 준비: 기존 항목 W1 은 tags=['agent'], payload 노드는 tags 없음 → 표식 확인 조회가 W1 을 돌려주고,
-    // upsert 뒤 주문 조회가 ready 주문 O1 을 돌려준다. 기대: rpc 가 p_event 'cancel', p_order_id O1 로 불리고 delegationCancelled 1.
+    const { token, row } = patRow()
+    const body = { project_id: PROJECT_ID, module: 'MES', nodes: [NODE({ id: 'T-A' })] } // tags: [] — 표식 없음
+    const admin = useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }],
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [] }],
+      wbs_items: [
+        { data: [{ id: 'id-a', tags: ['agent'] }] },                              // L7 표식 확인 — 기존 항목은 표식이 있었다
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] },  // 갭 후보 조회
+      ],
+      agent_work_orders: [
+        { data: [{ id: 'order-a' }] },         // L7 — 표식이 빠진 항목의 ready·claimed 주문
+        { data: [{ wbs_item_id: 'id-a' }] },   // 갭 판정 — 활성 주문으로 본다(취소 뒤 재발행은 이 테스트 범위 밖)
+      ],
+    }, [
+      { data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } },    // import_wbs_upsert
+      { data: { ok: true, order_status: 'cancelled', prev_status: 'claimed', stage: 'as', actual_pct: 0,
+        stage_changed: true, actual_changed: true, reached_first: false, skipped: null } }, // apply_workflow_event(cancel)
+    ])
+    const res = await importPOST(post(body, token))
+    expect(res.status).toBe(200)
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_event: 'cancel', p_order_id: 'order-a' }))
+    expect(await res.json()).toMatchObject({ ok: true, delegation_cancelled: 1 })
   })
 ```
-
-이 테스트 본문은 그 파일의 기존 `useAdmin`/큐 헬퍼로 위 준비·기대를 그대로 옮겨 쓴다(파일마다 목 헬퍼 이름이 달라 여기 고정하지 않는다 — 준비 두 줄과 기대 두 줄을 빠짐없이 단언한다).
 
 - [ ] **Step 6: 커밋**
 
 ```bash
 git add src/lib/agent/cancelOrder.ts src/lib/agent/delegation.ts src/app/actions/agentHub.ts src/app/actions/wbsAssign.ts \
-  src/lib/agent/forceProgress.ts src/lib/agent/wbsImport.ts tests/agent/cancel-order.test.ts
+  src/lib/agent/forceProgress.ts src/lib/agent/wbsImport.ts src/app/api/v1/wbs/import/route.ts tests/agent/cancel-order.test.ts
 git add $(git diff --name-only -- tests)   # Step 5 에서 고친 기존 테스트(파일명을 확인하고 add 한다)
 git commit -m "feat(design-state): 주문 취소 네 경로를 RPC cancel 사건 하나로 모으고, import 가 표식을 떼면 주문을 취소한다
 
