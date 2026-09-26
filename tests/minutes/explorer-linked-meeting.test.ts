@@ -11,12 +11,15 @@ import { getMinutesExplorer } from '@/lib/data/minutes'
 /** 탐색기 조회는 minutes·minute_folders 두 쿼리를 Promise.all 로 던진다 — from() 을 테이블별로 갈라준다. */
 function client(minuteRows: Record<string, unknown>[]) {
   const minutes = {
-    select: vi.fn(), is: vi.fn(), order: vi.fn(),
+    // eq 는 첨부 임베드 필터(minute_files.role=attachment)용 — 클립 배지가 본문 .md 를
+    // 세지 않게 목록 쿼리가 거는 필터다(attachment-count-badge.test.ts).
+    select: vi.fn(), is: vi.fn(), order: vi.fn(), eq: vi.fn(),
     limit: vi.fn().mockResolvedValue({ data: minuteRows, error: null }),
   }
   minutes.select.mockReturnValue(minutes)
   minutes.is.mockReturnValue(minutes)
   minutes.order.mockReturnValue(minutes)
+  minutes.eq.mockReturnValue(minutes)
 
   const folders = { select: vi.fn(), order: vi.fn() }
   folders.select.mockReturnValue(folders)
@@ -30,7 +33,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   meeting_id: 'mt1', project_id: null, meeting_occurrence_date: '2026-07-24',
   archived_at: null, created_by: 'u1', created_by_name: '홍길동',
   created_at: '2026-07-24T00:00:00Z', updated_at: '2026-07-24T00:00:00Z',
-  body_preview: '', folder_id: 'f-plan', minute_files: [{ count: 0 }],
+  body_preview: '', folder_id: 'f-plan', minute_files: [],
   meetings: { category: 'routine', project_id: 'p1' }, projects: null,
   ...over,
 })
