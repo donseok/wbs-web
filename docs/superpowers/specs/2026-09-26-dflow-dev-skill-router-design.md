@@ -398,3 +398,26 @@ dev-discipline.md 머리의 "오케스트레이터 절 목록은 SKILL.md 「위
 2. 사람이 쓴 설계를 두는 곳: 개발 브랜치의 `<TASKS>/<TSK>/design.md`(제안). D'Flow spec 첨부로 받는 안도 있지만 게이트가 파일을
    읽는 지금 구조와 맞지 않는다.
 3. 설계만 멈춤의 phase 값 `wait_review`(제안)와 좌석 문구 "설계 검토 대기".
+
+## 15. 구현 결과와 설계와 달라진 점 (2026-09-26)
+
+브랜치 `feat/dflow-dev-router`(staging). 커밋: 이동(95dde56a) → 규율 절 읽기·정리(ba2d59ee) → 외부 참조(0b666a80) →
+Verify 생략 문구(4e92b9de) → `--scope`(76f3c7b8) → 팀장 범위 인자(63e9c68d) → 문서(855eb3b2) → 검토 대기 재개 보강 →
+앱 `wait_review`·계약 2.10(feat/wait-review a68c5a7e 머지).
+
+| 항목 | 설계 | 실제 |
+|---|---|---|
+| 안내 본문 크기 | 8,000자 이하 | **8,926자**, 상한 테스트는 9,000자. 실행 범위 절(약 500자)과 압축 복구 규칙이 더해졌다 |
+| 단계 파일 | 13개 | 13개(`references/orch/`). `build-start` 결과 표는 design.md, 재claim 격리는 claim.md 로 |
+| 판별 스크립트 | 두지 않음 | 두지 않음(단계 지도 표 + fail-closed) |
+| worker-mode | 행별 절로 재편 | **재편하지 않았다.** 착수 때 머리 표와 「그 밖의 워커 규칙」 만 `sections.sh` 로 읽고, 「행 G」·「행 H」·「설계 선행」 은 그 단계에서 읽는다(기존 `##` 절을 그대로 씀) |
+| 중복 13건 | 정본 + 포인터 | **안내 본문 쪽만 줄였다**: 게이트 세부 5줄 삭제, 상태 모델 선택 필드 설명을 쓰는 단계 파일로 이동, 상대 참조 13곳을 파일·절 이름으로. dev-discipline·phase-prompt·phase-*.md 사이의 중복(opus 승급 절차 두 벌, 테스트 삭제 금지 6곳 등)은 **그대로다** — 서브에이전트는 자기 파일만 읽으므로 한쪽을 지우면 그 독자가 규칙을 잃는다. 정리하려면 읽는 쪽별로 따로 설계해야 한다 |
+| 무거운 명령 절 | 절 안을 나눔 | 소제목 셋(분리·독점 / 슬롯·부하 / E2E·도커)을 달아 `=무거운 명령 줄 세우기` 로 핵심 2,409자만 읽는다 |
+| phase-prompt | 템플릿 절만 | `변수`·`템플릿`(감사자는 `감사 템플릿`)만 읽는다 |
+| 팀원 허용 목록 | `sections.sh` 추가 | `kit/worker-allow.json` 이 빈 목록이라 **바꾸지 않았다** |
+| 원문 보존 | 이동 지도 | `tests/skills/fixtures/dflow-dev.move-map.txt` + `CHANGED_SPLIT`(지우거나 바꾼 옛 줄 33개, 이유별 주석) |
+| 실행 범위 | §14 | 그대로. 더한 것: 검토 대기 재개 때 origin 의 사람 수정을 fast-forward 로 받고 갈라지면 멈춘다, `scope` 를 `build` 로 덮어쓴다, 승인 스윕이 `wait_review` 브랜치를 뺀다, 좌석 「설계 검토 대기」 에 「이어서 시작」 버튼 |
+| 함께 고친 것 | — | dev-discipline 도커 규칙의 MSSQL 예시를 제품 중립으로(dmes MSSQL 폐지), phase-verify 재실행 생략 조건에 모듈 범위 예외(dmes TSK-09-02 .issues) |
+
+남은 일: 스테이징 D'Flow 에서 수동 1건·팀원 1건(설계만 → 검토 → 구현부터 포함) 리허설(§12-7). 전체 테스트 실행 때만 흔들리는
+테스트 4개(heartbeat-hook·lead-lease·lead-worktree·done-decisions)는 단독 실행에서 통과한다(부하 민감, 이번 변경과 무관).

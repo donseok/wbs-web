@@ -701,6 +701,7 @@ stateDiagram-v2
 <p>선행 작업이 아직 구현 중이면, 팀원은 빈 슬롯에서 후속 작업의 설계를 먼저 해 둡니다. 설계가 끝났는데 선행이 끝나지 않았으면 <code>build-start</code> 가 거부되고, 팀원은 설계를 push 한 뒤 <code>design_waiting</code> 으로 자리를 비웁니다. 선행이 끝나면 팀장이 같은 워크트리로 다시 띄워 구현을 잇습니다. 한 번에 설계를 먼저 받는 작업은 기본 2건까지이며, <code>DFLOW_DESIGN_AHEAD_MAX</code>(0 이면 끔)로 조절합니다.</p>
 
 <h3>설계만·구현부터</h3>
+<div class="note"><span class="t">다음 킷부터</span><p>이 절과 <code>설계만</code>·<code>구현부터</code> 인자, 「설계 검토 대기」 좌석은 2026-09-26 wbs-web staging 에 들어갔고 킷 cb25883 에는 없습니다. 서버 계약 2.10 과 그 뒤 킷에서 씁니다.</p></div>
 <p>팀장을 <code>설계만</code>으로 돌리면 팀원은 설계와 Design 게이트까지만 하고 <code>build-start</code> 를 부르지 않습니다. 설계를 agent 브랜치에 push 하고 <code>design_review</code> 로 끝내며, 좌석은 「설계 검토 대기」가 됩니다. 사람은 그 브랜치의 <code>design.md</code> 를 검토·수정합니다. 이어서 구현하려면 팀장을 <code>구현부터</code>로 다시 돌리거나(이 PC 의 검토 대기 설계를 모두 이어 갑니다), 좌석의 「이어서 시작」을 누릅니다(그 한 건만). 팀장이 기본 범위로 돌 때는 검토 대기 설계를 저절로 이어 가지 않습니다.</p>
 <p><code>구현부터</code>는 사람이 설계한 작업도 받습니다. 개발 브랜치의 <code>&lt;작업 폴더&gt;/design.md</code> 에 Design 게이트의 5개 절(접근, 파일 목록, 테스트 전략, 수용 기준 매핑, 불변 규칙)이 있어야 하며, 없거나 모자라면 팀원은 착수하지 않고 <code>skipped design_missing</code>·<code>design_invalid</code> 로 알립니다. 빠진 절을 에이전트가 대신 채우지 않습니다. 사람이 직접 돌릴 때는 <code>/dflow-dev &lt;번호&gt; --scope design</code>·<code>--scope build</code> 로 같은 동작을 씁니다.</p>
 
