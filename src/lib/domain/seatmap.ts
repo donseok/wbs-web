@@ -384,7 +384,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     zones.set(key, zone)
     zone.seats.push(seat)
     if (WORK_STATES.includes(seat.state)) zone.summary.work++
-    else if (seat.state === 'WAIT') zone.summary.wait++
+    // wait 는 화면에서 「승인 대기」다 — 설계 완료·선행 대기는 WAIT 지만 레인처럼 빈자리(선행 대기) 쪽에 센다.
+    else if (seat.state === 'WAIT' && !seat.designWait) zone.summary.wait++
     else if (seat.state === 'DONE') zone.summary.done++
     else zone.summary.ready++ // READY · OFFLINE(빈 의자)
   }
@@ -453,7 +454,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     }
     if (s.state === 'DONE') continue // 승인분은 doneCount 로 따로 센다 — 현황판 넷에 끼우지 않는다
     if (WORK_STATES.includes(s.state)) counters.active++
-    else if (s.state === 'WAIT') counters.idle++
+    // idle 타일은 「승인 대기」다 — 설계 완료·선행 대기는 빈자리(선행 대기)와 같이 센다(레인·구역 요약과 같은 규칙).
+    else if (s.state === 'WAIT' && !s.designWait) counters.idle++
     else counters.offline++
     if (ATTENTION_ORDER.includes(s.state)) {
       attention.push({ orderId: s.orderId, id8: s.id8, floorName: f.name, code: s.code, name: s.name, state: s.state, why: attentionWhy(s, nowMs) })

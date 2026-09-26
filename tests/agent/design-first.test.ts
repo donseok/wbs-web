@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import { generateAgentToken } from '@/lib/agent/token'
 
 /**
  * 설계 선행 claim 과 build-start(스펙 2026-09-26 §6.3, 계약 v2.9).
@@ -56,17 +57,29 @@ function useAdmin(queues: Record<string, Resp[]>, users = [USER]) {
       const resp = (queues.rpc ?? []).shift() ?? { data: RPC_OK }
       return { data: resp.data ?? null, error: resp.error ?? null }
     }),
-    auth: { admin: { listUsers: vi.fn(async () => ({ data: { users }, error: null })) } },
+    auth: {
+      admin: {
+        listUsers: vi.fn(async () => ({ data: { users }, error: null })),
+        getUserById: vi.fn(async () => ({ data: { user: { id: 'u-1', email: USER.email } }, error: null })), // PAT 소유자
+      },
+    },
   }
   mocks.createAdminClient.mockReturnValue(admin)
   return admin
 }
 
-const post = (path: string, body: unknown) => new NextRequest(`http://l/api/v1/agent/work/${O1}/${path}`, {
+const post = (path: string, body: unknown, bearer = SECRET) => new NextRequest(`http://l/api/v1/agent/work/${O1}/${path}`, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SECRET}` },
+  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
   body: JSON.stringify(body),
 })
+// PAT 경로 — dflow.sh 가 실제로 쓰는 신원(depends-gate.test.ts 와 같은 픽스처).
+const PAT = generateAgentToken()
+const RUNNER = {
+  id: 'r-1', kind: 'user_pat' as const, owner_user_id: 'u-1', token_prefix: PAT.prefix,
+  token_hash: PAT.hash, project_id: null, scopes: ['work:read', 'work:claim'], enabled: true,
+  revoked_at: null, expires_at: '2099-01-01T00:00:00Z',
+}
 const ctx = { params: Promise.resolve({ id: O1 }) }
 const member = () => ({
   agent_projects: [{ data: { enabled: true } }],
@@ -336,5 +349,45 @@ describe('POST /work/{id}/build-start', () => {
     for (const m of ['GET', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'] as const) {
       expect(typeof (buildStartRoute as Record<string, unknown>)[m]).toBe('function')
     }
+  })
+})
+
+describe('PAT 경로(dflow.sh 가 쓰는 신원)', () => {
+  it('claim + design_first → RPC 에 p_stage ds, 점유자 계정은 서버 유도값', async () => {
+    const admin = useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: { id: O1, project_id: P1, status: 'ready', claimed_by: null, claimed_by_user_id: null, wbs_item_id: W1 } }, { data: null }],
+      ...member(),
+      wbs_items: [{ data: ITEM_ROW() }, { data: [dep('ip')] }],
+    })
+    const res = await claimPOST(post('claim', { agent: 'hong/mbp/w1', design_first: true }, PAT.token), ctx)
+    expect(res.status).toBe(200)
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({
+      p_event: 'claim', p_stage: 'ds', p_agent: 'hong/mbp/w1', p_agent_user_id: 'u-1',
+    }))
+  })
+  it('build-start — 점유 계정이 같으면 계정 일치 조건(p_agent_user_id)으로 부르고, 다르면 403 not_claim_owner', async () => {
+    const CLAIMED = { id: O1, project_id: P1, status: 'claimed', claimed_by: 'hong/mbp/w1', claimed_by_user_id: 'u-1', wbs_item_id: W1 }
+    const admin = useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: CLAIMED }],
+      ...member(),
+      wbs_items: [{ data: { depends: [], depends_waived: [] } }],
+    })
+    const res = await buildStartPOST(post('build-start', { agent: 'hong/mbp/w1' }, PAT.token), ctx)
+    expect(res.status).toBe(200)
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({
+      p_event: 'build_start', p_agent: null, p_agent_user_id: 'u-1',
+    }))
+
+    const other = useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: { ...CLAIMED, claimed_by_user_id: 'u-9' } }],
+      ...member(),
+    })
+    const r2 = await buildStartPOST(post('build-start', { agent: 'hong/mbp/w1' }, PAT.token), ctx)
+    expect(r2.status).toBe(403)
+    expect((await r2.json()).code).toBe('not_claim_owner')
+    expect(other.rpc).not.toHaveBeenCalled()
   })
 })
