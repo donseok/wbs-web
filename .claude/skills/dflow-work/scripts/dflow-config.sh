@@ -11,6 +11,8 @@ _dfc_env() {
     pats) echo DFLOW_PATS ;; pat) echo DFLOW_PAT ;; as) echo DFLOW_AS ;; dev_branch) echo DFLOW_DEV_BRANCH ;;
     automerge) echo DFLOW_AUTOMERGE ;; project_map) echo DFLOW_PROJECT_MAP ;;
     no_docker) echo DFLOW_NO_DOCKER ;; dialect_check) echo DFLOW_DIALECT_CHECK ;;
+    worker_keep_skills) echo DFLOW_WORKER_KEEP_SKILLS ;; worker_skills_off) echo DFLOW_WORKER_SKILLS_OFF ;;
+    worker_keep_plugins) echo DFLOW_WORKER_KEEP_PLUGINS ;; worker_output_style) echo DFLOW_WORKER_OUTPUT_STYLE ;;
     *) return 1 ;;
   esac
 }
@@ -18,6 +20,7 @@ _dfc_scope() {
   case "$1" in
     api_base|project_id|release_branch) echo common ;;
     pats|pat|as|dev_branch|automerge|project_map) echo personal ;;
+    worker_keep_skills|worker_skills_off|worker_keep_plugins|worker_output_style) echo personal ;;
     no_docker|dialect_check) echo both ;;
     *) echo unknown ;;
   esac
