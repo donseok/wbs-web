@@ -107,7 +107,8 @@ Skill 도구가 `dflow-dev` 를 모르면 `.claude/skills/dflow-dev/SKILL.md` �
 
 `{ID8}` 외의 어떤 주문에도 claim·build-start·progress·heartbeat·release·done 을 하지 않는다. `list` 는 호출하지 않는다. 필요한
 조회는 `show {ID8}` 뿐이다(목록 캐시를 같은 머신의 팀장·팀원이 공유한다). `contract-ge` 는 `/me` 만 읽으므로 부를 수 있다.
-설계 선행(계약 2.9)의 `claim {ID8} --design-first`·`build-start {ID8}`·`heartbeat {ID8} --phase wait_pred` 는 이 범위 안이다.
+설계 선행(계약 2.9)의 `claim {ID8} --design-first`·`build-start {ID8}`·`heartbeat {ID8} --phase wait_pred` 와 설계만 멈춤(계약 2.10)의
+`heartbeat {ID8} --phase wait_review` 는 이 범위 안이다.
 
 ## 6. 판단 규칙 (자동 모드)
 
