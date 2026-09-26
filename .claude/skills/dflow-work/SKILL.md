@@ -116,7 +116,7 @@ main·staging 위에서 구현을 진행하지 말 것 — done 의 push 검증�
 `DESIGN_FIRST_TOO_EARLY` 다. 설계를 마치면 `dflow.sh build-start <ref>` 로 구현(`ip`)으로 넘긴다 — 선행이 아직이면 exit 4,
 옛 서버(404 이고 계약 < 2.9)면 stderr `BUILD_START_UNSUPPORTED` 에 exit 0 이다. 새 서버의 404 는 exit 7 이고, 404 인데 계약 버전을
 확인하지 못하면 실패로 본다. 서버가 지원하는지는 `dflow.sh contract-ge 2.9`(exit 0 이면 지원)로 본다.
-흐름 정본은 `/dflow-dev` SKILL.md 「설계 선행」 이다.
+흐름 정본은 `/dflow-dev` `references/orch/design-first.md` 「설계 선행」 이다.
 
 ### 작업 폴더 조회
 
