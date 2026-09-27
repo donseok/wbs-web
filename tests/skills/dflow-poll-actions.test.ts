@@ -64,5 +64,8 @@ describe('poll.sh — 서버 판단으로 고른다(Y4)', { timeout: 30000 }, ()
   })
   it('--actions 에 모르는 값은 사용법(exit 2)', () => {
     expect(poll(['--actions', 'weird'], []).code).toBe(2)
+    // 고를 판단이 하나도 없으면(빈 값·쉼표뿐) 아무것도 고르지 않는 조용한 감시가 되므로 사용법으로 보낸다(deferred A8)
+    expect(poll(['--actions', ''], []).code).toBe(2)
+    expect(poll(['--actions', ','], []).code).toBe(2)
   })
 })

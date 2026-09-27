@@ -77,6 +77,8 @@ case "$RECHECK_CYCLES" in ''|*[!0-9]*) usage ;; esac
 case "$WAIT_CYCLES"    in ''|*[!0-9]*) usage ;; esac
 case "$TAG_CACHE_CYCLES" in ''|*[!0-9]*) usage ;; esac
 for _a in $(printf '%s' "$ACTIONS" | tr ',' ' '); do case "$_a" in full|design|build) ;; *) usage ;; esac; done
+# 고를 판단이 하나도 없으면(`--actions ''`·`','`) 아무것도 고르지 않는 조용한 감시가 된다 — 사용법으로 보낸다
+case ",$ACTIONS," in *,full,*|*,design,*|*,build,*) ;; *) usage ;; esac
 # --wp 형식 검사와 정규화: 항목마다 WP-<숫자> 또는 <모듈>/WP-<숫자>. 오타가 조용히 "감지 0건" 이 되지 않게
 # 막는다. 번호는 앞의 0 을 떼어 적는다(WP-2 와 WP-02 를 같게 보고, TSK-02-05 의 02 도 같은 방식으로 뗀다).
 if [ -n "$WP" ]; then
