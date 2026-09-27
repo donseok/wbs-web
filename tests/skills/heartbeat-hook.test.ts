@@ -538,3 +538,31 @@ describe('heartbeat.sh — 사용 토큰(0104)', () => {
     expect(body(0).tokens).toBeUndefined()
   })
 })
+
+describe('heartbeat.sh — 다른 PC 가 이어받음(409 runner_active, 설계 상태 스펙 12절 Y1·계획 P9)', () => {
+  const ORDER = '22222222-2222-4222-8222-222222222222'
+  const STATE = () => join(repo, 'docs/tasks/TSK-01/state.json')
+  const RA = { FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"error":"x","code":"runner_active","runner":"kim/pc2/w1"}' }
+  beforeEach(() => { writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n') })
+
+  it('continue:false 로 세우고 이유에 runner 를 적는다 — state.json·중단 표식은 건드리지 않는다', () => {
+    const j = JSON.parse(runOut(RA).trim())
+    expect(j.continue).toBe(false)
+    expect(j.stopReason).toContain('kim/pc2/w1')
+    expect(j.stopReason).toContain('22222222')
+    expect(JSON.parse(readFileSync(STATE(), 'utf8')).phase).toBe('build')
+    expect(existsSync(join(home, `.dflow/hb/${ORDER}.cancelled`))).toBe(false)
+  })
+  it('절제 스탬프를 지워 다음 도구 호출도 다시 묻고 다시 세운다', () => {
+    runOut(RA)
+    expect(existsSync(join(home, `.dflow/hb/${ORDER}`))).toBe(false)
+    expect(JSON.parse(runOut(RA).trim()).continue).toBe(false)
+  })
+  it('다음 heartbeat 가 200 이면 세우지 않는다(이 PC 가 정당하게 넘겨받음)', () => {
+    runOut(RA)
+    expect(runOut({ FAKE_HB_CODE: '200', FAKE_HB_BODY: '{"ok":true}' }).trim()).toBe('')
+  })
+  it('다른 409(conflict)는 종전대로 무시한다(fail-open)', () => {
+    expect(runOut({ FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"code":"conflict"}' }).trim()).toBe('')
+  })
+})
