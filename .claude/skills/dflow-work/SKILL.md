@@ -125,7 +125,8 @@ main·staging 위에서 구현을 진행하지 말 것 — done 의 push 검증�
 `action`·`mine`, `show` 의 `.order.action`·`.order.mine`·`.order.design_state`·`.order.claim_scope`·`.order.runner`.
 - `claim <ref> [--design-first] [--scope full|design|build]` — 서버가 저장한 범위를 `CLAIM_SCOPE <범위>` 한 줄로 낸다.
 - `build-start <ref> [--scope full|build|rework]` — 설계 관문이면 exit 11, 다른 PC 가 돌면 exit 12.
-- `design-done <ref>` — 설계를 마치고 멈춘다(단계 `dd`, 설계 검토 방식이면 설계 상태 `review`). 출력 `design-done <id8> <review|accepted|none>`.
+- `design-done <ref>` — 설계를 마치고 멈춘다(단계 `dd`, 설계 검토 방식이거나 설계 범위(`--scope design`)로 claim 한 주문이면 설계 상태
+  `review`). 출력 `design-done <id8> <review|accepted|none>`.
 - `design-reopen <ref> --reason "<이유>"` — 설계를 사람에게 되돌린다. 사유는 화면에 보인다.
 - 옛 서버(계약 < 2.11)면 두 동사는 stderr `DESIGN_STATE_UNSUPPORTED` 에 exit 7 이다. 지원 여부는 `dflow.sh contract-ge 2.11` 로 본다.
 흐름 정본은 `/dflow-dev` `references/orch/start.md` 「서버 판단」·`references/orch/design.md` 「설계 받기」·「설계만 멈춤」 이다.
@@ -211,7 +212,8 @@ dflow.sh release <순번>
 
 claim 했던 작업을 포기. 상태 -> ready 로 돌아감.
 
-계약 2.11 에서 설계 상태(검토 대기·승인됨)가 있는 주문은 반납하지 않는다(exit 11, 설계 상태 스펙 D13). 사람이 D'Flow 에서 「설계 되돌리기」나
+계약 2.11 에서 설계 상태(검토 대기·승인됨)가 있는 주문은 반납하지 않는다(exit 11, 설계 상태 스펙 D13) — 설계만 하던 주문(`claim_scope`
+`design`)이 단계 `ds`·`dd` 에 있으면 설계 상태가 없어도 마찬가지다. 사람이 D'Flow 에서 「설계 되돌리기」나
 중단을 쓴다.
 
 ## 금지사항 (명령형)

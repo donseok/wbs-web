@@ -207,7 +207,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 | POST `/api/v1/agent/work/{id}/claim` | legacy·pat | PAT: `claimed_by_user_id` 서버 유도 기록. 배정 항목은 담당자만(403 `not_assignee`). 선택 본문 `scope`(`full`·`design`·`build`, 안 보내면 `legacy`, v2.11) |
 | POST `/api/v1/agent/work/{id}/release` | legacy·pat | 소유 판정: PAT=claimed_by_user_id, legacy=claimed_by 라벨. 교차 403 `not_claim_owner` |
 | POST `/api/v1/agent/work/{id}/report` | legacy·pat | 위와 같음 + PAT는 `evidence` 객체 허용 · PAT completion 은 `decisions` 배열 허용(v2.6) |
-| POST `/api/v1/agent/work/{id}/build-start` | legacy·pat | 설계 끝 → 구현(v2.9, `ds→ip`, 멱등). 소유 판정은 release·report 와 같다. 선행 미충족 403 `dependency_not_met`. 선택 본문 `scope`(`full`·`build`·`rework`, 안 보내면 `legacy`, v2.11) |
+| POST `/api/v1/agent/work/{id}/build-start` | legacy·pat | 설계 끝 → 구현(v2.9, `ds`·`dd`→`ip` — `dd`도 시작 단계로 받는다, 멱등). 소유 판정은 release·report 와 같다. 선행 미충족 403 `dependency_not_met`. 선택 본문 `scope`(`full`·`build`·`rework`, 안 보내면 `legacy`, v2.11) |
 | POST `/api/v1/agent/work/{id}/design-done` | legacy·pat | 설계 멈춤(v2.11, `ds→dd`) — 점유자 전용. 구현이 시작된(`ip` 이상) 작업은 409 `design_gate` |
 | POST `/api/v1/agent/work/{id}/design-reopen` | legacy·pat | 설계를 사람에게 되돌림(v2.11, 본문 `reason`) — claimed 면 점유자, ready 면 그 주문의 후보 PAT |
 | GET `/api/v1/agent/me` | **pat 전용** | legacy 호출 400 `identity_required` |

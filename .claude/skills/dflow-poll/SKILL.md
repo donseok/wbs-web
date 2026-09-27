@@ -57,7 +57,7 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
      ("`<id8> <이름>` 착수") 후 **첫 줄의 id8 로** `/dflow-dev <id8>` 사이클을 실행한다.
      순번은 그 시점 목록 캐시 기준이라 시간이 지나면 어긋날 수 있다 — **claim 은 반드시 id8 로.**
      넷째 칸이 있고 `full` 이 아니면(겹쳐 뜬 옛 poll 등) 착수하지 않고 "`<id8>` 는 설계 검토·구현자동 작업이라 건너뜁니다(/dflow-team 이나
-     사람의 /dflow-dev 가 맡는다)" 를 통지한 뒤 그 id8 을 exclude 에 넣어 재기동한다.
+     사람의 /dflow-dev 가 맡습니다)" 를 통지한 뒤 그 id8 을 exclude 에 넣어 재기동한다.
    - **9 = 승인 감지(머지 대상)**: stdout 각 줄이 `TSK<TAB>order-id` — 로컬 state.json 이
      reported 인데 서버가 approved 로 바뀐 주문이다. **사람에게 묻지 않고** dflow-dev 의
      Phase 01-가 승인 스윕(머지·뒷정리)을 실행한 뒤 poll.sh 를 재기동한다. 승인 → 머지 →

@@ -179,6 +179,11 @@ dflow.sh me
 그 PC 의 세션이 정말 끝났으면 30분 뒤 다시 돌리면 이어받는다(`mine` 이 참이 된다). 두 PC 가 같은 작업을 구현하지 않게 하는 관문이라 우회하지
 않는다. 새 heartbeat 훅을 깐 PC 에서는 훅이 먼저 세션을 세운다.
 
+완료 보고(`done`)의 `runner_active` 는 다른 PC 뿐 아니라 **같은 PC 의 다른 세션**이 살아 있을 때도 난다(`designGate.ts` `canReportCompletion`
+둘째 갈래 — heartbeat 라벨이 다르고 그 세션이 아직 살아 있음). 이 경우는 30분을 기다리는 게 아니라 **그 세션이 끝나야**(heartbeat 가
+멎어야) 풀린다. 이때 `RUNNER_ACTIVE <runner>` 의 라벨은 막는 세션이 아닐 수 있다(`-` 이거나 이 PC 자신의 runner) — stderr 에 먼저
+찍힌 오류 문구(막는 세션 이름이 들어 있다)를 함께 본다.
+
 ## cache 와 상태 복구
 
 ### cache 위치
