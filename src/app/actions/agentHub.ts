@@ -17,6 +17,7 @@ import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { after } from 'next/server'
 import { approveAgentCompletion, rejectAgentCompletion, requestAgentRework, unapproveAgentCompletion } from '@/app/actions/agentWork'
 import { setWbsStage } from '@/app/actions/wbsAssign'
+import { designAccept, designConfirm, designReopen } from '@/app/actions/designActions'
 import type { AgentHub } from '@/lib/domain/agentHub'
 import { HUMAN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
 
@@ -142,6 +143,13 @@ export type HubProcessOp =
   /** 재개 요청 — 멈춘(무응답·끊김) 좌석을 팀장이 이어받아 달라는 표식. 상태 전이가 아니다. */
   | { kind: 'resume'; orderId: string }
   | { kind: 'stage'; itemId: string; stage: WbsStageCode | null }
+  /**
+   * 설계 버튼(설계 상태 스펙 7절) — 완료 승인과 다른 동작이다. 「설계 승인」·「설계 확정」·「설계 되돌리기」.
+   * 자격은 designActions 가 위임 권한(requireDelegationRight, D10)으로 본다.
+   */
+  | { kind: 'design_accept'; itemId: string }
+  | { kind: 'design_confirm'; itemId: string }
+  | { kind: 'design_reopen'; itemId: string; note: string }
 
 export type HubProcessResult =
   | { ok: true; hub: AgentHub | null; hubError?: string; warning?: string }
@@ -158,6 +166,10 @@ function isProcessOp(op: unknown): op is HubProcessOp {
       return uuid(o.orderId) && typeof o.note === 'string'
     case 'stage':
       return uuid(o.itemId) && (o.stage === null || (typeof o.stage === 'string' && STAGE_CODES.has(o.stage)))
+    case 'design_accept': case 'design_confirm':
+      return uuid(o.itemId)
+    case 'design_reopen':
+      return uuid(o.itemId) && typeof o.note === 'string'
     default:
       return false
   }
@@ -274,7 +286,9 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
   // 이 화면에 끼워 넣는 길은 여기서 닫는다(fail-closed). stop·resume 은 이 조회로 얻은 wbs_item_id 를
   // 아래 서브트리 관리자 판정에도 그대로 쓴다(재조회 없이).
   let orderItemId: string | null = null
-  if (op.kind === 'stage') {
+  // 항목을 대상으로 하는 op(단계·설계 버튼)는 항목의 프로젝트를 본다. kind 로 가른다 — 주문 op 에 itemId 칸을 끼워 넣어
+  // 주문의 프로젝트 확인을 건너뛰는 길을 열지 않으려는 것이다.
+  if (op.kind === 'stage' || op.kind === 'design_accept' || op.kind === 'design_confirm' || op.kind === 'design_reopen') {
     const { data, error } = await admin.from('wbs_items').select('project_id').eq('id', op.itemId).maybeSingle()
     if (error) return { ok: false, error: `항목 조회 실패: ${error.message}` }
     if (!data || (data as { project_id: string }).project_id !== projectId) return { ok: false, error: '이 프로젝트의 항목이 아닙니다.' }
@@ -307,6 +321,9 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
     case 'stop': r = await stopOrderByAdmin(admin, op.orderId, g.actor.userId, projectId, isAdmin); break
     case 'resume': r = await requestResumeOnOrder(admin, op.orderId, g.actor.userId); break
     case 'stage': r = await setWbsStage(op.itemId, op.stage); break
+    case 'design_accept': r = await designAccept(op.itemId); break
+    case 'design_confirm': r = await designConfirm(op.itemId); break
+    case 'design_reopen': r = await designReopen(op.itemId, op.note); break
   }
   if (!r.ok) return { ok: false, error: r.error ?? '처리에 실패했습니다.' }
   const warning = r.warning ? { warning: r.warning } : {}

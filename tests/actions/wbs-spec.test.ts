@@ -206,31 +206,37 @@ describe('updateAgentPrompt', () => {
 
 describe('getWbsSpec', () => {
   it('같은 프로젝트 멤버 + 조회 성공 → 현재 값 반환', async () => {
+    let selected = ''
     mocks.createServerClient.mockResolvedValue({
       from: () => ({
-        select: () => ({
-          eq: () => ({
-            maybeSingle: async () => ({
-              data: {
-                category: 'dev', domain: 'fullstack', priority: 'high', model: 'opus',
-                tags: ['contract'], depends: ['TSK-01-00'], prd_ref: 'docs/prd.md#3',
-                entry_point: 'src/x.tsx', acceptance: ['목록이 뜬다'], spec: '# 명세',
-                external_ref: 'mod/TSK-01-01', agent_prompt: '레거시 호환 유지할 것',
-              },
-              error: null,
+        select: (cols: string) => {
+          selected = cols
+          return {
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: {
+                  category: 'dev', domain: 'fullstack', priority: 'high', model: 'opus',
+                  tags: ['contract'], depends: ['TSK-01-00'], prd_ref: 'docs/prd.md#3',
+                  entry_point: 'src/x.tsx', acceptance: ['목록이 뜬다'], spec: '# 명세',
+                  external_ref: 'mod/TSK-01-01', agent_prompt: '레거시 호환 유지할 것', design_mode: 'review',
+                },
+                error: null,
+              }),
             }),
-          }),
-        }),
+          }
+        },
       }),
     })
     const r = await getWbsSpec(W1)
     expect(mocks.resolveProjectId).toHaveBeenCalledWith('wbs_items', W1)
     expect(mocks.requireProjectMember).toHaveBeenCalledWith(P1)
+    // 설계 방식(0108)은 select 에 실제로 있어야 한다 — 목은 고른 열과 무관하게 행을 돌려주므로 열 목록을 따로 본다.
+    expect(selected.split(',').map(c => c.trim())).toContain('design_mode')
     expect(r).toEqual({
       category: 'dev', domain: 'fullstack', priority: 'high', model: 'opus',
       tags: ['contract'], depends: ['TSK-01-00'], prdRef: 'docs/prd.md#3',
       entryPoint: 'src/x.tsx', acceptance: ['목록이 뜬다'], spec: '# 명세',
-      externalRef: 'mod/TSK-01-01', agentPrompt: '레거시 호환 유지할 것',
+      externalRef: 'mod/TSK-01-01', agentPrompt: '레거시 호환 유지할 것', designMode: 'review',
     })
   })
 

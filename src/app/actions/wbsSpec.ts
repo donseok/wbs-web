@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
+import { toDesignMode, type DesignMode } from '@/lib/domain/designGate'
 import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 import { applyDelegation, requireDelegationRight, type AgentDelegationResult } from '@/lib/agent/delegation'
 // 결과 타입은 명세 패널 등 화면이 이 모듈에서 import 한다 — 본체를 옮겨도 계약 위치는 유지(타입 재export 는 런타임에 없다).
@@ -40,6 +41,11 @@ export interface WbsSpecDetail {
   externalRef: string | null
   /** 에이전트 위임 시 사용자 지시문(0090) — 웹 전용 필드. import 가 덮지 않아 재업로드에도 보존. */
   agentPrompt: string | null
+  /**
+   * 설계 방식(0108, 설계 상태 스펙 7절) — getWbsSpec 은 늘 채운다. 선택 칸으로 두는 까닭은 가짜 DETAIL 을 쓰는
+   * 기존 패널 테스트가 그대로 컴파일되고 통과하게 하려는 것이다.
+   */
+  designMode?: DesignMode
 }
 
 /**
@@ -83,7 +89,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('wbs_items')
-    .select('category, domain, priority, model, tags, depends, prd_ref, entry_point, acceptance, spec, external_ref, agent_prompt')
+    .select('category, domain, priority, model, tags, depends, prd_ref, entry_point, acceptance, spec, external_ref, agent_prompt, design_mode')
     .eq('id', itemId).maybeSingle()
   if (error) {
     console.error('[getWbsSpec] 조회 실패:', error.message)
@@ -103,6 +109,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
     spec: string | null
     external_ref: string | null
     agent_prompt: string | null
+    design_mode: string | null
   }
   return {
     category: row.category ?? null,
@@ -117,6 +124,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
     spec: row.spec ?? null,
     externalRef: row.external_ref ?? null,
     agentPrompt: row.agent_prompt ?? null,
+    designMode: toDesignMode(row.design_mode),
   }
 }
 

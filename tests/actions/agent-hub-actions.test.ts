@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getAgentHub: vi.fn(), applyDelegation: vi.fn(), viewerEmail: vi.fn(), myMemberIds: vi.fn(),
   isSubtreeManager: vi.fn(),
   approve: vi.fn(), reject: vi.fn(), unapprove: vi.fn(), rework: vi.fn(), setWbsStage: vi.fn(), emitNotification: vi.fn(),
+  designAccept: vi.fn(), designConfirm: vi.fn(), designReopen: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({ requireProjectMember: mocks.requireProjectMember, requireProjectAdmin: mocks.requireProjectAdmin }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
@@ -25,6 +26,10 @@ vi.mock('@/app/actions/agentWork', () => ({
   unapproveAgentCompletion: mocks.unapprove, requestAgentRework: mocks.rework,
 }))
 vi.mock('@/app/actions/wbsAssign', () => ({ setWbsStage: mocks.setWbsStage }))
+// 설계 버튼(설계 상태 스펙 7절)의 자격(위임 권한)은 designActions 가 본다 — 여기서는 전달과 항목의 프로젝트 확인만 본다.
+vi.mock('@/app/actions/designActions', () => ({
+  designAccept: mocks.designAccept, designConfirm: mocks.designConfirm, designReopen: mocks.designReopen,
+}))
 import { refreshAgentHub, applyHubDelegations, runHubProcessOp } from '@/app/actions/agentHub'
 
 const P1 = '11111111-1111-4111-8111-111111111111'
@@ -428,5 +433,63 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       await runHubProcessOp(P1, { kind: 'rework', orderId: O(1), note: '테스트 빠짐' })
       expect(mocks.rework).toHaveBeenCalledWith(O(1), '테스트 빠짐')
     })
+  })
+})
+
+describe('runHubProcessOp — 설계 버튼(설계 상태 스펙 7절): 항목이 이 프로젝트 것인지 본 뒤 designActions 로, 자격은 그쪽(위임 권한, D10)', () => {
+  const ITEMS = { [I(1)]: { project_id: P1 }, [I(2)]: { project_id: P2 } }
+  const BAD = { ok: false, error: '잘못된 요청입니다.' }
+  beforeEach(() => {
+    mocks.requireProjectMember.mockResolvedValue(ADMIN)
+    for (const m of [mocks.designAccept, mocks.designConfirm, mocks.designReopen]) m.mockResolvedValue({ ok: true })
+  })
+
+  it('design_accept·design_confirm·design_reopen → 항목의 프로젝트를 본 뒤 각 액션으로, 허브를 다시 읽어 돌려준다', async () => {
+    const { client } = fakeAdmin({ items: ITEMS })
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(1) })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.designAccept).toHaveBeenCalledWith(I(1))
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', itemId: I(1) })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.designConfirm).toHaveBeenCalledWith(I(1))
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(1), note: '테스트 전략이 모자람' })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.designReopen).toHaveBeenCalledWith(I(1), '테스트 전략이 모자람')
+    // 항목을 대상으로 하는 op 는 주문이 아니라 항목의 프로젝트를 본다.
+    expect(client.from).toHaveBeenCalledWith('wbs_items')
+    expect(client.from).not.toHaveBeenCalledWith('agent_work_orders')
+    expect(mocks.getAgentHub).toHaveBeenCalledWith(P1, { userId: 'admin-1', isAdmin: true })
+  })
+  it('자격은 여기서 좁히지 않고 위임 권한을 보는 액션에 맡긴다 — 멤버도 넘어가고, 거부 문구는 그대로·재조회 없음, 경고는 싣는다', async () => {
+    mocks.requireProjectMember.mockResolvedValue(MEMBER)
+    fakeAdmin({ items: ITEMS })
+    mocks.designAccept.mockResolvedValueOnce({ ok: false, error: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(1) }))
+      .toEqual({ ok: false, error: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.' })
+    expect(mocks.designAccept).toHaveBeenCalledWith(I(1))
+    expect(mocks.isSubtreeManager).not.toHaveBeenCalled()
+    expect(mocks.getAgentHub).not.toHaveBeenCalled()
+    mocks.designConfirm.mockResolvedValueOnce({ ok: true, warning: '처리는 됐지만 단계·실적을 바꾸지 않았습니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', itemId: I(1) }))
+      .toEqual({ ok: true, hub: HUB, warning: '처리는 됐지만 단계·실적을 바꾸지 않았습니다.' })
+  })
+  it('남의 프로젝트 항목 → 거부, 액션 미호출 — 주문 op 에 itemId 를 끼워 넣어도 주문의 프로젝트를 본다', async () => {
+    fakeAdmin({ orders: { [O(2)]: { project_id: P2, status: 'reported', wbs_item_id: null } }, items: ITEMS })
+    const OTHER = { ok: false, error: '이 프로젝트의 항목이 아닙니다.' }
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(2) })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', itemId: I(2) })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(2), note: '다시' })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(3) })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(2), itemId: I(1) } as never))
+      .toEqual({ ok: false, error: '이 프로젝트의 주문이 아닙니다.' })
+    for (const m of [mocks.designAccept, mocks.designConfirm, mocks.designReopen, mocks.approve]) expect(m).not.toHaveBeenCalled()
+    expect(mocks.getAgentHub).not.toHaveBeenCalled()
+  })
+  it('note 가 문자열이 아닌 reopen·uuid 가 아닌 itemId·orderId 로 온 설계 op → 잘못된 요청(조회·액션 없음)', async () => {
+    const { client } = fakeAdmin({ items: ITEMS })
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(1) } as never)).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(1), note: 3 } as never)).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: 'x' })).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', orderId: O(1) } as never)).toEqual(BAD)
+    expect(mocks.requireProjectMember).not.toHaveBeenCalled()
+    expect(client.from).not.toHaveBeenCalled()
+    for (const m of [mocks.designAccept, mocks.designConfirm, mocks.designReopen]) expect(m).not.toHaveBeenCalled()
   })
 })
