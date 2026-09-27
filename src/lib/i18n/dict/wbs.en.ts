@@ -328,8 +328,9 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   // Step 1 points to removing delegation, not the agent page's "Stop" — that button is admin/subtree-manager only
   // and is blocked on ready orders and parent rows, so it is usually not available to the assignee viewing this panel.
   // Removing delegation ends ready/claimed orders through the same shared cancel and needs the same right as the
-  // design buttons (D10), and sits in the very next field.
-  'wbs.designExitStep1': 'Turn off the delegation checkbox (right next to this). The order is cancelled, so the design mode can be changed.',
+  // design buttons (D10). No location claim — the delegation checkbox lives inside the spec body (collapsed by
+  // default; admins also need the edit toggle), not right next to this design section (self-review fix).
+  'wbs.designExitStep1': 'Turn off the delegation checkbox. The order is cancelled, so the design mode can be changed.',
   'wbs.designExitStep2': 'Delegate again and choose the “Build auto” design mode.',
   'wbs.designExitStep3': 'Move design.md from the agent branch to <TASKS>/<TSK>/design.md on the development branch.',
   'wbs.designExitStep4': 'Press “Confirm design”.',
