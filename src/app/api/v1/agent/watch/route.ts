@@ -4,8 +4,9 @@ import { isUuidLike } from '@/lib/domain/agentWork'
 import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
 import { HOLDER_RE } from '@/lib/agent/leadLease'
 import {
-  apiBadRequest, apiFail, apiInternalError, apiNotFound, requireScope, resolveAgentPrincipal,
+  apiBadRequest, apiFail, apiInternalError, apiNotFound, requireScope, resolveAgentPrincipal, type AgentPrincipal,
 } from '@/lib/agent/externalApi'
+import { accessibleProjectIds } from '@/lib/agent/mineShared'
 import { isMine, listFilterPass, parseWpList } from '@/lib/domain/designGate'
 import {
   ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, decide, loadItemFacts, orderFactsOf, type FactItemRow, type FactOrderRow,
@@ -112,20 +113,45 @@ async function leasedProjectIds(
 }
 
 /**
+ * build_ready 가 볼 프로젝트 집합(I-1 보안 수정, 리뷰 1회차) — holder 가 있으면 그 lease 의 프로젝트(이미 lease
+ * 발급 때 접근이 검증된 것으로 본다), 없으면 이 PAT 가 접근 가능한 프로젝트(`accessibleProjectIds`, `/work/mine`
+ * 과 같은 기준 — enabled agent_projects ∩ 멤버)로 좁힌다. 그 위에 body `project_id`(또는 PAT 한정 프로젝트)가
+ * 있으면 교집합한다 — 집합 밖이면 빈 배열이지 400 이 아니다(기존 watch 의 다른 칸 동작은 그대로 둔다).
+ * 접근 가능 프로젝트 조회 실패는 undefined(위장 금지 — 호출자가 build_ready:null + 사유로 답한다).
+ */
+async function buildReadyProjectIds(
+  admin: ReturnType<typeof createAdminClient>, principal: Extract<AgentPrincipal, { kind: 'pat' }>,
+  leased: string[] | null, projectId: string | null,
+): Promise<string[] | undefined> {
+  let base: string[]
+  if (leased !== null) {
+    base = leased
+  } else {
+    try {
+      base = await accessibleProjectIds(admin, principal)
+    } catch (e) {
+      console.error('[agent-api] build 목록 접근 프로젝트 조회 실패:', e instanceof Error ? e.message : e)
+      return undefined
+    }
+  }
+  return projectId !== null ? base.filter(p => p === projectId) : base
+}
+
+/**
  * D22 — 이 신원·이 PC 가 띄울 action build 주문(승인·확정된 설계). 팀장은 이 목록에서 슬롯에 있는 id·제외한 id 를 빼고 남으면
  * TICK 을 건너뛰지 않는다. build 는 설계 상태 accepted 에서만 나오므로 그것만 읽는다. 실패는 null(위장 금지).
+ * projectIds 는 buildReadyProjectIds 가 이미 접근 가능한 집합으로 좁힌 값이다 — 여기서 다시 거르지 않는다.
  */
 async function loadBuildReady(
-  admin: ReturnType<typeof createAdminClient>, userId: string, projectIds: string[] | null, label: string,
+  admin: ReturnType<typeof createAdminClient>, userId: string, projectIds: string[], label: string,
   filters: { requireTag: string | null; wp: string[] | null },
 ): Promise<Array<{ order_id: string; id8: string; code: string | null; name: string | null; status: string }> | null> {
-  // lease 가 하나도 없는 팀장은 어느 프로젝트에서도 띄울 것이 없다 — 재개 요청과 같은 이유로 조회하지 않는다.
-  if (projectIds !== null && projectIds.length === 0) return []
-  let q = admin.from('agent_work_orders')
+  // 접근 가능한(또는 lease 쥔) 프로젝트가 하나도 없으면 띄울 것이 없다 — 재개 요청과 같은 이유로 조회하지 않는다.
+  if (projectIds.length === 0) return []
+  const { data, error } = await admin.from('agent_work_orders')
     .select(`id, project_id, wbs_item_id, status, ${ORDER_FACT_COLUMNS}`)
-    .in('status', ['ready', 'claimed']).eq('design_state', 'accepted')
-  if (projectIds !== null) q = q.in('project_id', projectIds)
-  const { data, error } = await q.limit(200)
+    .in('status', ['ready', 'claimed']).eq('design_state', 'accepted').in('project_id', projectIds)
+    .limit(200)
   if (error) { console.error('[agent-api] build 목록 조회 실패:', error.message); return null }
   const rows = (data ?? []) as Array<FactOrderRow & { id: string; project_id: string; wbs_item_id: string | null }>
   const itemIds = [...new Set(rows.map(r => r.wbs_item_id).filter((x): x is string => x !== null))]
@@ -220,8 +246,9 @@ export async function POST(req: NextRequest) {
     if (gcErr) console.error('[agent-api] watch 오래된 행 정리 실패:', gcErr.message)
     const leased = await leasedProjectIds(admin, principal.userId, holder)
     const resume = await loadResumeRequests(admin, principal.userId, projectId, leased, agent)
-    const buildReady = leased === undefined ? null
-      : await loadBuildReady(admin, principal.userId, leased ?? (projectId !== null ? [projectId] : null), agent, { requireTag: requireTag as string | null, wp })
+    const buildProjectIds = leased === undefined ? undefined : await buildReadyProjectIds(admin, principal, leased, projectId)
+    const buildReady = buildProjectIds === undefined ? null
+      : await loadBuildReady(admin, principal.userId, buildProjectIds, agent, { requireTag: requireTag as string | null, wp })
     return NextResponse.json({
       ok: true,
       expires_at: new Date(now.getTime() + WATCHER_TTL_MS).toISOString(),

@@ -251,11 +251,11 @@ async function requestResumeOnOrder(
   const { data, error } = await admin
     .from('agent_work_orders').select('id, status, claimed_by, design_state').eq('id', orderId).maybeSingle()
   if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
-  const order = data as { id: string; status: string; claimed_by: string | null } | null
+  const order = data as { id: string; status: string; claimed_by: string | null; design_state: string | null } | null
   if (!order) return { ok: false, error: '주문 없음' }
   if (order.status !== 'claimed') return { ok: false, error: `재개를 요청할 수 있는 상태가 아닙니다(${order.status}).` }
   // Y10(설계 상태 스펙 12절) — 설계 검토 대기(review)는 사람이 「설계 승인」을 누를 때까지 이어 갈 것이 없다. 그 밖은 재개한다.
-  if ((order as { design_state?: string | null }).design_state === 'review') {
+  if (order.design_state === 'review') {
     return { ok: false, error: '설계 검토 대기 중인 작업입니다 — 「설계 승인」을 누르면 팀장이 다음 TICK 에 이어 갑니다.' }
   }
   // 호스트는 서버가 점유 라벨에서 파생한다 — 클라이언트가 보낸 값을 믿으면 엉뚱한 PC 가 집어 간다.

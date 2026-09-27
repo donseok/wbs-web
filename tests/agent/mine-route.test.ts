@@ -237,6 +237,88 @@ describe('GET /agent/work/mine', () => {
     const body = await res.json()
     expect(body.available[0]).toMatchObject({ design_mode: 'review', design_state: null, action: 'design', action_reason: '설계만', deps_unmet: false, mine: true })
   })
+  it('M-1(리뷰 수정 1회차) — lead=1 인데 claimed 주문의 점유 라벨이 팀원(/w<n>)이 아니면 mine:false(Y9)', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_orders: [
+        { data: [
+          { id: 'o-c', project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_at: null, wbs_item_id: 'w-c', created_at: '2026-08-01T00:00:00Z',
+            claimed_by: 'hong/mbp', claimed_by_user_id: 'u-1', last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_state: null, claim_scope: 'full', design_note: null, runner: null, runner_seen_at: null },
+        ] },
+        { data: [] },   // loadItemFacts — 항목의 approved 주문 없음
+      ],
+      wbs_items: [{ data: [{ id: 'w-c', project_id: P1, code: '1', name: 'c', planned_start: null, planned_end: null, external_ref: 'M/TSK-02-01',
+        stage: 'ds', actual_pct: 0, tags: ['agent'], depends: [], depends_waived: [], design_mode: 'auto' }] }],
+    })
+    const res = await mineGET(get(`http://l/api/v1/agent/work/mine?scope=claimed&agent=hong/mbp/lead&require_tag=agent&lead=1`, PAT.token))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.claimed[0].mine).toBe(false)
+  })
+  it('M-1(리뷰 수정 1회차) — require_tag 불일치는 ready 주문도 mine:false(거르기 실패)', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_orders: [
+        { data: [
+          { id: 'o-nt', project_id: P1, status: 'ready', priority: 0, instructions: '', claimed_at: null, wbs_item_id: 'w-nt', created_at: '2026-08-01T00:00:00Z',
+            claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_state: null, claim_scope: null, design_note: null, runner: null, runner_seen_at: null },
+        ] },
+        { data: [] },
+      ],
+      wbs_items: [{ data: [{ id: 'w-nt', project_id: P1, code: '1', name: 'n', planned_start: null, planned_end: null, external_ref: 'M/TSK-03-01',
+        stage: 'as', actual_pct: 0, tags: [], depends: [], depends_waived: [], design_mode: 'auto' }] }],
+    })
+    const res = await mineGET(get(`http://l/api/v1/agent/work/mine?require_tag=agent`, PAT.token))
+    const body = await res.json()
+    expect(body.available[0].mine).toBe(false)
+  })
+  it('M-2(리뷰 수정 1회차) — loadItemFacts 실패는 500 이지 빈 목록으로 위장하지 않는다', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_orders: [
+        { data: [
+          { id: 'o-f', project_id: P1, status: 'ready', priority: 0, instructions: '', claimed_at: null, wbs_item_id: 'w-f', created_at: '2026-08-01T00:00:00Z',
+            claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_state: null, claim_scope: null, design_note: null, runner: null, runner_seen_at: null },
+        ] },
+        { data: null, error: { message: 'boom' } },   // loadItemFacts approvedItemIds 실패
+      ],
+      wbs_items: [{ data: [{ id: 'w-f', project_id: P1, code: '1', name: 'f', planned_start: null, planned_end: null, external_ref: 'M/TSK-04-01',
+        stage: 'as', actual_pct: 0, tags: ['agent'], depends: [], depends_waived: [], design_mode: 'auto' }] }],
+    })
+    const res = await mineGET(get('http://l/api/v1/agent/work/mine', PAT.token))
+    expect(res.status).toBe(500)
+  })
+  it('M-3(리뷰 수정 1회차) — 판단 재료로만 쓰는 원시 열은 응답에 새지 않는다', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_orders: [
+        { data: [
+          { id: 'o-m3', project_id: P1, status: 'ready', priority: 0, instructions: '', claimed_at: null, wbs_item_id: null, created_at: '2026-08-01T00:00:00Z',
+            claimed_by: null, claimed_by_user_id: 'u-9', last_heartbeat_at: '2026-09-27T00:00:00Z', heartbeat_phase: 'build', heartbeat_agent: 'hong/mbp/w1',
+            design_state: null, claim_scope: null, design_note: null, runner: null, runner_seen_at: null },
+        ] },
+        { data: [] },
+      ],
+      wbs_items: [{ data: [] }],
+    })
+    const res = await mineGET(get('http://l/api/v1/agent/work/mine', PAT.token))
+    const row = (await res.json()).available[0]
+    for (const k of ['claimed_by_user_id', 'last_heartbeat_at', 'heartbeat_phase', 'heartbeat_agent']) {
+      expect(row, k).not.toHaveProperty(k)
+    }
+  })
   it('wp 형식 오류는 400', async () => {
     useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }] })
     expect((await mineGET(get('http://l/api/v1/agent/work/mine?wp=WP-x', PAT.token))).status).toBe(400)
