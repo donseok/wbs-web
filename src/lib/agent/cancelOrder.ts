@@ -12,7 +12,7 @@ export type CancelOrdersResult = {
   /**
    * 단계·실적이 되돌아간 주문이 있으면 참 — 스냅샷을 남기는 것은 호출부 몫이다. 위임 해제(delegation.applyDelegation →
    * 허브·setDelegationAndMode)는 이 값으로 남기지만, 개발 워크플로 끄기(wbsAssign)·import 표식 제거(wbsImport)·
-   * 스텁 제거(forceProgress)는 이 값을 보지 않는다.
+   * 스텁 제거(forceProgress)·허브 「중단」의 항목 없는 주문 직접 취소(agentHub runHubProcessOp stop)는 이 값을 보지 않는다.
    */
   actualChanged: boolean
 }

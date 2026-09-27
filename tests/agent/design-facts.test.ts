@@ -5,14 +5,16 @@ import { decide, designFieldsOf, hasApprovedOrder, loadItemFacts, orderFactsOf, 
 type Resp = { data?: unknown; error?: { message: string } | null }
 function useAdmin(queues: Record<string, Resp[]>) {
   const calls: Array<{ table: string; cols?: string }> = []
+  const ranges: Array<{ table: string; from: number; to: number }> = []
   return {
-    calls,
+    calls, ranges,
     client: {
       from: vi.fn((table: string) => {
         const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
         const b: Record<string, unknown> = {}
         b.select = (cols: string) => { calls.push({ table, cols }); return b }
         for (const k of ['eq', 'in', 'limit', 'order']) b[k] = () => b
+        b.range = (from: number, to: number) => { ranges.push({ table, from, to }); return b }
         b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
         b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
         return b
@@ -74,16 +76,33 @@ describe('loadItemFacts', () => {
     expect((await loadItemFacts(client, [])).size).toBe(0)
     expect(calls).toEqual([])
   })
-  it('A5(최종 수정) — 배치 조회가 PostgREST max_rows(1000)에 닿으면 잘렸을 수 있어 throw 한다(조용히 자르지 않는다)', async () => {
-    const full = Array.from({ length: 1000 }, (_, i) => ({ wbs_item_id: `x${i}` }))
-    const item = { id: 'w1', project_id: 'P', external_ref: null, stage: 'as', actual_pct: 0, tags: [], depends: ['M/TSK-01-01'], depends_waived: [], design_mode: 'auto' }
-    const approvedFull = useAdmin({ agent_work_orders: [{ data: full }] })
-    await expect(loadItemFacts(approvedFull.client, [item])).rejects.toThrow('1000')
-    const predsFull = useAdmin({
-      agent_work_orders: [{ data: [] }],
-      wbs_items: [{ data: Array.from({ length: 1000 }, (_, i) => ({ id: `p${i}`, project_id: 'P', external_ref: `M/X-${i}`, stage: 'as', actual_pct: 0 })) }],
+  // A5(최종 재검토 수정) — 잘림을 행 수로 추정하면(≥1000 throw) 여러 프로젝트가 같은 ref 를 쓰는 정상 결과도 500 이 된다.
+  // 대신 range 로 1000행씩 끝까지 읽는다 — 한 페이지가 1000행보다 적으면 멈춘다.
+  const item = { id: 'w1', project_id: 'P', external_ref: null, stage: 'as', actual_pct: 0, tags: [], depends: ['M/X-1004'], depends_waived: [], design_mode: 'auto' }
+  const predPage = (from: number, n: number, stage = 'as') =>
+    Array.from({ length: n }, (_, k) => ({ id: `p${from + k}`, project_id: 'P', external_ref: `M/X-${from + k}`, stage, actual_pct: 0 }))
+  it('A5 — 선행 항목이 1000행을 넘으면 두 페이지를 모두 읽는다(throw 하지 않는다)', async () => {
+    const { client, ranges } = useAdmin({
+      agent_work_orders: [{ data: [] }, { data: [] }],   // 항목 승인 주문, 선행 승인 주문
+      wbs_items: [{ data: predPage(0, 1000) }, { data: [...predPage(1000, 4), ...predPage(1004, 1, 'xx')] }],
     })
-    await expect(loadItemFacts(predsFull.client, [item])).rejects.toThrow('1000')
+    const m = await loadItemFacts(client, [item])
+    expect(m.get('w1')?.facts.preds).toBe('met') // 두 번째 페이지의 M/X-1004(xx)까지 읽었다
+    expect(ranges.filter(r => r.table === 'wbs_items')).toEqual([{ table: 'wbs_items', from: 0, to: 999 }, { table: 'wbs_items', from: 1000, to: 1999 }])
+  })
+  it('A5 — 승인 주문도 1000행을 넘으면 다음 페이지까지 읽는다', async () => {
+    const page1 = Array.from({ length: 1000 }, (_, k) => ({ wbs_item_id: `x${k}` }))
+    const { client, ranges } = useAdmin({ agent_work_orders: [{ data: page1 }, { data: [{ wbs_item_id: 'w1' }] }] })
+    const m = await loadItemFacts(client, [{ ...item, depends: [] }])
+    expect(m.get('w1')?.facts.hasApprovedOrder).toBe(true)
+    expect(ranges.filter(r => r.table === 'agent_work_orders').map(r => r.from)).toEqual([0, 1000])
+  })
+  it('A5 — 두 번째 페이지 조회가 실패하면 throw 한다(위장하지 않는다)', async () => {
+    const { client } = useAdmin({
+      agent_work_orders: [{ data: [] }],
+      wbs_items: [{ data: predPage(0, 1000) }, { error: { message: 'page2 boom' } }],
+    })
+    await expect(loadItemFacts(client, [item])).rejects.toThrow('page2 boom')
   })
   it('조회 실패는 throw(위장하지 않는다)', async () => {
     const { client } = useAdmin({ agent_work_orders: [{ error: { message: 'boom' } }] })

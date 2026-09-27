@@ -27,7 +27,7 @@ function useAdmin(queues: Record<string, Resp[]>, calls: Record<string, unknown[
       b.delete = () => { (calls[`${table}:delete`] ??= []).push(true); return b }
       b.update = () => b
       b.in = (col: string, vals: unknown) => { (calls[`${table}:in`] ??= []).push([col, vals]); return b }
-      for (const k of ['eq', 'lt', 'gt', 'limit', 'order', 'not']) b[k] = () => b
+      for (const k of ['eq', 'lt', 'gt', 'limit', 'order', 'not', 'range']) b[k] = () => b
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b

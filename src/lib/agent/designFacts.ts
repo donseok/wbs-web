@@ -15,12 +15,26 @@ export const ORDER_FACT_COLUMNS =
   'claimed_by, claimed_by_user_id, last_heartbeat_at, heartbeat_phase, heartbeat_agent, design_state, claim_scope, design_note, runner, runner_seen_at'
 export const ITEM_FACT_COLUMNS = 'id, project_id, external_ref, stage, actual_pct, tags, depends, depends_waived, design_mode'
 const IN_CHUNK = 200
-/** PostgREST max_rows(Supabase 기본 1000) — 배치 조회가 여기에 닿으면 잘렸을 수 있다. */
-const PG_MAX_ROWS = 1000
+/** 한 페이지 크기 — PostgREST max_rows(Supabase 기본 1000)와 같다. */
+const PAGE = 1000
 
-/** 잘렸을 수 있는 배치 결과는 throw 한다 — 빠진 행을 "없음"으로 읽으면 게이트 재료가 거짓이 된다(에러 3원칙, 최종 수정 A5). */
-function assertNotTruncated(rows: readonly unknown[], what: string): void {
-  if (rows.length >= PG_MAX_ROWS) throw new Error(`${what} 조회가 한도(${PG_MAX_ROWS}행)에 닿아 잘렸을 수 있습니다.`)
+/**
+ * 배치 조회를 range 로 끝까지 읽는다(최종 수정 A5). 한 번에 읽으면 max_rows 에서 조용히 잘리고, 행 수로 잘림을 추정하면
+ * 여러 프로젝트가 같은 ref 를 쓰는 정상 결과(ref 수 × 프로젝트 수)도 거부하게 된다. 한 페이지가 PAGE 보다 적으면 끝이다.
+ * 페이지마다 새 쿼리를 만든다(query 는 order 까지 건 빌더를 돌려준다 — 페이지 경계가 흔들리지 않게). 조회 실패는 throw.
+ */
+async function readAllPages<T>(
+  query: () => { range: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }> },
+  what: string,
+): Promise<T[]> {
+  const out: T[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await query().range(from, from + PAGE - 1)
+    if (error) throw new Error(`${what} 조회 실패: ${error.message}`)
+    const rows = (data ?? []) as T[]
+    out.push(...rows)
+    if (rows.length < PAGE) return out
+  }
 }
 
 export type FactOrderRow = {
@@ -59,10 +73,9 @@ function chunked<T>(xs: readonly T[], n: number): T[][] {
 async function approvedItemIds(admin: AdminClient, itemIds: readonly string[]): Promise<Set<string>> {
   const out = new Set<string>()
   for (const c of chunked(itemIds, IN_CHUNK)) {
-    const { data, error } = await admin.from('agent_work_orders').select('wbs_item_id').in('wbs_item_id', c).eq('status', 'approved')
-    if (error) throw new Error(`승인 주문 조회 실패: ${error.message}`)
-    assertNotTruncated(data ?? [], '승인 주문')
-    for (const r of (data ?? []) as Array<{ wbs_item_id: string | null }>) if (r.wbs_item_id) out.add(r.wbs_item_id)
+    const rows = await readAllPages<{ wbs_item_id: string | null }>(
+      () => admin.from('agent_work_orders').select('wbs_item_id').in('wbs_item_id', c).eq('status', 'approved').order('id'), '승인 주문')
+    for (const r of rows) if (r.wbs_item_id) out.add(r.wbs_item_id)
   }
   return out
 }
@@ -89,11 +102,11 @@ export async function loadItemFacts(
   const preds = new Map<string, { id: string; stage: string | null; actual_pct: number | string | null }>()
   if (refs.length > 0) {
     for (const c of chunked(refs, IN_CHUNK)) {
-      const { data, error } = await admin.from('wbs_items').select('id, project_id, external_ref, stage, actual_pct')
-        .in('project_id', projects).in('external_ref', c)
-      if (error) throw new Error(`선행 항목 조회 실패: ${error.message}`)
-      assertNotTruncated(data ?? [], '선행 항목')
-      for (const p of (data ?? []) as Array<{ id: string; project_id: string; external_ref: string; stage: string | null; actual_pct: number | string | null }>) {
+      // 목록의 모든 프로젝트로 거르므로 결과가 ref 수 × 프로젝트 수까지 늘 수 있다 — 페이지를 넘겨 끝까지 읽는다.
+      const rows = await readAllPages<{ id: string; project_id: string; external_ref: string; stage: string | null; actual_pct: number | string | null }>(
+        () => admin.from('wbs_items').select('id, project_id, external_ref, stage, actual_pct')
+          .in('project_id', projects).in('external_ref', c).order('id'), '선행 항목')
+      for (const p of rows) {
         preds.set(`${p.project_id}|${p.external_ref}`, p)
       }
     }

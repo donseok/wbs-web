@@ -25,7 +25,7 @@ function useAdmin(queues: Record<string, Resp[]>) {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['update', 'eq', 'in', 'limit', 'order']) b[k] = () => b
+      for (const k of ['update', 'eq', 'in', 'limit', 'order', 'range']) b[k] = () => b
       b.select = (cols: string) => { (selects[table] ??= []).push(cols); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) =>
