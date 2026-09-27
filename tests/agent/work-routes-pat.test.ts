@@ -313,3 +313,74 @@ describe('GET /agent/work/[id] — reports[].evidence', () => {
     expect(selects.agent_work_reports?.[0]).not.toContain('decisions')
   })
 })
+
+// 계약 2.11(설계 상태 스펙 5.3·8절) — 상세(PAT)가 판단 칸을 싣는다. mine 은 ready·claimed 면 5.3 정의,
+// 그 밖(reported 등)은 종전 뜻(점유 사용자 일치)이다 — 팀장의 머지 충돌 해소(merge-conflict.md)가 reported 의 mine 에 기댄다.
+describe('GET /agent/work/[id] — 판단 칸(계약 2.11)', () => {
+  const W1 = '33333333-3333-4333-8333-333333333333'
+  const memberQ = () => ({
+    agent_projects: [{ data: { enabled: true } }],
+    memberships: [{ data: { is_superuser: false } }],
+    project_roles: [{ data: [{ role: 'member' }] }],
+    agent_work_reports: [{ data: [] }],
+  })
+  const detailAs = (agent: string) =>
+    detailGET(get(`http://l/api/v1/agent/work/${O1}?agent=${agent}`, PAT.token), { params: Promise.resolve({ id: O1 }) })
+  const fresh = () => new Date(Date.now() - 60_000).toISOString()
+
+  it('reported 주문의 mine 은 종전 뜻(점유 사용자 일치) — 다른 PC 의 runner 가 신선해도 참이다', async () => {
+    const row = { id: O1, project_id: P1, status: 'reported', priority: 0, instructions: '', claimed_by: 'hong/mbp/w1', claimed_at: null,
+      wbs_item_id: null, runner: 'hong/pc2/w1', runner_seen_at: fresh() }
+    useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }], agent_work_orders: [{ data: { ...row, claimed_by_user_id: 'u-1' } }], ...memberQ() })
+    expect((await (await detailAs('hong/mbp/lead')).json()).order).toMatchObject({ status: 'reported', mine: true, action: 'skip' })
+    useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }], agent_work_orders: [{ data: { ...row, claimed_by_user_id: 'u-2' } }], ...memberQ() })
+    expect((await (await detailAs('hong/mbp/lead')).json()).order.mine).toBe(false)
+  })
+
+  it('claimed 주문은 판단 칸과 5.3 mine 을 싣는다 — 다른 PC 가 30분 안에 신호를 냈으면 mine 이 아니다', async () => {
+    const order = { id: O1, project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_by: 'hong/mbp/w1', claimed_by_user_id: 'u-1',
+      claimed_at: null, wbs_item_id: W1, design_state: null, claim_scope: 'design', design_note: null, runner: 'hong/pc2/w1', runner_seen_at: fresh() }
+    const item = { id: W1, code: 'C1', name: '항목1', external_ref: 'MES/TSK-02-00', stage: 'ds', actual_pct: 10, tags: ['agent'],
+      depends: [], depends_waived: [], design_mode: 'review' }
+    const queues = (o: Record<string, unknown>) => ({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: o }, { data: null }], // 주문, 항목의 approved 주문 없음(hasApprovedOrder)
+      ...memberQ(), wbs_items: [{ data: [item] }],
+    })
+    useAdmin(queues(order))
+    expect((await (await detailAs('hong/mbp/lead')).json()).order).toMatchObject({
+      design_mode: 'review', design_state: null, claim_scope: 'design', runner: 'hong/pc2/w1',
+      action: 'design', action_reason: '설계만(이어 감)', deps_unmet: false, mine: false,
+    })
+    useAdmin(queues({ ...order, runner: 'hong/mbp/w1' }))
+    expect((await (await detailAs('hong/mbp/lead')).json()).order.mine).toBe(true) // 같은 PC
+  })
+
+  it('Important 2(최종 수정) — agent 를 보내지 않은 옛 킷의 claimed mine 은 종전 뜻(점유 사용자 일치)이다', async () => {
+    const order = { id: O1, project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_by: 'hong/mbp/w1', claimed_by_user_id: 'u-1',
+      claimed_at: null, wbs_item_id: W1, design_state: null, claim_scope: 'full', design_note: null, runner: 'hong/pc2/w1', runner_seen_at: fresh() }
+    const item = { id: W1, code: 'C1', name: '항목1', external_ref: 'MES/TSK-02-00', stage: 'ds', actual_pct: 10, tags: ['agent'],
+      depends: [], depends_waived: [], design_mode: 'auto' }
+    const queues = (o: Record<string, unknown>) => ({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: o }, { data: null }],
+      ...memberQ(), wbs_items: [{ data: [item] }],
+    })
+    const noLabel = () => detailGET(get(`http://l/api/v1/agent/work/${O1}`, PAT.token), { params: Promise.resolve({ id: O1 }) })
+    useAdmin(queues(order))
+    expect((await (await noLabel()).json()).order.mine).toBe(true) // 다른 PC 의 runner 가 신선해도 — 옛 뜻
+    useAdmin(queues({ ...order, claimed_by_user_id: 'u-2' }))
+    expect((await (await noLabel()).json()).order.mine).toBe(false) // 남의 점유는 여전히 아니다
+    useAdmin(queues(order))
+    expect((await (await detailAs('hong/mbp/w1')).json()).order.mine).toBe(false) // 라벨을 보내면 5.3 mine(다른 PC 도는 중)
+  })
+
+  it('레거시 응답에는 판단 칸이 없다(v1 회귀 기준선)', async () => {
+    useAdmin({
+      agent_work_orders: [{ data: { id: O1, project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_by: 'x', claimed_at: null, wbs_item_id: null } }],
+      agent_projects: [{ data: { enabled: true } }], agent_work_reports: [{ data: [] }],
+    })
+    const legacy = (await (await detail('legacy-secret')).json()).order
+    for (const k of ['mine', 'action', 'action_reason', 'deps_unmet', 'design_mode', 'design_state', 'claim_scope', 'runner']) expect(legacy, k).not.toHaveProperty(k)
+  })
+})

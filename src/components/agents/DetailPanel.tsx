@@ -18,8 +18,8 @@ const OP_ICON: Record<SeatOpKind, () => React.JSX.Element> = {
 }
 
 function ladderPhase(seat: Seat): string {
-  // 설계 완료·선행 대기·검토 대기 — 설계 칸까지 지나왔다(WAIT 이므로 칸은 지나온 칸으로 칠해진다).
-  if (seat.designWait || seat.reviewWait) return 'design'
+  // 설계 완료·선행 대기·검토 대기·구현 대기 — 설계 칸까지 지나왔다(WAIT 이므로 칸은 지나온 칸으로 칠해진다).
+  if (seat.designWait || seat.reviewWait || seat.buildWait) return 'design'
   if (seat.state === 'WAIT') return 'reported'
   if (seat.state === 'DONE') return 'merged'
   if (seat.phase === 'blocked' || seat.phase === 'rejected') return seat.progress < 25 ? 'design' : seat.progress < 60 ? 'build' : 'verify'
@@ -78,7 +78,15 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
           ))}
         </p>
       )}
-      {(seat.state === 'READY' || seat.designWait || seat.reviewWait) && seat.waitReason && (
+      {/* 설계 문구(설계 상태 스펙 3절) — 되돌림 사유와 할 일 안내. 설계 버튼은 WBS 작업 패널·허브에 있다(아래 「WBS 에서 열기」). */}
+      {seat.design && (
+        <p className={css.waitReason} data-seat-design-detail={seat.design.row}><b>{seat.design.label}</b>
+          {seat.design.note && <> · 되돌린 이유: {seat.design.note}</>}
+          {seat.design.hint && <> · {seat.design.hint}</>}
+        </p>
+      )}
+      {/* 설계 문구가 있으면 빈자리 사유는 선행 대기일 때만 함께 그린다 — 착수 대기·에이전트 꺼짐은 설계 대기와 어긋난다. */}
+      {(seat.state === 'READY' || seat.designWait || seat.reviewWait) && seat.waitReason && (!seat.design || seat.waitReason.kind === 'dependency') && (
         <p className={css.waitReason} data-wait-reason={seat.waitReason.kind}><b>{seat.waitReason.label}</b> · {seat.waitReason.text}
           {/* 강제 진행 두 번째 진입점(스펙 §3.2) — 선행 대기 좌석에서 WBS 사이드바의 「강제 진행」 절로 바로 간다. */}
           {seat.waitReason.kind === 'dependency' && seat.itemId && (

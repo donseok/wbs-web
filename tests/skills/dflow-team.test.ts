@@ -328,7 +328,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('mkdir -p "$(git rev-parse --git-path dflow-team-poll)"')
     expect(s()).toContain('POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)')
     expect(s()).toContain('( cd "$POLL_DIR" && DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0 \\')
-    expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until \'<UNTIL>\' --interval 180 --recheck-cycles 10 \\')
+    expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --lead --until \'<UNTIL>\' --interval 180 --recheck-cycles 10 \\')
     expect(s()).toContain('--wait-cycles 40 [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] [--exclude-wait <id8,id8>] )')
   })
 
@@ -347,11 +347,16 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   })
 
   it('SKILL.md 가 분기하는 poll exit code 는 poll.sh 머리말이 문서화한 것뿐이다', () => {
-    const header = readFileSync(join(ROOT, '.claude/skills/dflow-poll/scripts/poll.sh'), 'utf8')
-      .split('\n')
-      .slice(0, 12)
-      .join(' ')
+    // 머리말의 `# exit:` 줄과 그 들여쓴 이어짐 줄만 본다 — 다른 머리말 줄의 숫자(예: "계약 2.11")가 코드로 잡히지 않게(deferred A8)
+    const lines = readFileSync(join(ROOT, '.claude/skills/dflow-poll/scripts/poll.sh'), 'utf8').split('\n')
+    const at = lines.findIndex((l) => l.startsWith('# exit:'))
+    expect(at, '# exit: 줄').toBeGreaterThanOrEqual(0)
+    let end = at + 1
+    while (end < lines.length && /^#\s{2,}\S/.test(lines[end])) end++
+    const header = lines.slice(at, end).join(' ')
     const documented = new Set(header.match(/\b\d{1,2}\b/g) ?? [])
+    expect(documented.has('11'), '계약 2.11 의 11 은 exit 코드가 아니다').toBe(false)
+    for (const c of ['0', '8', '9', '10']) expect(documented.has(c), `exit ${c} 는 이어짐 줄까지 읽어야 보인다`).toBe(true)
     const used = [...s().matchAll(/poll exit (\d{1,2})/g)].map((m) => m[1])
     expect(used.length).toBeGreaterThan(0)
     for (const c of used) expect(documented.has(c), `exit ${c}`).toBe(true)

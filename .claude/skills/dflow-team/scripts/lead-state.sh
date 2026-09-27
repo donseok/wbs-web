@@ -16,12 +16,18 @@
 #                                          resolved 는 같은 id8 의 team.result resolved 와 이웃한 것(다음 team.sweep 의 resolved),
 #                                          other 는 해소 건너뜀(REFLECTED)·사람 머지 감지로 푼 것
 #   HASH_OMITTED <n>                       상한(SLOT 이 아닌 경로 최근 50개)에 걸려 내지 않은 HASH 수
-#   EXCLUDE_PERM <id8,…|->                  영구 제외(진행 중·failed…·cancelled). failed rate-limit·design_waiting(설계 완료·선행 대기 — claimed 라 poll 에 안 나온다)은 넣지 않는다
+#   EXCLUDE_PERM <id8,…|->                  영구 제외(진행 중·failed…·cancelled). failed rate-limit·design_waiting(설계 완료·선행 대기 — claimed 라 poll 에 안 나온다)·design_review(설계 검토 대기)·design_reopened(사람 설계 대기로 돌아감 — 다시 확정되면 poll 이 찾는다)은 넣지 않는다
 #   EXCLUDE_TEMP <id8,…|->                  일시 제외(skipped. 사유가 「선행 미충족(사전 검사:」 인 것은 선행 대기 블록 몫이라 뺀다)
 # 그 뒤는 없는 항목이면 줄을 내지 않는다:
 #   ISSUE_PENDING <id8> <요약>              id8 마다 마지막 team.issue 의 decision 이 pending(dialect 줄 제외)
 #   WAIT_ANSWER <id8> slot=<…> <질문>       마지막 이벤트(team.answer 포함)가 team.blocked 인 id8 — 답을 기다리는 질문
 #   LOST <id8> cause=<…> next=<…>          마지막이 team.lost 인 id8(영구 제외. 대기 상태는 restart.md 「이벤트로 본 상태」)
+#   RETRY_DUE <id8> reason=<fetch|push> n=<연속 수>   마지막이 사유 「fetch 실패」·「push 실패」 인 skipped 이고 처리한 지 30분이 지났다
+#       (설계 상태 스펙 12절 Y11 — 잡은 작업이라 poll 이 다시 찾지 않으므로 팀장이 「5-1」 로 다시 띄운다). 연속 3회부터는 내지 않는다
+#   WARN_RETRY <id8> reason=<fetch|push> n=<연속 수>  같은 계열 사유가 끝에서부터 연속 3회 이상 — 자동 재시도를 멈추고 「멈춤」 표에 경고한다
+#   BUILD_RETRY_DUE <id8> reason=<gate|changed|runner|reopen>   마지막이 사유 「설계 관문(」·「주문이 바뀜」·「다른 PC 도는 중(」·
+#       「design-reopen 미확인」 인 skipped 이고 처리한 지 30분이 지났다. build 목록(design-state.md 「2」)과 tick.sh 만 쓴다 — 서버가 다시 「설계 승인」 된 claimed 로 돌려주면
+#       EXCLUDE_TEMP(만료 없음)에 영구히 갇히지 않게 한다(최종 리뷰 Important 1). 고아 스캔은 쓰지 않고, 연속 수·3회 멈춤이 없다
 #   SLOT <slot> <id8> tsk=<…> order=<…> kind=<new|resume|resolve|readopt/<원래 종류>> state=<spawn|blocked> resolve=<0|1> worktree=<…> handle=<…>
 #       id8 의 마지막 team.spawn·team.blocked·team.result·team.lost 가 spawn·blocked 인 것(진행 중). 값은 그 id8 의 마지막 team.spawn
 #       resolve=1 은 해소 워커다(워크트리 이름 접미사 -resolve, 또는 spawn_kind·orig_kind 가 resolve)
@@ -87,7 +93,7 @@ jq -R -c --arg a "$AGENT" --arg r "$REPO" 'select(test("\\S")) | (try fromjson c
     def excl($e):
       if $e.event == "team.spawn" or $e.event == "team.blocked" or $e.event == "team.lost" then "perm"
       else ($e.status // "") as $s
-        | if $s == "done" or $s == "needs-merge" or $s == "resolved" or $s == "failed rate-limit" or $s == "design_waiting" then "none"
+        | if $s == "done" or $s == "needs-merge" or $s == "resolved" or $s == "failed rate-limit" or $s == "design_waiting" or $s == "design_review" or $s == "design_reopened" then "none"
           elif $s == "skipped" then (if (($e.reason // "") | startswith("선행 미충족(사전 검사:")) then "none" else "temp" end)
           else "perm" end
       end;
@@ -112,6 +118,28 @@ jq -R -c --arg a "$AGENT" --arg r "$REPO" 'select(test("\\S")) | (try fromjson c
     | to_entries[] | .value | select(.decision == "pending") | "ISSUE_PENDING \(.id8) \(.summary // "")" ),
   ( $lastq | to_entries[] | .value | select(.event == "team.blocked") | "WAIT_ANSWER \(.id8) slot=\(.slot // "-") \(.reason // "")" ),
   ( $last | to_entries[] | .value | select(.event == "team.lost") | "LOST \(.id8) cause=\(.cause // "-") next=\(.next // "-")" ),
+  # fetch·push 실패 skipped 의 자동 재시도(Y11): 같은 id8 의 team.result 를 끝에서부터 세어 연속 수를 정한다
+  ( $last | to_entries[] | .value
+    | select(.event == "team.result" and (.status // "") == "skipped" and ((.reason // "") | test("^(fetch|push) 실패")))
+    | . as $e | (($e.reason // "") | capture("^(?<r>fetch|push) 실패").r) as $why
+    | ([$w[] | select(.event == "team.result" and (.id8 // "") == $e.id8)] | reverse
+       | reduce .[] as $r ({n: 0, stop: false};
+           if .stop then . elif (($r.status // "") == "skipped" and (($r.reason // "") | test("^(fetch|push) 실패"))) then .n += 1 else .stop = true end)
+       | .n) as $n
+    | if $n >= 3 then "WARN_RETRY \($e.id8) reason=\($why) n=\($n)"
+      # Windows jq(1.8.1 미만)는 strptime 이 없어 fromdateiso8601 이 오류를 낸다(jq #2071, #3342 로 1.8.1 에서 고침).
+      # ts 는 events.md 「기록 명령」이 항상 date -u +%Y-%m-%dT%H:%M:%SZ 로 고정 기록해 사전순 비교가 곧 시간순이다
+      # (kit/dflow-team/SKILL.md·design-ahead.md 의 todate 선례와 같은 방식). 빈 ts 는 "오래됨"(참)으로 본다.
+      elif ((($e.ts // "") <= (now - 1800 | todate))) then "RETRY_DUE \($e.id8) reason=\($why) n=\($n)"
+      else empty end ),
+  # build 목록의 재시도(최종 리뷰 Important 1): 사유에 괄호가 있어 정규식 대신 startswith 로 가린다. 시각 비교는 위 RETRY_DUE 와 같다
+  ( $last | to_entries[] | .value
+    | select(.event == "team.result" and (.status // "") == "skipped")
+    | . as $e | ($e.reason // "") as $rs
+    | (if ($rs | startswith("설계 관문(")) then "gate" elif ($rs | startswith("주문이 바뀜")) then "changed"
+       elif ($rs | startswith("다른 PC 도는 중(")) then "runner" elif ($rs | startswith("design-reopen 미확인")) then "reopen" else "" end) as $why
+    | select($why != "" and (($e.ts // "") <= (now - 1800 | todate)))
+    | "BUILD_RETRY_DUE \($e.id8) reason=\($why)" ),
   ( $last | to_entries[] | .value | select(.event == "team.spawn" or .event == "team.blocked") | . as $e | ($sp[$e.id8] // $e) as $s
     | "SLOT \($s.slot // "-") \($e.id8) tsk=\($s.tsk // "-") order=\($s.order // "-") kind=\(kind($s)) state=\($e.event | ltrimstr("team.")) resolve=\(if ($res | index($e.id8)) then 1 else 0 end) worktree=\($s.worktree // "-") handle=\($s.handle // "-")" ),
   ( $hshow[] | "HASH \(.worktree) \(.tsk // "-") \(.hash) \(.status // "blocked") id8=\(.id8 // "-") slot=\(.slot // "-")" )

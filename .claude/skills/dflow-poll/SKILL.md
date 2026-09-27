@@ -38,22 +38,26 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
 
 1. **기동**: 대상 저장소(cwd)에서 poll.sh 를 **백그라운드로 실행**한다:
    ```bash
-   .claude/skills/dflow-poll/scripts/poll.sh --interval 300 --until 18:00 --require-tag agent
+   .claude/skills/dflow-poll/scripts/poll.sh --interval 300 --until 18:00 --require-tag agent --actions full
    ```
-   (`--require-tag agent` 는 표준 — 사용자가 `--all` 을 명시한 경우에만 뺀다.)
+   (`--require-tag agent` 는 표준 — 사용자가 `--all` 을 명시한 경우에만 뺀다. `--actions full` 도 표준이다 — 설계 검토·구현자동
+   작업(서버 판단 `action` 이 `design`·`build`, 계약 2.11)은 사람의 「설계 승인」·「설계 확정」 을 거쳐 `/dflow-team` 팀장이나 사람의
+   `/dflow-dev` 가 맡는다. 옛 서버면 이 칸이 없어 종전대로 모두 온다.)
    **반드시 Bash 의 `run_in_background` 로** — 셸 `&` 백그라운드 금지. `&` 로 띄우면 종료
    알림이 세션에 오지 않아 루프가 소리 없이 끊긴다(2026-08-22 실증). 첫 조회는 즉시 —
    ready 가 이미 있으면 곧바로 종료 알림이 온다.
    기본값: 설정은 cwd 의 git 최상위, `DFLOW_CONFIG_DIR` 로 오버라이드(레거시 `.env` 는 `DFLOW_ENV_FILE`). dflow.sh 는
    poll.sh 와 같은 스킬 묶음의 것(자기 위치 기준), `DFLOW_SH` env 로 오버라이드.
 2. **종료 알림 분기** (exit code — 산문 파싱 금지):
-   - **0 = ready 발견**: stdout 각 줄이 `순번<TAB>id8<TAB>이름`. **착수 전에 dflow-dev
+   - **0 = ready 발견**: stdout 각 줄이 `순번<TAB>id8<TAB>이름[<TAB>action]`(넷째 칸은 계약 2.11 서버 판단 — 옛 서버면 없다). **착수 전에 dflow-dev
      Phase 01 의 착수 가능 판정(spec 실재·선행 검사)을 먼저 통과시킨다** — 불가 판정이면
      사유를 통지하고 그 id8 을 exclude 에 넣어 즉시 재기동한다(서버는 spec 부재·선행 미충족
      작업도 ready 로 노출한다 — 2026-08-22 실증). 서버 계약이 2.9 여도 `reached` 가 거짓인 선행은 여기서 불가(선행 대기)로
      본다 — dflow-dev 의 「v2.9 설계 선행 후보」 로 넘기지 않는다(설계 선행은 상한이 있는 /dflow-team 팀장만 준다). 통과하면 사용자에게 한 줄 통지
      ("`<id8> <이름>` 착수") 후 **첫 줄의 id8 로** `/dflow-dev <id8>` 사이클을 실행한다.
      순번은 그 시점 목록 캐시 기준이라 시간이 지나면 어긋날 수 있다 — **claim 은 반드시 id8 로.**
+     넷째 칸이 있고 `full` 이 아니면(겹쳐 뜬 옛 poll 등) 착수하지 않고 "`<id8>` 는 설계 검토·구현자동 작업이라 건너뜁니다(/dflow-team 이나
+     사람의 /dflow-dev 가 맡습니다)" 를 통지한 뒤 그 id8 을 exclude 에 넣어 재기동한다.
    - **9 = 승인 감지(머지 대상)**: stdout 각 줄이 `TSK<TAB>order-id` — 로컬 state.json 이
      reported 인데 서버가 approved 로 바뀐 주문이다. **사람에게 묻지 않고** dflow-dev 의
      Phase 01-가 승인 스윕(머지·뒷정리)을 실행한 뒤 poll.sh 를 재기동한다. 승인 → 머지 →

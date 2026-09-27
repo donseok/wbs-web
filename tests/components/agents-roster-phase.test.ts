@@ -27,4 +27,11 @@ describe('RosterBoard profilePhaseLabel', () => {
   it('사전에 없는 값은 raw 로 보인다(조용히 삼키지 않는다)', () => {
     expect(profilePhaseLabel({ heartbeatPhase: 'weird', phase: 'prepare' })).toBe('weird')
   })
+  it('설계 검토 대기는 설계 상태가 review 일 때만 — 「설계 승인」 뒤 남은 phase wait_review 만으로는 말하지 않는다(설계 상태 스펙 8절)', () => {
+    expect(profilePhaseLabel({ heartbeatPhase: 'wait_review', phase: 'wait_review', reviewWait: true })).toBe('설계 검토 대기')
+    expect(profilePhaseLabel({ heartbeatPhase: 'wait_review', phase: 'wait_review', reviewWait: false })).toBeNull()
+    expect(profilePhaseLabel({ heartbeatPhase: 'wait_review', phase: 'wait_review' })).toBeNull()
+    // 그 밖의 단계는 지금 규칙 그대로다.
+    expect(profilePhaseLabel({ heartbeatPhase: 'build', phase: 'build', reviewWait: false })).toBe('구현')
+  })
 })

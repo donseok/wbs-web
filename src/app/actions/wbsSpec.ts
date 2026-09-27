@@ -1,14 +1,13 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { after } from 'next/server'
-import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
+import { toDesignMode, type DesignMode } from '@/lib/domain/designGate'
 import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
-import { applyDelegation, requireDelegationRight, type AgentDelegationResult } from '@/lib/agent/delegation'
+import { requireDelegationRight } from '@/lib/agent/delegation'
 // 결과 타입은 명세 패널 등 화면이 이 모듈에서 import 한다 — 본체를 옮겨도 계약 위치는 유지(타입 재export 는 런타임에 없다).
 export type { AgentDelegationResult } from '@/lib/agent/delegation'
 
@@ -40,6 +39,11 @@ export interface WbsSpecDetail {
   externalRef: string | null
   /** 에이전트 위임 시 사용자 지시문(0090) — 웹 전용 필드. import 가 덮지 않아 재업로드에도 보존. */
   agentPrompt: string | null
+  /**
+   * 설계 방식(0108, 설계 상태 스펙 7절) — getWbsSpec 은 늘 채운다. 선택 칸으로 두는 까닭은 가짜 DETAIL 을 쓰는
+   * 기존 패널 테스트가 그대로 컴파일되고 통과하게 하려는 것이다.
+   */
+  designMode?: DesignMode
 }
 
 /**
@@ -83,7 +87,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('wbs_items')
-    .select('category, domain, priority, model, tags, depends, prd_ref, entry_point, acceptance, spec, external_ref, agent_prompt')
+    .select('category, domain, priority, model, tags, depends, prd_ref, entry_point, acceptance, spec, external_ref, agent_prompt, design_mode')
     .eq('id', itemId).maybeSingle()
   if (error) {
     console.error('[getWbsSpec] 조회 실패:', error.message)
@@ -103,6 +107,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
     spec: string | null
     external_ref: string | null
     agent_prompt: string | null
+    design_mode: string | null
   }
   return {
     category: row.category ?? null,
@@ -117,6 +122,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
     spec: row.spec ?? null,
     externalRef: row.external_ref ?? null,
     agentPrompt: row.agent_prompt ?? null,
+    designMode: toDesignMode(row.design_mode),
   }
 }
 
@@ -201,24 +207,4 @@ export async function updateAgentPrompt(
   if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
   revalidatePath(`/p/${right.projectId}`, 'layout')
   return { ok: true }
-}
-
-/**
- * 에이전트 위임 토글 — 가드만 하고 본체는 src/lib/agent/delegation.ts(applyDelegation). 자격은 관리자 또는 담당자 본인.
- * 본체를 이 파일('use server')에 두지 않는 이유는 그 파일 상단 주석에 있다.
- */
-export async function setAgentDelegation(
-  itemId: string,
-  delegated: boolean,
-): Promise<AgentDelegationResult> {
-  if (!isUuidLike(itemId) || typeof delegated !== 'boolean') return { ok: false, error: '잘못된 요청입니다.' }
-  const right = await requireDelegationRight(itemId)
-  if (!right.ok) return { ok: false, error: right.error }
-  const r = await applyDelegation(createAdminClient(), {
-    itemId, projectId: right.projectId, delegated, actorUserId: right.actor.userId, isAdmin: right.isAdmin,
-  })
-  if (r.ok) revalidatePath(`/p/${right.projectId}`, 'layout')
-  // 해제가 진행 중 작업을 멈추고 단계를 as 로 되돌려 실적이 바뀌었으면 진척 스냅샷을 남긴다(wbsAssign 과 같은 규칙).
-  if (r.ok && r.actualChanged) after(() => recordProgressSnapshot(right.projectId))
-  return r
 }

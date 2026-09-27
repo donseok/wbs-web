@@ -2,7 +2,7 @@
 # dflow.sh — D'Flow Agent API 얇은 curl 래퍼. 계약 v2.x (references/api-contract.md).
 # 정확한 기대 버전은 아래 CONTRACT_VERSION 하나뿐이다 — 주석과 비교문에 숫자를 따로 두면
 # 둘이 따로 낡는다(2026-08-27 감사: 서버가 2.1 인데 비교문만 2.0 으로 남아 있었다).
-# exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨(409 code=cancelled)
+# exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨(409 code=cancelled) / 11 설계 관문(409 design_gate·design_not_accepted) / 12 다른 PC 도는 중(409 runner_active)
 # 토큰은 env 확장으로만 전달한다 — echo·파일 기록·명령 문자열 보간 금지.
 set -u
 
@@ -12,7 +12,8 @@ set -u
 # 2.8: 강제 진행 — 의존 면제·스텁 제거 작업(stub-check, 과제 D).
 # 2.9: 설계 단계 ds — claim --design-first·build-start, heartbeat phase wait_pred(설계 선행).
 # 2.10: heartbeat phase wait_review — 설계만 멈춤, 2026-09-26 설계 §14(dflow-dev-skill-router-design.md §14.5).
-CONTRACT_VERSION=2.10
+# 2.11: 설계 상태·구현자동 — claim·build-start --scope, design-done·design-reopen, list 의 action·mine, exit 11(DESIGN_GATE)·12(RUNNER_ACTIVE).
+CONTRACT_VERSION=2.11
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"
@@ -27,26 +28,32 @@ usage() {
 사용법: dflow.sh [--as <prefix|email>] <cmd> [args]
   키 선택: --as → .dflow.local 의 as(레거시 .env 의 DFLOW_AS, prefix 만) → 첫 토큰. 한 계정에 키가 둘이면 email 로는 갈리지 않는다
   me                     현재 프로필 신원·접근 프로젝트
-  list [--all] [--scope available|claimed|assigned|all] [--any-project]
-                         기본은 이 리포에 바인딩된 프로젝트(.dflow 의 project_id·.dflow.local 의 project_map)의 주문만.
-                         --any-project 는 필터를 끈다(진단용)
+  list [--all] [--scope available|claimed|assigned|all] [--any-project] [--require-tag t] [--wp WP-02,…] [--lead]
+                         기본은 이 리포에 바인딩된 프로젝트의 주문만. --any-project 는 필터를 끈다(진단용).
+                         끝의 두 열은 서버 판단 action·mine(1/0) — 옛 서버면 빈 값(계약 2.11).
+                         --require-tag·--wp 는 서버가 mine 을 계산할 거르기, --lead 는 팀장 요청(claimed 의 mine 에 팀원 라벨 요구)
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
   taskdir <ref>          주문의 작업 폴더(<DOCS_DIR>/tasks/<TSK>, 리포 최상위 기준)
-  claim <ref> [--design-first]
+  claim <ref> [--design-first] [--scope full|design|build]
                          주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH).
+                         --scope(계약 2.11): 없으면 legacy. 서버가 저장한 범위를 CLAIM_SCOPE <scope> 한 줄로 낸다(새 서버).
                          --design-first(계약 2.9): 선행이 구현 중이어도 설계부터 잡는다(단계 ds). 미충족 선행이 있으면
                          DESIGN_FIRST_UNMET <JSON 배열> 한 줄을 더 낸다. 너무 이른 선행이면 exit 4 + stderr DESIGN_FIRST_TOO_EARLY
-  build-start <ref>      설계를 마치고 구현으로 넘긴다(ds→ip, 계약 2.9). 선행 미충족이면 exit 4(claim 과 같다).
+  build-start <ref> [--scope full|build|rework]
+                         설계를 마치고 구현으로 넘긴다(ds·dd→ip). 선행 미충족이면 exit 4, 설계 관문이면 exit 11, 다른 PC 가 돌면 exit 12.
                          404 는 서버 계약이 2.9 미만일 때만 stderr BUILD_START_UNSUPPORTED 에 exit 0, 2.9 이상이면 exit 7,
                          계약 버전을 확인하지 못하면 그 조회의 exit(실패로 본다)
+  design-done <ref>      설계를 마치고 멈춘다(계약 2.11) — 출력 design-done <id8> <review|accepted|none>. 옛 서버는 DESIGN_STATE_UNSUPPORTED·exit 7
+  design-reopen <ref> --reason "<이유>"
+                         설계를 사람에게 되돌린다(계약 2.11) — 출력 design-reopened <id8> <status> <design_state|none>
   contract-ge <x.y>      서버 계약 버전이 x.y 이상이면 exit 0, 아니면 1(숫자 비교 — 2.10 > 2.9). 조회 실패는 그 exit
   progress <ref> <pct 0-99> <요약>
   heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id] [--model m] [--clear-merge-conflict]
                          진행 중 신호(보고 행 없음). --agent 기본값은 워크트리 루트 .dflow-agent 첫 줄
                          팀장 전용: reported·approved 주문에 --phase merge_conflict --note 로 머지 충돌 표시,
                          --clear-merge-conflict 로 해제(출력 MERGE_CONFLICT_SET·CLEARED·ABSENT)
-  watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--holder h] [--json] [--stop]
-                         감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll
+  watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--holder h] [--require-tag t] [--wp W] [--json] [--stop]
+                         감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll. --json 이면 build_ready·resume_requests 를 그대로
   done <ref> <요약> [--auto-links] [--decisions <file>]
                          --decisions: 확인 필요 결정 목록(JSON 배열). 형식 오류는 push 확인·전송 전에 exit 2
   release <ref>
@@ -61,8 +68,10 @@ usage() {
   branch dev|release               개발 브랜치(.dflow.local dev_branch)·운영 브랜치(.dflow release_branch)
   branch ensure-dev                개발 브랜치가 원격에 없으면 운영 브랜치에서 만들어 push 하고 이름을 낸다
   stub-check [<ref>]               FORCE-STUB 표식 검사(기본 운영 브랜치). 있으면 exit 4
-exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨
+exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨 / 11 설계 관문 / 12 다른 PC 도는 중
       10 = 사람이 D'Flow 에서 작업을 중단했다(409 code=cancelled). 더 진행하지 말고 멈춘다
+      11 = 설계 관문(409 design_gate·design_not_accepted). stderr 끝줄 DESIGN_GATE <code> [reason] — 서버 판단을 다시 보거나 사람이 버튼을 누른다
+      12 = 다른 PC 가 이 작업을 돌리는 중(409 runner_active). stderr 끝줄 RUNNER_ACTIVE <runner> — 이 워커는 멈춘다
 EOF
   exit 2
 }
@@ -180,10 +189,20 @@ api_raw() { # $1=METHOD $2=PATH [$3=JSON body] — TOKEN env 필요. 성공 시 
     404) printf '%s\n' "$_body" >&2; exit 7 ;;
     409)
       printf '%s\n' "$_body" >&2
-      # 사람이 중단한 주문(2026-09-19)은 경합·상태 불일치와 처방이 다르다 — 재시도가 아니라 즉시 멈춤이다.
-      if [ "$(printf '%s' "$_body" | jq -r '.code // empty' 2>/dev/null)" = "cancelled" ]; then
-        exit 10
-      fi
+      _c=$(printf '%s' "$_body" | jq -r '.code // empty' 2>/dev/null)
+      case "$_c" in
+        # 사람이 중단한 주문(2026-09-19)은 경합·상태 불일치와 처방이 다르다 — 재시도가 아니라 즉시 멈춤이다.
+        cancelled) exit 10 ;;
+        # 설계 관문(계약 2.11) — 선행 대기(exit 4)와 처방이 다르다: 서버 판단(action)을 다시 보거나 사람이 버튼을 누른다.
+        design_gate|design_not_accepted)
+          _r=$(printf '%s' "$_body" | jq -r '.reason // empty' 2>/dev/null)
+          printf 'DESIGN_GATE %s%s\n' "$_c" "${_r:+ $_r}" >&2
+          exit 11 ;;
+        # 다른 PC 가 이 작업을 돌리는 중(설계 상태 스펙 D25) — 이 워커는 멈춘다.
+        runner_active)
+          printf 'RUNNER_ACTIVE %s\n' "$(printf '%s' "$_body" | jq -r '.runner // "-"' 2>/dev/null)" >&2
+          exit 12 ;;
+      esac
       exit 4 ;;
     4??) printf '%s\n' "$_body" >&2; exit 2 ;;
     *)   printf '%s\n' "$_body" >&2; exit 6 ;;
@@ -214,16 +233,20 @@ resolve_ref() {
   esac
 }
 
-# ---- 출력: compact 1행/건 (순번 상태 우선순위 id8 이름40) -------------------
+# ---- 출력: compact 1행/건 (순번 상태 우선순위 id8 이름40 action mine) -----
+# action·mine 은 계약 2.11 서버 판단이다. 옛 서버는 두 칸이 빈 값이다 — 앞 다섯 칸의 번호는 그대로라 옛 파서가 깨지지 않는다.
 print_list() { # stdin = 주문 배열 JSON
   jq -r 'to_entries[] | [
     (.key+1),
     ({ready:"RD",claimed:"CL",reported:"RP",approved:"AP",cancelled:"CX"}[.value.status] // "??"),
     .value.priority,
     (.value.id[0:8]),
-    ((.value.item.name // .value.instructions // "-") | .[0:40])
+    ((.value.item.name // .value.instructions // "-") | .[0:40]),
+    (.value.action // ""),
+    (if .value.mine == true then "1" elif .value.mine == false then "0" else "" end)
   ] | @tsv'
 }
+uri() { jq -rn --arg v "$1" '$v|@uri'; }
 
 # idmap 누적 — $1 = 주문 배열 JSON 파일. 실패해도 본 기능엔 영향 없음(폴백 캐시일 뿐).
 remember_ids() {
@@ -256,13 +279,21 @@ warn_truncated() { # $1=/work/mine 응답 본문
 }
 
 cmd_list() {
-  _scope='available'; _all=''; _anyp=''
+  _scope='available'; _all=''; _anyp=''; _tag=''; _wp=''; _lead=''
   while [ $# -gt 0 ]; do case "$1" in
     --all) _all=1 ;;
     --scope) _scope="$2"; shift ;;
     --any-project) _anyp=1 ;;
+    --require-tag) _tag="${2:-}"; shift ;;
+    --wp) _wp="${2:-}"; shift ;;
+    --lead) _lead=1 ;;
     *) die 2 "알 수 없는 옵션: $1" ;;
   esac; shift; done
+  # 요청 라벨(PC 판정)과 거르기(계약 2.11) — 서버가 mine 을 계산한다. 옛 서버는 모르는 쿼리를 무시한다.
+  _q="scope=$_scope&limit=$MINE_LIMIT&agent=$(uri "$(agent_id_default)")"
+  [ -z "$_tag" ] || _q="$_q&require_tag=$(uri "$_tag")"
+  [ -z "$_wp" ] || _q="$_q&wp=$(uri "$_wp")"
+  [ -z "$_lead" ] || _q="$_q&lead=1"
   mkdir -p "$CACHE_DIR"
   # 바인딩이 없으면 거를 기준이 없다. 전 프로젝트를 보여 주되 그 사실을 알린다(목록은 사람이 보는 진단이다).
   # 자동 착수 경로(poll.sh·팀장)는 바인딩이 없으면 시작하지 않는다.
@@ -271,13 +302,13 @@ cmd_list() {
   if [ -n "$_all" ]; then
     for _t in $(tokens); do
       printf '== %s ==\n' "$(profile_email "$_t" || printf '?')"
-      _body=$(TOKEN="$_t" api_raw GET "/api/v1/agent/work/mine?scope=$_scope&limit=$MINE_LIMIT") || exit $?
+      _body=$(TOKEN="$_t" api_raw GET "/api/v1/agent/work/mine?$_q") || exit $?
       warn_truncated "$_body"
       printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | filter_projects "$_anyp" | tee "$LIST_CACHE.tmp" | print_list
       remember_ids "$LIST_CACHE.tmp"
     done
   else
-    _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=$_scope&limit=$MINE_LIMIT") || exit $?
+    _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?$_q") || exit $?
     warn_truncated "$_body"
     printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | filter_projects "$_anyp" > "$LIST_CACHE.tmp" \
       || die 6 "목록 해석 실패"
@@ -289,7 +320,8 @@ cmd_list() {
 
 cmd_show() {
   _id=$(resolve_ref "$1")
-  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
+  # 요청 라벨(계약 2.11) — 서버가 이 라벨의 PC 로 mine 을 계산한다. 없으면 runner 가 찬 주문은 늘 mine=false 다.
+  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id?agent=$(uri "$(agent_id_default)")") || exit $?
   printf '%s' "$_body" | jq .
 }
 
@@ -358,46 +390,45 @@ check_project() { # $1=전체 UUID
 }
 
 cmd_claim() {
-  _df=''
-  case "${2:-}" in '') ;; --design-first) _df=1 ;; *) usage ;; esac
-  [ $# -le 2 ] || usage
-  _id=$(resolve_ref "$1")
+  _ref="$1"; shift
+  _df=''; _scope=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --design-first) _df=1; shift ;;
+      --scope) case "${2:-}" in full|design|build) _scope="$2"; shift 2 ;; *) usage ;; esac ;;
+      *) usage ;;
+    esac
+  done
+  _id=$(resolve_ref "$_ref")
   check_project "$_id"
   # ① show 로 선행 evidence 를 먼저 받아 로컬 검사 — 통과 전에는 claim 자체를 하지 않는다(결정 C-②).
   _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
   check_depends_local "$(printf '%s' "$_detail" | jq -c '.depends_evidence // []')"
   # 작업 폴더 이름도 claim 전에 검사한다 — 잡은 뒤에 거부하면 주문만 claimed 로 남는다.
   _tsk_from_ref "$_detail" >/dev/null || exit $?
-  # 라벨 결정론(§3) — 무작위·타임스탬프 금지. .dflow-agent 가 있으면 그 신원, 없으면 종전과 같은
-  # claude-<host> — 어느 경로든 같은 자리는 늘 같은 문자열을 낸다. heartbeat(agent_id_default)와
-  # 신원을 맞춰야 좌석표가 claimed_by 와 heartbeat_agent 를 같은 에이전트로 합친다
-  # (src/lib/domain/seatmap.ts:180 — 서로 다르면 신원 없는 별도 좌석으로 갈라진다).
+  # 라벨 결정론(§3) — heartbeat(agent_id_default)와 신원을 맞춰야 좌석표가 claimed_by 와 heartbeat_agent 를 합친다.
   _label=$(agent_id_default)
-  if [ -z "$_df" ]; then
-    _resp=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/claim" \
-      "$(jq -nc --arg a "$_label" '{agent:$a}')") || exit $?
-  else
-    # 설계 선행(계약 2.9) — 옛 서버는 design_first 를 모르고 무시한다(선행 미충족이면 종전 403 → exit 4).
-    # 거부 본문은 종전처럼 stderr 로 내되, 너무 이른 선행(design_first_too_early)이면 알아보기 쉬운 표식 한 줄을 더한다.
-    _err="$CACHE_DIR/dflow_claim_err.$$"; mkdir -p "$CACHE_DIR"
-    _resp=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/claim" \
-      "$(jq -nc --arg a "$_label" '{agent:$a, design_first:true}')" 2>"$_err"); _rc=$?
-    cat "$_err" >&2
-    if [ "$_rc" -ne 0 ]; then
-      if [ "$_rc" -eq 4 ] && [ "$(jq -r '.reason // empty' "$_err" 2>/dev/null)" = design_first_too_early ]; then
-        printf 'DESIGN_FIRST_TOO_EARLY %s\n' "$(jq -c '.unmet // []' "$_err" 2>/dev/null)" >&2
-      fi
-      rm -f "$_err"; exit "$_rc"
+  _json=$(jq -nc --arg a "$_label" --arg s "$_scope" --arg d "$_df" \
+    '{agent:$a} + (if $s != "" then {scope:$s} else {} end) + (if $d != "" then {design_first:true} else {} end)')
+  # 옛 서버는 scope·design_first 를 모르고 무시한다(계약 2.9 이전은 design_first 도 무시 — 선행 미충족이면 종전 403 → exit 4).
+  _err="$CACHE_DIR/dflow_claim_err.$$"; mkdir -p "$CACHE_DIR"
+  _resp=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/claim" "$_json" 2>"$_err"); _rc=$?
+  cat "$_err" >&2
+  if [ "$_rc" -ne 0 ]; then
+    if [ "$_rc" -eq 4 ] && [ "$(jq -r '.reason // empty' "$_err" 2>/dev/null | head -1)" = design_first_too_early ]; then
+      printf 'DESIGN_FIRST_TOO_EARLY %s\n' "$(jq -c '.unmet // []' "$_err" 2>/dev/null | head -1)" >&2
     fi
-    rm -f "$_err"
+    rm -f "$_err"; exit "$_rc"
   fi
+  rm -f "$_err"
   write_spec_cache "$_resp"
   printf 'claimed %s\n' "$(printf '%s' "$_id" | cut -c1-8)"
+  # 서버가 저장한 범위(계약 2.11, D21) — 워커는 이 값으로 state.json scope 를 적는다. 옛 서버·레거시 응답에는 없다.
+  _cs=$(printf '%s' "$_resp" | jq -r '.claim_scope // empty' 2>/dev/null)
+  [ -z "$_cs" ] || printf 'CLAIM_SCOPE %s\n' "$_cs"
   # 미충족 선행이 있을 때만 알린다 — 없으면(선행 충족·옛 서버) 종전 claim 과 같은 출력이다.
-  if [ -n "$_df" ]; then
-    _unmet=$(printf '%s' "$_resp" | jq -c 'if .design_first == true then (.unmet // []) else [] end' 2>/dev/null) || _unmet='[]'
-    [ "${_unmet:-[]}" = '[]' ] || printf 'DESIGN_FIRST_UNMET %s\n' "$_unmet"
-  fi
+  _unmet=$(printf '%s' "$_resp" | jq -c 'if .design_first == true then (.unmet // []) else [] end' 2>/dev/null) || _unmet='[]'
+  [ "${_unmet:-[]}" = '[]' ] || printf 'DESIGN_FIRST_UNMET %s\n' "$_unmet"
 }
 
 # 설계를 마치고 구현으로 넘긴다(계약 2.9, 단계 ds→ip). 점유자 본인만 부른다 — claim·progress 와 같은 신원 산출.
@@ -406,10 +437,17 @@ cmd_claim() {
 # 본문(HTML 일 수 있다)을 읽지 않고 표식만 낸 뒤 성공으로 넘긴다 — 옛 서버의 claim 은 이미 ip 로 보냈다. 새 서버의 404 를
 # 그렇게 넘기면 선행 관문을 건너뛰므로 /me 의 계약 버전으로 가르고, 버전을 모르면 실패로 본다(fail-closed).
 cmd_build_start() {
-  _id=$(resolve_ref "$1")
+  _ref="$1"; shift; _scope=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --scope) case "${2:-}" in full|build|rework) _scope="$2"; shift 2 ;; *) usage ;; esac ;;
+      *) usage ;;
+    esac
+  done
+  _id=$(resolve_ref "$_ref")
   _err="$CACHE_DIR/dflow_bs_err.$$"; mkdir -p "$CACHE_DIR"
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/build-start" \
-    "$(jq -nc --arg a "$(agent_id_default)" '{agent:$a}')" 2>"$_err"); _rc=$?
+    "$(jq -nc --arg a "$(agent_id_default)" --arg s "$_scope" '{agent:$a} + (if $s != "" then {scope:$s} else {} end)')" 2>"$_err"); _rc=$?
   if [ "$_rc" -eq 7 ]; then
     _cv=$(server_contract_version); _vrc=$?
     if [ "$_vrc" -ne 0 ]; then
@@ -425,6 +463,55 @@ cmd_build_start() {
   cat "$_err" >&2; rm -f "$_err"
   [ "$_rc" -eq 0 ] || exit "$_rc"
   printf 'build-started %s\n' "$(printf '%s' "$_id" | cut -c1-8)"
+}
+
+# 옛 서버(계약 < 2.11)에는 두 동사가 없다 — 404 면 계약 버전을 보고 표식을 남긴 뒤 exit 7(기능 꺼짐).
+# 스킬은 contract-ge 2.11 로 먼저 가르므로 여기 닿는 것은 판단이 어긋났을 때뿐이다(설계 상태 스펙 8절).
+# $1=이 요청의 stderr 캡처 파일(404 본문) — 옛 서버가 확정되면 본문(HTML 일 수 있다)을 버리고 표식만 낸다
+# (build-start 의 BUILD_START_UNSUPPORTED 와 같은 관례). 확정하지 못했으면(새 서버의 뜻밖의 404·버전 조회 실패)
+# 표식 없이 본문을 그대로 보여준다 — 그 404 는 원인 불명이라 디버그 단서를 지우면 안 된다.
+design_state_404() {
+  _cv=$(server_contract_version); _vrc=$?
+  if [ "$_vrc" -eq 0 ] && ! version_ge "$_cv" 2.11; then
+    rm -f "$1"
+    printf 'DESIGN_STATE_UNSUPPORTED 서버 계약 %s < 2.11 — 이 동사가 없다\n' "$_cv" >&2
+    exit 7
+  fi
+  cat "$1" >&2; rm -f "$1"
+  exit 7
+}
+
+# 설계를 마치고 멈춘다(계약 2.11, 설계 상태 스펙 6.3). 점유자 본인만. 서버가 단계 dd, 설계 상태(review 방식·design 범위면 review)를 둔다.
+cmd_design_done() {
+  _id=$(resolve_ref "$1")
+  _err="$CACHE_DIR/dflow_dd_err.$$"; mkdir -p "$CACHE_DIR"
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/design-done" \
+    "$(jq -nc --arg a "$(agent_id_default)" '{agent:$a}')" 2>"$_err"); _rc=$?
+  [ "$_rc" -ne 7 ] || design_state_404 "$_err"
+  cat "$_err" >&2; rm -f "$_err"
+  [ "$_rc" -eq 0 ] || exit "$_rc"
+  printf 'design-done %s %s\n' "$(printf '%s' "$_id" | cut -c1-8)" "$(printf '%s' "$_body" | jq -r '.design_state // "none"')"
+}
+
+# 설계를 사람에게 되돌린다(계약 2.11, 설계 상태 스펙 4.1 design_reopen). 사유는 화면에 보인다.
+cmd_design_reopen() {
+  _ref="$1"; shift; _reason=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reason) _reason="${2:-}"; shift 2 || usage ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$_reason" ] || die 2 "design-reopen 은 --reason \"<이유>\" 가 필요하다(화면에 보인다)"
+  _id=$(resolve_ref "$_ref")
+  _err="$CACHE_DIR/dflow_dr_err.$$"; mkdir -p "$CACHE_DIR"
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/design-reopen" \
+    "$(jq -nc --arg a "$(agent_id_default)" --arg r "$_reason" '{agent:$a, reason:$r}')" 2>"$_err"); _rc=$?
+  [ "$_rc" -ne 7 ] || design_state_404 "$_err"
+  cat "$_err" >&2; rm -f "$_err"
+  [ "$_rc" -eq 0 ] || exit "$_rc"
+  printf 'design-reopened %s %s %s\n' "$(printf '%s' "$_id" | cut -c1-8)" \
+    "$(printf '%s' "$_body" | jq -r '.status // "-"')" "$(printf '%s' "$_body" | jq -r '.design_state // "none"')"
 }
 
 # /me 의 contract_version. 조회 실패는 api_raw 의 exit 그대로, 값이 없으면 exit 6(출력 없음).
@@ -570,7 +657,7 @@ cmd_heartbeat() {
 }
 
 cmd_watch() {
-  _agent=''; _slots=''; _busy=''; _until=''; _project="${DFLOW_PROJECT_ID:-}"; _stop=''; _raw=''; _holder=''
+  _agent=''; _slots=''; _busy=''; _until=''; _project="${DFLOW_PROJECT_ID:-}"; _stop=''; _raw=''; _holder=''; _tag=''; _wp=''
   while [ $# -gt 0 ]; do
     case "$1" in
       --agent)   _agent="${2:-}";   shift 2 || usage ;;
@@ -579,6 +666,8 @@ cmd_watch() {
       --until)   _until="${2:-}";   shift 2 || usage ;;
       --project) _project="${2:-}"; shift 2 || usage ;;
       --holder)  _holder="${2:-}";  shift 2 || usage ;;
+      --require-tag) _tag="${2:-}"; shift 2 || usage ;;
+      --wp)      _wp="${2:-}";      shift 2 || usage ;;
       --json)    _raw=1; shift ;;
       --stop)    _stop=1; shift ;;
       *) usage ;;
@@ -590,13 +679,15 @@ cmd_watch() {
   if [ -n "$_stop" ]; then
     _json=$(jq -nc --arg a "$_agent" '{agent:$a, stop:true}')
   else
-    _json=$(jq -nc --arg a "$_agent" --arg h "$_host" --arg s "$_slots" --arg b "$_busy" --arg u "$_until" --arg p "$_project" --arg hd "$_holder" \
+    _json=$(jq -nc --arg a "$_agent" --arg h "$_host" --arg s "$_slots" --arg b "$_busy" --arg u "$_until" --arg p "$_project" --arg hd "$_holder" --arg tg "$_tag" --arg wp "$_wp" \
       '{agent:$a, host:$h}
        + (if $s != "" then {slots:($s|tonumber)} else {} end)
        + (if $b != "" then {busy:($b|tonumber)} else {} end)
        + (if $u != "" then {until:$u} else {} end)
        + (if $p != "" then {project_id:$p} else {} end)
-       + (if $hd != "" then {holder:$hd} else {} end)')
+       + (if $hd != "" then {holder:$hd} else {} end)
+       + (if $tg != "" then {require_tag:$tg} else {} end)
+       + (if $wp != "" then {wp:$wp} else {} end)')
   fi
   _body=$(TOKEN="$TOK" api_raw POST /api/v1/agent/watch "$_json") || exit $?
   # --json 은 응답 본문 그대로. 기본 출력(expires_at 한 줄)만 두면 응답에 실려 오는 resume_requests
@@ -859,7 +950,9 @@ case "$CMD" in
        show) [ $# -ge 1 ] || usage; cmd_show "$@" ;;
        taskdir) [ $# -ge 1 ] || usage; cmd_taskdir "$@" ;;
        claim) [ $# -ge 1 ] || usage; cmd_claim "$@" ;;
-       build-start) [ $# -eq 1 ] || usage; cmd_build_start "$@" ;;
+       build-start) [ $# -ge 1 ] || usage; cmd_build_start "$@" ;;
+       design-done) [ $# -eq 1 ] || usage; cmd_design_done "$@" ;;
+       design-reopen) [ $# -ge 1 ] || usage; cmd_design_reopen "$@" ;;
        contract-ge) [ $# -eq 1 ] || usage; cmd_contract_ge "$@" ;;
        progress) [ $# -ge 3 ] || usage; cmd_progress "$@" ;;
        heartbeat) [ $# -ge 1 ] || usage; cmd_heartbeat "$@" ;;

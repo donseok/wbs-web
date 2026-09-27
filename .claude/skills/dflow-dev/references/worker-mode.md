@@ -74,6 +74,7 @@ state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 �
   지점은 행 A·B·C 뿐" 과 부딪치지 않는다. git 은 행 E 의 절대경로 규칙대로 부른다.
 - 재개는 팀장이 같은 워크트리로 다시 띄운 워커가 한다(claim 하지 않는다). 좌석 번호가 바뀌어 `.dflow-agent` 가 달라져도 서버는
   PAT 사용자로 점유자를 가르므로 `build-start` 가 통한다.
+  계약 2.11 의 도는 PC(`runner`)도 라벨의 PC 칸(`<신원>/<host>/w<n>` 의 `<host>`)으로 가르므로 같은 PC 의 다른 좌석은 막히지 않는다.
 
 ## 행 H — 의존성 설치
 
@@ -103,9 +104,8 @@ state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 �
   `NO_DOCKER` 는 보지 않는다. 기준선 전에 판정하고 출처를 기준선 기록에 남긴다. 판정·제외·도커 슬롯·기록의 정본은
   dev-discipline.md 「도커 사용 규칙」 이며, 도커 런타임을 켜지 않는 규칙은 금지 모드와 무관하게 늘 지킨다.
 
-- 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다. `--scope` 는 팀장이 넘긴 그대로 따른다(SKILL.md
-  「실행 범위」). 범위 때문에 끝나면 `.result` 는 `design_review`(설계만 멈춤)·`skipped design_missing`·`skipped design_invalid <빠진 절>`
-  (구현부터인데 사람 설계가 없거나 모자람)이다.
+- 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다. 팀장이 넘긴 `--scope` 는 새 claim 의 범위이고, 이미
+  잡힌 작업은 서버 `claim_scope` 가 이긴다(`orch/start.md` 「서버 판단」). 범위·설계 상태 때문에 끝나면 아래 「설계 상태의 결과 줄」 을 쓴다.
 - `.result` 형식과 status 뜻은 `.claude/skills/dflow-team/references/worker-prompt.md` 가 정본이다. 끝날 때
   status·agent 브랜치·head·`done` exit·한 줄 사유를 마지막에 요약해 워커가 `.result` 로 옮기게 한다.
 - 중단(exit 10, 상태 모델)이면 `.result` 에 `{TSK} {ID8} <branch|-> <head_sha|-> - cancelled <멈춘 Phase 와 호출>` 을
@@ -121,3 +121,47 @@ state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 �
 - 인자 파싱과 위 아홉 행만 워커용으로 갈린다(행 F 는 수동과 같고 결과 표기만 다르다). 게이트·Phase
   정의·커밋 규칙·모델 배정(dev-discipline.md)은 워커에서도 같다. 행 I 의 Refactor 생략도 dev-discipline.md 가 정한
   무인 모드 규칙을 따르는 것이다.
+
+### 설계 상태의 결과 줄(계약 2.11)
+
+단계 파일에서 알리고 끝나는 자리마다 워커는 알림 대신 이 표의 줄을 `.result` 에 쓰고 끝낸다. 형식은
+`{TSK} {ID8} <branch|-> <head_sha|-> <done_exit|-> <status> <사유>` 이고 정본은 worker-prompt.md 「7」 이다. `<head_sha>` 는 push 한
+agent 브랜치 tip 이고, push 전에 끝났으면 로컬 tip, 브랜치가 없으면 `-` 다.
+
+| 자리(단계 파일 「절」) | status | 사유 |
+|---|---|---|
+| start 「서버 판단」: ready 인데 `action` 이 `wait`·`skip` | `skipped` | `<action_reason>` |
+| start 「서버 판단」 의 `mine` 거짓, design 「Design 게이트」 표·close 의 exit 12 | `skipped` | `다른 PC 도는 중(<runner>)` |
+| start 「서버 판단」: 설계 상태 `review` | `design_review` | `-` |
+| start 「끝나지 않은 설계 멈춤 이어받기」 2: 설계 상태 `review` | `design_review` | `-` |
+| 같은 절 2: `wait_review` 인데 설계 상태가 `review` 가 아님 | `failed` | `방식 확인 필요` |
+| 같은 절 2: design-done exit 6 | `design_review`(`wait_pred` 였으면 `design_waiting`) | `design-done 미확인` |
+| 같은 절 1·design 「설계 받기」: 브랜치 갈라짐 | `failed` | `브랜치 갈라짐 <로컬 sha> <origin sha>` |
+| fetch 실패(이어받기·「설계 받기」·rework) | `skipped` | `fetch 실패` |
+| 훅 거부가 아닌 push 실패(이어받기·「설계만 멈춤」 3·design-first 멈춤 3·close) | `skipped` | `push 실패` |
+| claim 「사람 설계 초안 확인」 | `skipped` | `사람 설계 초안 있음` |
+| claim 「범위」 의 exit 11, design 표의 그 밖의 exit 11 | `skipped` | `설계 관문(<code>)` |
+| design 「설계 받기」 게이트 불통(review, exit 0, 단계 아직 `ds`·`dd`), design-first 「3」 5 선행 계약 바뀜(review, exit 0) | `design_review` | `<빠진 절>` 또는 `선행 계약 바뀜: <파일…>` |
+| design 「설계 받기」 게이트 불통(human, exit 0, 단계 아직 `ds`·`dd`), design-first 「3」 5 선행 계약 바뀜(human, exit 0) | `design_reopened` | 같은 사유 |
+| design 표의 exit 11 + `order_changed`(build-start, 범위 `build` ∧ 서버 `design_mode` 가 `human`) | `design_reopened` | `주문이 바뀜` |
+| design 표의 exit 11 + `order_changed`(build-start, 그 밖 — full·legacy·rework·review) | `skipped` | `주문이 바뀜` |
+| design 「설계 받기」·design-first 「3」 5 의 design-reopen 호출 exit 6 | `skipped` | `design-reopen 미확인` |
+| 같은 호출의 그 밖의 exit | `failed` | `design-reopen 거부(<code>)` |
+| design 「설계만 멈춤」 5 | `design_review` | `-` |
+| design 「설계만 멈춤」 4 의 exit 6 | `design_review` | `design-done 미확인` |
+| design 「설계만 멈춤」 4·design-first 멈춤 4 의 exit 11 | `failed` | `design-done 거부(<code>)` |
+| design-first 멈춤 4 의 exit 6(계약 2.11) | `design_waiting` | `design-done 미확인` |
+| design 「승인된 설계 고정」, 「설계 받기」 게이트 불통(서버 단계 `ip` 이상 — design-reopen 을 부르지 않는다) | `failed` | `설계 게이트 불통(구현 중)` |
+| design-done 호출(start 「끝나지 않은 설계 멈춤 이어받기」 2)의 exit 6 이 아닌 것(11 포함) | `failed` | `design-done <exit>` |
+| design-done 호출(design 「설계만 멈춤」 4·design-first 멈춤 4)의 그 밖의 exit(6·11 이 아님) | `failed` | `design-done <exit>` |
+| rework 「범위」: 설계 변경 필요 | `failed` | `설계 변경 필요 — <이유>` |
+| close: push 가 non-fast-forward 로 거부 | `failed` | `원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume` |
+| close: done 의 exit 11 | `failed` | `완료 보고 거부(<code>)` |
+
+exit 12 로 끝날 때는 state.json 을 바꾸지 않는다(다른 PC 가 이어 간다). `design_reopened` 는 구현자동 작업의 사람 설계가 게이트·선행
+계약 검사를 통과하지 못해 사람 설계 대기로 되돌아간 것이다 — 팀장이 워크트리를 지운다. human 방식은 설계 원본이 개발 브랜치에,
+review 방식은 원격 agent 브랜치에 있으므로 다시 잡아도 잃을 것이 없다. `주문이 바뀜`(build-start exit 11 의 `order_changed`)은
+범위로 가른다(12절 Y7). 구현자동(범위 `build` ∧ `human`)에서는 사실상 사람의 「설계 되돌리기」 하나이고(취소는 409 `cancelled` 로 따로
+온다) 설계 원본이 개발 브랜치이므로 `design_reopened` 다 — 팀장이 워크트리를 지워야, 다시 확정된 뒤 새 워커가 같은 경로에 뜬다.
+그 밖(full·legacy·rework·review)은 `skipped` 다(일시 제외) — 설계가 이 PC 의 로컬 agent 브랜치에 커밋돼 남아 있을 수 있으므로,
+같은 PC 가 다시 잡으면 그 브랜치로 이어 간다. review 는 주문이 다시 승인돼 build 목록에 실리면 팀장이 30분 뒤 다시 띄운다.

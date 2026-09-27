@@ -1,15 +1,20 @@
 'use client'
 
 import { stubLabel, type StubTaskLike } from '@/lib/domain/forceProgress'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { ChevronDown, ChevronRight, FileText, Pencil } from 'lucide-react'
 import {
-  getWbsSpec, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields,
+  getWbsSpec, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields,
   type AgentDelegationResult, type WbsPriority, type WbsSpecDetail,
 } from '@/app/actions/wbsSpec'
+import { setDelegationAndMode } from '@/app/actions/designActions'
+import { DESIGN_MODES, type DesignMode } from '@/lib/domain/designGate'
+import {
+  DESIGN_MODE_KEYS, WbsDesignSection, packDelegation, unpackDelegation, useDesignPanel, type DelegationValue,
+} from './WbsDesignSection'
 import { useDebouncedSave } from './useDebouncedSave'
 import { PendingSaveChip } from './PendingSaveChip'
 import {
@@ -33,8 +38,12 @@ const MarkdownView = dynamic(
   { ssr: false },
 )
 
-/** debounce 저장으로 묶는 빠른 필드 — 우선순위 select 와 에이전트 위임 체크박스. */
-type QuickFields = { priority: WbsPriority | null; delegate: boolean }
+/**
+ * debounce 저장으로 묶는 빠른 필드 — 우선순위 select, 그리고 위임 체크박스와 설계 방식 select 가 함께 쓰는 한 칸(delegation).
+ * 위임과 방식은 한 서버 액션(setDelegationAndMode)이 함께 써야 해서 한 칸이다(설계 상태 스펙 7절).
+ */
+type QuickFields = { priority: WbsPriority | null; delegation: DelegationValue }
+type QuickResult = AgentDelegationResult & { modeChanged?: boolean }
 
 const PRIORITIES: WbsPriority[] = ['critical', 'high', 'medium', 'low']
 const PRIORITY_KEYS: Record<WbsPriority, DictKey> = {
@@ -73,6 +82,8 @@ export function WbsSpecPanel({ itemId, editable, stubs = NO_STUBS }: { itemId: s
   const [specErr, setSpecErr] = useState<string | null>(null)
   // 위임 체크가 주문을 발행·취소하므로, 체크가 바뀔 때마다 아래 진행 상황 섹션도 다시 읽는다.
   const [orderRefreshKey, setOrderRefreshKey] = useState(0)
+  // 위임 해제 인라인 확인(설계 상태 스펙 7절) — 설계 상태가 있으면 체크를 끄기 전에 한 번 묻는다. 브라우저 confirm() 은 쓰지 않는다.
+  const [offConfirm, setOffConfirm] = useState(false)
   // 명세 접기 — 본문(요구사항 마크다운·수용 기준·진행 이력)이 패널 높이의 대부분을 먹는다.
   // 기본은 펼침이다: 접힘을 기본으로 두면 에이전트 진행 상황과 승인·재작업 버튼까지 한 번 더
   // 눌러야 보여 회귀가 된다. 항목을 옮겨도 접힘 상태는 유지한다.
@@ -82,7 +93,7 @@ export function WbsSpecPanel({ itemId, editable, stubs = NO_STUBS }: { itemId: s
   useEffect(() => {
     let alive = true
     setLoaded(null)
-    setSpecEditing(false); setFieldsEditing(false); setSpecErr(null); setRefErr(null)
+    setSpecEditing(false); setFieldsEditing(false); setSpecErr(null); setRefErr(null); setOffConfirm(false)
     getWbsSpec(itemId).then(r => {
       if (!alive) return
       setLoaded(r ?? 'error')
@@ -113,16 +124,42 @@ export function WbsSpecPanel({ itemId, editable, stubs = NO_STUBS }: { itemId: s
   // 지나면(또는 패널 닫힘·항목 변경·「지금 저장」) 모아서 순서대로 저장하고 refresh 는 1회만 부른다.
   // 화면은 quick.view 로 낙관 표시하고, 실패한 필드는 대기에서 빠져 loaded(서버 확정 값)로 돌아간다.
   const detail = loaded && loaded !== 'error' ? loaded : null
+  // 설계 영역(설계 상태 스펙 3·7절) — 명세에 designMode 가 있을 때만(getWbsSpec 이 늘 채운다). 방식 잠금과 위임 해제 확인도
+  // 이 결과를 쓴다. 위임·설계 버튼이 주문을 바꾸면 orderRefreshKey 로 진행 상황과 함께 다시 읽는다.
+  const designEnabled = detail?.designMode !== undefined
+  const design = useDesignPanel(itemId, designEnabled, orderRefreshKey)
+  // 방식의 서버 값은 설계 영역 조회가 가장 새것이다 — 다시 읽은 방식이 명세 사본과 다르면 사본을 맞춘다(동시 변경·경합의 안전망).
+  useEffect(() => {
+    if (!design?.ok) return
+    const mode = design.panel.mode
+    setLoaded(prev => (prev && prev !== 'error' && prev.designMode !== undefined && prev.designMode !== mode
+      ? { ...prev, designMode: mode }
+      : prev))
+  }, [design])
+  // 저장이 끝난 순간 패널이 아직 그 항목을 보는지 — 분리 flush(항목 변경·닫힘) 뒤에 다른 항목의 명세 사본을 고치지 않게 한다.
+  const itemIdRef = useRef(itemId)
+  useEffect(() => { itemIdRef.current = itemId }, [itemId])
   const quickBaseline = useMemo<QuickFields | null>(
-    () => (detail ? { priority: detail.priority, delegate: detail.tags.includes('agent') } : null),
+    () => (detail
+      ? { priority: detail.priority, delegation: packDelegation(detail.tags.includes('agent'), detail.designMode ?? 'auto') }
+      : null),
     [detail],
   )
-  const quick = useDebouncedSave<QuickFields, AgentDelegationResult>({
+  const quick = useDebouncedSave<QuickFields, QuickResult>({
     scope: itemId,
     baseline: quickBaseline,
     commit: {
       priority: priority => updateWbsSpecFields(itemId, { priority }),
-      delegate: delegated => setAgentDelegation(itemId, delegated),
+      delegation: async value => {
+        const { on, mode } = unpackDelegation(value)
+        const res = await setDelegationAndMode(itemId, on, mode)
+        // 켤 때는 방식을 먼저 쓰고 위임을 나중에 쓴다 — 방식은 저장됐는데 위임만 실패하면(ok:false·modeChanged) 실패 되돌림이
+        // 위임만 이전 값으로 돌리도록 명세 사본의 방식을 먼저 새 값으로 둔다. 오류 문구는 onFailed 가 보인다.
+        if (!res.ok && res.modeChanged && itemIdRef.current === itemId) {
+          setLoaded(prev => (prev && prev !== 'error' ? { ...prev, designMode: mode } : prev))
+        }
+        return res
+      },
     },
     onSaved: (key, value, res) => {
       if (key === 'priority') {
@@ -130,17 +167,25 @@ export function WbsSpecPanel({ itemId, editable, stubs = NO_STUBS }: { itemId: s
         setLoaded(prev => (prev && prev !== 'error' ? { ...prev, priority } : prev))
         return
       }
-      const delegated = value as boolean
-      // ok 인데 warning — 태그는 바뀌었지만 주문이 안 나갔거나(프로젝트 중지) 진행 중 주문을 회수하지 않은 경우.
-      // 에러 칸에 그대로 보여준다(위장 금지). 다음 조작에서 지워진다.
+      const { on, mode } = unpackDelegation(value as DelegationValue)
+      // ok 인데 warning — 태그는 바뀌었지만 주문이 안 나갔거나(프로젝트 중지) 진행 중 주문을 회수하지 않았거나,
+      // 위임은 풀었지만 방식을 바꾸지 못한 경우. 에러 칸에 그대로 보여준다(위장 금지). 다음 조작에서 지워진다.
       if (res.warning) setRefErr(res.warning)
-      setLoaded(prev => (prev && prev !== 'error'
-        ? { ...prev, tags: delegated ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent') }
-        : prev))
-      // 위임 체크가 주문을 발행·취소하므로 아래 진행 상황 섹션도 다시 읽는다.
+      setLoaded(prev => {
+        if (!prev || prev === 'error') return prev
+        // 끌 때는 위임을 먼저 풀고 방식을 쓴다 — 방식 쓰기만 실패하면(modeChanged 없음·경고) 방식은 이전 값 그대로다.
+        const designMode = on || res.modeChanged === true ? mode : (prev.designMode ?? mode)
+        const tags = on ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent')
+        return { ...prev, designMode, tags }
+      })
+      // 위임 체크가 주문을 발행·취소하므로 아래 진행 상황·설계 영역도 다시 읽는다.
       setOrderRefreshKey(k => k + 1)
     },
-    onFailed: (_key, _value, error) => setRefErr(error || t('wbs.specRefSaveFail')),
+    onFailed: (key, _value, error) => {
+      setRefErr(error || t('wbs.specRefSaveFail'))
+      // 저장이 실패해도 서버 상태(방식·주문)는 바뀌었을 수 있다 — 진행 상황·설계 영역을 다시 읽는다.
+      if (key === 'delegation') setOrderRefreshKey(k => k + 1)
+    },
     onFlushed: () => router.refresh(),
   })
   const view = quick.view
@@ -191,7 +236,18 @@ export function WbsSpecPanel({ itemId, editable, stubs = NO_STUBS }: { itemId: s
 
   // 낙관 표시값 — 대기 중인 변경이 있으면 그 값, 없으면 서버 확정 값.
   const priority = view?.priority ?? null
-  const delegated = view?.delegate ?? false
+  const { on: delegated, mode: designMode } = view ? unpackDelegation(view.delegation) : { on: false, mode: 'auto' as DesignMode }
+  // 방식 잠금(4.1) — 서버 판정. 모르면(조회 중·실패) 잠그지 않는다: 서버가 같은 규칙으로 거부하고 그 사유가 오류 칸에 보인다.
+  const modeLock = design?.ok ? design.panel.modeLock : null
+  // 위임 해제 확인 — 서버에 위임이 켜져 있고, 설계 상태가 있거나 아직 모르면(조회 중·실패) 끄기 전에 묻는다.
+  const offNeedsConfirm = designEnabled && (detail?.tags.includes('agent') ?? false)
+    && !(design?.ok === true && design.panel.designState === null)
+  // 위임 체크·방식 select 를 여는 조건(D10 — 위임 권한은 관리자 또는 담당자 본인). 관리자는 지금처럼 편집 토글 안에서 연다.
+  // 편집 토글이 없는 담당자는 설계 영역 조회의 canAct 로 연다 — 모르면(조회 중·실패) 열지 않는다.
+  // 명세에 방식이 없으면(designEnabled 거짓) 위임 칸을 열지 않는다 — 위임 저장은 방식과 한 칸이라, 모르는 방식을
+  // auto 로 채워 쓰게 된다(최종 수정 A4). 모르면 쓰지 않는다.
+  const canAct = design?.ok === true && design.canAct
+  const delegationOpen = designEnabled && (editable ? fieldsEditing : canAct)
   const displayTags = detail
     ? (delegated ? [...detail.tags.filter(tg => tg !== 'agent'), 'agent'] : detail.tags.filter(tg => tg !== 'agent'))
     : []
@@ -273,17 +329,60 @@ export function WbsSpecPanel({ itemId, editable, stubs = NO_STUBS }: { itemId: s
             </label>
           )}
 
-          {fieldsEditing && (
+          {delegationOpen && (
             <label className="flex items-center gap-2">
               <input
                 type="checkbox" data-spec-delegate
                 checked={delegated}
-                onChange={e => { setRefErr(null); quick.set('delegate', e.target.checked) }}
+                onChange={e => {
+                  setRefErr(null)
+                  if (!e.target.checked && offNeedsConfirm) { setOffConfirm(true); return }
+                  setOffConfirm(false)
+                  quick.set('delegation', packDelegation(e.target.checked, designMode))
+                }}
                 className="h-3.5 w-3.5 rounded border-line"
               />
               <span className="text-xs font-semibold text-ink">{t('wbs.specAgentDelegateLabel')}</span>
               <span className="text-[10px] text-ink-subtle">{t('wbs.specAgentDelegateHint')}</span>
             </label>
+          )}
+          {delegationOpen && offConfirm && (
+            <div data-delegation-confirm className="rounded-md border border-line bg-pending-weak p-2">
+              <p className="text-xs text-ink">{t('wbs.delegationOffConfirm')}</p>
+              <div className="mt-1.5 flex gap-1.5">
+                <button
+                  type="button" data-delegation-confirm-ok className="btn h-7 px-2.5 text-xs"
+                  onClick={() => { setOffConfirm(false); quick.set('delegation', packDelegation(false, designMode)) }}
+                >{t('wbs.delegationOffConfirmOk')}</button>
+                <button
+                  type="button" data-delegation-confirm-cancel className="btn btn-ghost h-7 px-2.5 text-xs"
+                  onClick={() => setOffConfirm(false)}
+                >{t('common.cancel')}</button>
+              </div>
+            </div>
+          )}
+          {delegationOpen && designEnabled && (
+            <div>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.designModeLabel')}</span>
+                <select
+                  data-spec-design-mode value={designMode} disabled={modeLock !== null}
+                  onChange={e => { setRefErr(null); quick.set('delegation', packDelegation(delegated, e.target.value as DesignMode)) }}
+                  className="app-input h-9 text-xs"
+                >
+                  {DESIGN_MODES.map(m => <option key={m} value={m}>{t(DESIGN_MODE_KEYS[m])}</option>)}
+                </select>
+              </label>
+              {modeLock
+                ? <p data-design-mode-lock className="mt-1 text-[11px] font-medium text-delayed">{modeLock}</p>
+                : <p className="mt-1 text-[10px] text-ink-subtle">{t('wbs.designModeHint')}</p>}
+            </div>
+          )}
+          {/* 위임 체크·방식 select 가 닫혀 있으면(위임 권한이 없거나 관리자가 편집 토글을 닫음) 지금 방식을 글자로 보인다. */}
+          {!delegationOpen && designEnabled && (
+            <p className="text-xs text-ink-muted">
+              <span className="font-semibold">{t('wbs.designModeLabel')}</span> · {t(DESIGN_MODE_KEYS[designMode])}
+            </p>
           )}
           {/* 에이전트 프롬프트(0090) — 위임 신호에 덧붙이는 사용자 지시문. 비관리자에게는 값이 있을 때만 표시. */}
           {fieldsEditing ? (
@@ -364,6 +463,10 @@ export function WbsSpecPanel({ itemId, editable, stubs = NO_STUBS }: { itemId: s
         </div>
       )}
 
+      {/* 설계 영역도 명세 본문 밖이다 — 「설계 승인」·「설계 확정」은 사람만 하는 일이라 접힘 뒤로 숨기지 않는다(진행 상황과 같은 이유). */}
+      {designEnabled && (
+        <WbsDesignSection itemId={itemId} res={design} onChanged={() => { setOrderRefreshKey(k => k + 1); router.refresh() }} />
+      )}
       {/* 진행 상황은 명세 본문 밖이다 — 승인·반려는 사람만 할 수 있고 이 화면이 유일한 자리라,
           명세 접힘 안쪽에 두면 승인 대기 주문이 두 겹 접힘 뒤로 사라진다. */}
       <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} stubs={stubs} />

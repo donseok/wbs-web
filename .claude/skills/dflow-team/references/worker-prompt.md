@@ -15,7 +15,7 @@
 | `{MAIN_CHECKOUT}` | `MAIN_CHECKOUT` | 팀장의 상주 체크아웃 절대경로 |
 | `{BACKEND}` | `BACKEND` | 언제나 `pane`. 팀원은 tmux pane 또는 Orca 탭에서 돌며 `blocked` 이후 동작이 같다 |
 | `{MODEL_FLAG}` | `MODEL` | `opus` 면 `--model opus`, `sonnet` 이면 `--model sonnet`, `default` 면 빈 값 |
-| `{SCOPE_FLAG}` | `SCOPE` | `design` 이면 `--scope design`, `build` 면 `--scope build`, `full`·키 없음이면 빈 값(`/dflow-dev` SKILL.md 「실행 범위」) |
+| `{SCOPE_FLAG}` | `SCOPE` | 값이 있으면 늘 `--scope <SCOPE>`(`full`·`design`·`build` — 팀장이 서버 판단 `action` 으로 정한다), 키가 없으면(옛 팀장) 빈 값. 이미 잡힌 작업은 서버 `claim_scope` 가 이긴다(`/dflow-dev` `orch/start.md` 「서버 판단」) |
 | `{DEV_BRANCH}` | `DEV_BRANCH` | 개발 브랜치 이름(`origin/` 없음). 팀장이 `dflow.sh branch dev` 로 해석해 넘긴다 |
 | `{TASK_DIR}` | `TASK_DIR` | 이 작업의 작업 폴더(`<TASKS>/<TSK>`). 팀장이 `dflow.sh taskdir <order>` 로 구해 넘긴다 |
 | `{DOCKER}` | `DOCKER` | `allow` 일 때만 도커를 쓸 수 있다(팀장이 `docker` 태그 Task 에만 넘긴다). 키가 없거나 다른 값이면 도커 금지 모드다. 옛 팀장의 `NO_DOCKER` 는 값과 무관하게 금지로 본다(「10」) |
@@ -107,8 +107,9 @@ Skill 도구가 `dflow-dev` 를 모르면 `.claude/skills/dflow-dev/SKILL.md` �
 
 `{ID8}` 외의 어떤 주문에도 claim·build-start·progress·heartbeat·release·done 을 하지 않는다. `list` 는 호출하지 않는다. 필요한
 조회는 `show {ID8}` 뿐이다(목록 캐시를 같은 머신의 팀장·팀원이 공유한다). `contract-ge` 는 `/me` 만 읽으므로 부를 수 있다.
-설계 선행(계약 2.9)의 `claim {ID8} --design-first`·`build-start {ID8}`·`heartbeat {ID8} --phase wait_pred` 와 설계만 멈춤(계약 2.10)의
-`heartbeat {ID8} --phase wait_review` 는 이 범위 안이다.
+설계 선행(계약 2.9)의 `claim {ID8} --design-first`·`build-start {ID8}`·`heartbeat {ID8} --phase wait_pred`, 설계만 멈춤(계약 2.10)의
+`heartbeat {ID8} --phase wait_review`, 설계 상태(계약 2.11)의 `claim {ID8} … --scope <범위>`·`build-start {ID8} --scope <범위>`·
+`design-done {ID8}`·`design-reopen {ID8} --reason …` 은 이 범위 안이다.
 
 ## 6. 판단 규칙 (자동 모드)
 
@@ -168,13 +169,14 @@ Skill 도구가 `dflow-dev` 를 모르면 `.claude/skills/dflow-dev/SKILL.md` �
 | status | 언제 | 사유 |
 |---|---|---|
 | `done` | Phase 06 까지 마치고 `done --auto-links --decisions …` 가 exit 0 | 한 줄 요약. 6번의 확인 필요 결정이 있으면 끝에 `(결정 N건)` |
-| `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재`, `design_missing`, `design_invalid <빠진 절>`(구현부터인데 사람 설계가 없거나 모자람) 중 하나. 설계 선행 claim 이 `DESIGN_FIRST_TOO_EARLY` 로 거부되면 `선행 미충족(설계 선행 불가: <ref…>)`(`<ref…>` 는 거부 본문 `unmet` 의 `external_ref` 를 공백으로 이은 것) |
-| `design_waiting` | 설계를 마치고 선행을 기다리며 멈춤(`/dflow-dev` 「설계 선행」 멈춤 절차 — design.md 커밋·state.json `wait_pred`·push·heartbeat `wait_pred` 뒤). 팀장은 실패로 보지 않고 워크트리를 남긴 채 좌석만 비운다 | 미충족 선행 ref 를 공백으로 이은 것. 재개했는데 기점을 정하지 못했으면 그 판정(예 `선행 승인 대기 <ref>`) |
-| `design_review` | 설계만(`--scope design`)으로 설계를 마치고 사람의 검토를 기다리며 멈춤(`/dflow-dev` `orch/design.md` 「설계만 멈춤」 — design.md 커밋·state.json `wait_review`·push·heartbeat `wait_review` 뒤). 또는 검토 대기 설계를 `build` 가 아닌 범위로 받았을 때 | 비운다(`-`) |
+| `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재` 중 하나. 설계 선행 claim 이 `DESIGN_FIRST_TOO_EARLY` 로 거부되면 `선행 미충족(설계 선행 불가: <ref…>)`(`<ref…>` 는 거부 본문 `unmet` 의 `external_ref` 를 공백으로 이은 것). 설계 상태(계약 2.11)의 사유 — `설계 관문(<code>)`·`다른 PC 도는 중(<runner>)`·`사람 설계 초안 있음`·`fetch 실패`·`push 실패`·`주문이 바뀜`·`design-reopen 미확인`·서버 판단의 `<action_reason>` — 은 `/dflow-dev` worker-mode.md 「설계 상태의 결과 줄」 이 정한다 |
+| `design_waiting` | 설계를 마치고 선행을 기다리며 멈춤(`/dflow-dev` 「설계 선행」 멈춤 절차 — design.md 커밋·state.json `wait_pred`·push·heartbeat `wait_pred`(계약 2.11 은 design-done) 뒤). 팀장은 실패로 보지 않고 워크트리를 남긴 채 좌석만 비운다 | 미충족 선행 ref 를 공백으로 이은 것. 재개했는데 기점을 정하지 못했으면 그 판정(예 `선행 승인 대기 <ref>`). design-done 이 네트워크로 실패했으면 `design-done 미확인` |
+| `design_review` | 설계만(`--scope design`)으로 설계를 마치고 사람의 「설계 승인」을 기다리며 멈춤(`/dflow-dev` `orch/design.md` 「설계만 멈춤」 — design.md 커밋·state.json `wait_review`·push·design-done 뒤). 또는 설계 검토 대기 작업을 받았거나, 승인된 설계가 게이트·선행 계약 검사를 통과하지 못해 설계 검토 대기로 되돌렸을 때 | 비운다(`-`). design-done 이 네트워크로 실패했으면 `design-done 미확인`, 되돌렸으면 빠진 절이나 `선행 계약 바뀜: <파일…>` |
+| `design_reopened` | 구현자동 작업의 사람 설계가 게이트·선행 계약 검사를 통과하지 못해 사람 설계 대기로 되돌렸거나(design-reopen), build-start 전에 사람이 설계를 되돌렸다(`order_changed`). 팀장은 실패로 보지 않고 슬롯을 풀며 워크트리를 지운다 | 빠진 절, `선행 계약 바뀜: <파일…>`, `주문이 바뀜` |
 | `needs-merge` | 재개 판정이 approved(`/dflow-dev` 「--worker」 C) | `approved` |
 | `blocked` | 6번 판단 규칙(되돌리기 어려운 결정만) | 질문과 선택지 |
 | `cancelled` | 사람이 D'Flow 에서 이 작업을 중단했다. `dflow.sh` 의 progress·heartbeat·done 이 exit 10 이거나, heartbeat 훅이 세션을 세웠다(`/dflow-dev` 상태 모델) | 멈춘 Phase 와 호출(예 `build progress exit 10`). 산출물은 로컬 커밋만 하고 **push 하지 않는다** |
-| `failed` | 그 밖의 중단(push 훅 거부, 게이트 실패, Build 게이트·Verify 재시도 소진, 부트스트랩 실패, 권한 거부) | 자유 문구. 팀장이 구분하는 값은 첫 낱말로 쓴다: `rate-limit`(사용량 한도·rate limit 오류로 멈춤, 재시도 가능), `not-isolated`(격리 실패, 파일로는 쓰지 않는다), `no-worker-flag`(옛 `/dflow-dev`), `deps`(의존성 설치 실패), `permission`(권한 거부, 뒤에 거부된 명령의 첫 낱말들), `project`(claim 이 `PROJECT_MISMATCH` 로 거부됨. 주문이 이 리포에 바인딩된 D'Flow 프로젝트 밖이다), `not-assignee`(claim 이 `not_assignee` 로 거부됨. 다른 멤버에게 배정된 작업이다) |
+| `failed` | 그 밖의 중단(push 훅 거부, 게이트 실패, Build 게이트·Verify 재시도 소진, 부트스트랩 실패, 권한 거부) | 자유 문구. 팀장이 구분하는 값은 첫 낱말로 쓴다: `rate-limit`(사용량 한도·rate limit 오류로 멈춤, 재시도 가능), `not-isolated`(격리 실패, 파일로는 쓰지 않는다), `no-worker-flag`(옛 `/dflow-dev`), `deps`(의존성 설치 실패), `permission`(권한 거부, 뒤에 거부된 명령의 첫 낱말들), `project`(claim 이 `PROJECT_MISMATCH` 로 거부됨. 주문이 이 리포에 바인딩된 D'Flow 프로젝트 밖이다), `not-assignee`(claim 이 `not_assignee` 로 거부됨. 다른 멤버에게 배정된 작업이다). 설계 상태(계약 2.11)의 실패 — `브랜치 갈라짐 …`·`방식 확인 필요`·`design-done 거부(<code>)`·`design-reopen 거부(<code>)`·`설계 게이트 불통(구현 중)`·`설계 변경 필요 — <이유>`·`원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume`·`완료 보고 거부(<code>)` — 는 사람이 할 일이 사유에 있다(worker-mode.md 「설계 상태의 결과 줄」) |
 
 - `<branch>` 는 agent 브랜치 이름이고, 브랜치를 만들기 전에 끝났으면 `-` 다.
 - `<head_sha>` 는 push 한 agent 브랜치 tip 의 짧은 sha(`git rev-parse --short HEAD`), `<done_exit>` 는

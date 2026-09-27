@@ -1,9 +1,10 @@
 // 에이전트 허브 조립 — 순수 함수. 트리 순서·행 상태·카운터·승인 큐·감시자를 한 번에 만든다. DB·세션을 모른다.
 // 좌석 층은 여기서 만들지 않는다 — /agents/office 가 좌석표 로더로 그린다(2026-09-14 스튜디오 분리 스펙 §4-2).
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
-import { deriveSeatState, isApprovalWait, isReviewWait, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
-import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
-import { deriveWaitReason, type WaitReason } from './waitReason'
+import { deriveSeatState, isApprovalWait, isBuildWait, isReviewWait, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
+import { AGENT_TAG, LIVE_ORDER_STATUSES, isSubtreeManagerOf, screenItemFacts, screenOrderOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
+import { deriveWaitReason, type PredecessorLike, type WaitReason } from './waitReason'
+import { designScreen, toDesignState, type DesignScreenRow, type DesignState } from './designGate'
 import { parseDecisions, stageLockedForHuman, type DecisionsParse } from './agentWork'
 import { stubPendingByItem, type StubPendingEntry } from './forceProgress'
 
@@ -15,6 +16,8 @@ export interface HubItemRow {
   external_ref: string | null; depends: string[] | null
   /** 강제 진행(0103) — stub_for 가 있으면 스텁 제거 하위 Task(구조에 투명), depends_waived 는 면제한 선행 ref. */
   stub_for?: string | null; depends_waived?: string[] | null
+  /** 설계 방식(0108 design_mode) — 화면 판정 재료. 옛 픽스처는 비워 둔다(auto). */
+  design_mode?: string | null
 }
 export interface HubMemberRow { id: string; name: string; email: string | null; user_id: string | null }
 export interface HubReportRow {
@@ -27,7 +30,8 @@ export interface AgentHubRows {
   project: { id: string; name: string } | null
   agentProject: { enabled: boolean } | null
   items: HubItemRow[]; orders: OrderRow[]; reports: HubReportRow[]; watchers: WatcherRow[]; members: HubMemberRow[]
-  /** 선행 항목 중 approved 주문이 있는 항목 id — orders 는 7일 창이라 오래전 승인을 따로 본다(착수 대기 사유 스펙 §3). */
+  /** 선행 항목과 설계 판정 대상(위임·설계 방식 human 항목) 중 approved 주문이 있는 항목 id — orders 는 7일 창이라 오래전
+   *  승인을 따로 본다(착수 대기 사유 스펙 §3, 설계 상태 스펙 3절 9·10행). */
   approvedItemIds: string[]
 }
 export type HubOrderState = SeatState
@@ -46,9 +50,13 @@ export interface HubRow {
   stageLocked: boolean
   order: {
     id: string; status: OrderStatus; state: HubOrderState; agent: string | null; lastSignalAt: string | null
-    /** 설계 완료·검토 대기(claimed ∧ heartbeat wait_review, 스펙 §14.5) — WAIT 이지만 선행 대기(wait_pred)와 다른 라벨(§14.5)로
+    /** 설계 검토 대기(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행) — WAIT 이지만 선행 대기(wait_pred)와 다른 라벨로
      *  보여야 해서 hubStateLabel/hubStateTone 이 이 값을 본다. 선택 필드(옛 픽스처 = undefined → 선행 대기로 접힌다). */
     reviewWait?: boolean
+    /** 구현 대기(claimed ∧ 설계 상태 accepted ∧ 단계 dd ∧ 도는 PC 없음) — WAIT 이지만 결재할 것이 아니다. 선택 필드(옛 픽스처 = 없음). */
+    buildWait?: boolean
+    /** 주문의 설계 상태(0108). 선택 필드(옛 픽스처 = 없음). */
+    designState?: DesignState | null
   } | null
   prompt: string | null
   /** 리프 && 마일스톤 아님 && (관리자 || 담당자 본인) — 화면의 체크 활성 판정. 서버 가드(requireDelegationRight)와 같은 규칙. */
@@ -59,6 +67,9 @@ export interface HubRow {
   waitReason: WaitReason | null
   /** 스텁 잔존(강제 진행 스펙 F13) — 승인 비활성·배지 재료. 선택 필드(옛 픽스처 호환), 조립은 항상 채운다. */
   stubPending?: StubPendingEntry[]
+  /** 설계 화면 판정(설계 상태 스펙 3절) — 리프만. 맞는 행이 없거나 부모 행이면 null(화면은 지금 문구 그대로). buttons 는
+   *  권한과 따로 싣는다 — 화면이 canToggle(requireDelegationRight 와 같은 규칙)로 거른다. 선택 필드(옛 픽스처), 조립은 항상 채운다. */
+  design?: DesignScreenRow | null
 }
 export interface HubQueueEntry {
   orderId: string; itemId: string | null; code: string; name: string; agent: string; percent: number; summary: string
@@ -78,7 +89,12 @@ export interface AgentHub {
   registered: boolean; enabled: boolean
   /** stuck(막힘) = 위임됐는데 사람이 손대야 풀리는 대기 — 선행 대기·에이전트 꺼짐. 시간이 지나면
    *  저절로 풀리는 대기(에이전트 바쁨·착수 대기)는 세지 않는다. */
-  counters: { delegated: number; ready: number; working: number; waiting: number; stuck: number }
+  counters: {
+    delegated: number; ready: number; working: number; waiting: number; stuck: number
+    /** 설계 검토 대기(claimed ∧ 설계 상태 review) 주문 수 — 결재 대기(waiting, 완료 승인)와 따로 센다(설계 상태 스펙 7절).
+     *  선택 필드(옛 픽스처), 조립은 항상 채운다. */
+    designReview?: number
+  }
   watchers: Watcher[]
   /** 트리 전위 순서(부모 → 자식). 형제는 sort_order 오름차순, 같으면 code. 고아는 루트 뒤. */
   rows: HubRow[]
@@ -89,7 +105,6 @@ export interface AgentHub {
 }
 export interface HubViewer { userId: string; userEmail: string | null; isAdmin: boolean }
 
-const LIVE: readonly OrderStatus[] = ['ready', 'claimed', 'reported']
 const WORKING: readonly SeatState[] = ['ACTIVE', 'STALE', 'OFFLINE', 'BLOCKED', 'REJECTED']
 
 /** 로스터 이중 매칭(src/lib/agent/assignee.ts 와 같은 규칙): user_id 링크 또는 이메일 소문자 일치. */
@@ -133,7 +148,7 @@ function flatten(items: HubItemRow[]): { item: HubItemRow; depth: number }[] {
 /** 살아 있는 주문(ready/claimed/reported) 중 updated_at 최신 1건, 없으면 최근 approved 1건. */
 function pickOrder(list: OrderRow[]): OrderRow | null {
   const newest = (xs: OrderRow[]) => xs.reduce<OrderRow | null>((best, o) => (!best || Date.parse(o.updated_at) > Date.parse(best.updated_at) ? o : best), null)
-  return newest(list.filter(o => LIVE.includes(o.status))) ?? newest(list.filter(o => o.status === 'approved'))
+  return newest(list.filter(o => LIVE_ORDER_STATUSES.includes(o.status))) ?? newest(list.filter(o => o.status === 'approved'))
 }
 
 /** 층이 없을 때(위임 주문 0)도 감시 중인 에이전트는 보여야 한다 — seatmap.ts 의 층 감시자 규칙과 같다(프로젝트 일치 또는 전역, TTL 안, agent 순). */
@@ -175,7 +190,12 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
   const memberById = new Map(rows.members.map(m => [m.id, m]))
   const hubWatchers = rows.watchers.filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (w.project_id === null || w.project_id === projectId))
   const hubRows: HubRow[] = []
-  const counters = { delegated: 0, ready: 0, working: 0, waiting: 0, stuck: 0 }
+  const counters = { delegated: 0, ready: 0, working: 0, waiting: 0, stuck: 0, designReview: 0 }
+  // 선행 행 — 착수 대기 사유와 설계 화면 판정이 같은 판정을 쓴다.
+  const predOf = (ref: string): PredecessorLike | undefined => {
+    const p = byRef.get(ref)
+    return p ? { external_ref: ref, code: p.code, name: p.name, stage: p.stage, order_approved: approved.has(p.id), actual_pct: p.actual_pct } : undefined
+  }
   for (const { item, depth } of flatten(rows.items)) {
     const isLeaf = !hasChildren.has(item.id)
     const delegated = (item.tags ?? []).includes(AGENT_TAG)
@@ -184,9 +204,11 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     const picked = pickOrder(ordersByItem.get(item.id) ?? [])
     let order: HubRow['order'] = null
     if (picked) {
+      const designState = toDesignState(picked.design_state ?? null)
       const input = {
         status: picked.status, lastHeartbeatAt: picked.last_heartbeat_at, heartbeatPhase: picked.heartbeat_phase,
         updatedAt: picked.updated_at, lastReview: latestReport.get(picked.id)?.review_action ?? null, actualPct: item.actual_pct,
+        designState, runner: picked.runner ?? null, stage: item.stage,
       }
       const state = deriveSeatState(input, nowMs)
       const sig = picked.status === 'ready' ? 0 : lastSignalMs(input)
@@ -195,11 +217,15 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         agent: picked.heartbeat_agent ?? picked.claimed_by,
         lastSignalAt: sig > 0 ? new Date(sig).toISOString() : null,
         reviewWait: isReviewWait(input),
+        buildWait: isBuildWait(input),
+        designState,
       }
       if (state === 'READY') counters.ready++
-      // 승인 대기만 센다 — 설계 완료·선행 대기(claimed ∧ wait_pred)·검토 대기(claimed ∧ wait_review)도 WAIT 지만 결재할 것이 아니다.
+      // 승인 대기만 센다 — 설계 완료·선행 대기(claimed ∧ wait_pred)·설계 검토 대기(claimed ∧ review)도 WAIT 지만 결재할 것이 아니다.
       else if (state === 'WAIT' && isApprovalWait(input)) counters.waiting++
       else if (WORKING.includes(state)) counters.working++
+      // 설계 검토 대기는 결재 대기와 따로 센다(설계 상태 스펙 7절) — 허브 상태 줄의 「설계 검토 대기」 타일.
+      if (isReviewWait(input)) counters.designReview++
     }
     if (isLeaf && delegated) counters.delegated++
     const waitingStart = order === null || order.state === 'READY'
@@ -207,7 +233,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     const waitReason = isLeaf && delegated && waitingStart
       ? deriveWaitReason({
           depends: item.depends,
-          predecessorByRef: ref => { const p = byRef.get(ref); return p ? { external_ref: ref, code: p.code, name: p.name, stage: p.stage, order_approved: approved.has(p.id), actual_pct: p.actual_pct } : undefined },
+          predecessorByRef: predOf,
           // 담당자 id 는 있는데 로스터 행이 없으면 계정 미연결과 같은 취급(seatmap.ts 와 같은 규칙).
           assignee: item.assignee_member_id ? { name: assigneeMember?.name ?? '(로스터에 없음)', user_id: assigneeMember?.user_id ?? null } : null,
           watchers: hubWatchers,
@@ -215,6 +241,20 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         })
       : null
     if (waitReason !== null && (waitReason.kind === 'dependency' || waitReason.kind === 'agent_off')) counters.stuck++
+    // 설계 화면 판정(설계 상태 스펙 3절) — 리프만. 활성 주문만 active 로 넘긴다: pickOrder 의 approved 폴백은 활성 주문이
+    // 아니다(활성 주문이 없어야 걸리는 9·10행이 그 경우를 본다).
+    const live = picked !== null && LIVE_ORDER_STATUSES.includes(picked.status) ? picked : null
+    const design = isLeaf
+      ? designScreen({
+          item: screenItemFacts(item, predOf, approved.has(item.id)),
+          active: live ? screenOrderOf(live) : null,
+          lastReview: live ? (latestReport.get(live.id)?.review_action ?? null) : null,
+          nowMs,
+        })
+      : null
+    // 3절 2행(선행 대기, 설계 승인·확정됨)이면 상태 칩도 선행 대기로 접는다 — isBuildWait 은 선행을 보지 않아 「구현 대기」 칩과
+    // 「선행 대기(설계 승인됨)」 문구가 한 행에 섞였다(최종 수정 B12). 판정은 designScreen 의 행 번호 하나를 따른다.
+    if (order?.buildWait && design?.row === 2) order = { ...order, buildWait: false }
     hubRows.push({
       itemId: item.id, code: item.code, name: item.name, depth, parentId: item.parent_id,
       isLeaf, milestone: item.milestone,
@@ -225,6 +265,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
       canToggle: isLeaf && !item.milestone && (viewer.isAdmin || assigneeMine),
       waitReason,
       stubPending: stubsByItem.get(item.id) ?? [],
+      design,
     })
   }
 

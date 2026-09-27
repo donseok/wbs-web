@@ -96,15 +96,20 @@ describe('cancelStubTask', () => {
     expect(await cancelStubTask(SUB, '스텁 없음')).toEqual({ ok: false, error: '에이전트가 작업 중이거나 보고한 스텁 제거 작업은 취소할 수 없습니다 — 중단·반려로 먼저 정리하세요.' })
     expect(writes).toEqual([])
   })
-  it('부모 기준 이력(stub_cancelled)을 먼저 남기고, ready 주문을 취소하고 행을 지운다(가드는 후행 기준)', async () => {
-    const { writes } = adminWith({ tables: {
-      wbs_items: [SUB_ROW, { data: { id: ITEM, depends_waived: [] } }, { data: [{ id: SUB }] }],
-      agent_work_orders: [{ data: [{ id: 'o1', status: 'ready' }] }, { data: [{ id: 'o1' }] }],
-    } })
+  it('부모 기준 이력(stub_cancelled)을 먼저 남기고, ready 주문을 cancel 사건으로 취소하고 행을 지운다(가드는 후행 기준)', async () => {
+    const { writes, rpc } = adminWith({
+      rpc: { ok: true, order_status: 'cancelled', prev_status: 'ready', stage: null, actual_pct: null, stage_changed: false, actual_changed: false, reached_first: false, skipped: null },
+      tables: {
+        wbs_items: [SUB_ROW, { data: { id: ITEM, depends_waived: [] } }, { data: [{ id: SUB }] }],
+        agent_work_orders: [{ data: [{ id: 'o1', status: 'ready' }] }],
+      },
+    })
     expect(await cancelStubTask(SUB, '스텁을 만들기 전에 선행이 끝났다')).toEqual({ ok: true })
     expect(mocks.requireSubtreeManagerOrAdmin).toHaveBeenCalledWith(ITEM, 'p1')
-    expect(writes.map(w => `${w.table}:${w.op}`)).toEqual(['change_logs:insert', 'agent_work_orders:update', 'wbs_items:delete'])
+    // 취소는 이제 RPC cancel 사건으로 한다 — agent_work_orders 에 직접 update 하지 않는다(D14).
+    expect(writes.map(w => `${w.table}:${w.op}`)).toEqual(['change_logs:insert', 'wbs_items:delete'])
     expect(writes[0].payload).toEqual(expect.objectContaining({ wbs_item_id: ITEM, field: 'stub_cancelled', user_id: 'u1', old_value: 'm/TSK-01' }))
     expect(String((writes[0].payload as { new_value: string }).new_value)).toContain('스텁을 만들기 전에 선행이 끝났다')
+    expect(rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_event: 'cancel', p_order_id: 'o1', p_actor: 'u1' }))
   })
 })

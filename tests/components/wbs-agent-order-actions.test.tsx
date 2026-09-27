@@ -15,10 +15,14 @@ vi.mock('@/app/actions/wbsSpec', () => ({
     tags: ['agent'], depends: [], prdRef: null, entryPoint: null,
     acceptance: [], spec: null, externalRef: 'mod/TSK-01-01', agentPrompt: null,
   }),
-  setAgentDelegation: vi.fn(),
   updateAgentPrompt: vi.fn(),
   updateWbsSpec: vi.fn(),
   updateWbsSpecFields: vi.fn(),
+}))
+// 설계 영역·위임 저장의 서버 액션 — 이 파일의 관심사가 아니다. 명세에 designMode 가 없어 조회도 하지 않는다(실제 모듈을 들이지 않게 mock).
+vi.mock('@/app/actions/designActions', () => ({
+  getDesignPanel: vi.fn(), setDelegationAndMode: vi.fn(),
+  designAccept: vi.fn(), designConfirm: vi.fn(), designReopen: vi.fn(),
 }))
 vi.mock('@/app/actions/agentWork', () => ({
   getAgentOrderForItem: (...a: unknown[]) => getAgentOrderForItem(...(a as [])),

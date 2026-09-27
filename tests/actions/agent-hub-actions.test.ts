@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getAgentHub: vi.fn(), applyDelegation: vi.fn(), viewerEmail: vi.fn(), myMemberIds: vi.fn(),
   isSubtreeManager: vi.fn(),
   approve: vi.fn(), reject: vi.fn(), unapprove: vi.fn(), rework: vi.fn(), setWbsStage: vi.fn(), emitNotification: vi.fn(),
+  designAccept: vi.fn(), designConfirm: vi.fn(), designReopen: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({ requireProjectMember: mocks.requireProjectMember, requireProjectAdmin: mocks.requireProjectAdmin }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
@@ -25,6 +26,10 @@ vi.mock('@/app/actions/agentWork', () => ({
   unapproveAgentCompletion: mocks.unapprove, requestAgentRework: mocks.rework,
 }))
 vi.mock('@/app/actions/wbsAssign', () => ({ setWbsStage: mocks.setWbsStage }))
+// 설계 버튼(설계 상태 스펙 7절)의 자격(위임 권한)은 designActions 가 본다 — 여기서는 전달과 항목의 프로젝트 확인만 본다.
+vi.mock('@/app/actions/designActions', () => ({
+  designAccept: mocks.designAccept, designConfirm: mocks.designConfirm, designReopen: mocks.designReopen,
+}))
 import { refreshAgentHub, applyHubDelegations, runHubProcessOp } from '@/app/actions/agentHub'
 
 const P1 = '11111111-1111-4111-8111-111111111111'
@@ -54,7 +59,7 @@ function adminClient(items: { id: string; assignee_member_id?: string | null }[]
  * `.eq('id', v)` 로 잡힌 id 의 행을 돌려준다. update 뒤 `.select()` thenable 은 updateRows 개 행.
  */
 function fakeAdmin(cfg: {
-  orders?: Record<string, { project_id: string; status?: string; wbs_item_id?: string | null; claimed_by?: string | null }>
+  orders?: Record<string, { project_id: string; status?: string; wbs_item_id?: string | null; claimed_by?: string | null; design_state?: string | null }>
   items?: Record<string, { project_id: string; name?: string; assignee_member_id?: string | null }>
   updateRows?: number
   /** 전이 RPC 응답 — 기본은 전이 성공(실적 무변경이라 스냅샷 없음). */
@@ -259,10 +264,10 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       recipientMemberIds: ['m1'],
     }))
   })
-  it('stop — 위임 해제의 warning(단계 되돌리기 실패 등)은 응답에 싣는다', async () => {
+  it('stop — 위임 해제가 돌려준 warning 은 그대로 응답에 싣는다', async () => {
     fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
-    mocks.applyDelegation.mockResolvedValue({ ok: true, cancelledClaimedIds: [O(1)], warning: '단계를 되돌리지 못했습니다' })
-    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB, warning: '단계를 되돌리지 못했습니다' })
+    mocks.applyDelegation.mockResolvedValue({ ok: true, cancelledClaimedIds: [O(1)], warning: '완료 보고가 이미 올라온 주문은 취소되지 않았습니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB, warning: '완료 보고가 이미 올라온 주문은 취소되지 않았습니다.' })
   })
   it('stop — claimed 가 아니면 거부(위임 해제 없음), 위임 해제 실패는 오류 그대로', async () => {
     fakeAdmin({ orders: ORDERS })
@@ -280,13 +285,21 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
     expect(r).toEqual({ ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다 — 위임은 해제됐습니다. 새로고침 후 확인하세요.' })
     expect(mocks.emitNotification).not.toHaveBeenCalled()
   })
-  it('stop — WBS 항목이 지워진 주문은 주문만 CAS 로 cancelled(위임 해제 경로 없음), 경합이면 재시도 문구', async () => {
-    const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } } })
+  it('stop — WBS 항목이 지워진 주문은 주문만 cancel 사건으로(위임 해제 경로 없음), 경합이면 재시도 문구', async () => {
+    const { updates, rpcCalls } = fakeAdmin({
+      orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } },
+      rpc: { data: { ok: true, order_status: 'cancelled', prev_status: 'claimed', stage: null, actual_pct: null, stage_changed: false, actual_changed: false, reached_first: false, skipped: null } },
+    })
     expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
     expect(mocks.applyDelegation).not.toHaveBeenCalled()
-    expect(updates).toHaveLength(1)
-    expect(updates[0]).toMatchObject({ table: 'agent_work_orders', payload: { status: 'cancelled', claimed_by: null, claimed_by_user_id: null, claimed_at: null } })
-    fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } }, updateRows: 0 })
+    // 취소는 이제 RPC cancel 사건으로 한다 — agent_work_orders 에 직접 update 하지 않는다(D14).
+    expect(updates).toHaveLength(0)
+    expect(rpcCalls).toHaveLength(1)
+    expect(rpcCalls[0]).toMatchObject({ p_event: 'cancel', p_order_id: O(1) })
+    fakeAdmin({
+      orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } },
+      rpc: { data: { ok: false, conflict: true, order_status: 'cancelled' } },
+    })
     expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) }))
       .toEqual({ ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다. 다시 시도하세요.' })
   })
@@ -319,6 +332,16 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       .toEqual({ ok: false, error: '점유 라벨에서 이어받을 PC 를 읽지 못했습니다 — 중단한 뒤 다시 위임하세요.' })
     expect(updates).toHaveLength(0)
   })
+  it('resume — 설계 검토 대기(review)는 거부하고 표식을 쓰지 않는다(설계 상태 스펙 12절 Y10)', async () => {
+    const { updates } = fakeAdmin({
+      orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: 'claude-mbp', design_state: 'review' } },
+      items: ITEMS,
+    })
+    expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) }))
+      .toEqual({ ok: false, error: '설계 검토 대기 중인 작업입니다 — 「설계 승인」을 누르면 팀장이 다음 TICK 에 이어 갑니다.' })
+    expect(updates).toHaveLength(0)
+  })
+
   it('resume — 경합으로 한 행도 못 고치면 재시도 문구', async () => {
     fakeAdmin({
       orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: 'claude-mbp' } },
@@ -420,5 +443,63 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       await runHubProcessOp(P1, { kind: 'rework', orderId: O(1), note: '테스트 빠짐' })
       expect(mocks.rework).toHaveBeenCalledWith(O(1), '테스트 빠짐')
     })
+  })
+})
+
+describe('runHubProcessOp — 설계 버튼(설계 상태 스펙 7절): 항목이 이 프로젝트 것인지 본 뒤 designActions 로, 자격은 그쪽(위임 권한, D10)', () => {
+  const ITEMS = { [I(1)]: { project_id: P1 }, [I(2)]: { project_id: P2 } }
+  const BAD = { ok: false, error: '잘못된 요청입니다.' }
+  beforeEach(() => {
+    mocks.requireProjectMember.mockResolvedValue(ADMIN)
+    for (const m of [mocks.designAccept, mocks.designConfirm, mocks.designReopen]) m.mockResolvedValue({ ok: true })
+  })
+
+  it('design_accept·design_confirm·design_reopen → 항목의 프로젝트를 본 뒤 각 액션으로, 허브를 다시 읽어 돌려준다', async () => {
+    const { client } = fakeAdmin({ items: ITEMS })
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(1) })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.designAccept).toHaveBeenCalledWith(I(1))
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', itemId: I(1) })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.designConfirm).toHaveBeenCalledWith(I(1))
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(1), note: '테스트 전략이 모자람' })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.designReopen).toHaveBeenCalledWith(I(1), '테스트 전략이 모자람')
+    // 항목을 대상으로 하는 op 는 주문이 아니라 항목의 프로젝트를 본다.
+    expect(client.from).toHaveBeenCalledWith('wbs_items')
+    expect(client.from).not.toHaveBeenCalledWith('agent_work_orders')
+    expect(mocks.getAgentHub).toHaveBeenCalledWith(P1, { userId: 'admin-1', isAdmin: true })
+  })
+  it('자격은 여기서 좁히지 않고 위임 권한을 보는 액션에 맡긴다 — 멤버도 넘어가고, 거부 문구는 그대로·재조회 없음, 경고는 싣는다', async () => {
+    mocks.requireProjectMember.mockResolvedValue(MEMBER)
+    fakeAdmin({ items: ITEMS })
+    mocks.designAccept.mockResolvedValueOnce({ ok: false, error: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(1) }))
+      .toEqual({ ok: false, error: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.' })
+    expect(mocks.designAccept).toHaveBeenCalledWith(I(1))
+    expect(mocks.isSubtreeManager).not.toHaveBeenCalled()
+    expect(mocks.getAgentHub).not.toHaveBeenCalled()
+    mocks.designConfirm.mockResolvedValueOnce({ ok: true, warning: '처리는 됐지만 단계·실적을 바꾸지 않았습니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', itemId: I(1) }))
+      .toEqual({ ok: true, hub: HUB, warning: '처리는 됐지만 단계·실적을 바꾸지 않았습니다.' })
+  })
+  it('남의 프로젝트 항목 → 거부, 액션 미호출 — 주문 op 에 itemId 를 끼워 넣어도 주문의 프로젝트를 본다', async () => {
+    fakeAdmin({ orders: { [O(2)]: { project_id: P2, status: 'reported', wbs_item_id: null } }, items: ITEMS })
+    const OTHER = { ok: false, error: '이 프로젝트의 항목이 아닙니다.' }
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(2) })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', itemId: I(2) })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(2), note: '다시' })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(3) })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(2), itemId: I(1) } as never))
+      .toEqual({ ok: false, error: '이 프로젝트의 주문이 아닙니다.' })
+    for (const m of [mocks.designAccept, mocks.designConfirm, mocks.designReopen, mocks.approve]) expect(m).not.toHaveBeenCalled()
+    expect(mocks.getAgentHub).not.toHaveBeenCalled()
+  })
+  it('note 가 문자열이 아닌 reopen·uuid 가 아닌 itemId·orderId 로 온 설계 op → 잘못된 요청(조회·액션 없음)', async () => {
+    const { client } = fakeAdmin({ items: ITEMS })
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(1) } as never)).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(1), note: 3 } as never)).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: 'x' })).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', orderId: O(1) } as never)).toEqual(BAD)
+    expect(mocks.requireProjectMember).not.toHaveBeenCalled()
+    expect(client.from).not.toHaveBeenCalled()
+    for (const m of [mocks.designAccept, mocks.designConfirm, mocks.designReopen]) expect(m).not.toHaveBeenCalled()
   })
 })

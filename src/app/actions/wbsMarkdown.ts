@@ -145,6 +145,12 @@ export async function applyWbsUpload(projectId: string, md: string): Promise<{
   taskCount?: number
   /** 프로젝트가 "에이전트 중지" 상태라 주문이 안 나간 경우 — 사람이 설정에서 켜야 한다. */
   agentStopped?: boolean
+  /** L7(리뷰 수정 1회차) — 위임 표식이 빠진 항목의 ready·claimed 주문을 취소한 건수. PAT 응답과 같은
+   *  정보를 웹 업로드 사용자에게도 보여준다("새 칸은 PAT 응답에만"은 레거시 v1 API 규칙이라 서버
+   *  액션엔 해당 없다). */
+  delegationCancelled?: number
+  /** 취소를 끝내지 못한 항목의 bare id — 있으면 사용자가 직접 「중단」하거나 위임을 껐다 켜야 한다. */
+  delegationCancelFailed?: string[]
 }> {
   const g = await requireProjectAdmin(projectId)
   if (!g.ok) return { ok: false, error: g.error }
@@ -189,6 +195,8 @@ export async function applyWbsUpload(projectId: string, md: string): Promise<{
     return {
       ok: true, upserted: result.upserted, ordersCreated: result.ordersCreated, unmatched: result.unmatched,
       taskCount, ...(agentStopped ? { agentStopped: true } : {}),
+      ...(result.delegationCancelled > 0 ? { delegationCancelled: result.delegationCancelled } : {}),
+      ...(result.delegationCancelFailed.length > 0 ? { delegationCancelFailed: result.delegationCancelFailed } : {}),
     }
   } catch (e) {
     console.error('[wbs-md] 적용 실패:', e instanceof Error ? e.message : e)

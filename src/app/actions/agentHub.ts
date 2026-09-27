@@ -10,14 +10,16 @@ import { getAgentHub } from '@/lib/data/agentHub'
 import { viewerEmail } from '@/lib/data/agentSeatmap'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { applyDelegation, ERR_NOT_ASSIGNEE } from '@/lib/agent/delegation'
+import { cancelOrders } from '@/lib/agent/cancelOrder'
 import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 import { emitNotification } from '@/lib/notify/emit'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { after } from 'next/server'
 import { approveAgentCompletion, rejectAgentCompletion, requestAgentRework, unapproveAgentCompletion } from '@/app/actions/agentWork'
 import { setWbsStage } from '@/app/actions/wbsAssign'
+import { designAccept, designConfirm, designReopen } from '@/app/actions/designActions'
 import type { AgentHub } from '@/lib/domain/agentHub'
-import { STAGE_CODES as DOMAIN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
+import { HUMAN_STAGE_CODES, type HumanStageCode } from '@/lib/domain/stageLabels'
 
 const ERR_BAD = '잘못된 요청입니다.'
 const BULK_MAX = 200
@@ -55,7 +57,7 @@ export type HubDelegationsResult =
  * (스테이징 실측 0.8~1.0초 잠김). 이 액션은 가드 1회 → 항목별 applyDelegation → 허브 재조회를 한 응답에 담고
  * revalidatePath 를 부르지 않는다. 허브·WBS 페이지는 둘 다 동적 렌더라 다음 방문 때 새로 읽는다.
  *
- * 자격은 항목마다 setAgentDelegation 과 같다(허브 스펙 §3): 관리자, 또는 그 항목의 담당자 본인(멤버).
+ * 자격은 항목마다 setDelegationAndMode(src/app/actions/designActions.ts)와 같다(허브 스펙 §3): 관리자, 또는 그 항목의 담당자 본인(멤버).
  * 멤버의 로스터 판정은 묶음당 1회만 하고, 자격 없는 항목은 그 항목만 failed 로 돌려보낸다.
  * 같은 항목이 여러 번 오면 마지막 값만 적용한다. 다른 프로젝트 항목이 섞이면 묶음 전체를 거부한다.
  */
@@ -123,9 +125,9 @@ export async function applyHubDelegations(projectId: string, changes: HubDelegat
 // (4) 실행 뒤 허브 재조회를 한 응답에 싣는 것을 맡는다 — 화면은 요청 1건으로 끝난다(§10 과 같은 원칙).
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** 허브 단계 조정이 받는 코드 — 정본은 stageLabels(fp 는 0096 에서 제거). */
-export type WbsStageCode = StageCode
-const STAGE_CODES: ReadonlySet<string> = new Set(DOMAIN_STAGE_CODES)
+/** 허브 단계 조정이 받는 코드 — 정본은 stageLabels(fp 는 0096 에서 제거). dd 는 사람이 고르지 못한다(스펙 7절) — 타입도 막는다. */
+export type WbsStageCode = HumanStageCode
+const STAGE_CODES: ReadonlySet<string> = new Set(HUMAN_STAGE_CODES)
 
 export type HubProcessOp =
   | { kind: 'approve'; orderId: string }
@@ -141,6 +143,13 @@ export type HubProcessOp =
   /** 재개 요청 — 멈춘(무응답·끊김) 좌석을 팀장이 이어받아 달라는 표식. 상태 전이가 아니다. */
   | { kind: 'resume'; orderId: string }
   | { kind: 'stage'; itemId: string; stage: WbsStageCode | null }
+  /**
+   * 설계 버튼(설계 상태 스펙 7절) — 완료 승인과 다른 동작이다. 「설계 승인」·「설계 확정」·「설계 되돌리기」.
+   * 자격은 designActions 가 위임 권한(requireDelegationRight, D10)으로 본다.
+   */
+  | { kind: 'design_accept'; itemId: string }
+  | { kind: 'design_confirm'; itemId: string }
+  | { kind: 'design_reopen'; itemId: string; note: string }
 
 export type HubProcessResult =
   | { ok: true; hub: AgentHub | null; hubError?: string; warning?: string }
@@ -157,6 +166,10 @@ function isProcessOp(op: unknown): op is HubProcessOp {
       return uuid(o.orderId) && typeof o.note === 'string'
     case 'stage':
       return uuid(o.itemId) && (o.stage === null || (typeof o.stage === 'string' && STAGE_CODES.has(o.stage)))
+    case 'design_accept': case 'design_confirm':
+      return uuid(o.itemId)
+    case 'design_reopen':
+      return uuid(o.itemId) && typeof o.note === 'string'
     default:
       return false
   }
@@ -165,11 +178,12 @@ function isProcessOp(op: unknown): op is HubProcessOp {
 /**
  * 중단 본체(2026-09-19 중단 설계 §1) — 호출부(runHubProcessOp)가 관리자 또는 서브트리 관리자로 자격을 이미 가렸다.
  *
- * 위임 해제 경로(applyDelegation, delegated:false)를 그대로 탄다: 태그 해제 → ready·claimed 주문 cancelled(CAS)
- * → claimed 를 취소했으면 set_stage as. 체크 해제로 위임을 끄는 길과 똑같이 동작하게 하려는 것이다.
+ * 위임 해제 경로(applyDelegation, delegated:false)를 그대로 탄다: 태그 해제 → ready·claimed 주문을 공용 취소
+ * (cancelOrders, D14)로 정리 — claimed 를 취소했으면 그 RPC cancel 사건이 단계도 as 로 같이 되돌린다.
+ * 체크 해제로 위임을 끄는 길과 똑같이 동작하게 하려는 것이다.
  * release 사건(→ ready)을 쓰지 않는 이유: ready 를 거치면 그 사이 /dflow-team·/dflow-poll 이 다시 집어 가
  * 같은 태스크를 두 워커가 동시에 개발한다. cancelled 는 종착 상태라 그 틈이 없다.
- * WBS 항목이 지워진 주문은 위임 태그가 없으므로 주문만 CAS 로 cancelled 로 바꾼다.
+ * WBS 항목이 지워진 주문은 위임 태그가 없으므로 주문만 공용 취소(cancelOrders, D14)로 cancelled 로 바꾼다.
  * 알림은 러너 반납(release 라우트)과 같은 work.released 타입을 배정자에게 — fire-and-forget.
  */
 async function stopOrderByAdmin(
@@ -194,13 +208,9 @@ async function stopOrderByAdmin(
     // 허브 액션은 페이지 재렌더를 싣지 않는다(응답의 hub 로 갱신) — 실적이 바뀌었으면 진척 스냅샷만 남긴다.
     if (r.actualChanged) after(() => recordProgressSnapshot(projectId))
   } else {
-    const { data: updated, error: upErr } = await admin
-      .from('agent_work_orders')
-      .update({ status: 'cancelled', claimed_by: null, claimed_by_user_id: null, claimed_at: null, updated_at: new Date().toISOString() })
-      .eq('id', orderId).eq('status', 'claimed')
-      .select('id')
-    if (upErr) return { ok: false, error: `주문 취소 실패: ${upErr.message}` }
-    if (!updated || (updated as unknown[]).length === 0) {
+    const c = await cancelOrders(admin, { orderIds: [orderId], actorUserId })
+    if (c.failed.length > 0) return { ok: false, error: `주문 취소 실패: ${c.failed[0].error}` }
+    if (!c.cancelled.some(x => x.id === orderId && x.prevStatus === 'claimed')) {
       return { ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다. 다시 시도하세요.' }
     }
   }
@@ -239,11 +249,15 @@ async function requestResumeOnOrder(
   admin: AdminClient, orderId: string, actorUserId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const { data, error } = await admin
-    .from('agent_work_orders').select('id, status, claimed_by').eq('id', orderId).maybeSingle()
+    .from('agent_work_orders').select('id, status, claimed_by, design_state').eq('id', orderId).maybeSingle()
   if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
-  const order = data as { id: string; status: string; claimed_by: string | null } | null
+  const order = data as { id: string; status: string; claimed_by: string | null; design_state: string | null } | null
   if (!order) return { ok: false, error: '주문 없음' }
   if (order.status !== 'claimed') return { ok: false, error: `재개를 요청할 수 있는 상태가 아닙니다(${order.status}).` }
+  // Y10(설계 상태 스펙 12절) — 설계 검토 대기(review)는 사람이 「설계 승인」을 누를 때까지 이어 갈 것이 없다. 그 밖은 재개한다.
+  if (order.design_state === 'review') {
+    return { ok: false, error: '설계 검토 대기 중인 작업입니다 — 「설계 승인」을 누르면 팀장이 다음 TICK 에 이어 갑니다.' }
+  }
   // 호스트는 서버가 점유 라벨에서 파생한다 — 클라이언트가 보낸 값을 믿으면 엉뚱한 PC 가 집어 간다.
   const host = resumeHostFromClaimLabel(order.claimed_by)
   if (!host) {
@@ -276,7 +290,9 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
   // 이 화면에 끼워 넣는 길은 여기서 닫는다(fail-closed). stop·resume 은 이 조회로 얻은 wbs_item_id 를
   // 아래 서브트리 관리자 판정에도 그대로 쓴다(재조회 없이).
   let orderItemId: string | null = null
-  if (op.kind === 'stage') {
+  // 항목을 대상으로 하는 op(단계·설계 버튼)는 항목의 프로젝트를 본다. kind 로 가른다 — 주문 op 에 itemId 칸을 끼워 넣어
+  // 주문의 프로젝트 확인을 건너뛰는 길을 열지 않으려는 것이다.
+  if (op.kind === 'stage' || op.kind === 'design_accept' || op.kind === 'design_confirm' || op.kind === 'design_reopen') {
     const { data, error } = await admin.from('wbs_items').select('project_id').eq('id', op.itemId).maybeSingle()
     if (error) return { ok: false, error: `항목 조회 실패: ${error.message}` }
     if (!data || (data as { project_id: string }).project_id !== projectId) return { ok: false, error: '이 프로젝트의 항목이 아닙니다.' }
@@ -309,6 +325,9 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
     case 'stop': r = await stopOrderByAdmin(admin, op.orderId, g.actor.userId, projectId, isAdmin); break
     case 'resume': r = await requestResumeOnOrder(admin, op.orderId, g.actor.userId); break
     case 'stage': r = await setWbsStage(op.itemId, op.stage); break
+    case 'design_accept': r = await designAccept(op.itemId); break
+    case 'design_confirm': r = await designConfirm(op.itemId); break
+    case 'design_reopen': r = await designReopen(op.itemId, op.note); break
   }
   if (!r.ok) return { ok: false, error: r.error ?? '처리에 실패했습니다.' }
   const warning = r.warning ? { warning: r.warning } : {}

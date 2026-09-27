@@ -5,6 +5,9 @@
 # 예외 하나(2026-09-19 중단 설계 §3): 사람이 D'Flow 에서 작업을 중단하면(서버 409 code=cancelled) 표식 파일
 # ~/.dflow/hb/<order>.cancelled 를 남기고 {"continue":false,"stopReason":…} 를 출력해 세션을 세운다. 표식이 있는 동안은
 # 절제와 무관하게 매 호출 다시 세운다 — 서브에이전트 안의 continue:false 가 부모 세션까지 멈춘다는 보장이 없어서다.
+# 예외 둘(설계 상태 스펙 12절 Y1): 다른 PC 가 이 작업을 이어받았으면(서버 409 code=runner_active) state.json 은 그대로 두고 세운다.
+# 영속 표식을 남기지 않는 대신 절제 스탬프를 지워 다음 도구 호출이 다시 묻고 다시 세운다 — 나중에 이 PC 가 정당하게 넘겨받으면
+# (다른 PC 가 30분 넘게 조용) heartbeat 가 200 이 되어 저절로 풀린다.
 # 그 밖의 결과(네트워크 실패·다른 409·5xx)는 지금처럼 무시한다(fail-open). 확실한 중단 신호일 때만 세운다.
 # dflow.sh 를 거치지 않는 이유: api_raw 는 타임아웃이 없고 비-2xx 마다 exit 하며 임시파일을 쓴다.
 set -u
@@ -262,7 +265,7 @@ else
   _tok="${_all%%,*}"
 fi
 
-# 6) 동기 전송(--max-time 1.5, 훅 timeout 5초 안). 응답은 중단 신호만 본다 — 409 이고 바디 code 가 cancelled 일 때만.
+# 6) 동기 전송(--max-time 1.5, 훅 timeout 5초 안). 응답은 중단 신호만 본다 — 409 이고 바디 code 가 cancelled·runner_active 일 때만.
 #    본문과 코드를 한 번에 받는다(-w 로 끝 줄에 코드). 임시파일을 쓰지 않는다. 그 밖의 결과·실패는 무시(fail-open).
 _json=$("$JQ" -nc --arg a "$_agent" --arg p "$_phase" --arg m "$_model" --argjson t "${_tkj:-null}" \
   '{agent:$a, phase:$p} + (if $m == "" then {} else {model:$m} end) + (if $t == null then {} else {tokens:$t} end)')
@@ -271,7 +274,18 @@ _out=$("$CURL" -s --max-time 1.5 -w '\n%{http_code}' -X POST \
   --data "$_json" "${_base%/}/api/v1/agent/work/$_order/heartbeat" 2>/dev/null) || exit 0
 _code=$(printf '%s\n' "$_out" | tail -n 1 | tr -d '\r')
 [ "$_code" = 409 ] || exit 0
-_code=$(printf '%s\n' "$_out" | sed '$d' | "$JQ" -r '.code // empty' 2>/dev/null || :)
-[ "$_code" = cancelled ] || exit 0
-: > "$_hbdir/$_order.cancelled" 2>/dev/null || :
-stop_now "$_state" "$_order"
+_resp=$(printf '%s\n' "$_out" | sed '$d')
+_code=$(printf '%s' "$_resp" | "$JQ" -r '.code // empty' 2>/dev/null || :)
+case "$_code" in
+  cancelled)
+    : > "$_hbdir/$_order.cancelled" 2>/dev/null || :
+    stop_now "$_state" "$_order" ;;
+  runner_active)
+    rm -f "$_stamp" 2>/dev/null || :
+    _rn=$(printf '%s' "$_resp" | "$JQ" -r '.runner // "-"' 2>/dev/null || :)
+    _id8=$(printf '%s' "$_order" | cut -c1-8)
+    "$JQ" -nc --arg r "다른 PC($_rn)가 이 작업을 이어받았습니다($_id8). 더 진행하지 말고 멈추세요. 결과는 skipped 다른 PC 도는 중으로 끝냅니다." \
+      '{continue:false, stopReason:$r}'
+    exit 0 ;;
+esac
+exit 0

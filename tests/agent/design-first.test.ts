@@ -4,7 +4,7 @@ import { generateAgentToken } from '@/lib/agent/token'
 
 /**
  * 설계 선행 claim 과 build-start(스펙 2026-09-26 §6.3, 계약 v2.9).
- * - claim + design_first:true — 미충족 선행이 모두 ip 면 claim 을 허용하고 RPC 에 p_stage 'ds'.
+ * - claim + design_first:true — 미충족 선행이 모두 dd·ip 면(0108, D15) claim 을 허용하고 RPC 에 p_stage 'ds'.
  *   아니면 403 dependency_not_met + reason design_first_too_early. 플래그가 없으면 종전과 글자 그대로 같다.
  * - POST /work/{id}/build-start — 점유자 본인·claimed·선행 모두 reached 일 때 build_start 사건.
  * 레거시 시크릿 경로를 쓴다 — agent_runners 조회를 피해 큐를 단순하게 유지한다(stage-lifecycle 과 같은 방식).
@@ -166,6 +166,23 @@ describe('claim — design_first(설계 선행)', () => {
     expect(mocks.emitNotification).not.toHaveBeenCalled()
   })
 
+  // dd(설계 완료)는 ip 와 함께 "설계 선행 가능" 으로 본다(설계 상태 스펙 D15, designGate.predsState).
+  it('미충족 선행이 ip·dd 섞여도 허용한다(D15) — RPC 에 p_stage ds', async () => {
+    const admin = useAdmin({
+      agent_work_orders: [{ data: ORDER }, { data: null }, { data: null }],
+      ...member(),
+      wbs_items: [
+        { data: ITEM_ROW({ depends: [DEP_REF, DEP_REF2] }) },
+        { data: [dep('ip'), { id: DEP_ID2, external_ref: DEP_REF2, stage: 'dd', actual_pct: 0 }] },
+      ],
+    })
+    const res = await claim({ design_first: true })
+    expect(res.status).toBe(200)
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_stage: 'ds' }))
+    const body = await res.json()
+    expect(body).toMatchObject({ design_first: true, unmet: [{ external_ref: DEP_REF, stage: 'ip' }, { external_ref: DEP_REF2, stage: 'dd' }] })
+  })
+
   it('선행 ref 가 프로젝트에 없으면(fail-closed) design_first 여도 403 too_early', async () => {
     const admin = useAdmin({
       agent_work_orders: [{ data: ORDER }],
@@ -238,7 +255,7 @@ describe('POST /work/{id}/build-start', () => {
     const admin = useAdmin({
       agent_work_orders: [{ data: CLAIMED }, { data: null }],
       ...member(),
-      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [] } }, { data: [dep('im')] }],
+      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [], stage: 'ds' } }, { data: [dep('im')] }],
       rpc: [{ data: { ...RPC_OK, stage: 'ip', actual_pct: 30, stage_changed: true, actual_changed: true } }],
     })
     const res = await start()
@@ -246,6 +263,9 @@ describe('POST /work/{id}/build-start', () => {
     expect(admin.rpc).toHaveBeenCalledTimes(1)
     expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({
       p_event: 'build_start', p_order_id: O1, p_agent: 'cli-1', p_agent_user_id: null, p_actor: USER.id,
+      // 이 주문은 claim_scope 열이 없다(0108 전 옛 claim) — CAS 는 정규화 값('legacy')이 아니라
+      // 읽은 값 그대로(null)를 실어야 한다. RPC 의 CAS 비교는 원행의 null 과 맞대야 하기 때문이다.
+      p_cas: expect.objectContaining({ claim_scope: null }),
     }))
     const body = await res.json()
     expect(body).toMatchObject({ ok: true, status: 'claimed', stage: 'ip', stage_changed: true })
@@ -259,7 +279,8 @@ describe('POST /work/{id}/build-start', () => {
     useAdmin({
       agent_work_orders: [{ data: CLAIMED }],
       ...member(),
-      wbs_items: [{ data: { depends: null, depends_waived: [] } }],
+      // 단계가 이미 ip(canBuildStart 의 ge 바이패스, P7) — 설계·선행 관문을 건너뛰고 RPC 의 멱등에 맡긴다.
+      wbs_items: [{ data: { depends: null, depends_waived: [], stage: 'ip' } }],
       rpc: [{ data: { ...RPC_OK, stage: 'ip', actual_pct: 30 } }],
     })
     const res = await start()
@@ -273,7 +294,7 @@ describe('POST /work/{id}/build-start', () => {
     const admin = useAdmin({
       agent_work_orders: [{ data: CLAIMED }, { data: null }],
       ...member(),
-      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [] } }, { data: [dep('ip')] }],
+      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [], stage: 'ds' } }, { data: [dep('ip')] }],
     })
     const res = await start()
     expect(res.status).toBe(403)
@@ -286,7 +307,7 @@ describe('POST /work/{id}/build-start', () => {
     const admin = useAdmin({
       agent_work_orders: [{ data: CLAIMED }, { data: null }],
       ...member(),
-      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [DEP_REF] } }, { data: [dep('as')] }],
+      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [DEP_REF], stage: 'ds' } }, { data: [dep('as')] }],
     })
     const res = await start()
     expect(res.status).toBe(200)
@@ -309,11 +330,11 @@ describe('POST /work/{id}/build-start', () => {
     expect(admin.rpc).not.toHaveBeenCalled()
   })
 
-  it('claimed 가 아니면 409 conflict, 중단된 주문이면 409 cancelled', async () => {
+  it('claimed 가 아니면 409 design_gate·order_changed(Y7), 중단된 주문이면 409 cancelled', async () => {
     useAdmin({ agent_work_orders: [{ data: { ...CLAIMED, status: 'reported' } }], ...member() })
     const r1 = await start()
     expect(r1.status).toBe(409)
-    expect((await r1.json()).code).toBe('conflict')
+    expect(await r1.json()).toMatchObject({ code: 'design_gate', reason: 'order_changed' })
     useAdmin({ agent_work_orders: [{ data: { ...CLAIMED, status: 'cancelled', claimed_by: null } }], ...member() })
     const r2 = await start()
     expect(r2.status).toBe(409)
@@ -322,15 +343,16 @@ describe('POST /work/{id}/build-start', () => {
 
   it('RPC 가 경합(conflict)이면 409, 오류면 500', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    useAdmin({
+    const admin1 = useAdmin({
       agent_work_orders: [{ data: CLAIMED }], ...member(),
-      wbs_items: [{ data: { depends: [], depends_waived: [] } }],
+      wbs_items: [{ data: { depends: [], depends_waived: [], stage: 'ds' } }],
       rpc: [{ data: { ok: false, conflict: true, order_status: 'reported' } }],
     })
     expect((await start()).status).toBe(409)
+    expect(admin1.rpc).toHaveBeenCalledTimes(1) // 관문이 아니라 RPC 경합으로 409 임을 확인
     useAdmin({
       agent_work_orders: [{ data: CLAIMED }], ...member(),
-      wbs_items: [{ data: { depends: [], depends_waived: [] } }],
+      wbs_items: [{ data: { depends: [], depends_waived: [], stage: 'ds' } }],
       rpc: [{ error: { message: 'db down' } }],
     })
     expect((await start()).status).toBe(500)
@@ -372,12 +394,14 @@ describe('PAT 경로(dflow.sh 가 쓰는 신원)', () => {
       agent_runners: [{ data: RUNNER }, { data: null }],
       agent_work_orders: [{ data: CLAIMED }],
       ...member(),
-      wbs_items: [{ data: { depends: [], depends_waived: [] } }],
+      wbs_items: [{ data: { depends: [], depends_waived: [], stage: 'ds' } }],
     })
     const res = await buildStartPOST(post('build-start', { agent: 'hong/mbp/w1' }, PAT.token), ctx)
     expect(res.status).toBe(200)
+    // PAT 경로는 p_agent 가 null 이라 p_runner 가 runner 의 유일한 원천이다 — 응답 runner 도 같아야 한다.
+    expect(await res.json()).toMatchObject({ runner: 'hong/mbp/w1' })
     expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({
-      p_event: 'build_start', p_agent: null, p_agent_user_id: 'u-1',
+      p_event: 'build_start', p_agent: null, p_agent_user_id: 'u-1', p_runner: 'hong/mbp/w1',
     }))
 
     const other = useAdmin({

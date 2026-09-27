@@ -8,16 +8,22 @@ import { SAVE_DEBOUNCE_MS } from '@/components/wbs/useDebouncedSave'
 
 const getWbsSpec = vi.fn()
 const updateWbsSpecFields = vi.fn()
-const setAgentDelegation = vi.fn()
+const setDelegationAndMode = vi.fn()
+const getDesignPanel = vi.fn()
 const getAgentOrderForItem = vi.fn()
 const refresh = vi.fn()
 
 vi.mock('@/app/actions/wbsSpec', () => ({
   getWbsSpec: (...a: unknown[]) => getWbsSpec(...(a as [])),
   updateWbsSpecFields: (...a: unknown[]) => updateWbsSpecFields(...(a as [])),
-  setAgentDelegation: (...a: unknown[]) => setAgentDelegation(...(a as [])),
   updateAgentPrompt: vi.fn(),
   updateWbsSpec: vi.fn(),
+}))
+// 위임 체크는 설계 방식과 한 칸이라 setDelegationAndMode(설계 상태 스펙 7절)로 저장한다.
+vi.mock('@/app/actions/designActions', () => ({
+  getDesignPanel: (...a: unknown[]) => getDesignPanel(...(a as [])),
+  setDelegationAndMode: (...a: unknown[]) => setDelegationAndMode(...(a as [])),
+  designAccept: vi.fn(), designConfirm: vi.fn(), designReopen: vi.fn(),
 }))
 vi.mock('@/app/actions/agentWork', () => ({
   getAgentOrderForItem: (...a: unknown[]) => getAgentOrderForItem(...(a as [])),
@@ -35,12 +41,18 @@ import { WbsSpecPanel } from '@/components/wbs/WbsSpecPanel'
 const DETAIL = {
   category: 'dev', domain: null, priority: 'high', model: null,
   tags: ['ui'], depends: [], prdRef: null, entryPoint: null,
-  acceptance: [], spec: null, externalRef: 'mod/TSK-01-01', agentPrompt: null,
+  acceptance: [], spec: null, externalRef: 'mod/TSK-01-01', agentPrompt: null, designMode: 'auto',
+}
+/** 보일 것이 없는 완전자동 작업 — 설계 영역은 그리지 않고 방식 select 는 잠기지 않는다. */
+const QUIET_DESIGN = {
+  ok: true, canAct: true,
+  panel: { mode: 'auto', designState: null, screen: null, buttons: [], pushWarning: null, modeLock: null },
 }
 
 /**
  * 우선순위 select·위임 체크박스는 debounce 저장이다(2026-09-14). 종전엔 체크 하나마다 서버 액션 +
  * router.refresh() 가 나가 WBS 페이지 전체가 다시 렌더됐다(스테이징 실측 refresh 1회 ≈ 0.5초).
+ * 위임 체크는 설계 방식 select 와 한 칸(delegation)이다 — 방식을 건드리지 않으면 지금 방식(auto)을 그대로 싣는다.
  */
 describe('WbsSpecPanel — 우선순위·위임의 debounce 저장', () => {
   let container: HTMLDivElement
@@ -50,7 +62,8 @@ describe('WbsSpecPanel — 우선순위·위임의 debounce 저장', () => {
     vi.useFakeTimers()
     getWbsSpec.mockReset().mockResolvedValue(DETAIL)
     updateWbsSpecFields.mockReset().mockResolvedValue({ ok: true })
-    setAgentDelegation.mockReset().mockResolvedValue({ ok: true })
+    setDelegationAndMode.mockReset().mockResolvedValue({ ok: true })
+    getDesignPanel.mockReset().mockResolvedValue(QUIET_DESIGN)
     getAgentOrderForItem.mockReset().mockResolvedValue({ ok: true, order: null, priorOrders: [] })
     refresh.mockReset()
     container = document.createElement('div')
@@ -93,11 +106,11 @@ describe('WbsSpecPanel — 우선순위·위임의 debounce 저장', () => {
     await act(async () => delegate().click())
     expect(delegate().checked).toBe(true)
     expect(chip()?.getAttribute('data-pending-save')).toBe('pending')
-    expect(setAgentDelegation).not.toHaveBeenCalled()
+    expect(setDelegationAndMode).not.toHaveBeenCalled()
     await elapse(SAVE_DEBOUNCE_MS - 1)
-    expect(setAgentDelegation).not.toHaveBeenCalled()
+    expect(setDelegationAndMode).not.toHaveBeenCalled()
     await elapse(1)
-    expect(setAgentDelegation).toHaveBeenCalledWith('item-1', true)
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', true, 'auto')
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(chip()).toBeNull()
     expect(getAgentOrderForItem).toHaveBeenCalledTimes(2) // 위임이 주문을 발행하므로 진행 상황을 다시 읽는다
@@ -111,22 +124,22 @@ describe('WbsSpecPanel — 우선순위·위임의 debounce 저장', () => {
     expect(delegate().checked).toBe(false)
     expect(chip()).toBeNull()
     await elapse()
-    expect(setAgentDelegation).not.toHaveBeenCalled()
+    expect(setDelegationAndMode).not.toHaveBeenCalled()
     expect(refresh).not.toHaveBeenCalled()
   })
 
   it('우선순위와 위임을 함께 바꾸면 한 flush 에 순서대로 저장하고 refresh 는 1회다', async () => {
     const order: string[] = []
     updateWbsSpecFields.mockImplementation(async () => { order.push('priority'); return { ok: true } })
-    setAgentDelegation.mockImplementation(async () => { order.push('delegate'); return { ok: true } })
+    setDelegationAndMode.mockImplementation(async () => { order.push('delegation'); return { ok: true } })
     await render()
     await openEditing()
     await choosePriority('low')
     await act(async () => delegate().click())
     await elapse()
     expect(updateWbsSpecFields).toHaveBeenCalledWith('item-1', { priority: 'low' })
-    expect(setAgentDelegation).toHaveBeenCalledWith('item-1', true)
-    expect(order).toEqual(['priority', 'delegate'])
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', true, 'auto')
+    expect(order).toEqual(['priority', 'delegation'])
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
@@ -141,7 +154,7 @@ describe('WbsSpecPanel — 우선순위·위임의 debounce 저장', () => {
   })
 
   it('저장 실패 — 체크를 되돌리고 오류를 alert 로 띄운다', async () => {
-    setAgentDelegation.mockResolvedValue({ ok: false, error: '권한이 없습니다' })
+    setDelegationAndMode.mockResolvedValue({ ok: false, error: '권한이 없습니다' })
     await render()
     await openEditing()
     await act(async () => delegate().click())
@@ -153,7 +166,7 @@ describe('WbsSpecPanel — 우선순위·위임의 debounce 저장', () => {
   })
 
   it('ok 인데 warning — 저장은 반영하되 경고 문구를 그대로 보여준다(위장 금지)', async () => {
-    setAgentDelegation.mockResolvedValue({ ok: true, warning: '프로젝트가 중지 상태라 주문을 발행하지 않았습니다' })
+    setDelegationAndMode.mockResolvedValue({ ok: true, warning: '프로젝트가 중지 상태라 주문을 발행하지 않았습니다' })
     await render()
     await openEditing()
     await act(async () => delegate().click())
@@ -172,7 +185,7 @@ describe('WbsSpecPanel — 우선순위·위임의 debounce 저장', () => {
     // 접혀 있어도 배지는 낙관 값을 보인다
     expect(container.textContent).toContain('agent')
     await elapse()
-    expect(setAgentDelegation).toHaveBeenCalledWith('item-1', true)
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', true, 'auto')
   })
 
   it('항목이 바뀌면(itemId) 이전 항목의 변경을 즉시 저장하고 새 항목은 깨끗하다', async () => {
@@ -181,10 +194,10 @@ describe('WbsSpecPanel — 우선순위·위임의 debounce 저장', () => {
     await act(async () => delegate().click())
     await render('item-2')
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(setAgentDelegation).toHaveBeenCalledWith('item-1', true)
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', true, 'auto')
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(chip()).toBeNull()
     await elapse()
-    expect(setAgentDelegation).toHaveBeenCalledTimes(1)
+    expect(setDelegationAndMode).toHaveBeenCalledTimes(1)
   })
 })

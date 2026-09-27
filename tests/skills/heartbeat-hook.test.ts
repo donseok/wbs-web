@@ -365,6 +365,15 @@ describe('heartbeat.sh — 세션 절제(스캔 전)', () => {
     expect(JSON.parse(runS()).continue).toBe(false)
     expect(sent()).toHaveLength(1)
   })
+  it('runner_active 를 받으면 절제 스탬프를 지워 세션 지름길(2-b)도 다시 스캔·전송한다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    const RA = { FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"code":"runner_active","runner":"kim/pc2/w1"}' }
+    expect(JSON.parse(runS(RA)).continue).toBe(false)
+    expect(sent()).toHaveLength(1)
+    // 같은 세션이 60초 안에 다시 불러도(2-b 지름길 대상) 스탬프가 지워졌으니 스캔·전송을 다시 한다
+    expect(JSON.parse(runS(RA)).continue).toBe(false)
+    expect(sent()).toHaveLength(2)
+  })
   it('다른 주문의 낡은 표식만 있어도 스캔은 하되(표식 검사), 이 주문은 절제한다', () => {
     writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
     mkdirSync(join(home, '.dflow/hb'), { recursive: true })
@@ -536,5 +545,37 @@ describe('heartbeat.sh — 사용 토큰(0104)', () => {
     runTok()
     expect(sent()).toHaveLength(1)
     expect(body(0).tokens).toBeUndefined()
+  })
+})
+
+describe('heartbeat.sh — 다른 PC 가 이어받음(409 runner_active, 설계 상태 스펙 12절 Y1·계획 P9)', () => {
+  const ORDER = '22222222-2222-4222-8222-222222222222'
+  const STATE = () => join(repo, 'docs/tasks/TSK-01/state.json')
+  const RA = { FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"error":"x","code":"runner_active","runner":"kim/pc2/w1"}' }
+  beforeEach(() => { writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n') })
+
+  it('continue:false 로 세우고 이유에 runner 를 적는다 — state.json·중단 표식은 건드리지 않는다', () => {
+    const j = JSON.parse(runOut(RA).trim())
+    expect(j.continue).toBe(false)
+    expect(j.stopReason).toContain('kim/pc2/w1')
+    expect(j.stopReason).toContain('22222222')
+    expect(JSON.parse(readFileSync(STATE(), 'utf8')).phase).toBe('build')
+    expect(existsSync(join(home, `.dflow/hb/${ORDER}.cancelled`))).toBe(false)
+  })
+  it('절제 스탬프를 지워 다음 도구 호출도 다시 묻고 다시 세운다', () => {
+    runOut(RA)
+    expect(existsSync(join(home, `.dflow/hb/${ORDER}`))).toBe(false)
+    expect(JSON.parse(runOut(RA).trim()).continue).toBe(false)
+  })
+  it('다음 heartbeat 가 200 이면 세우지 않는다(이 PC 가 정당하게 넘겨받음)', () => {
+    runOut(RA)
+    const out = runOut({ FAKE_HB_CODE: '200', FAKE_HB_BODY: '{"ok":true}' })
+    expect(sent()).toHaveLength(2) // 절제로 안 보낸 게 아니라 실제로 보내서 200 을 받았다
+    expect(out.trim()).toBe('')
+  })
+  it('다른 409(conflict)는 종전대로 무시한다(fail-open)', () => {
+    const out = runOut({ FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"code":"conflict"}' })
+    expect(sent()).toHaveLength(1)
+    expect(out.trim()).toBe('')
   })
 })

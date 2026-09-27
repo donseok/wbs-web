@@ -76,6 +76,7 @@ describe('claim 선행 게이트', () => {
       agent_work_orders: [
         { data: ORDER }, // 주문 로드
         { data: null }, // 선행의 approved 주문 없음
+        { data: null }, // 항목의 approved 주문 없음(설계 관문, 0108)
         { data: [{ id: O1 }] }, // CAS 성공
       ],
       agent_projects: [{ data: { enabled: true } }],
@@ -162,7 +163,7 @@ describe('claim 선행 게이트', () => {
   it('depends 빈 배열·null → 게이트 없이 통과', async () => {
     useAdmin({
       agent_runners: [{ data: RUNNER }, { data: null }],
-      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      agent_work_orders: [{ data: ORDER }, { data: null }, { data: [{ id: O1 }] }], // 로드, 항목 approved 없음, CAS
       agent_projects: [{ data: { enabled: true } }],
       memberships: [{ data: { is_superuser: false } }],
       project_roles: [{ data: [{ role: 'member' }] }],
@@ -173,7 +174,7 @@ describe('claim 선행 게이트', () => {
 
     useAdmin({
       agent_runners: [{ data: RUNNER }, { data: null }],
-      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      agent_work_orders: [{ data: ORDER }, { data: null }, { data: [{ id: O1 }] }],
       agent_projects: [{ data: { enabled: true } }],
       memberships: [{ data: { is_superuser: false } }],
       project_roles: [{ data: [{ role: 'member' }] }],
@@ -193,6 +194,7 @@ describe('선행 게이트 — approved 주문을 도달로 인정', () => {
       agent_work_orders: [
         { data: ORDER },                    // 대상 주문
         { data: { id: 'ao-approved' } },    // loadDependsInfo 의 선행 approved 주문 조회
+        { data: null },                     // 대상 항목 자신의 approved 주문 없음(설계 관문, 0108)
         { data: [{ id: O1 }] },             // claim CAS
       ],
       agent_projects: [{ data: { enabled: true } }],
@@ -205,7 +207,8 @@ describe('선행 게이트 — approved 주문을 도달로 인정', () => {
       agent_work_reports: [{ data: { evidence: {} } }],
     })
     const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
-    expect(res.status).not.toBe(403)
+    // not.toBe(403) 은 409 design_gate 같은 다른 거부도 통과시켰다 — 통과를 단언한다(D20).
+    expect(res.status).toBe(200)
   })
 })
 

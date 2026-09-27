@@ -172,7 +172,7 @@ describe('setWbsDevWorkflow', () => {
     }
   })
 
-  it('(f) OFF — 갱신된 항목들의 ready 주문만 cancelled, claimed/reported는 불변', async () => {
+  it('(f) OFF — 갱신된 항목들의 ready 주문만 cancel 사건으로 취소, claimed/reported는 불변', async () => {
     const { captured } = admin({
       wbs_items: [
         { data: TREE },
@@ -187,17 +187,17 @@ describe('setWbsDevWorkflow', () => {
       change_logs: [{ data: [{ id: 'log1' }] }],
       agent_work_orders: [{ data: [{ id: 'order-1' }] }],
     })
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, prevStatus: 'ready', actualChanged: false })
     const r = await setWbsDevWorkflow(W1, false, true)
     expect(r).toEqual({ ok: true, count: 3 })
 
-    expect(captured.agent_work_orders).toHaveLength(1)
-    expect(captured.agent_work_orders[0]).toMatchObject({ status: 'cancelled' })
+    // 취소는 이제 조회(select) 뒤 RPC cancel 사건이 한다 — agent_work_orders 에 직접 update 하지 않는다(D14).
     const [, cancelIds] = captured['agent_work_orders.in'][0] as [string, string[]]
     expect(new Set(cancelIds)).toEqual(new Set([W1, W2, W6]))
     expect(captured['agent_work_orders.eq']).toContainEqual(['status', 'ready'])
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'cancel', actorUserId: 'admin-1', orderId: 'order-1' })
 
-    // OFF 경로는 stage 자동전이·주문발행을 하지 않는다.
-    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+    // OFF 경로는 stage 자동전이(assign)·주문발행을 하지 않는다 — cancel 사건 자체는 이 경로의 취소 방식이다.
     expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
   })
 

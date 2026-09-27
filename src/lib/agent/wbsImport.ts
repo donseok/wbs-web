@@ -2,8 +2,15 @@ import { chunked } from '@/lib/ai/util'
 import { treeMaxDepth, validateLevelSettings } from '@/lib/domain/levelSettings'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
+import { cancelOrders } from '@/lib/agent/cancelOrder'
 import { emitNotification } from '@/lib/notify/emit'
-import { STAGE_CODES } from '@/lib/domain/stageLabels'
+import { HUMAN_STAGE_CODES } from '@/lib/domain/stageLabels'
+import { AGENT_TAG } from '@/lib/domain/seatmap'
+
+/** .in() 인자 청크 크기 — supabase-js 필터는 GET 쿼리스트링으로 나가므로 MAX_NODES(1000)를
+ *  한 번에 실으면 UUID 1000개 ≈ 37KB 가 프록시 URI 상한(8~16KB)을 넘는다(재리뷰 지적). `runWbsImport`
+ *  의 L7 표식 확인·주문 조회와 `ensureOrdersForPayload` 가 함께 쓴다 — 선언을 그 위로 올려 둔다. */
+const IN_CHUNK = 200
 
 /**
  * WBS 업로드(export JSON → upsert) 변환·후처리 — 계약 v2.0 §2.6.
@@ -89,7 +96,7 @@ export function validateLevels(raw: unknown): { levels: LevelDecl[] } | { error:
   if (!hasInput) return { error: 'levels 에 progress:input 층이 최소 1개 필요합니다.' }
   return { levels }
 }
-const STAGES: ReadonlySet<string> = new Set(STAGE_CODES)
+const STAGES: ReadonlySet<string> = new Set(HUMAN_STAGE_CODES)
 const PRIORITY_LABELS = new Set(['critical', 'high', 'medium', 'low'])
 const SCHEDULE_RE = /^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/
 const SCHEDULE_END_ONLY_RE = /^~\s*(\d{4}-\d{2}-\d{2})$/ // v2.2: nlevel wbs.md 의 ~종료일 토큰(시작일 없음)
@@ -206,7 +213,12 @@ async function findStubConflicts(
  */
 export type RunWbsImportResult =
   | { ok: true; upserted: number; skipped: number
-      unmatched: Array<{ id: string; assignee: string }>; nonLeafSkipped: string[]; ordersCreated: number }
+      unmatched: Array<{ id: string; assignee: string }>; nonLeafSkipped: string[]; ordersCreated: number
+      /** L7(설계 상태 스펙 12절) — 이번 업로드로 위임 표식이 빠져 공용 취소로 끝난 ready·claimed 주문 수. */
+      delegationCancelled: number
+      /** L7 취소를 끝내지 못한 항목의 bare id(리뷰 수정 1회차) — upsert 는 이미 커밋됐으므로 throw 하지
+       *  않고 여기 담는다. 비어 있으면 전부 정리됐다는 뜻. */
+      delegationCancelFailed: string[] }
   | { ok: false; code: 'validation_failed' | 'levels_mismatch' | 'attach_not_found' | 'apply_failed'; message: string }
 
 export async function runWbsImport(
@@ -281,6 +293,21 @@ export async function runWbsImport(
       message: `스텁 제거 작업과 충돌하는 노드 ${stubConflicts.length}건: ${stubConflicts.slice(0, 5).join(' / ')}` }
   }
 
+  // L7(설계 상태 스펙 12절) — 이번 업로드로 위임 표식(agent)이 빠지는 기존 항목. RPC 가 tags 를 덮어쓰므로 호출 전에 읽는다.
+  // ref → id 로 양방향을 남긴다 — RPC 는 부모 ref 를 해석하지 못한 노드를 건너뛰고 그 행의 tags 를 바꾸지
+  // 않는다(0096 import_wbs_upsert). out.ids(실제로 갱신된 ref)로 좁히기 전엔 "빠질 뻔한" 후보일 뿐이다(리뷰 수정 1회차).
+  const untagRefs = (rpcNodes as Array<{ external_ref: string; tags: string[] }>)
+    .filter(n => !(n.tags ?? []).includes(AGENT_TAG)).map(n => n.external_ref)
+  const losingByRef = new Map<string, string>() // ref → 항목 id(현재 tags 에 agent 가 있던 것만)
+  for (const refChunk of chunked(untagRefs, IN_CHUNK)) {
+    const { data, error } = await admin.from('wbs_items').select('id, external_ref, tags')
+      .eq('project_id', projectId).in('external_ref', refChunk)
+    if (error) throw new Error(`표식 확인 조회 실패: ${error.message}`)
+    for (const r of (data ?? []) as Array<{ id: string; external_ref: string | null; tags: string[] | null }>) {
+      if (r.external_ref && (r.tags ?? []).includes(AGENT_TAG)) losingByRef.set(r.external_ref, r.id)
+    }
+  }
+
   // p_attach_id 는 attach 경로에서만 싣는다 — 레거시 payload 는 구 2인자 시그니처와도 호환(배포 순서 안전).
   const { data: rpcOut, error: rpcErr } = await admin
     .rpc('import_wbs_upsert', attachId
@@ -292,12 +319,53 @@ export async function runWbsImport(
   }
   const out = rpcOut as { upserted: number; skipped: number; ids: Record<string, string>; new_refs: string[] }
 
+  // out.ids 에 있는 ref 만 실제로 갱신됐다(리뷰 수정 1회차) — 부모를 해석 못해 RPC 가 건너뛴 노드는
+  // tags 가 그대로라 취소 대상이 아니다.
+  const losingRefs = [...losingByRef.keys()].filter(ref => ref in out.ids)
+  const refByLosingId = new Map(losingRefs.map(ref => [losingByRef.get(ref) as string, ref]))
+  const losingIds = losingRefs.map(ref => losingByRef.get(ref) as string)
+
+  // 표식이 빠진 항목의 ready·claimed 주문을 공용 취소로 끝낸다(L7) — 확정 설계가 표식 없이 떠 있지 않게.
+  // upsert 는 이미 커밋된 뒤라(리뷰 수정 1회차) 이 아래 조회·취소 실패는 throw 하지 않는다 — 로깅하고
+  // 못 끝낸 항목의 ref 를 결과에 담는다(setWbsAssigneeCascade 의 cascadeFailed 와 같은 원칙: 커밋된 쓰기를
+  // 위장하지 않되 이미 끝난 업로드를 전체 실패로 갚지 않는다).
+  let delegationCancelled = 0
+  const delegationCancelFailed = new Set<string>()
+  if (losingIds.length > 0) {
+    const orderItemId = new Map<string, string>()
+    const act: string[] = []
+    for (const idChunk of chunked(losingIds, IN_CHUNK)) {
+      const { data, error } = await admin.from('agent_work_orders').select('id, wbs_item_id')
+        .in('wbs_item_id', idChunk).in('status', ['ready', 'claimed'])
+      if (error) {
+        console.error('[wbs-import] L7 표식 제거 주문 조회 실패:', error.message)
+        for (const id of idChunk) { const ref = refByLosingId.get(id); if (ref) delegationCancelFailed.add(ref) }
+        continue
+      }
+      for (const r of (data ?? []) as Array<{ id: string; wbs_item_id: string | null }>) {
+        if (r.wbs_item_id) orderItemId.set(r.id, r.wbs_item_id)
+        act.push(r.id)
+      }
+    }
+    if (act.length > 0) {
+      const c = await cancelOrders(admin, { orderIds: act, actorUserId })
+      delegationCancelled = c.cancelled.length
+      for (const f of c.failed) {
+        console.error('[wbs-import] L7 표식 제거 주문 취소 실패:', f.id, f.error)
+        const itemId = orderItemId.get(f.id)
+        const ref = itemId ? refByLosingId.get(itemId) : undefined
+        if (ref) delegationCancelFailed.add(ref)
+      }
+    }
+  }
+
   const post = await applyAssigneesAndOrders(admin, {
     projectId, actorUserId, module: module_,
     newRefs: out.new_refs, idsByRef: out.ids, assigneeByRef, titleByRef, kindByRef,
   })
   return { ok: true, upserted: out.upserted, skipped: out.skipped,
-    unmatched: post.unmatched, nonLeafSkipped: post.nonLeafSkipped, ordersCreated: post.ordersCreated }
+    unmatched: post.unmatched, nonLeafSkipped: post.nonLeafSkipped, ordersCreated: post.ordersCreated,
+    delegationCancelled, delegationCancelFailed: [...delegationCancelFailed].map(ref => ref.slice(module_.length + 1)) }
 }
 
 /**
@@ -372,10 +440,6 @@ export async function applyAssigneesAndOrders(
  * 집합을 구해 MAX_NODES(1000) 규모에서도 쿼리 수를 상수로 유지한다.
  * .in() 인자는 이번 payload 의 task ref 만이다(프로젝트 전체가 아니다 — 무한정 커지지 않는다).
  */
-/** .in() 인자 청크 크기 — supabase-js 필터는 GET 쿼리스트링으로 나가므로 MAX_NODES(1000)를
- *  한 번에 실으면 UUID 1000개 ≈ 37KB 가 프록시 URI 상한(8~16KB)을 넘는다(재리뷰 지적). */
-const IN_CHUNK = 200
-
 async function ensureOrdersForPayload(
   admin: AdminClient,
   args: { projectId: string; actorUserId: string; module: string; taskRefs: string[] },

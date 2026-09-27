@@ -7,6 +7,9 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
 1. `git branch --show-current` 재확인 — `agent/` 브랜치가 아니면 **push 금지, 중단·보고**.
 2. 미커밋 잔여물 커밋(파일명 명시) → `git push origin <agent 브랜치>`.
    push 가 훅(G1~G4)에 거부되면 SKIP_GUARD 금지 — 중단하고 사람에게 보고.
+   push 가 non-fast-forward 로 거부되면(원격 agent 브랜치에 사람 커밋이 있다 — 화면이 구현 중 push 를 말린다) 받아 합치지 않고
+   `"{TSK} 원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume 하세요"` 로 알리고 끝낸다. 네트워크로 실패하면 그 사실을 알리고 끝낸다(다시
+   돌리면 이어 간다).
    이 브랜치가 파일명이 곧 버전인 마이그레이션(Flyway `V<버전>__…` 등)을 더했으면 push 직전에 dev-discipline 「마이그레이션
    버전」 의 재확인을 먼저 한다.
 3. `dflow.sh show <ref>` 로 spec 개정 여부 최종 확인(낡은 명세로 done 방지) →
@@ -18,6 +21,9 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
    갖는다). 이 파일은 커밋하지 않는다. done 이 exit 0 이면 지우고, 실패하면 남겨 재시도 재료로 쓴다. `DECISIONS_INVALID …`
    (exit 2)는 파일 형식 오류다 — 고쳐 다시 부른다. stderr 경고 `DECISIONS_COUNT_MISMATCH`·`DECISIONS_SUFFIX_MISSING`(요약
    접미사와 목록 건수가 어긋남)과 `서버가 결정 목록을 모릅니다(계약 < 2.6)`(옛 서버라 요약 접미사로만 전달)는 보고는 된 것이다.
+   done 이 exit 12(stderr 끝줄 `RUNNER_ACTIVE <runner>`)면 다른 PC 가 이 작업을 넘겨받았다 — state.json 을 바꾸지 않고
+   `"{TSK} 는 다른 PC(<runner>)가 돌리고 있어 멈춥니다."` 로 알리고 끝낸다. exit 11(`DESIGN_GATE <code>`)이면 서버가 완료 보고를 거부했다(설계 검토 대기이거나
+   단계가 작업 중이 아님) — 그 코드를 적어 보고하고 끝낸다.
 4. state.json 을 `phase=reported` 로 갱신하고, 그 파일을 파일명을 명시해 커밋한 뒤 `git push origin <agent 브랜치>` 한다.
    push 가 훅에 거부되면 우회하지 않고 보고한다. done 은 이미 보고됐으므로 되돌리지 않는다(이 push 가 실패해도
    `/dflow-merge` 의 원격 후보 조건은 phase 에 기대지 않아 승인 반영은 막히지 않는다).

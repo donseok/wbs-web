@@ -15,7 +15,7 @@ import { AssigneeComboBox } from './AssigneeComboBox'
 import { useDebouncedSave } from './useDebouncedSave'
 import { PendingSaveChip } from './PendingSaveChip'
 import type { DictKey } from '@/lib/i18n/dict'
-import { STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
+import { HUMAN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
 
 type Stage = StageCode
 /** 서버 확정 값이자 debounce 저장 필드 — getWbsAssigneeStage 의 반환 형태 그대로다. */
@@ -32,9 +32,9 @@ type AssigneeStageResult = {
   skippedDelegated?: number
 }
 const STAGE_KEYS: Record<Stage, DictKey> = {
-  as: 'wbs.stageAs', ds: 'wbs.stageDs', ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
+  as: 'wbs.stageAs', ds: 'wbs.stageDs', dd: 'wbs.stageDd', ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
 }
-const STAGES: readonly Stage[] = STAGE_CODES
+const STAGES: readonly Stage[] = HUMAN_STAGE_CODES
 
 /**
  * 선택된 WBS 항목의 담당자(로스터 축)·단계 편집 — §2.5.
@@ -226,6 +226,13 @@ export function WbsAssigneeStagePanel({
                       className="app-input h-9 text-xs"
                     >
                       <option value="">{t('wbs.stageNoneOption')}</option>
+                      {/* 사람이 고를 수 없는 현재 값(dd 등, HUMAN_STAGE_CODES 밖)은 STAGES 옵션에 없어 select
+                          value 가 어떤 option 과도 안 맞으면 브라우저가 선택 없음 — 즉 "미착수"처럼 그린다
+                          (위장 금지, stageLabels.ts). 다시 고르지는 못하게 disabled 옵션으로만 현재 값을 보인다
+                          (리뷰 1회차 지적). */}
+                      {view.stage !== null && !(HUMAN_STAGE_CODES as readonly string[]).includes(view.stage) && STAGE_KEYS[view.stage as Stage] && (
+                        <option value={view.stage} disabled>{t(STAGE_KEYS[view.stage as Stage])}</option>
+                      )}
                       {/* 개발 워크플로 단계는 최종단계의 것이다 — 상위 항목에서는 서버(setWbsStage)가
                           거절하므로 고를 수 있게 두면 화면이 거절당할 값을 권하는 꼴이 된다.
                           '미착수'는 남긴다: 이미 잘못 찍힌 값을 지울 길이 여기뿐이다. */}

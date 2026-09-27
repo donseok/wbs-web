@@ -1,5 +1,6 @@
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { orderPriorityFromLabel } from '@/lib/domain/agentWork'
+import { alreadyProgressed } from '@/lib/domain/designGate'
 import { emitNotification } from '@/lib/notify/emit'
 
 /**
@@ -11,7 +12,7 @@ export async function ensureOrderForWorkflowLeaf(
   admin: AdminClient,
   args: { projectId: string; wbsItemId: string; actorUserId: string; instructions?: string },
 ): Promise<
-  | { ok: true; created: boolean; reason?: 'not_agent_project' | 'not_leaf' | 'active_exists' | 'not_workflow' }
+  | { ok: true; created: boolean; reason?: 'not_agent_project' | 'not_leaf' | 'active_exists' | 'not_workflow' | 'progressed' }
   | { ok: false; error: string }
 > {
   const { projectId, wbsItemId, actorUserId } = args
@@ -32,7 +33,7 @@ export async function ensureOrderForWorkflowLeaf(
   // 수용 기준은 주문에 복제하지 않는다 — 정본은 wbs_items.acceptance jsonb 이고 claim/show 응답이 실어 나른다(결정 B).
   const { data: item, error: itemErr } = await admin
     .from('wbs_items')
-    .select('name, priority, external_ref, assignee_member_id, dev_workflow')
+    .select('name, priority, external_ref, assignee_member_id, dev_workflow, stage, actual_pct')
     .eq('id', wbsItemId)
     .maybeSingle()
   if (itemErr) return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
@@ -43,6 +44,8 @@ export async function ensureOrderForWorkflowLeaf(
         external_ref: string | null
         assignee_member_id: string | null
         dev_workflow: boolean | null
+        stage: string | null
+        actual_pct: number | string | null
       }
     | null
   // 3원칙 — 항목 없음을 "미도입"으로 위장하지 않는다(최종 리뷰 F3).
@@ -70,6 +73,23 @@ export async function ensureOrderForWorkflowLeaf(
     .maybeSingle()
   if (activeErr) return { ok: false, error: `활성 주문 확인 실패: ${activeErr.message}` }
   if (active) return { ok: true, created: false, reason: 'active_exists' }
+
+  // D26(설계 상태 스펙) — 이미 진행된 항목(단계 ip 이상·실적 100)에는 새 주문을 만들지 않는다. 완료 항목에 ready 가 생기면
+  // 「재작업」이 0077 유니크 인덱스에 막히고, 재위임이 실적을 낮추던 결함도 여기서 닫는다.
+  // not_leaf·active_exists 뒤로 옮겼다(리뷰 수정 1회차) — 그 두 갈래도 주문을 만들지 않으므로 D26 보증은
+  // 그대로다. 앞서였다면 non_leaf_skipped 리포트(reason==='not_leaf' 만 봄)가 조용히 놓치고, 이미 위임된
+  // 활성 주문의 무음 no-op(active_exists) 대신 엉뚱한 progressed 경고가 떴다.
+  // 판정은 designGate.alreadyProgressed 하나(D7, 최종 리뷰 Minor 8) — 단계·실적으로 이미 걸리면 approved 조회를 건너뛴다.
+  const progress = { stage: row.stage, actualPct: row.actual_pct == null ? null : Number(row.actual_pct) }
+  if (alreadyProgressed({ ...progress, hasApprovedOrder: false })) {
+    return { ok: true, created: false, reason: 'progressed' }
+  }
+
+  // D26 — approved 주문이 있는 항목도 진행된 항목이다(「재작업」으로 다시 연다).
+  const { data: approved, error: apprErr } = await admin
+    .from('agent_work_orders').select('id').eq('wbs_item_id', wbsItemId).eq('status', 'approved').limit(1).maybeSingle()
+  if (apprErr) return { ok: false, error: `승인 주문 확인 실패: ${apprErr.message}` }
+  if (alreadyProgressed({ ...progress, hasApprovedOrder: approved !== null })) return { ok: true, created: false, reason: 'progressed' }
 
   // Step 5: 주문 발행 시도
   const { data: orderData, error } = await admin

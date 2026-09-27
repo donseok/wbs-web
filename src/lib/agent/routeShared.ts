@@ -5,6 +5,7 @@ import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, isAgentProjectMember, patProjectAllowed,
   requireAgentProject, requireScope, resolveAgentPrincipal, type AgentPrincipal,
 } from '@/lib/agent/externalApi'
+import { ORDER_FACT_COLUMNS } from '@/lib/agent/designFacts'
 
 /**
  * 쓰기 라우트(claim/release/report) 공통 선행부.
@@ -26,6 +27,10 @@ type OrderRow = {
   claimed_by: string | null; claimed_by_user_id: string | null; wbs_item_id: string | null
   /** 마지막 heartbeat 의 실행 모델(0100) — report 가 보고 행에 복사한다(0105). last_heartbeat_at 이 null 이면 무효. */
   heartbeat_model?: string | null; last_heartbeat_at?: string | null
+  /** 설계 상태 재료(0108) — 0108 전 행·목에는 없다(없음·legacy 로 본다, designFacts.orderFactsOf). */
+  heartbeat_phase?: string | null; heartbeat_agent?: string | null
+  design_state?: string | null; claim_scope?: string | null; design_note?: string | null
+  runner?: string | null; runner_seen_at?: string | null
 }
 
 /** 주문 조회 공통부. claimed_by_user_id 미선택·구행(0072 이전)은 undefined 로 온다 — null 과 동일하게 다룬다(무소유). */
@@ -34,7 +39,7 @@ async function fetchOrderRow(admin: AdminClient, id: string): Promise<
 > {
   const { data: order, error } = await admin
     .from('agent_work_orders')
-    .select('id, project_id, status, claimed_by, claimed_by_user_id, wbs_item_id, heartbeat_model, last_heartbeat_at')
+    .select(`id, project_id, status, wbs_item_id, heartbeat_model, ${ORDER_FACT_COLUMNS}`)
     .eq('id', id).maybeSingle()
   if (error) {
     console.error('[agent-api] 주문 조회 실패:', error.message)

@@ -4,6 +4,7 @@ import { isUuidLike, parseTokenUsage } from '@/lib/domain/agentWork'
 import { HEARTBEAT_PHASES, LEAD_PHASES } from '@/lib/domain/seatState'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
+import { runnerFree } from '@/lib/domain/designGate'
 
 /**
  * heartbeat — 좌석표 v1 스펙 §3-2. 진행 중 주문의 "살아 있음"을 서버에 남긴다.
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return apiBadRequest('model 은 영숫자로 시작하는 64자 이하 모델 이름이어야 합니다.')
   }
   // 사용 토큰(0104) — 훅이 세션 누적값을 싣는다. 선택이며, 팀장 대리 표시 갈래에서는 받지 않는다.
-  // 형식이 틀려도 heartbeat 는 거절하지 않는다: 훅은 409 cancelled 외의 응답을 보지 않고 같은 캐시를 매분 다시
+  // 형식이 틀려도 heartbeat 는 거절하지 않는다: 훅은 409 cancelled·runner_active 외의 응답을 보지 않고 같은 캐시를 매분 다시
   // 보내므로, 400 을 주면 그 팀원의 살아 있음 신호가 통째로 끊겨 멀쩡한 팀원이 무응답·끊김으로 보인다.
   // 대신 로그를 남기고 tokens_saved:false 로 알린다(3원칙: 표시 = 로깅).
   if (b.tokens != null && lead) return apiBadRequest('tokens 는 워커 heartbeat 에만 보냅니다.')
@@ -93,21 +94,37 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     if (lead) return await writeLeadMark(admin, id, clear !== null, note)
 
-    const now = new Date().toISOString()
+    // 도는 PC(설계 상태 스펙 D25·12절 Y1, 계획 P6) — 같은 PC 이거나 runner 가 없거나 30분 넘게 조용하면 이 라벨이 넘겨받는다.
+    // 아니면 409 runner_active: 새 훅이 이 워커를 멈춘다(옛 훅은 무시하고, 완료 보고가 서버에서 막힌다).
+    // 판정·기록은 본문 원문이 아니라 검증된 라벨(actor.agentLabel — 형식 밖이면 pat-<runner>)로 한다. claim·build-start·완료 보고가
+    // 같은 라벨로 runner·heartbeat_agent 를 보므로, 원문을 쓰면 형식 밖 라벨의 워커가 자기 주문에서 runner_active 로 멈춘다.
+    const label = actor.agentLabel
+    const nowMs = Date.now()
+    const curRunner = order.runner ?? null
+    if (!runnerFree({ runner: curRunner, runnerSeenAt: order.runner_seen_at ?? null }, label, nowMs)) {
+      return NextResponse.json({
+        error: `다른 PC(${curRunner})가 이 작업을 이어받았습니다. 더 진행하지 말고 멈추세요.`, code: 'runner_active',
+        runner: curRunner, runner_seen_at: order.runner_seen_at ?? null,
+      }, { status: 409 })
+    }
+    const now = new Date(nowMs).toISOString()
     // phase 를 생략하면 null — 사람이 답한 뒤 팀원의 다음 heartbeat 가 BLOCKED 를 푼다(훅은 항상 phase 를 보낸다).
-    const { data: updated, error } = await admin
+    let q = admin
       .from('agent_work_orders')
       .update({
-        last_heartbeat_at: now, updated_at: now, heartbeat_agent: agent,
+        last_heartbeat_at: now, updated_at: now, heartbeat_agent: label,
         heartbeat_phase: phase, heartbeat_note: phase === 'blocked' && note ? note : null,
         // 재개 요청(0099)은 워커가 다시 숨을 쉬면 해소된다 — 사람이 따로 지우지 않아도
         // 좌석의 「재개 요청됨」 표시와 팀장 watch 목록에서 같이 사라진다.
         resume_requested_at: null, resume_requested_by: null, resume_requested_host: null,
+        // 도는 PC(0108) — 넘겨받거나 신호 시각을 갱신한다. 판정과 쓰기 사이에 다른 PC 가 넘겨받았으면 CAS 가 막는다(0행 → 409).
+        runner: label, runner_seen_at: now,
         // 에이전트 보기 명찰(0100) — Phase 서브에이전트의 모델. 실린 때만 덮어쓴다.
         ...(model !== null ? { heartbeat_model: (model as string).trim() } : {}),
       })
       .eq('id', id).eq('status', 'claimed')
-      .select('id')
+    q = curRunner === null ? q.is('runner', null) : q.eq('runner', curRunner)
+    const { data: updated, error } = await q.select('id')
     if (error) {
       console.error('[agent-api] heartbeat 갱신 실패:', error.message)
       return apiInternalError()

@@ -34,6 +34,13 @@ describe('opsFor — 상태마다 다른 op', () => {
   it('빈자리에는 아무 것도 없다', () => {
     expect(kinds('READY')).toEqual([])
   })
+  it('설계 검토 대기는 중단만 — 「이어서 시작」은 설계 상태 review 에서만 숨긴다(설계 상태 스펙 12절 Y10)', () => {
+    expect(opsFor({ state: 'WAIT', ...who(true, false), reviewWait: true }).map(o => o.spec.kind)).toEqual(['stop'])
+    // 구현 대기(승인·확정된 설계가 팀장을 기다림)는 WAIT 지만 결재할 것이 없다 — 「이어서 시작」·중단이다.
+    expect(opsFor({ state: 'WAIT', ...who(true, false), buildWait: true }).map(o => o.spec.kind)).toEqual(['resume', 'stop'])
+    // 승인된 설계를 넘겨받은 워커가 멈추면(무응답·끊김) BY_STATE 대로 「이어서 시작」이 있다.
+    expect(opsFor({ state: 'OFFLINE', ...who(true, false), reviewWait: false }).map(o => o.spec.kind)).toEqual(['resume', 'stop'])
+  })
 })
 
 describe('자격 — 서버 가드와 같은 축', () => {

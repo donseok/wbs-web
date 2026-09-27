@@ -10,8 +10,10 @@ import {
   assembleAgentHub, type AgentHub, type AgentHubRows, type HubItemRow, type HubMemberRow, type HubReportRow,
 } from '@/lib/domain/agentHub'
 
-export const HUB_ITEM_COLS = 'id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived'
-const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note'
+export const HUB_ITEM_COLS = 'id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived, design_mode'
+const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note, design_state, design_note, runner'
+/** 승인 주문 조회의 in 목록 크기 — 요청 URL 길이 때문에 나눈다(designFacts 와 같은 값). */
+const IN_CHUNK = 200
 const REPORT_COLS = 'work_order_id, percent, summary, links, agent, review_action, review_note, created_at, decisions'
 const WATCHER_COLS = 'id, user_id, project_id, agent, host, slots, busy, until_label, last_seen_at'
 
@@ -41,12 +43,20 @@ export async function fetchAgentHubRows(admin: AdminClient, projectId: string, n
   const reports = liveIds.length
     ? must<HubReportRow[]>('완료 보고', await admin.from('agent_work_reports').select(REPORT_COLS).in('work_order_id', liveIds).eq('kind', 'completion'))
     : []
-  // 선행 승인 여부 — 위임 항목의 depends 가 가리키는 항목 id 로 approved 주문을 1회(주문 조회는 7일 창이라 오래전 승인이 빠진다). 선행이 없으면 생략.
-  const refs = new Set(items.filter(i => (i.tags ?? []).includes('agent')).flatMap(i => i.depends ?? []))
+  // 승인 주문 — 선행 항목(위임 항목의 depends 가 가리키는 것)과 설계 화면 판정 대상(위임 항목·설계 방식 human 항목)의 id 로
+  // approved 주문을 읽는다. 주문 조회는 7일 창이라 오래전 승인이 빠진다 — 선행을 미충족으로, 오래전에 끝난 위임 리프를
+  // 「위임 보류」(설계 상태 스펙 3절 10행)로 거짓 표시하게 된다. 200건씩 나눠 읽고(항목마다 읽지 않는다), 대상이 없으면 생략.
+  const delegated = (i: HubItemRow) => (i.tags ?? []).includes('agent')
+  const refs = new Set(items.filter(delegated).flatMap(i => i.depends ?? []))
   const predIds = items.filter(i => i.external_ref !== null && refs.has(i.external_ref)).map(i => i.id)
-  const approvedItemIds = predIds.length
-    ? must<Array<{ wbs_item_id: string }>>('선행 승인 주문', await admin.from('agent_work_orders').select('wbs_item_id').in('wbs_item_id', predIds).eq('status', 'approved')).map(r => r.wbs_item_id)
-    : []
+  const designIds = items.filter(i => delegated(i) || i.design_mode === 'human').map(i => i.id)
+  const lookupIds = [...new Set([...predIds, ...designIds])]
+  const approvedItemIds: string[] = []
+  for (let k = 0; k < lookupIds.length; k += IN_CHUNK) {
+    const part = must<Array<{ wbs_item_id: string }>>('승인 주문', await admin.from('agent_work_orders').select('wbs_item_id')
+      .in('wbs_item_id', lookupIds.slice(k, k + IN_CHUNK)).eq('status', 'approved'))
+    for (const r of part) approvedItemIds.push(r.wbs_item_id)
+  }
   return { project: projects[0] ?? null, agentProject, items, orders, reports, watchers, members, approvedItemIds }
 }
 

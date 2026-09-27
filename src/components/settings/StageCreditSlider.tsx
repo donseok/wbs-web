@@ -23,15 +23,16 @@ type Status = ReturnType<typeof statusOf>
 type Cursor = CreditKey | 'manual'
 
 const KEY_LABEL: Record<CreditKey, DictKey> = {
-  as: 'settings.creditKey_as', ds: 'settings.creditKey_ds', ip: 'settings.creditKey_ip', rw: 'settings.creditKey_rw',
-  im: 'settings.creditKey_im', xx: 'settings.creditKey_xx',
+  as: 'settings.creditKey_as', ds: 'settings.creditKey_ds', dd: 'settings.creditKey_dd', ip: 'settings.creditKey_ip',
+  rw: 'settings.creditKey_rw', im: 'settings.creditKey_im', xx: 'settings.creditKey_xx',
 }
 /** 색 — WBS 단계 칩과 같은 계열. RW 는 단계가 아니라 반려·재작업 사건이라 범례에서 마름모다. */
 const DOT_CLS: Record<CreditKey, string> = {
-  as: 'bg-pending', ds: 'bg-accent-secondary', ip: 'bg-progress', rw: 'bg-delayed', im: 'bg-brand', xx: 'bg-done',
+  as: 'bg-pending', ds: 'bg-accent-secondary', dd: 'bg-accent-secondary/60', ip: 'bg-progress', rw: 'bg-delayed', im: 'bg-brand', xx: 'bg-done',
 }
 const RING_CLS: Record<CreditKey, string> = {
-  as: 'border-pending', ds: 'border-accent-secondary', ip: 'border-progress', rw: 'border-delayed', im: 'border-brand', xx: 'border-done',
+  as: 'border-pending', ds: 'border-accent-secondary', dd: 'border-accent-secondary/60', ip: 'border-progress', rw: 'border-delayed',
+  im: 'border-brand', xx: 'border-done',
 }
 const STATUS_LABEL: Record<Status, DictKey> = {
   not_started: 'settings.creditPvNotStarted', in_progress: 'settings.creditPvInProgress',
@@ -48,6 +49,7 @@ const SCALE_TICKS = Array.from({ length: 100 / CREDIT_STEP + 1 }, (_, i) => i * 
 const FLOW: { ev: DictKey; order: string; stage: Exclude<CreditKey, 'rw'>; cur: Cursor; same?: boolean }[] = [
   { ev: 'settings.creditPvEvAssign', order: 'ready', stage: 'as', cur: 'as' },
   { ev: 'settings.creditPvEvClaim', order: 'claimed', stage: 'ds', cur: 'ds' },
+  { ev: 'settings.creditPvEvDesignDone', order: 'claimed', stage: 'dd', cur: 'dd' },
   { ev: 'settings.creditPvEvBuildStart', order: 'claimed', stage: 'ip', cur: 'ip' },
   { ev: 'settings.creditPvEvManual', order: 'claimed', stage: 'ip', cur: 'manual', same: true },
   { ev: 'settings.creditPvEvReport', order: 'reported', stage: 'im', cur: 'im' },

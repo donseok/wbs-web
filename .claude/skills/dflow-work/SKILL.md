@@ -10,6 +10,9 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
 4 선행·상태로 인한 진행 불가 — 409 충돌·로컬 선행 차단·선행 미충족(403 바디 `code=dependency_not_met` 재매핑) /
 5 권한 부족(그 밖의 403) / 6 네트워크·서버·로컬 환경 실패(응답 파싱·파일 쓰기 포함) / 7 기능 꺼짐 /
 10 중단됨 — 사람이 D'Flow 에서 작업을 중단했다(409 바디 `code=cancelled`). 재시도하지 말고 즉시 멈춘다.
+11 설계 관문 — 409 `design_gate`·`design_not_accepted`(계약 2.11). stderr 끝줄 `DESIGN_GATE <code>[ <reason>]`. 재시도하지 않는다 —
+서버 판단(`action`)을 다시 보거나 사람이 「설계 승인」·「설계 확정」 을 누른다.
+12 다른 PC 도는 중 — 409 `runner_active`(계약 2.11). stderr 끝줄 `RUNNER_ACTIVE <runner>`. 이 세션은 멈춘다(다른 PC 의 세션이 이어 간다).
 
 ## 시작 절차 (매 세션 1회)
 
@@ -118,6 +121,16 @@ main·staging 위에서 구현을 진행하지 말 것 — done 의 push 검증�
 확인하지 못하면 실패로 본다. 서버가 지원하는지는 `dflow.sh contract-ge 2.9`(exit 0 이면 지원)로 본다.
 흐름 정본은 `/dflow-dev` `references/orch/design-first.md` 「설계 선행」 이다.
 
+**설계 상태(계약 2.11)**: 작업마다 설계 방식(완전자동·설계 검토·구현자동)이 있고, 서버가 판단을 싣는다 — `list` 출력 끝의 두 칸
+`action`·`mine`, `show` 의 `.order.action`·`.order.mine`·`.order.design_state`·`.order.claim_scope`·`.order.runner`.
+- `claim <ref> [--design-first] [--scope full|design|build]` — 서버가 저장한 범위를 `CLAIM_SCOPE <범위>` 한 줄로 낸다.
+- `build-start <ref> [--scope full|build|rework]` — 설계 관문이면 exit 11, 다른 PC 가 돌면 exit 12.
+- `design-done <ref>` — 설계를 마치고 멈춘다(단계 `dd`, 설계 검토 방식이거나 설계 범위(`--scope design`)로 claim 한 주문이면 설계 상태
+  `review`). 출력 `design-done <id8> <review|accepted|none>`.
+- `design-reopen <ref> --reason "<이유>"` — 설계를 사람에게 되돌린다. 사유는 화면에 보인다.
+- 옛 서버(계약 < 2.11)면 두 동사는 stderr `DESIGN_STATE_UNSUPPORTED` 에 exit 7 이다. 지원 여부는 `dflow.sh contract-ge 2.11` 로 본다.
+흐름 정본은 `/dflow-dev` `references/orch/start.md` 「서버 판단」·`references/orch/design.md` 「설계 받기」·「설계만 멈춤」 이다.
+
 ### 작업 폴더 조회
 
 ```bash
@@ -159,8 +172,10 @@ dflow.sh progress <순번> <0-99> "<요약>"
 - 담당자 결정 대기 직전: `dflow.sh heartbeat <id8> --phase blocked --note "<질문>"`. 좌석표에 손 든 사람과 질문이 뜬다.
   답을 받은 뒤의 첫 heartbeat(훅이든 명시든, `--phase` 가 blocked 가 아닌 것)가 이 상태를 푼다.
 - Phase 경계를 명시하고 싶을 때: `--phase prepare|design|build|verify|refactor|rejected|reported`(`prepare` = Phase 01 준비).
-- 설계를 마치고 선행을 기다리며 멈추기 직전: `--phase wait_pred`(계약 2.9). 훅은 이 값을 보내지 않으므로 직접 부른다.
-- 설계만(`/dflow-dev --scope design`) 마치고 사람의 검토를 기다리며 멈추기 직전: `--phase wait_review`(계약 2.10). 훅은 보내지 않는다.
+- 설계를 마치고 선행을 기다리며 멈추기 직전: `--phase wait_pred`(계약 2.9). 훅은 이 값을 보내지 않으므로 직접 부른다. 계약 2.11 이면
+  heartbeat 대신 `dflow.sh design-done <ref>` 를 부른다(단계·좌석을 한 번에 바꾼다).
+- 설계만(`/dflow-dev --scope design`) 마치고 사람의 검토를 기다리며 멈추기 직전: 계약 2.11 이면 `dflow.sh design-done <ref>`, 옛 서버면
+  `--phase wait_review`(계약 2.10). 훅은 보내지 않는다.
 `--model` 은 지금 도는 Phase 서브에이전트의 모델(좌석표 명찰·등급). 훅은 state.json 의 `model` 을 싣는다 — 생략하면 서버 값을 그대로 둔다.
 `--agent` 기본값은 워크트리 루트 `.dflow-agent` 첫 줄, 없으면 `claude-<host>`. 값이 `*/parked` 면 보내지 않는다.
 claimed 가 아니면 exit 4, 사람이 중단한 주문(`cancelled`)이면 exit 10, 소유자가 아니면 exit 5. progress·done 도 같다.
@@ -196,6 +211,10 @@ dflow.sh release <순번>
 ```
 
 claim 했던 작업을 포기. 상태 -> ready 로 돌아감.
+
+계약 2.11 에서 설계 상태(검토 대기·승인됨)가 있는 주문은 반납하지 않는다(exit 11, 설계 상태 스펙 D13) — 설계만 하던 주문(`claim_scope`
+`design`)이 단계 `ds`·`dd` 에 있으면 설계 상태가 없어도 마찬가지다. 사람이 D'Flow 에서 「설계 되돌리기」나
+중단을 쓴다.
 
 ## 금지사항 (명령형)
 

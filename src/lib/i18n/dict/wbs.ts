@@ -235,6 +235,7 @@ export const wbsKo = {
   'wbs.stageNoneOption': '미착수',
   'wbs.stageAs': '할당됨',
   'wbs.stageDs': '설계 중',
+  'wbs.stageDd': '설계 완료',
   'wbs.stageIp': '작업 중',
   'wbs.stageIm': '검수 대기',
   'wbs.stageXx': '완료',
@@ -323,6 +324,34 @@ export const wbsKo = {
   'wbs.specBodyPlaceholder': '마크다운으로 명세를 작성하세요…',
   'wbs.specSaveFail': '명세를 저장하지 못했습니다.',
   'wbs.specRefSaveFail': '참조 필드를 저장하지 못했습니다.',
+  // 설계 방식·설계 영역(설계 상태 스펙 3·7절, 0108). 화면 문구·되돌림 사유·안내는 서버 판정(designScreen)의 문자열을
+  // 그대로 보이므로 여기 두지 않는다 — 규칙 원본을 하나로 둔다. 여기는 방식 이름·버튼·고정 안내뿐이다.
+  'wbs.designModeLabel': '설계 방식',
+  'wbs.designModeAuto': '완전자동',
+  'wbs.designModeReview': '설계 검토',
+  'wbs.designModeHuman': '구현자동',
+  'wbs.designModeHint': '완전자동 = 에이전트가 설계부터 구현까지 · 설계 검토 = 에이전트가 쓴 설계를 사람이 승인한 뒤 구현 · 구현자동 = 사람이 올린 설계를 확정하면 에이전트가 구현',
+  'wbs.designSectionTitle': '설계',
+  'wbs.designLoadFail': '설계 상태를 불러오지 못했습니다',
+  'wbs.designNoteLabel': '되돌린 이유',
+  'wbs.designAccept': '설계 승인',
+  'wbs.designConfirm': '설계 확정',
+  'wbs.designReopen': '설계 되돌리기',
+  'wbs.designReopenReason': '되돌리는 이유 (비우면 기본 문구)',
+  'wbs.designNoRight': '설계 버튼은 위임 권한(관리자·담당자 본인)이 있어야 보입니다.',
+  'wbs.designExitTitle': '설계를 지키며 빠져나오기',
+  'wbs.designExitWhen': '승인·확정된 설계가 걸린 작업이 갇혔을 때(점유자가 사라짐 등) 설계를 잃지 않고 빠져나오는 순서입니다.',
+  // 1단계는 「중단」이 아니라 위임 해제를 가리킨다(컨트롤러 판정) — 「중단」은 관리자·서브트리 관리자만 쓸 수 있고
+  // ready 주문·부모 행에서는 막혀 있어, 이 패널을 보는 담당자 본인에게는 대개 막힌 길이다. 위임 해제는 ready·claimed
+  // 주문을 같은 공용 취소로 끝내고 설계 버튼과 같은 권한(D10)이다. 위임 체크는 이 설계 영역 옆이 아니라 명세 본문
+  // (기본 접힘, 관리자는 「편집」도 눌러야 한다) 안에 있어 그 위치를 적는다(최종 수정 B9). 네 단계는 설계 영역의 다른
+  // 안내(designScreen 힌트)와 같은 명령형(-세요)으로 맞춘다.
+  'wbs.designExitStep1': '「명세」를 펼치고(관리자는 「편집」도 누르세요) 「에이전트 위임」 체크를 끄세요. 주문이 취소되어 설계 방식을 바꿀 수 있게 됩니다.',
+  'wbs.designExitStep2': '다시 위임하고 설계 방식을 「구현자동」으로 고르세요.',
+  'wbs.designExitStep3': 'agent 브랜치의 design.md 를 개발 브랜치의 <TASKS>/<TSK>/design.md 로 옮기세요.',
+  'wbs.designExitStep4': '「설계 확정」을 누르세요.',
+  'wbs.delegationOffConfirm': '설계 상태가 있는 작업입니다. 위임을 해제하면 agent 브랜치에서 고친 설계는 새 주문에 이어지지 않습니다.',
+  'wbs.delegationOffConfirmOk': '위임 해제',
   // 상세 패널 토글·select 의 debounce 저장(2026-09-14) — 대기 칩과 즉시 저장 버튼
   'wbs.pendingSaveIn': '{n}초 뒤 저장',
   'wbs.pendingSaveNow': '지금 저장',

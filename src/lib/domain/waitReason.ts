@@ -121,14 +121,13 @@ export function designWaitReason(
 }
 
 /**
- * 설계 완료·검토 대기 좌석(claimed ∧ heartbeat wait_review, 스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5)의
- * 사유 — 늘 사람 검토 대기다. `--scope design`(설계만) 으로 멈춘 작업이라 선행이 남아 있어도(§14.2 "미충족 선행이 있어도
- * 같다") 사유는 바뀌지 않는다: 재개를 막는 것은 선행이 아니라 사람 검토이기 때문이다. designWaitReason 과 달리
- * 미충족 선행 목록을 묻지 않는다 — 검토가 끝나기 전에는 선행이 풀려도 재개하지 않는다.
+ * 설계 검토 대기 좌석(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행)의 사유 — 늘 사람 검토 대기다. 선행이 남아 있어도
+ * 사유는 바뀌지 않는다: 재개를 막는 것은 선행이 아니라 사람 검토이기 때문이다. designWaitReason 과 달리 미충족 선행 목록을
+ * 묻지 않는다. 좌석의 「이어서 시작」은 이 상태에서 숨는다(스펙 12절 Y10) — 풀리는 길은 「설계 승인」 하나다.
  */
 export function reviewWaitReason(): WaitReason {
   return {
     kind: 'design_review', label: '설계 검토 대기',
-    text: '설계를 마치고 사람의 검토를 기다립니다. 검토 뒤 좌석의 「이어서 시작」을 누르거나 --scope build 로 구현을 이어 갑니다.',
+    text: '설계를 마치고 사람의 검토를 기다립니다. agent 브랜치의 design.md 를 검토하고(고쳤으면 push 한 뒤) WBS 작업 패널이나 에이전트 허브에서 「설계 승인」을 누르면 팀장이 다음 확인 주기에 구현을 시작합니다.',
   }
 }

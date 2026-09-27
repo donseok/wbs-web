@@ -37,10 +37,10 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 | `references/second-lead.md` | 같은 리포에서 다른 신원의 팀장을 하나 더 띄울 때 |
 | `references/backends.md` | spawn·회수·정리·답 넣기·고아 정리 때(그 절만) |
 | `references/worker-prompt.md` | 팀장은 읽지 않는다(팀원 규칙. 포인터로 넘기기만 한다) |
-| `references/resume.md` | 재개 spawn(「5-1」) 때 |
+| `references/resume.md` | 재개 spawn(「5-1」) 때, 계약 2.11 에서 이어 갈지 가를 때(「서버 판단 확인」) |
 | `references/restart.md` | TICK 판정·결과 줄 없는 `PANE_DEAD`·재투입·rate-limit 대기·중단 표식 정리 때 |
 | `references/design-ahead.md` | 빈 슬롯에 선행 대기 작업을 설계 선행으로 줄 때, `design_waiting` 결과·설계 완료 대기 워크트리(고아 스캔 0번)를 다룰 때 |
-| `references/scope.md` | 실행 범위(`<SCOPE>`)가 `full` 이 아닐 때의 후보 판정, `design_review` 결과, `wait_review` 재개 때 |
+| `references/design-state.md` | 계약 2.11 에서 poll 후보의 설계 사전 검사, 「설계 승인」 된 작업(`build`), 설계 상태 결과 처리 때 |
 | `references/merge-conflict.md` | 머지 충돌 접수·해소 spawn·해소 결과·사람 머지 감지 때 |
 | `references/issues.md` | 팀원의 SendMessage 이슈 보고가 도착했을 때(「2-4」) |
 | `references/closing.md` | 「7. 마감」 에 들어설 때(잠금 상실·lease 상실 마감 포함) |
@@ -146,16 +146,15 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   바꾼다. 값은 `low`|`medium`|`high`|`xhigh`|`max` 중 하나이고, 그 밖의 값이면 한 줄 알리고 `high` 를 쓴다. 정한 값을
   `<EFFORT>` 로 기억한다. 두 백엔드 모두 `.dflow-run` 의 `claude` 호출에 `--effort <EFFORT>` 를 붙인다(backends.md
   「팀원 워크트리 준비」). 모델과 effort 는 묻지 않는다.
-- **실행 범위**는 선택이다: "설계만"·"설계까지" → `design`, "구현부터"·"개발자동" → `build`, 없으면 `full`. 정한 값을
-  `<SCOPE>` 로 기억하고 `team.start` 의 `scope` 에 남긴다(「1. 시작」 5번, 압축 뒤 `RUN` 의 `scope` 로 복원). 포인터에
-  `SCOPE=<SCOPE>` 를 싣고 워커가 `/dflow-dev --scope` 로 넘긴다(정본 `/dflow-dev` SKILL.md 「실행 범위」). `design` 은 설계를 마치고
-  사람의 검토를 기다리며 멈추고(`design_review`), `build` 는 사람이 쓴 설계(개발 브랜치 `<TASKS>/<TSK>/design.md`)나 검토 대기 설계에서
-  구현한다. `full` 이 아니면 후보 판정·결과 처리에 `references/scope.md` 를 Bash `cat` 으로 읽어 더한다. 시작 보고에 범위를 한 줄 적는다.
+- **설계 방식은 인자가 아니다**(계약 2.11, 설계 상태 스펙 D27). 사람이 WBS 작업 패널에서 작업마다 고르고, 팀장은 서버 판단 `action` 을
+  포인터 `SCOPE` 로 넘긴다(「5」 4번). 옛 인자 "설계만"·"구현부터" 가 오면 쓰지 않고 그렇다고 한 줄 알린다.
 - **재개 인자 `--resume <id8>[ <id8>…]`** 는 선택이다. 자연어로 "443b8ffe 재개" 라고 써도 같게 해석한다. 이 인자가
   없어도 이 PC 에 남아 있는 중단된 팀원 워크트리는 자동으로 이어받는다(「팀장 상태」 고아 스캔의 "재개 가능"
   분류). `--resume` 은 **워크트리가 이 PC 에 없거나 다른 PC 가 claim 한 작업**을
   사람이 손으로 지목해 이어받게 한다(「5-1. 재개 spawn」). 지목한 id8 은 자동 판정의 거부 사유(재시도 상한 초과,
   `claimed_by` 불일치)를 무시하고 진행하며, 띄우기 전에 무엇이 남아 있고 무엇을 잃는지 한 줄로 보고한다.
+  계약 2.11 서버에서는 서버 `mine` 이 거짓이면(다른 PC 가 30분 안에 돌렸거나 다른 신원이 잡았다) 띄우지 않는다(`references/resume.md`
+  「서버 판단 확인」).
 - **WP 범위 `WP-XX`** 는 선택이다. 여럿이면 공백이나 쉼표로 적고, 모듈이 여럿인 프로젝트에서 한 모듈로 좁히려면
   `dict/WP-02` 처럼 모듈을 앞에 붙인다. 자연어로 "2번 WP만" 이라고 써도 `WP-02` 로 해석한다. 없으면 전체다.
   이 범위는 **새 배정만** 좁힌다. poll 이 `--wp` 로 그 WP 의 Task 만 돌려준다(「2-1」). 판정 기준은 `external_ref`
@@ -239,8 +238,9 @@ done
 ```
 - `EVENTS` 의 `bad` 가 0 보다 크면 깨진 줄을 빼고 셌다는 뜻이다. 재구성 보고에 "events.jsonl 깨진 줄 <n>" 을 싣는다.
   `HASH_OMITTED` 가 0 보다 크면 `HASH` 에 없는 경로의 해시는 같은 명령에 `--hash '<worktree>'` 를 붙여 따로 읽는다.
-- `RUN` 의 `wp`(`team.start` 의 `wp`, 없는 옛 줄은 전체 `-`)가 WP 범위다. poll 을 다시 띄울 때 `--wp` 에 넘긴다.
-- `RUN` 의 `scope`(`team.start` 의 `scope`, 없는 옛 줄은 `-` = `full`)가 실행 범위 `<SCOPE>` 다.
+- `RUN` 의 `wp`(`team.start` 의 `wp`, 없는 옛 줄은 전체 `-`)가 WP 범위다. poll 을 다시 띄울 때 `--wp` 에 넘기고, `wake.sh`·`tick.sh` 에도
+  같은 값을 `--wp` 로 넘긴다(`-` 도 된다. watch 가 「설계 승인」 된 작업(`build`)을 poll 과 같은 범위로 거른다).
+- `RUN` 의 `scope` 는 옛 팀장 기록과의 호환 칸이다. 계약 2.11 팀장은 `server` 를 적고 이 값을 쓰지 않는다(범위는 작업마다 서버 판단).
 - 종료 시각(`<UNTIL>`·`<UNTIL_LABEL>`)은 **마지막 `team.extend`** 의 `until`·`until_label` 이고, 없으면 `team.start` 의
   `until` 이다(`RUN` 의 `until`·`until_label`).
 - `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다(`SLOT`. 브랜치 전인 Phase 01 팀원도 id8 을 안다).
@@ -249,7 +249,7 @@ done
   `merge-conflict.md` 「0」). 결과는 `references/merge-conflict.md` 「4. 해소 결과 처리」 표로 처리하고, 고아 스캔에서는
   backends.md 「고아 정리 규칙」 2-1번으로 가르며 "재개 가능" 으로 보내지 않는다. 워커 자동 재시작(H)의 대상도 아니다.
 - `team.result`·`team.blocked` 로 이미 판정한 작업, 제외 목록(`skipped` 는 일시, `failed`·`failed no-result`·
-  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit`·`design_waiting`·`design_review` 은 제외
+  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit`·`design_waiting`·`design_review`·`design_reopened` 은 제외
   없음), 차단기 상태(끝에서부터 연속한 `failed…` 수. `failed not-assignee`·`cancelled`·해소 워커의 내용 실패(`references/merge-conflict.md` 「6. 차단기」)는 세지도 끊지도 않고 건너뛴다. `team.lost` 는 `cause` 와 무관하게 실패 1건으로 센다. 단 `next=wait` 인 `team.lost` 는 세지도 끊지도 않는다), 결과 줄 경로별 마지막 처리 해시(경로는
   `<worktree>/<TASKS>/<tsk>/.result`)를 복원한다.
 - 단 사유가 `선행 미충족(사전 검사:` 로 시작하는 `skipped` 는 일시 제외가 아니라 **선행 대기**다. 선행 대기 목록은
@@ -270,7 +270,7 @@ done
 - 살아 있는 팀원의 워크트리는 그 `.dflow-agent` 슬롯 번호로 슬롯 표에 흡수한다. 그 안에 `.result` 가 있으면
   처리 여부를 해시로 가린 뒤 처리한다(「3. 결과 처리」).
 - 새로 줄 슬롯 번호는 흡수한 번호를 뺀 1..N 중 가장 작은 것이다(같은 `AGENT_ID` 를 다시 발급하지 않는다).
-- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`)을 받지 않은 팀원이다.
+- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`·`design_reopened`)을 받지 않은 팀원이다.
   화면이 떠 있는지로 판단하지 않는다. Orca 는 `.dflow-agent` 가 `w<slot>` 인 워크트리 중 최종 status 의
   `.result` 가 없는 것이며, tmux 는 거기에 더해 정본 표의 생존 칸이 `alive` 여야 한다. `blocked` 는 최종
   판정이 아니므로 그 팀원은 두 백엔드 모두 살아 있다. 실제로 죽은 Orca 팀원은 무응답 규칙(「3. 결과 처리」)이
@@ -291,7 +291,7 @@ done
   0. **설계 완료 대기**: `<TASKS>/*/state.json` 이 `phase=wait_pred` 면 정리·멈춤으로 보내지 않는다. `references/design-ahead.md`
      2번(재개 판정)을 통과할 때만 2번으로 보내고, 아니면 그대로 둔다(재시작·재개 후보가 아니다).
      `phase=wait_review`(설계만·검토 대기)도 재시작·재개 후보가 아니다. 결과 줄이 없으면 restart.md 「판정」 4-2 대로 `design_review` 로
-     거두고, 이어 가기는 `references/scope.md` 「2」 만 한다.
+     거두고, 「설계 승인」 뒤에는 「2-3」 의 `build`(승인된 작업)가 이어 가기를 부른다.
   1. **정리 가능**: backends.md 「고아 정리 규칙」 대로 깨끗하고(미커밋 변경 없음) HEAD 가 `origin/<그 브랜치>`
      와 같다. 그 규칙대로 지운다.
   2. **재개 가능**: 아래가 모두 참이다. 「5-1. 재개 spawn」 의 대상이며 `.dflow-agent` 를 `parked` 로 바꾸지
@@ -300,8 +300,10 @@ done
        산출물이 없다.
      - `.result` 가 없거나, 있어도 status 가 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`)이 아니다.
        최종 판정이 있으면 재개가 아니라 「3. 결과 처리」 의 몫이다.
+       단 `RETRY_DUE`(`lead-state.sh` — fetch·push 실패 뒤 30분)인 `skipped` 는 최종 판정이 아니다(12절 Y11). `WARN_RETRY` 면 「멈춤」 이다.
      - 서버 show 가 `status=claimed` 이고 `mine=true` 이며, `claimed_by` 를 소문자로 바꾼 값이
        `claude-<host>` 와 같거나 팀원 라벨 `<신원>/<host>/w<슬롯>` 의 가운데 칸이 `<host>` 다(이 PC 가 claim 했다).
+       계약 2.11 이면 `references/resume.md` 「서버 판단 확인」 도 통과한다(`same_host` 는 옛 서버의 대체 판정).
      - 그 id8 의 재개 재시도가 상한(3)에 닿지 않았다.
      - 그 id8 이 `references/restart.md` 「이벤트로 본 상태」 에서 `PARKED`·`RL_WAIT`·`RL_DUE` 가 아니다.
        `RESTART_DUE` 는 이 다섯 조건과의 교집합일 때만 재개 가능이며(`references/restart.md` 「재투입」 의 재투입 전
@@ -327,7 +329,8 @@ done
   결과가 `failed…` 이거나 무응답 자동 정리로 끝났는데 서버에 claimed 로 남은 작업(「3. 결과 처리」)을 한 표로
   낸다. 칸은 id8 · TSK · 워크트리 경로(없으면 `-`) · 브랜치 · 미커밋 파일 수 · 사유 · **재시작 명령**이다.
   사유는 `미커밋 보존`·`서버 미claim`·`다른 PC claim`·`재시도 상한`·`워크트리 없음`·`무응답`·`pane 죽음`·`rate-limit 반복`·
-  `rate-limit 대기(<HH:MM>)`·`중단 표식 불일치`·`중단 표식 삭제 실패`·`거두기 실패`·`살아 있는 팀원`·`서버 <status>`·`서버 조회 실패`(`references/restart.md`), 또는 결과 줄의
+  `rate-limit 대기(<HH:MM>)`·`중단 표식 불일치`·`중단 표식 삭제 실패`·`거두기 실패`·`살아 있는 팀원`·`서버 <status>`·`서버 조회 실패`(`references/restart.md`),
+  계약 2.11 의 `references/resume.md` 「서버 판단 확인」 사유·`사람 설계 초안 있음`·`fetch·push 3회 연속 실패`·`설계 멈춤 미완료`, 또는 결과 줄의
   `failed <사유>` 로 적는다. `failed…` 로 끝난 작업은 자동 재개로 가지 않는다(원인을 사람이 먼저 고친 뒤 `--resume` 이
   그 워크트리를 그대로 이어받는다). 이 표는 시작 보고와 마감 보고에 모두 낸다.
   재시작 명령은 갈래마다 아래 중 하나를 그대로 적어 사람이 복사해 쓸 수 있게 한다.
@@ -539,18 +542,21 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    (.claude/skills/dflow-work/scripts/dflow.sh list --scope claimed) | awk -F'\t' 'NF>=4 && $2=="CL" {print $4}'
    ```
    상태 열이 `CL` 인 행만 센다(`--scope claimed` 는 승인 대기인 `RP` 행도 돌려준다).
+   계약 2.11 이면 이 목록의 id8 마다 `references/resume.md` 「서버 판단 확인」 을 돌려 사유를 그 표의 것으로 적는다. 그 표가 띄우라고
+   가르는 것은 「설계 승인」 된 작업(`action=build`)뿐이다 — 멈춤이 아니라 재개 대상으로 넘긴다(「5-1」 이 원격 agent 브랜치에서
+   워크트리를 만든다. 설계 상태 스펙 12절 Y3 이 여는 유일한 새 길).
 4. **시작 보고**: 첫 줄은 정규화한 종료 시각, 바로 다음 줄은 `키: <이름> (<email>, <prefix>)`(토큰이 하나여도 적는다.
    값은 「인자」 키 판정의 `selected` 행)다. 이어서 3번의 **"멈춤" 표**(「팀장 상태」)를 내고, 재개 가능으로 분류한 것과
    `--resume` 지목분은 "이번에 이어받습니다" 로 한 줄 알린다. 2번의 scaffold 출력 한 줄(부른 경우 `scaffold created=N
    skipped=N no_ref=N`, 건너뛴 경우 "scaffold 건너뜀(detached HEAD 또는 개발 브랜치 아님)")도 싣는다.
    1번 전제 검사가 `WARN GRADLE_TUNING …` 을 냈으면 그 줄들도 싣는다(시작은 막지 않는다. 처리는 precheck.md).
-   WP 범위가 있으면 "새 배정은 <WP 목록> 만 합니다. 재개·승인
-   스윕은 범위와 무관합니다." 를 한 줄 알린다. 백엔드와 무관하게 "팀원은 **권한 확인 생략 모드로** 돕니다. 팀장 세션의 권한 모드와
+   WP 범위가 있으면 "새 배정과 「설계 승인」 된 작업의 구현은 <WP 목록> 만 합니다. 그 밖의 재개와
+   승인 스윕은 범위와 무관합니다." 를 한 줄 알린다. 백엔드와 무관하게 "팀원은 **권한 확인 생략 모드로** 돕니다. 팀장 세션의 권한 모드와
    무관합니다." 를 알린다. tmux 백엔드면 "화면은 `TMUX= tmux -L dflow attach` 로 볼 수 있습니다." 를 한 줄 더
    알린다(`TMUX=` 는 팀장이 tmux 안일 때의 중첩 attach 거부를 피한다).
    `AUTOMERGE_ON` 이면(「인자」 자동 머지) "자동 머지: 켜짐. 완료 보고된 작업은 승인 전에 main 에 머지하고, 승인은
    사후에 확인합니다." 를 한 줄 알린다. 꺼져 있으면 알리지 않는다.
-5. `team.start`(backend, slots, until, wp, scope)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. `scope` 는 `<SCOPE>`(`full`·`design`·`build`)다. 3번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
+5. `team.start`(backend, slots, until, wp, scope)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. `scope` 는 늘 `server` 다(설계 방식은 작업마다 서버 판단 — 「인자」). 3번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
    다시 기록한다: 흡수한 슬롯마다 `team.spawn`(`spawn_kind` 는 `readopt`)(원래 종류는 `orig_kind` 필드에 싣는다, `references/events.md`), 답을 기다리는 `blocked` 마다
    `team.blocked`, 흡수한 슬롯의 마지막 처리 해시마다 `team.result` 또는 `team.blocked`. 다시 기록하지 않으면
    이어받은 팀원이 살아 있지 않은 것으로 보이고 같은 결과가 다시 처리된다(재구성은 새 `team.start` 이후만 읽는다).
@@ -599,7 +605,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
 mkdir -p "$(git rev-parse --git-path dflow-team-poll)"
 POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 ( cd "$POLL_DIR" && DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0 \
-    "<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until '<UNTIL>' --interval 180 --recheck-cycles 10 \
+    "<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --lead --until '<UNTIL>' --interval 180 --recheck-cycles 10 \
     --wait-cycles 40 [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] [--exclude-wait <id8,id8>] )
 ```
 대괄호는 선택 플래그 표기이며 실제 명령에는 쓰지 않는다. `<MAIN>` 경로는 따옴표로 감싼다(공백이 있으면 poll 이 곧바로
@@ -615,6 +621,8 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
   플래그를 값으로 삼켜 사용법 오류로 끝난다.
 - `--wp` 에는 WP 범위(`team.start` 의 `wp`)를 공백 없는 쉼표 구분으로 넣는다. 범위가 전체(`-`)면 플래그를 생략한다.
   poll.sh 가 형식(`WP-<숫자>` 또는 `<모듈>/WP-<숫자>`)을 검사해 틀리면 exit 2 로 끝나며, 번호 앞의 0 은 무시한다.
+- `--lead`(계약 2.11): 서버가 `mine` 을 팀장 기준으로 계산한다. 새 서버면 ready 줄에 넷째 칸 `action` 이 붙고 `action` 이
+  `full`·`design`·`build` 이고 `mine` 인 것만 온다(12절 Y4). 옛 서버는 종전과 같다.
 - 대기 큐는 `--exclude` 에 넣지 않는다(압축으로 대기 큐를 잃으면 그 작업들이 보이지 않는 제외에 갇힌다).
 
 **재기동 조건**: 빈 슬롯이 있고, 대기 큐가 비었고, 차단기가 풀려 있고, rate-limit 보류(`references/restart.md` 「이벤트로 본 상태」)가 없을 때만 띄운다. poll 은 기동 즉시 첫
@@ -633,7 +641,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 감시 루프는 `scripts/tick.sh` 다. 루프를 손으로 쓰지 않고 아래 한 줄을 Bash `run_in_background` 로 띄운다(셸 `&` 금지).
 대괄호는 선택 플래그 표기다.
 ```bash
-.claude/skills/dflow-team/scripts/tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] --tm '<진짜 tmux 절대경로 또는 빈 값>' \
+.claude/skills/dflow-team/scripts/tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] [--wp <WP-02,dict/WP-03>] --tm '<진짜 tmux 절대경로 또는 빈 값>' \
   --owner '<신원>/<host>/lead' --slots <N> --until-label '<UNTIL_LABEL>' --pid "${CLAUDE_PID:-$PPID}" \
   -- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'
 ```
@@ -689,7 +697,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 기억으로 재구성한 명령은 쓰지 않는다. events.md 의 가드가 인자가 비거나 필드가 빠진 줄을 `EVENT_ARGS_MISSING` 으로
 거부하므로, 그 출력이 보이면 명령 블록을 다시 띄워 다시 기록한다.
 ```bash
-.claude/skills/dflow-team/scripts/wake.sh --owner '<신원>/<host>/lead' --slots <N> --busy <M> --until-label '<UNTIL_LABEL>'
+.claude/skills/dflow-team/scripts/wake.sh --owner '<신원>/<host>/lead' --slots <N> --busy <M> --until-label '<UNTIL_LABEL>' [--wp <WP-02,dict/WP-03>]
 ```
 출력 줄(글자 그대로): `LOCK_OK` 다음 줄에 재개 요청 요약 `{"n":…,"err":…,"reqs":[…],"other_project":[…]}`(또는
 `WATCH_FAILED`·`HOLDER_FAILED`), 소유가 아니면 `LOCK_LOST …`, lease 갱신이 멈췄으면 `LEASE_KEEP_DEAD …`, 그 뒤에 기록 명령 절이다.
@@ -705,11 +713,15 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
   뭉개지 않는다.
 - `host` 가 이 PC 의 `<host>` 슬러그와 **글자 그대로 같은 것만** 「5-1. 재개 spawn」 으로 보낸다(서버가 `claimed_by` 에서
   파생한 값이다. 팀장이 다시 계산하지 않는다). 다른 값이면 **"멈춤" 표에 사유 `다른 PC claim` 으로 적고 띄우지 않는다.**
-- 요청 작업이 설계 검토 대기(`wait_review`)면 범위와 무관하게 포인터 `SCOPE=build` 로 띄운다(`references/scope.md` 「2」 2).
+  계약 2.11 이면 `host` 대신 요청의 `mine` 으로 가른다(거짓이면 「멈춤」 `다른 PC 도는 중`). `design_state` 가 `review` 면 띄우지 않고
+  "「설계 승인」 뒤에 이어 갑니다" 를 한 줄 알린다. 그 밖에는 서버 판단이 `skip` 이어도 띄운다(12절 Y10).
 - **팀장은 표식을 지우지 않으며 확인 응답도 보내지 않는다.** 되살아난 워커의 첫 heartbeat 가 그것을 비우고,
   회수 뒤 재claim 하는 경로에서는 claim 라우트가 지운다.
 `WATCH_FAILED`(watch 호출 실패)·`HOLDER_FAILED`(`lease holder` 조회가 실패해 watch 를 아예 부르지 않은 것. 빈 `--holder`
 로 부르면 무필터로 전체 재개 요청이 온다)면 `beat` 는 이미 갱신됐으므로 잠금은 유효하고, 그 기상의 요청 처리만 건너뛴다.
+
+**`build`(계약 2.11)는 「설계 승인」 된 작업 목록이다.** 기상 블록 요약 끝의 `build` 칸이며, 처리는 `references/design-state.md` 「2」 다
+(claimed 원소를 재개 대상으로. `"NULL"` 은 조회 실패).
 
 `LEASE_KEEP_DEAD` 는 lease 갱신 프로세스가 3분 넘게 갱신하지 못한 것이다(죽었거나 서버에 닿지 못함). **이 기상이
 「2-2」 감시 루프의 `LEASE_LOST` 로 온 것이면 이 문단은 건너뛰고 그 `LEASE_LOST` 를 그대로 따른다(아래 기상 표).**
@@ -742,6 +754,8 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
    않은 `--resume` 지목분이다. 재시작 대기 목록(`references/restart.md` 「이벤트로 본 상태」 의 `RESTART_DUE`)도 재개 대상이며
    재투입 전 확인(`REINJECT_OK`)을 통과할 때만 띄운다. 재시작 대기는
    새 작업보다 먼저다. rate-limit 보류 중에는 재개·새 작업 모두 띄우지 않는다(`RL_DUE` 슬롯 자신의 재투입만 예외).
+   기상 블록 요약의 `build` 의 claimed 원소(「설계 승인」 된 작업, 계약 2.11)와 재구성의 `RETRY_DUE`(fetch·push 실패 재시도)도 재개
+   대상이다 — 새 작업보다 먼저다.
    그러고도 빈 슬롯이 남으면 선행 대기 작업을 **설계 선행**으로 준다(`references/design-ahead.md` 3번, `DFLOW_DESIGN_AHEAD_MAX`).
 5. 끝나 있는 감시 루프를 다시 띄우고(`--may-skip` 은 「2-2」 의 조건일 때만), 재기동 조건(「2-1」)을 만족하면 poll.sh 를 다시 띄운다. 컨텍스트 압축 뒤
    poll 이 떠 있는지 모르면 재기동 조건에 따라 새로 띄운다. poll 이 겹쳐 떠도 poll exit 0 처리의 대조와 spawn 전
@@ -749,7 +763,7 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 
 | 기상 | 처리 |
 |---|---|
-| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다(겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌 수 있다). 일시 제외는 대조하지 않는다(poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정한다, 「2-1」). 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 보고와 `team.result` 는 같게 하되, 일시 제외가 아니라 **선행 대기**에 넣는다(아래 「선행 사전 검사」). `deps_unmet` 이 비었고 `deps_nohead` 가 비어 있지 않으면 아래 「선행 반영 사전 검사」 를 거친다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다. `<SCOPE>` 가 `full` 이 아니면 이 판정에 `references/scope.md` 「1」 을 더한다 |
+| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름[<TAB>action]` 에서 순번은 버리고 id8 과 `action`(계약 2.11, 없으면 `full`)을 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다(겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌 수 있다). 일시 제외는 대조하지 않는다(poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정한다, 「2-1」). 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 보고와 `team.result` 는 같게 하되, 일시 제외가 아니라 **선행 대기**에 넣는다(아래 「선행 사전 검사」). `deps_unmet` 이 비었고 `deps_nohead` 가 비어 있지 않으면 아래 「선행 반영 사전 검사」 를 거친다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다. `action` 이 `design` 이면 `deps_unmet` 이 있어도 선행 대기에 넣지 않는다(설계만 한다, 스펙 6.6). spawn 전에 아래 「설계 사전 검사」 를 거친다 |
 | `STOP_REQUESTED`, 사람의 종료 요청("팀장 종료"·"마감해" 등) | 종료 시각과 무관하게 「7. 마감」 으로 간다. "종료 요청으로 마감합니다" 를 한 줄 알린다. 종료 파일은 이 자리에서 지운다(남기면 마감 중 다시 띄운 감시 루프가 곧바로 다시 끝나 공회전한다). 마감의 기다림(「7. 마감」 2번) 중에 종료 요청이 **한 번 더** 오면 기다림을 끝내고 곧바로 3번으로 간다 |
 | poll exit 8 (시한) | 먼저 지금 시각이 현재 `<UNTIL>`(연장 반영) 전인지 본다. 전이면 연장 전에 띄운 옛 poll 이 끝난 것이므로 무시하고 재기동 조건(「2-1」)대로 새 `--until` 로 다시 띄운다. 지났으면 새 배정을 멈춘다. 대기 큐를 비우고(보고만 한다) 「7. 마감」 으로 간다 |
 | poll exit 2·3·5·6·7 | 중단 사유(stderr)를 보고하고 「7. 마감」 으로 간다 |
@@ -832,6 +846,8 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 - `UNKNOWN`(rc=2) 은 거르지 않고 워커에 맡긴다. 위 「선행 사전 검사」 의 "판정 불가를 미충족으로 단정하지 않는다" 와 같다.
 - 모두 `REFLECTED` 면 그대로 spawn 한다.
 
+**설계 사전 검사**(계약 2.11): `action` 이 있는 후보는 띄우기 전에 `references/design-state.md` 「1」 을 한다.
+
 ### 2-4. 팀원 이슈 보고 처리
 
 팀원이 SendMessage 로 이슈 보고(첫 줄 `[이슈 <TSK> <id8>] <요약>`, worker-prompt.md 「9」)를 보내면 **도착한 턴에서 곧바로**
@@ -904,9 +920,11 @@ Bash 호출의 변수는 남지 않는다). `.result` 가 없으면(`failed no-r
 |---|---|---|---|---|
 | `done` | 해제 | 없음 | 「고아 정리 규칙」 2번(미커밋 변경 없음, HEAD 가 `origin/<agent 브랜치>` 와 같거나 그 머지가 이미 기본 브랜치의 조상임)을 맞추면 그 자리에서 정리한다. 아니면 3번대로 경로와 미커밋 목록을 보고하고 남기며 `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼다 | 자동 머지(`AUTOMERGE_ON`)면 **먼저 승인 스윕을 곧바로 한다**(이 기상의 스윕 1회(「4-0」)를 spawn 보다 먼저 한다는 뜻이다. 방금 끝난 작업이 기본 브랜치에 들어가야 후속이 착수한다). 그 다음 대기 큐가 있으면 그 슬롯에 spawn 한다. 비어 있으면 poll 재기동 조건(「2-1」)을 따른다 |
 | `needs-merge` | 해제 | 없음 | `done` 과 같다 | 승인 스윕을 곧바로 한다. 이 기상의 스윕 1회이며, 워커가 approved 를 확인한 머지 대상이 있으므로 사전 검사 없이 부른다(「4-0」 의 예외) |
-| `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙, 아니면 `done` 과 같다 | 사유 보고 |
-| `design_waiting`(설계 완료·선행 대기, 사유는 미충족 선행 ref) | 해제 | 없음 | **지우지 않는다**. `.dflow-agent` 를 `parked` 로 | 실패가 아니다(차단기 연속 수를 0 으로). 재개는 `references/design-ahead.md` 2·4번 |
-| `design_review`(설계만 멈춤, `<SCOPE>`=`design`) | 해제 | 없음 | `done` 과 같다(설계는 agent 브랜치에 push 돼 있다) | 실패가 아니다(차단기 연속 수를 0 으로). 좌석은 「설계 검토 대기」. 이어 가기는 `references/scope.md` 「결과」 |
+| `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재, 계약 2.11 의 `설계 관문(<code>)`·`사람 설계 초안 있음`·`주문이 바뀜`·서버 판단 사유) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙, 아니면 `done` 과 같다 | 사유 보고. `사람 설계 초안 있음` 은 「멈춤」 표에도 |
+| `skipped`(`fetch 실패`·`push 실패`·`다른 PC 도는 중(<runner>)`, 계약 2.11) | 해제 | 일시 제외 | **지우지 않는다**. `parked` 로 | `references/design-state.md` 「3」 |
+| `design_waiting`(설계 완료·선행 대기, 사유는 미충족 선행 ref) | 해제 | 없음 | **지우지 않는다**. `.dflow-agent` 를 `parked` 로 | 실패가 아니다(차단기 연속 수를 0 으로). 재개는 `references/design-ahead.md` 2·4번. `design-done 미확인` 이면 `references/design-state.md` 「3」 먼저 |
+| `design_review`(설계 검토 대기로 멈춤) | 해제 | 없음 | `done` 과 같다(설계는 push 돼 있다) | 실패가 아니다(차단기 0). 보고·`design-done 미확인` 은 `references/design-state.md` 「3」 |
+| `design_reopened`(설계를 사람에게 되돌렸다, 계약 2.11) | 해제 | 없음 | 미커밋 변경이 있어도 지운다(`references/design-state.md` 「3」) | 실패가 아니다(차단기 0) |
 | `blocked` | 유지 | 진행 중으로 영구 제외에 남긴다 | 그대로 둔다(두 백엔드 공통). 팀원이 pane 이나 탭에서 답을 기다린다 | 통지(「6. blocked」) |
 | `failed <사유>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산 |
 | `failed permission <명령>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 거부된 명령을 "권한 목록 재료" 로 보고한다(킷 허용 목록에 넣을 값). 서버에 claimed 로 남으므로 **"멈춤" 표**에 넣는다(사유는 그 status). 차단기 계산 |
@@ -1139,8 +1157,9 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
    - 전문을 셸 인자로 넘기면 백틱·따옴표·여러 줄이 섞여 깨진다. 워커 프롬프트 경로는 절대경로로 준다(새 워크트리에 스킬이
      없을 수 있다).
    - `BACKEND` 는 언제나 `pane` 이다(두 백엔드 모두 팀원이 화면에서 멈춰 답을 기다린다, worker-prompt.md).
-   - `SCOPE` 는 「인자」 의 `<SCOPE>` 다. 재개(「5-1」)·재시작(restart.md 재투입)도 같은 값을 싣는다 — 단 `references/scope.md` 가
-     정한 재개(검토 대기 설계를 구현으로 넘기기)는 `build` 다.
+   - `SCOPE` 는 그 주문의 서버 판단 `action` 이다(계약 2.11). 새 작업은 poll 줄의 넷째 칸이고, 비었으면(옛 서버) `full` 이다. 재개(「5-1」)·
+     재시작(restart.md 재투입)은 `references/resume.md` 「서버 판단 확인」 의 `action`(`full`·`design`·`build`, 그 밖은 `full`)이다 — 워커는
+     잡힌 작업에서 서버 `claim_scope` 를 따른다.
    - 모델은 공백이 든 `--model opus` 를 넘기지 않고 `MODEL=` 로 넘기며, 워커가 `{MODEL_FLAG}` 로 바꾼다
      (`default` 면 빈 값). 두 백엔드 모두 같은 값을 `.dflow-run` 의 `claude` 호출에도 붙인다(backends.md).
 5. **띄우기 직전** `references/restart.md` 「중단 표식 정리」 블록을 돈다(`order` 는 show 필터의 `order`, `st` 는 `status`).
@@ -1167,9 +1186,9 @@ cat .claude/skills/dflow-team/references/merge-conflict.md
    재구성이 이 기록으로 슬롯과 작업을 잇는다. id8 을 영구 제외(진행 중)에 넣는다. 빠뜨리면 압축 뒤 재구성이
    그 작업을 놓친다.
 
-같은 작업을 다시 띄우는 것은 다섯뿐이다(다섯째는 「5-2. 해소 spawn」 의 해소 워커다. 주문이 `reported`·`approved` 라 개발 재spawn 이 아니며 `resolve-decide.sh` 판정 안에서만 띄운다). poll 이 그 작업을 다시 돌려준 경우(일시 제외가 풀린 `skipped`,
+같은 작업을 다시 띄우는 것은 여섯뿐이다(다섯째는 「5-2. 해소 spawn」 의 해소 워커다. 주문이 `reported`·`approved` 라 개발 재spawn 이 아니며 `resolve-decide.sh` 판정 안에서만 띄운다). poll 이 그 작업을 다시 돌려준 경우(일시 제외가 풀린 `skipped`,
 제외하지 않는 `failed rate-limit`), 고아 스캔이 "재개 가능" 으로 분류한 중단 작업, `--resume` 으로 사람이 지목한
-작업, 자동 재시작(`references/restart.md`)이 다시 띄우는 작업이다. 뒤의 셋은 이 절이 아니라 「5-1. 재개 spawn」 의 절차로 띄운다(워크트리를 새로 만들지 않고 claim 도
+작업, 자동 재시작(`references/restart.md`)이 다시 띄우는 작업, 여섯째로 「설계 승인」 된 작업의 이어 가기(계약 2.11, 「2-3」 의 `build`)다. 뒤의 넷은 이 절이 아니라 「5-1. 재개 spawn」 의 절차로 띄운다(워크트리를 새로 만들지 않고 claim 도
 하지 않는다). `blocked` 는 재spawn 하지 않는다. 팀원이 자기 화면에서
 답을 기다리므로 그 자리에서 이어 간다(「6. blocked」). 다시 띄울 때 이름·브랜치가 부딪치지 않는 것은
 backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과 처리의 워크트리 정리가 맡는다.
@@ -1177,10 +1196,11 @@ backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과
 ### 5-1. 재개 spawn
 
 중단된 작업을 이어 띄운다. 새 작업 spawn 과 두 가지가 다르다. **워크트리를 새로 만들지 않고**(남아 있으면
-그대로 쓴다) **claim 하지 않는다**. 대상은 넷이다: 고아 스캔의 "재개 가능"(**자동**, 대기 큐보다 먼저), 좌석표 「이어서 시작」
+그대로 쓴다) **claim 하지 않는다**. 대상은 다섯이다: 고아 스캔의 "재개 가능"(**자동**, 대기 큐보다 먼저), 좌석표 「이어서 시작」
 의 `resume_requests`(**요청**, 재시도 상한 무시), `references/restart.md` 「재투입」(**재시작**), `--resume <id8>`(**지목**,
-자동 판정의 거부 사유 무시. 서버 status 가 `claimed` 일 때만 재개다). 띄울 때마다 `references/resume.md` 를 Bash `cat` 으로
-읽고 그 0~9항 절차(입장 제어 → 손실 보고 → 다른 PC 경고 → 워크트리 확보 → `TASK_DIR`·`DOCKER` → 슬롯·`.dflow-agent` 되돌리기
+자동 판정의 거부 사유 무시. 서버 status 가 `claimed` 일 때만 재개다), 「2-3」 의 `build` 의 claimed 원소(**승인**, 계약 2.11 — 워크트리가
+없으면 원격 agent 브랜치에서 만든다). 띄울 때마다 `references/resume.md` 를 Bash `cat` 으로 읽고 「서버 판단 확인」(계약 2.11)과
+그 0~9항 절차(입장 제어 → 손실 보고 → 다른 PC 경고 → 워크트리 확보 → `TASK_DIR`·`DOCKER` → 슬롯·`.dflow-agent` 되돌리기
 → 포인터 재작성 → 중단 표식 정리·띄우기 → 옛 `.result` 삭제 → `team.spawn`(`resume`))를 그대로 따른다.
 
 ### 5-2. 해소 spawn
@@ -1296,10 +1316,12 @@ cat .claude/skills/dflow-team/references/closing.md
 - 팀장이 작업을 claim·progress·done 하는 것. 서버 쓰기는 팀원 몫이다(스윕의 머지만 팀장이 한다). 재개도
   마찬가지다. 서버가 이미 `claimed` 이므로 다시 claim 하지 않으며, 끊긴 Phase 를 잇는 것은 이어받은 워커의
   `/dflow-dev --worker` 다.
-  예외 둘: (1) 머지 충돌 표시 heartbeat(`merge_conflict` 설정·해제, `references/merge-conflict.md`
+  예외 넷: (1) 머지 충돌 표시 heartbeat(`merge_conflict` 설정·해제, `references/merge-conflict.md`
   「3」)는 팀장이 한다. 주문 상태를 바꾸지 않고 표시 열만 쓴다. (2) 팀장이 띄운
   해소 워커의 `/dflow-merge --resolve` 가 개발 브랜치에 한 건을 머지·push 한다. "스윕의 머지만 팀장이 한다" 의 유일한
-  예외다. 경합은 두 쪽 모두 non-fast-forward 거부로 드러나고, force push 는 여전히 금지다.
+  예외다. 경합은 두 쪽 모두 non-fast-forward 거부로 드러나고, force push 는 여전히 금지다. (3) 「2-3」 「설계 사전 검사」 의
+  `design-reopen`(ready 인 구현자동 작업의 사람 설계를 되돌린다 — 주문의 설계 상태만 바꾼다). (4) 「3. 결과 처리」 의 설계 멈춤 이어받기
+  에서 부르는 `design-done`(워커가 push 까지 마친 멈춤을 서버에 기록만 한다, 설계 상태 스펙 6.3).
 - 팀장이 대상 리포의 소스를 고치거나 빌드·시험(gradle·npm test 등)을 직접 돌리는 것(머리말 「팀장 역할」, 예외는 「2-4」 5번). 팀원이나
   해소 워커에게 넘긴다. 스킬이 팀장에게 맡긴 스크립트(`dialect-check.sh` 등)가 안에서 시험을 돌리는 것은 예외다.
 - 한 기상에 스윕을 두 번 이상 부르는 것, `sweep-check.sh` 가 `SWEEP_NONE` 인데 `/dflow-merge` 를 부르는 것(「4-0」 의 예외 제외).
@@ -1309,7 +1331,7 @@ cat .claude/skills/dflow-team/references/closing.md
   되돌리기·포인터 재작성·옛 `.result` 삭제, backends.md 의 정리 절차는 예외).
 - 팀장 체크아웃에서 poll.sh 를 띄우는 것. 빈 디렉터리(「2-1」)에서만 띄운다.
 - 순번 참조, force push, 훅 우회(SKIP_GUARD).
-- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 다섯뿐이다. `blocked` 는 재spawn 하지 않는다.
+- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 여섯뿐이다. `blocked` 는 재spawn 하지 않는다.
 - poll·감시 루프를 셸 `&` 로 띄우는 것. 둘은 Bash `run_in_background` 로만 띄운다. 팀원 spawn 에도 `&` 를
   쓰지 않는다(tmux `split-window` 가 곧바로 돌아오고 pane 은 tmux 서버가 붙잡는다).
 - 컨텍스트 압축 뒤 Skill 도구로 `/dflow-team` 을 다시 부르는 것(「팀장 상태」 「압축 뒤 첫 기상」).

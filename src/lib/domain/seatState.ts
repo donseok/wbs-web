@@ -1,4 +1,5 @@
 // 좌석표 상태 판정 — IO 없음. 정본: docs/superpowers/specs/2026-09-14-agent-office-v1-design.md §2
+import type { DesignState } from './designGate'
 export type OrderStatus = 'ready' | 'claimed' | 'reported' | 'approved' | 'cancelled'
 export type SeatState = 'READY' | 'WAIT' | 'DONE' | 'BLOCKED' | 'OFFLINE' | 'STALE' | 'REJECTED' | 'ACTIVE'
 export type Phase = 'prepare' | 'design' | 'build' | 'verify' | 'refactor' | 'blocked' | 'rejected' | 'reported' | 'merge_conflict' | 'wait_pred' | 'wait_review'
@@ -15,10 +16,9 @@ export type CharacterName = 'cat' | 'human_m' | 'human_f' | 'dog' | 'bot'
  *  scaffold 가 만드는 ready 는 싣지 않는다: 주문 전 자리표라 받으면 남의 ready 주문으로 신호가 샌다.
  *  wait_pred = 설계 선행으로 설계를 끝냈고 선행을 기다리며 멈춘다(계약 2.9, 스펙 2026-09-26 §6.4) — 멈춘 뒤로 heartbeat 가
  *  끊기므로 좌석은 침묵 시간과 무관하게 WAIT(선행 대기)로 본다.
- *  wait_review = `--scope design`(설계만) 으로 돌다 설계를 마치고 사람의 검토를 기다리며 멈춘다(계약 2.10, 스펙
- *  2026-09-26-dflow-dev-skill-router-design.md §14.5) — wait_pred 와 같이 WAIT·침묵 무관이지만 사유가 다르다:
- *  선행이 아니라 사람 검토를 기다린다. wait_pred 로 적으면 팀장의 설계 완료 대기 자동 재개(design-ahead)가
- *  사람 검토 없이 구현을 시작해 버린다(§14.2). */
+ *  wait_review = 설계를 마치고 사람의 검토를 기다리며 멈춘 워커가 남기는 phase(계약 2.10, 2.11 에서는 design_done 이
+ *  review 로 끝날 때 서버도 적는다). 받아 두되 좌석 판정에는 쓰지 않는다 — 설계 검토 대기는 주문의 설계 상태(review)로
+ *  가른다(설계 상태 스펙 8절). 「설계 승인」 뒤에도 이 phase 가 남기 때문이다. */
 export const HEARTBEAT_PHASES: readonly Phase[] = ['prepare', 'design', 'build', 'verify', 'refactor', 'blocked', 'rejected', 'reported', 'wait_pred', 'wait_review']
 /** 팀장이 대리로 쏘는 표시 phase — reported·approved 주문에만 받는다(heartbeat 라우트). 워커 phase 와 섞지 않는다.
  *  정본: docs/superpowers/specs/2026-09-23-parallel-merge-conflict-design.md §7.2~7.3 */
@@ -40,6 +40,11 @@ export interface SeatInput {
   /** 그 주문의 마지막 completion 보고 판정. 없으면 null. */
   lastReview: 'approve' | 'reject' | null
   actualPct: number | null
+  /** 주문의 설계 상태(0108 design_state). 설계 검토 대기·구현 대기 판정의 재료다. 옛 호출부·픽스처는 비워 둔다(없음). */
+  designState?: DesignState | null
+  /** 도는 PC(0108 runner)와 항목 단계 — 구현 대기 판정의 재료다. 옛 호출부·픽스처는 비워 둔다. */
+  runner?: string | null
+  stage?: string | null
 }
 
 const ms = (iso: string | null): number => (iso ? Date.parse(iso) : Number.NaN)
@@ -62,13 +67,22 @@ export function isDesignWait(i: Pick<SeatInput, 'status' | 'heartbeatPhase'>): b
   return i.status === 'claimed' && i.heartbeatPhase === 'wait_pred'
 }
 
-/** 설계 완료·검토 대기(스펙 §14.5) — 점유 중이고 마지막 heartbeat 가 wait_review. isDesignWait 과 같은 축(WAIT 이지만
- *  승인 대기가 아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). */
-export function isReviewWait(i: Pick<SeatInput, 'status' | 'heartbeatPhase'>): boolean {
-  return i.status === 'claimed' && i.heartbeatPhase === 'wait_review'
+/** 설계 검토 대기(설계 상태 스펙 3절 1행) — 점유 중이고 서버의 설계 상태가 review. isDesignWait 과 같은 축(WAIT 이지만
+ *  승인 대기가 아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). heartbeat phase wait_review 는 보지 않는다 —
+ *  「설계 승인」 뒤에도 그 phase 가 남아 검토 대기로 보이던 결함이 있었다(스펙 8절 "좌석 판정에 쓰지 않는다"). */
+export function isReviewWait(i: Pick<SeatInput, 'status' | 'designState'>): boolean {
+  return i.status === 'claimed' && i.designState === 'review'
 }
 
-/** 승인 대기 — WAIT 중 사람이 결재할 것(reported)만. 설계 완료·선행 대기(isDesignWait)·검토 대기(isReviewWait)는 WAIT 이지만 여기 들지 않는다. */
+/** 구현 대기(설계 상태 스펙 3절 2·3행) — 점유 중이고 승인·확정된 설계가 설계 완료(dd)에서 팀장을 기다린다(도는 PC 없음).
+ *  「설계 승인」은 updated_at 만 새로 쓰고 heartbeat 는 설계 워커의 옛 것이 남는다 — 팀장이 가져갈 때까지 무응답·끊김으로
+ *  보이지 않게 WAIT 로 둔다. 구현 워커가 heartbeat 로 runner 를 넘겨받으면 평소 판정으로 돌아간다. 반려 뒤 재작업(단계 ip)은
+ *  여기 들지 않는다 — 반려·끊김을 가리지 않는다. */
+export function isBuildWait(i: Pick<SeatInput, 'status' | 'designState' | 'runner' | 'stage'>): boolean {
+  return i.status === 'claimed' && i.designState === 'accepted' && (i.runner ?? null) === null && i.stage === 'dd'
+}
+
+/** 승인 대기 — WAIT 중 사람이 결재할 것(reported)만. 설계 완료·선행 대기(isDesignWait)·검토 대기(isReviewWait)·구현 대기(isBuildWait)는 WAIT 이지만 여기 들지 않는다. */
 export function isApprovalWait(i: Pick<SeatInput, 'status'>): boolean {
   return i.status === 'reported'
 }
@@ -78,8 +92,9 @@ export function deriveSeatState(i: SeatInput, nowMs: number): SeatState {
   if (i.status === 'reported') return 'WAIT'
   if (i.status !== 'claimed') return 'DONE' // approved · cancelled — 화면은 cancelled 를 조회에서 뺀다
   if (i.heartbeatPhase === 'blocked') return 'BLOCKED'
-  // 설계 선행 뒤 선행 대기·검토 대기로 멈춘 주문 — 자동 회수가 없어 heartbeat 가 끊긴 채 남는다. 끊김으로 보이지 않게 침묵 판정보다 먼저.
-  if (isDesignWait(i) || isReviewWait(i)) return 'WAIT'
+  // 설계 선행 뒤 선행 대기·검토 대기로 멈춘 주문과, 승인·확정된 설계가 팀장을 기다리는 주문(구현 대기) — 자동 회수가 없어
+  // heartbeat 가 끊긴 채 남는다. 끊김으로 보이지 않게 침묵 판정보다 먼저.
+  if (isDesignWait(i) || isReviewWait(i) || isBuildWait(i)) return 'WAIT'
   const silence = nowMs - lastSignalMs(i)
   if (silence > OFFLINE_MS) return 'OFFLINE'
   if (silence > STALE_MS) return 'STALE'

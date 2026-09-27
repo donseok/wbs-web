@@ -26,7 +26,7 @@ describe('SKILL.md — 포인터 절과 바뀐 문구', () => {
   it('최종 판정 목록 두 곳에 resolved 가 있다', () => {
     // 설계 선행(2026-09-26): "살아 있는 팀원" 의 목록에는 design_waiting 이 뒤에 붙는다(재개 가능 목록은 그대로)
     expect(TEAM.split('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`').length - 1).toBe(2)
-    expect(TEAM).toContain('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`)을 받지 않은 팀원이다')
+    expect(TEAM).toContain('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`·`design_reopened`)을 받지 않은 팀원이다')
   })
   it('spawn 우선순위: 재개 → 해소 → 대기 큐', () => {
     expect(TEAM).toContain('**재개 대상을 먼저**(「5-1. 재개 spawn」), 그 다음 **해소 큐**(「5-2. 해소 spawn」), 그 다음 대기 큐')
@@ -40,12 +40,12 @@ describe('SKILL.md — 포인터 절과 바뀐 문구', () => {
     expect(TEAM).toContain('"머지됨(승인 전)"·"머지됨" 을 한 건이라도 냈거나 해소 워커가 `resolved` 로 끝났으면')
     expect(TEAM).toMatch(/선행 계열\(선행 미충족·[^)]*선행 미반영\)/)
   })
-  it('금지: heartbeat·--resolve 예외, 재spawn 예외는 다섯', () => {
+  it('금지: heartbeat·--resolve 예외, 재spawn 예외는 여섯', () => {
     expect(TEAM).toContain('머지 충돌 표시 heartbeat(`merge_conflict` 설정·해제')
     expect(TEAM).toContain('해소 워커의 `/dflow-merge --resolve` 가 개발 브랜치에 한 건을 머지·push 한다')
     // 2026-09-25: 「금지」 는 「5」 끝의 정본(다섯 예외)을 가리키기만 한다(중복 제거)
-    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 다섯뿐이다.')
-    expect(TEAM).toContain('같은 작업을 다시 띄우는 것은 다섯뿐이다(')
+    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 여섯뿐이다.')
+    expect(TEAM).toContain('같은 작업을 다시 띄우는 것은 여섯뿐이다(')
   })
   it('team.sweep 은 resolved 를 함께 센다, 마감은 표시를 지우지 않는다', () => {
     expect(TEAM).toContain('`team.sweep`(merged, waiting, rejected, resolved 개수)을 기록한다.')

@@ -158,6 +158,32 @@ dflow.sh me
 | exit 0 + 프로젝트 없음 | 아직 위임된 작업 없음, 또는 설정에서 "전체 중지" | 웹 → WBS 항목 명세 패널 "에이전트 위임" 체크(자동 활성) / 설정 › 에이전트 › 재개 |
 | exit 0 + 프로젝트 있음 | 작업 없음 | 목록 다시 조회 또는 잠시 기다린 후 재시도 |
 
+### exit 10 — 중단됨
+
+**HTTP 409 `code=cancelled`** — 사람이 D'Flow 에서 작업을 중단했다(주문 `cancelled`, 위임 해제). 재시도하지 않는다. 하던 일은 로컬 커밋으로만
+남기고 push·done 하지 않는다(`/dflow-dev` SKILL.md 상태 모델). 다시 맡기려면 사람이 위임 체크를 켠다 — 새 주문이 생긴다.
+
+### exit 11 — 설계 관문(계약 2.11)
+
+**HTTP 409 `code=design_gate`·`design_not_accepted`** — stderr 끝줄 `DESIGN_GATE <code>[ <reason>]`.
+
+| 끝줄 | 뜻 | 해결 |
+|---|---|---|
+| `DESIGN_GATE design_not_accepted` | 승인·확정된 설계가 없는데 구현(`--scope build`)을 시작하려 했다 | 사람이 「설계 승인」(설계 검토) 또는 「설계 확정」(구현자동)을 누른다 |
+| `DESIGN_GATE design_gate order_changed` | 그 사이 사람이 설계를 되돌렸거나 주문이 바뀌었다 | 재시도하지 않는다. 다시 확정·승인되면 새로 시작한다 |
+| `DESIGN_GATE design_gate` | 작업의 설계 방식·상태와 요청 범위가 맞지 않는다(예: 설계 검토 작업을 `--scope full` 로) | `dflow.sh show <ref>` 의 `.order.action`·`.order.action_reason` 을 보고 그 범위로 돌린다 |
+
+### exit 12 — 다른 PC 도는 중(계약 2.11)
+
+**HTTP 409 `code=runner_active`** — stderr 끝줄 `RUNNER_ACTIVE <runner>`. 다른 PC(`<runner>`)가 30분 안에 이 작업을 돌렸다. 이 세션은 멈춘다.
+그 PC 의 세션이 정말 끝났으면 30분 뒤 다시 돌리면 이어받는다(`mine` 이 참이 된다). 두 PC 가 같은 작업을 구현하지 않게 하는 관문이라 우회하지
+않는다. 새 heartbeat 훅을 깐 PC 에서는 훅이 먼저 세션을 세운다.
+
+완료 보고(`done`)의 `runner_active` 는 다른 PC 뿐 아니라 **같은 PC 의 다른 세션**이 살아 있을 때도 난다(`designGate.ts` `canReportCompletion`
+둘째 갈래 — heartbeat 라벨이 다르고 그 세션이 아직 살아 있음). 이 경우는 30분을 기다리는 게 아니라 **그 세션이 끝나야**(heartbeat 가
+멎어야) 풀린다. 완료 보고의 `RUNNER_ACTIVE <runner>` 라벨은 **실제로 막고 있는 PC·세션**이다 — 다른 PC 면 그 PC 의 runner, 같은 PC
+의 다른 세션이면 그 세션의 heartbeat 라벨이다. 그 세션을 끝내거나 heartbeat 가 멎기를 기다린다.
+
 ## cache 와 상태 복구
 
 ### cache 위치

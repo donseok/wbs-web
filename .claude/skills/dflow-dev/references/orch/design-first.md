@@ -19,6 +19,8 @@ claim 때 `ds`(설계 중), `build-start` 뒤 `ip` 다. 설계 정본은 wbs-web
      2. 그 선행 Task 폴더를 가진 원격 agent 브랜치. 선행 id8 을 모르므로 폴더로 찾는다 — `git fetch origin` 뒤
         `git for-each-ref --format='%(refname:short) %(objectname:short)' refs/remotes/origin/agent/` 로 목록을 보고, 브랜치마다
         `git ls-tree --name-only <브랜치> <TASKS>/<선행TSK>/` 가 비지 않는 것의 이름과 tip sha 를 적는다.
+        원격 agent 브랜치에 없으면 개발 브랜치를 본다 — `git cat-file -e origin/<기본브랜치>:<TASKS>/<선행TSK>/design.md` 가 exit 0 이면
+        그 경로와 `origin/<기본브랜치>` tip sha 를 적는다(선행이 구현자동이면 사람 설계가 개발 브랜치에 있다).
      3. 둘 다 없으면 "읽을 곳 없음 — 이 작업의 spec 과 선행 ref 로 가정한 계약" 이다. 선행이 구현 중이면 원격 브랜치가 아직
         없는 것이 보통이다(워커는 Phase 06 에서만 push 한다).
      워커는 다른 주문을 show 하지 않는다(worker-prompt.md 「5」) — 위 셋은 자기 show 와 git 만 쓴다.
@@ -29,8 +31,14 @@ claim 때 `ds`(설계 중), `build-start` 뒤 `ip` 다. 설계 정본은 wbs-web
    2. state.json `phase` 를 `wait_pred` 로, `design_first.unmet` 을 stderr 본문의 `unmet[].external_ref` 로 쓰고(없던 필드면 만든다)
       파일명을 명시해 커밋한다(`DFlow-Order` 트레일러). 그 다음 `progress 25 "설계 완료(선행 대기)"` 를 보낸다.
    3. `git push origin <agent 브랜치>` 로 설계를 원격에 남긴다(다른 PC·새 워크트리가 이어받는다). 훅에 거부되면 우회하지 않고 보고한다.
+      그 밖의 이유로 실패하면 4·5 를 하지 않고 그 사실을 알리고 끝낸다 — 다시 돌리면 이어 간다(계약 2.11 은 `orch/start.md` 「끝나지 않은
+      설계 멈춤 이어받기」 가 마저 한다).
    4. `dflow.sh heartbeat <ref> --phase wait_pred` 를 부른다. 실패해도(옛 서버는 400) 멈춤을 계속한다. heartbeat 훅은 `wait_pred` 를
       보내지 않으므로 이 한 번이 좌석을 「선행 대기」 로 바꾼다. 2번 뒤에 부른다 — 앞이면 훅의 다음 신호가 `design` 으로 덮는다.
+      계약 2.11(`dflow.sh contract-ge 2.11` 이 exit 0)이면 heartbeat 대신 `dflow.sh design-done <ref>` 를 부른다. 서버가 단계를 `dd`(설계
+      완료)로 두고 좌석을 「선행 대기」 로 바꾼다(승인된 설계는 그대로다). exit 6(네트워크)이면 멈춤을 계속한다(다시 돌리면 이어받기가 마저
+      한다). exit 11 이면 서버가 거부한 것이다 — 그 코드를 적어 보고하고 끝낸다. 그 밖의 exit 는 `failed design-done <exit>` 로 알리고
+      끝낸다.
    5. supervised 는 `"{TSK} 설계 완료·선행 대기 — 선행 <ref…> 가 끝나면 /dflow-dev {TSK} 로 이어 간다"` 로 알리고 끝낸다. 워커는
       `.result` 에 `design_waiting <미충족 선행 ref…>` 를 쓴다(worker-mode.md 「설계 선행」).
 3. **재개**(Phase 01 1번 「설계 선행 재개」): claim 하지 않는다(이미 claimed·`ds`).
@@ -61,6 +69,13 @@ claim 때 `ds`(설계 중), `build-start` 뒤 `ip` 다. 설계 정본은 wbs-web
       sha 가 없거나(읽을 곳 없음) 로컬에 없으면(`git cat-file -e <sha>^{commit}` 실패 — 선행 브랜치 삭제·squash) 바뀐 것으로 본다.
       하나라도 바뀌었으면 Design 을 **검토 모드**로 다시 띄운다(`phase=design`, `{DESIGN_FIRST}` 에 검토 모드임과 종전 design.md 의
       `## 선행 기준`·바뀐 파일의 `git diff <적힌 sha>..<새 기점> -- <파일>` 요지). 어긋난 절만 고치고 Design 게이트를 다시 돈다.
+      계약 2.11 에서 서버 `design_state` 가 `accepted`(승인·확정된 설계)면 방식에 따라 다르다. 이 지점은 build-start 를 아직 부르지 않아
+      단계가 `dd` 이므로 design-reopen 을 받는다(migration 0108_design_state.sql 259~262행). `design_mode=review` 는 위처럼 고친 뒤
+      게이트를 돌고 design.md 를 커밋·push 한 다음 Build 로 가지 않고 `dflow.sh design-reopen <ref> --reason "선행 계약 바뀜: <파일…>"` 을
+      부른다. `human` 은 design.md 를 고치지 않고 같은 사유로 design-reopen 을 부른다. 둘 다 exit 0 이면 사람이 다시 검토해 「설계 승인」
+      하거나(review) 개발 브랜치의 설계를 고쳐 다시 「설계 확정」 하도록(human) 알리고 끝낸다. exit 6(네트워크)이면 다시 부를 수 있는
+      상태로 알리고 끝낸다. 그 밖의 exit 는 `failed design-reopen <exit>` 로 알리고 끝낸다. 완전자동(설계 상태 없음)만 위처럼 고친 뒤
+      이어 간다.
    6. `orch/design.md` 「Design 게이트」 의 표대로 `build-start` 를 다시 부른다. exit 0 이면 그 절의 모듈 기준선부터 이어 Build 로 간다.
 
 

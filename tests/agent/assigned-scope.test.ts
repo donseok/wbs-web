@@ -37,7 +37,7 @@ function useAdmin(queues: Record<string, Resp[]>, users: Array<{ id: string; ema
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'update', 'eq', 'in', 'limit', 'order']) b[k] = () => b
+      for (const k of ['select', 'update', 'eq', 'in', 'limit', 'order', 'range']) b[k] = () => b
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) =>
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
@@ -124,7 +124,7 @@ describe('claim 배정 제한', () => {
   it('배정 항목 + 본인 → 200', async () => {
     useAdmin({
       agent_runners: [{ data: RUNNER }, { data: null }],
-      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }], // 로드, CAS
+      agent_work_orders: [{ data: ORDER }, { data: null }, { data: [{ id: O1 }] }], // 로드, 항목 approved 없음, CAS
       agent_projects: [{ data: { enabled: true } }],
       memberships: [{ data: { is_superuser: false } }],
       project_roles: [{ data: [{ role: 'member' }] }],
@@ -160,7 +160,7 @@ describe('claim 배정 제한', () => {
   it('무배정 항목 → 선착순 그대로 200', async () => {
     useAdmin({
       agent_runners: [{ data: RUNNER }, { data: null }],
-      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }], // 로드, CAS
+      agent_work_orders: [{ data: ORDER }, { data: null }, { data: [{ id: O1 }] }], // 로드, 항목 approved 없음, CAS
       agent_projects: [{ data: { enabled: true } }],
       memberships: [{ data: { is_superuser: false } }],
       project_roles: [{ data: [{ role: 'member' }] }],
@@ -191,7 +191,7 @@ describe('claim 배정 제한', () => {
 
   it('레거시 경로 + 무배정 항목 → 200 + 알림 actorUserId=loaded.userId(자기제외 근거 — null 로 새지 않는다)', async () => {
     useAdmin({
-      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }], // 로드, CAS
+      agent_work_orders: [{ data: ORDER }, { data: null }, { data: [{ id: O1 }] }], // 로드, 항목 approved 없음, CAS
       agent_projects: [{ data: { project_id: P1, enabled: true } }],
       memberships: [{ data: { is_superuser: false } }],
       project_roles: [{ data: [{ role: 'member' }] }],

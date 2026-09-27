@@ -562,10 +562,11 @@ describe('setWbsStage', () => {
     expect(mocks.recordProgressSnapshot).not.toHaveBeenCalled()
   })
 
-  it('허용 밖 문자열 거부 — fp 도 0096 에서 어휘에서 빠졌다', async () => {
+  it('허용 밖 문자열 거부 — fp 는 0096 에서 어휘에서 빠졌고 dd 는 사람이 고르지 못한다(스펙 7절)', async () => {
     const { calls } = admin({})
     for (const bad of ['dd', 'fp']) {
-      expect(await setWbsStage(W1, bad as never)).toEqual({ ok: false, error: '허용되지 않는 단계입니다.' })
+      expect(await setWbsStage(W1, bad as never))
+        .toEqual({ ok: false, error: '허용되지 않는 단계입니다. 설계 완료(dd)는 「설계 확정」·「설계 승인」으로만 생깁니다.' })
     }
     expect(calls).toHaveLength(0)
     expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()

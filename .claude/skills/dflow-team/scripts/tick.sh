@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # /dflow-team 감시 루프(SKILL.md 「2-2」). 팀장은 팀장 체크아웃 루트에서 Bash run_in_background 로 부른다(셸 & 금지).
-# 사용: tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] --tm '<TM 또는 빈 값>' \
+# 사용: tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] [--wp '<WP 범위>'] --tm '<TM 또는 빈 값>' \
 #               --owner '<신원>/<host>/lead' --slots <N> --until-label '<UNTIL_LABEL>' [--pid <LEAD_PID>] \
 #               -- ['<워크트리>/<TASKS>/<TSK>/.result|<마지막 처리 해시 또는 ->|<pane id 또는 ->' …]
 #       tick.sh --retire      세대만 올려 떠 있는 루프를 STALE 로 끝낸다(「7. 마감」). 새 루프는 띄우지 않는다
@@ -26,21 +26,26 @@
 #   - wake.sh(잠금 beat·좌석표 watch)가 LOCK_OK 를 내고, 재개 요청 조회가 성공했으며 이 리포의 요청이 없고,
 #     WATCH_FAILED·HOLDER_FAILED·LEASE_KEEP_DEAD·LOCK_LOST 가 없다. 건너뛸 때도 잠금 beat 와 STANDBY 가 끊기지 않는 것은
 #     이 호출 덕이다.
+#   - 계약 2.11 서버면 build(「설계 승인」 된 작업) 조회가 성공했고, 그 claimed 원소가 모두 슬롯에 있거나 팀장이 제외·멈춤으로
+#     기록한 id(lead-state.sh 의 EXCLUDE_PERM·EXCLUDE_TEMP)다(설계 상태 스펙 D22). 단 재시도 기한이 된 id(RETRY_DUE·BUILD_RETRY_DUE)는
+#     제외로 치지 않는다. --wp(팀장 poll 과 같은 WP 범위)는 wake.sh 에 그대로 넘겨 build 를 poll 과 같은 거르기로 받는다.
 # 증거 공식은 references/restart.md 「rate-limit 대기」 의 evidence 와 같은 재료다(HEAD 커밋 시각, show 의 최신 보고·
 # last_heartbeat_at·heartbeat_phase, git status --porcelain 의 cksum).
 #
 # 시험용 환경변수: DFLOW_TICK_SEC(1800) · DFLOW_TICK_POLL(20) · DFLOW_SH(dflow.sh) · DFLOW_SWEEP_CHECK(sweep-check.sh)
+#   · DFLOW_EVENTS(lead-state.sh 가 읽는 events.jsonl)
 set -u
 
-usage() { echo "사용: tick.sh [--new-tick] [--may-skip] [--until <UNTIL>] --tm <TM> --owner <신원>/<host>/lead --slots <N> --until-label <표시> [--pid <PID>] -- [<경로|해시|pane> …]" >&2; exit 2; }
+usage() { echo "사용: tick.sh [--new-tick] [--may-skip] [--until <UNTIL>] [--wp <WP 범위>] --tm <TM> --owner <신원>/<host>/lead --slots <N> --until-label <표시> [--pid <PID>] -- [<경로|해시|pane> …]" >&2; exit 2; }
 
-NEW_TICK=0; MAY_SKIP=0; UNTIL=''; TM=''; TM_SET=0; OWNER=''; SLOTS=''; LABEL=''; PID_ARG=''; RETIRE=0
+NEW_TICK=0; MAY_SKIP=0; UNTIL=''; WP=''; TM=''; TM_SET=0; OWNER=''; SLOTS=''; LABEL=''; PID_ARG=''; RETIRE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --retire) RETIRE=1; shift ;;
     --new-tick) NEW_TICK=1; shift ;;
     --may-skip) MAY_SKIP=1; shift ;;
     --until) UNTIL="${2:-}"; shift 2 ;;
+    --wp) WP="${2:-}"; shift 2 ;;
     --tm) TM="${2:-}"; TM_SET=1; shift 2 ;;
     --owner) OWNER="${2:-}"; shift 2 ;;
     --slots) SLOTS="${2:-}"; shift 2 ;;
@@ -159,12 +164,26 @@ may_skip_now() {
   case "$BASE_AP" in *UNKNOWN*) return 1 ;; esac
   now_ap=$(approvals)
   [ "$now_ap" = "$BASE_AP" ] || return 1
-  wk=$("$HERE/wake.sh" --owner "$OWNER" --slots "$SLOTS" --busy "$#" --until-label "$LABEL" --pid "$LEAD_PID" --no-events 2>/dev/null)
+  wk=$("$HERE/wake.sh" --owner "$OWNER" --slots "$SLOTS" --busy "$#" --until-label "$LABEL" ${WP:+--wp "$WP"} --pid "$LEAD_PID" --no-events 2>/dev/null)
   printf '%s\n' "$wk" | grep -qx LOCK_OK || return 1
   printf '%s\n' "$wk" | grep -qE '^(LOCK_LOST|WATCH_FAILED|HOLDER_FAILED|LEASE_KEEP_DEAD)' && return 1
   j=$(printf '%s\n' "$wk" | grep '^{' | head -n 1)
   [ -n "$j" ] || return 1
-  printf '%s' "$j" | jq -e '(.n != "NULL") and ((.reqs // []) | length == 0)' >/dev/null 2>&1 || return 1
+  # 계약 2.11: build(「설계 승인」 된 작업) 조회 실패("NULL")도 깨운다. build 칸이 없으면 옛 서버다(종전과 같다).
+  printf '%s' "$j" | jq -e '(.n != "NULL") and ((.reqs // []) | length == 0) and (.build != "NULL")' >/dev/null 2>&1 || return 1
+  # build 의 claimed 원소(poll 에 나오지 않는다)는 슬롯에 있거나 팀장이 제외·멈춤으로 기록한 id(lead-state.sh 의 EXCLUDE_PERM —
+  # 진행 중·failed·LOST — 와 EXCLUDE_TEMP — skipped·WARN_RETRY. 재시도 기한이 된 것은 아래에서 다시 뺀다)를 뺀 나머지가 있을 때만 깨운다(설계 상태 스펙 D22. 빼지 않으면
+  # 「멈춤」 에 든 승인 주문 하나가 건너뛰기를 영구히 끈다). 제외 목록을 읽지 못하면 깨운다.
+  cl=$(printf '%s' "$j" | jq -r '(.build // []) | if type == "array" then .[] | select(.status == "claimed") | .id8 else empty end' 2>/dev/null) || return 1
+  [ -n "$cl" ] || return 0
+  lst=$("$HERE/lead-state.sh" --agent "$OWNER" 2>/dev/null) || return 1
+  ign=",$(printf '%s\n' "$lst" | awk '$1 == "EXCLUDE_PERM" || $1 == "EXCLUDE_TEMP" { printf "%s,", $2 }')"
+  for s in "$@"; do ign="$ign$(slot_id8 "${s%%|*}"),"; done
+  # 재시도 기한이 된 id(RETRY_DUE — fetch·push 실패, BUILD_RETRY_DUE — 설계 관문·주문이 바뀜·다른 PC 도는 중·design-reopen 미확인)는 EXCLUDE_TEMP(skipped)
+  # 에도 걸려 있다 — 그대로 두면 재시도가 다음 TICK 까지(최대 30~90분) 미뤄진다(리뷰 1회차). BUILD_RETRY_DUE 는 빼지 않으면 건너뛰기가
+  # 되풀이되며 사실상 영구히 갇힌다(최종 리뷰 Important 1). ign 에서 빼 아래 loop 가 깨우게 한다.
+  for rd in $(printf '%s\n' "$lst" | awk '$1 == "RETRY_DUE" || $1 == "BUILD_RETRY_DUE" { print $2 }'); do ign=$(printf '%s' "$ign" | sed "s/,$rd,/,/g"); done
+  for i in $cl; do case "$ign" in *",$i,"*) ;; *) return 1 ;; esac; done
   return 0
 }
 

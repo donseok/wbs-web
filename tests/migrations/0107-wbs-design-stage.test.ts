@@ -18,12 +18,12 @@ const constOf = (sql: string) => {
 const q = (xs: readonly string[]) => xs.map(x => `'${x}'`).join(',')
 
 describe('0107 설계 단계 ds', () => {
-  it('단계 CHECK 가 도메인 STAGE_CODES 와 같다(ds 포함)', () => {
+  it('단계 CHECK 는 0107 시점 목록과 같다(ds 포함, dd 는 0108 에서 추가돼 여기 없다)', () => {
     expect([...STAGE_CODES]).toContain('ds')
-    expect(s()).toContain(`add constraint wbs_items_stage_check check (stage in (${q(STAGE_CODES)}))`)
+    expect(s()).toContain(`add constraint wbs_items_stage_check check (stage in (${q(['as', 'ds', 'ip', 'im', 'xx'])}))`)
   })
-  it('SQL 기본 크레딧 상수가 코드 기본값과 같다(ds 10)', () => {
-    expect(constOf(fn())).toEqual(DEFAULT_STAGE_CREDITS)
+  it('SQL 기본 크레딧 상수는 0107 시점 값과 같다(ds 10, dd 는 0108 에서 추가돼 여기 없다)', () => {
+    expect(constOf(fn())).toEqual({ default: { as: 0, ds: 10, ip: 30, rw: 50, im: 80, xx: 100 } })
     expect(DEFAULT_STAGE_CREDITS.default.ds).toBe(10)
   })
   it('사건 목록에 build_start 가 있고 주문 사건이다', () => {
@@ -56,8 +56,8 @@ describe('0107 설계 단계 ds', () => {
     expect(f).toContain("if v_old_stage = 'ds' then v_apply := true; v_new_stage := 'ip'; v_credit_key := 'ip';")
     expect(f).toContain("elsif v_old_stage is null or v_old_stage not in ('ip','im','xx') then v_skipped := 'stage';")
   })
-  it('set_stage 허용 값이 도메인 STAGE_CODES 와 같다', () => {
-    expect(fn()).toContain(`if p_stage is not null and p_stage not in (${q(STAGE_CODES)}) then`)
+  it('set_stage 허용 값은 0107 시점 목록과 같다(dd 는 0108 에서 추가돼 여기 없다)', () => {
+    expect(fn()).toContain(`if p_stage is not null and p_stage not in (${q(['as', 'ds', 'ip', 'im', 'xx'])}) then`)
   })
   it('도달(reached_first) 판정은 im·xx 그대로다 — ds 는 도달이 아니다', () => {
     expect(fn()).toContain("v_reached_first := coalesce(v_new_stage in ('im','xx'), false) and not coalesce(v_old_stage in ('im','xx'), false);")

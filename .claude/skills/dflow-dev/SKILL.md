@@ -58,8 +58,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   `rejected` 는 서버가 반려를 통지한 상태다 — 승인 대기(reported)와 구분해야 스윕이 헛돌지 않는다.
   `wait_pred` 는 설계를 마치고 선행을 기다리며 멈춘 상태다(「설계 선행」 2). 진행 중 phase 가 아니며 heartbeat 훅도 보내지 않는다 —
   재개는 Phase 01 1번이 「설계 선행」 3 으로 보낸다.
-  `wait_review` 는 설계만(`--scope design`)으로 설계를 마치고 사람의 설계 검토를 기다리며 멈춘 상태다. 진행 중 phase 가 아니며
-  heartbeat 훅도 보내지 않는다 — `--scope build` 로만 이어 간다(「실행 범위」). 선행 대기(`wait_pred`)와 달리 저절로 재개되지 않는다.
+  `wait_review` 는 설계만(`--scope design`)으로 설계를 마치고 사람의 「설계 승인」을 기다리며 멈춘 상태다. 진행 중 phase 가 아니며
+  heartbeat 훅도 보내지 않는다 — 이어 갈지는 서버 설계 상태가 정한다(옛 서버는 `--scope build`, `orch/start.md`). 저절로 재개되지 않는다.
   **`order` 는 전체 UUID(하이픈 포함 36자)로 기록한다 — id8 금지.** 주문이 approved 가 되면
   목록에서 빠져 id8 접두 해석이 죽고, poll 의 승인 감지(exit 9)와 머지 판정이 그 주문을
   영영 못 본다(2026-08-25 실증). 기존 파일이 id8 이면 발견 즉시 전체 UUID 로 고쳐 커밋한다.
@@ -72,6 +72,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   받으면 `~/.dflow/hb/<order>.cancelled` 표식을 남기고 세션을 세운다(`continue:false`, 표식이 있는 동안 도구마다). 표식은
   `/dflow-team` 팀장이 spawn 직전에 서버 status(`ready`·`claimed`)로 확인하고 지운다. 수동 `/dflow-dev` 세션은 사람이
   지운다. `cancelled` 는 진행 중 phase 가 아니다 — 스윕·재개 판정은 건너뛴다.
+  exit 12(다른 PC 가 이어받음)도 그 자리에서 멈추되 state.json 은 바꾸지 않는다(`orch/start.md` 「서버 판단」).
+  `design-done`·`design-reopen` 도 같은 api_raw 경로라 exit 10·12 는 위와 같이 처리한다.
   **`api_base` 는 claim 한 시점의 `DFLOW_API_BASE` 에서 끝 `/` 를 뺀 값이다**(dflow.sh `base()` 와 같은 정규화). 스윕이
   이 값으로 자기 D'Flow 인스턴스의 후보만 고른다. Phase 01 에서 state.json 을 처음 쓰는 곳(3번 `prepare`·스택 기록 또는
   4번 기준선)에서 기록한다. 반려 재작업이 기존 state.json 에 `phase=rejected` 를 쓸 때 `api_base` 가 없으면 같은 규칙으로 채운다.
@@ -132,10 +134,9 @@ A~I 는 그 파일의 행이다.
 
 ## 실행 범위 (--scope)
 
-`--scope design|build|full`(없으면 state.json `scope`, 그것도 없으면 `full`)은 정식 실행의 시작점과 멈춤점만 바꾼다. 다른 값이거나
-`--only` 와 함께 오면 사용법을 알리고 멈춘다. `design` 은 Design 게이트 뒤 `build-start` 없이 `wait_review` 로 멈추고(`orch/design.md`
-「설계만 멈춤」), `build` 는 사람이 쓴 설계나 `wait_review` 의 설계에서 시작한다(`orch/start.md` 「구현부터」). `full` 이 아니면
-state.json `prepare` 를 쓸 때 `scope` 를 함께 적는다(`orch/claim.md`).
+`--scope design|build|full` 은 정식 실행의 시작점과 멈춤점만 바꾼다. 다른 값이거나 `--only` 와 함께 오면 사용법을 알리고 멈춘다.
+범위를 정하는 규칙(서버 판단·`claim_scope`·옛 서버)은 `orch/start.md` 「서버 판단」, `design` 의 멈춤은 `orch/design.md` 「설계만 멈춤」,
+`build` 의 시작은 같은 파일의 「설계 받기」 다.
 
 ## --only 옵션
 

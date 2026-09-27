@@ -48,13 +48,15 @@ describe('fetchAgentHubRows', () => {
     expect(rows.agentProject).toEqual({ enabled: true })
     expect(rows.reports).toHaveLength(1)
     const c = (t: string) => calls.find(x => x.table === t)!
-    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived')
-    expect(rows.approvedItemIds).toEqual([]) // depends 가 없으면 선행 승인 조회도 없다
+    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived, design_mode')
+    // 위임 리프(i1) 자신의 승인 주문도 읽는다(설계 화면 판정 9·10행 — 7일 창 밖의 승인). 응답이 비면 빈 목록.
+    expect(rows.approvedItemIds).toEqual([])
     expect(c('agent_work_orders').select).toContain('last_heartbeat_at')
+    for (const col of ['design_state', 'design_note', 'runner']) expect(c('agent_work_orders').select).toContain(col)
     expect(c('agent_work_orders').filters.find(f => f[0] === 'or')?.[1][0]).toContain('status.in.(ready,claimed,reported)')
     expect(c('agent_work_reports').filters).toEqual(expect.arrayContaining([['in', ['work_order_id', ['o1']]], ['eq', ['kind', 'completion']]]))
     expect(c('project_members').select).toBe('id, name, email, user_id')
-    expect(calls.map(x => x.table).sort()).toEqual(['agent_projects', 'agent_watchers', 'agent_work_orders', 'agent_work_reports', 'project_members', 'projects', 'wbs_items'])
+    expect(calls.map(x => x.table).sort()).toEqual(['agent_projects', 'agent_watchers', 'agent_work_orders', 'agent_work_orders', 'agent_work_reports', 'project_members', 'projects', 'wbs_items'])
   })
   it('살아 있는 주문이 없으면 보고 조회를 생략한다(2차 0건)', async () => {
     const { client, calls } = admin({ agent_work_orders: [{ data: [] }], projects: [{ data: [{ id: P1, name: 'x' }] }] })
@@ -94,7 +96,7 @@ describe('getAgentHub', () => {
 
 describe('fetchAgentHubRows — 선행 승인 주문(approvedItemIds)', () => {
   const base = { id: 'i1', project_id: P1, parent_id: null, code: 'T', name: 'n', sort_order: 0, milestone: false, dev_workflow: true, tags: ['agent'], assignee_member_id: null, agent_prompt: null, actual_pct: 0, stage: null, external_ref: null, depends: null }
-  it('위임 항목의 depends 가 가리키는 항목 id 로 approved 주문을 1회 더 조회한다', async () => {
+  it('위임 항목의 depends 가 가리키는 항목과 위임 항목 자신의 id 로 approved 주문을 한 번에 조회한다', async () => {
     const { client, calls } = admin({
       wbs_items: [{ data: [{ ...base, depends: ['M/T0'] }, { ...base, id: 'i0', code: 'T0', tags: [], external_ref: 'M/T0', stage: 'ip' }] }],
       agent_work_orders: [{ data: [] }, { data: [{ wbs_item_id: 'i0' }] }],
@@ -103,13 +105,35 @@ describe('fetchAgentHubRows — 선행 승인 주문(approvedItemIds)', () => {
     const orderCalls = calls.filter(x => x.table === 'agent_work_orders')
     expect(orderCalls).toHaveLength(2)
     expect(orderCalls[1].select).toBe('wbs_item_id')
-    expect(orderCalls[1].filters).toEqual([['in', ['wbs_item_id', ['i0']]], ['eq', ['status', 'approved']]])
+    expect(orderCalls[1].filters).toEqual([['in', ['wbs_item_id', ['i0', 'i1']]], ['eq', ['status', 'approved']]])
     expect(rows.approvedItemIds).toEqual(['i0'])
   })
-  it('depends 가 가리키는 external_ref 가 프로젝트에 없으면 조회하지 않는다', async () => {
+  it('depends 가 가리키는 external_ref 가 프로젝트에 없으면 선행은 빼고, 위임 항목 자신만 조회한다(설계 화면 판정 9·10행)', async () => {
     const { client, calls } = admin({ wbs_items: [{ data: [{ ...base, depends: ['M/T9'] }] }], agent_work_orders: [{ data: [] }] })
     const rows = await fetchAgentHubRows(client as never, P1, NOW)
-    expect(calls.filter(x => x.table === 'agent_work_orders')).toHaveLength(1)
+    const orderCalls = calls.filter(x => x.table === 'agent_work_orders')
+    expect(orderCalls).toHaveLength(2)
+    expect(orderCalls[1].filters[0]).toEqual(['in', ['wbs_item_id', ['i1']]])
     expect(rows.approvedItemIds).toEqual([])
+  })
+  it('설계 방식이 human 인 항목은 위임 전이어도 대상이고, 위임·human·선행이 모두 아니면 조회하지 않는다', async () => {
+    const { client, calls } = admin({ wbs_items: [{ data: [{ ...base, tags: [], design_mode: 'human' }, { ...base, id: 'i2', tags: [] }] }], agent_work_orders: [{ data: [] }] })
+    await fetchAgentHubRows(client as never, P1, NOW)
+    expect(calls.filter(x => x.table === 'agent_work_orders')[1].filters[0]).toEqual(['in', ['wbs_item_id', ['i1']]])
+    const none = admin({ wbs_items: [{ data: [{ ...base, tags: [] }] }], agent_work_orders: [{ data: [] }] })
+    await fetchAgentHubRows(none.client as never, P1, NOW)
+    expect(none.calls.filter(x => x.table === 'agent_work_orders')).toHaveLength(1)
+  })
+  it('대상이 200건을 넘으면 200건씩 나눠 조회한다(요청 URL 길이) — 항목마다 조회하지 않는다', async () => {
+    const many = Array.from({ length: 201 }, (_, k) => ({ ...base, id: `i${k}` }))
+    const { client, calls } = admin({ wbs_items: [{ data: many }], agent_work_orders: [{ data: [] }, { data: [{ wbs_item_id: 'i0' }] }, { data: [{ wbs_item_id: 'i200' }] }] })
+    const rows = await fetchAgentHubRows(client as never, P1, NOW)
+    const lookups = calls.filter(x => x.table === 'agent_work_orders').slice(1)
+    expect(lookups.map(l => (l.filters[0][1][1] as string[]).length)).toEqual([200, 1])
+    expect(rows.approvedItemIds).toEqual(['i0', 'i200'])
+  })
+  it('승인 주문 조회가 실패하면 throw — 승인 없음으로 위장하지 않는다', async () => {
+    const { client } = admin({ wbs_items: [{ data: [base] }], agent_work_orders: [{ data: [] }, { data: null, error: { message: 'boom' } }] })
+    await expect(fetchAgentHubRows(client as never, P1, NOW)).rejects.toThrow(/승인 주문 조회 실패: boom/)
   })
 })

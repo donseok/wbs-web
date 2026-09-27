@@ -122,7 +122,9 @@ export async function agentMemberRole(
 // 2.8: 강제 진행 — depends_waived·stub_for(2026-09-23 강제 진행 설계).
 // 2.9: 설계 단계 ds — claim design_first·POST /work/{id}/build-start·heartbeat phase wait_pred(2026-09-26 설계 §6).
 // 2.10: heartbeat phase wait_review — 설계만 멈춤, 2026-09-26 설계 §14(dflow-dev-skill-router-design.md §14.5).
-export const AGENT_CONTRACT_VERSION = '2.10'
+// 2.11: 설계 상태·구현자동 — 목록·상세·watch 의 action·mine·설계 상태, claim·build-start 의 scope, design-done·design-reopen,
+//       409 design_gate·design_not_accepted·runner_active(docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md 8절).
+export const AGENT_CONTRACT_VERSION = '2.11'
 
 export type AgentPrincipal =
   | { kind: 'legacy' }

@@ -13,6 +13,15 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
      되돌리지 말고 머지된 코드 위에 수정 커밋을 얹는 것이 계약이다.
    - claim 을 다시 하지 않는다. 서버는 이미 claimed 로 롤백해 두었다.
    - 재작업 완료 후 마감은 Phase 06 그대로(`done --auto-links`) — state 는 다시 `reported`.
+   - **범위(계약 2.11)**: 서버 `claim_scope` 가 `build` 면(설계 검토·구현자동 — `orch/start.md` 「서버 판단」) Design 단계를 돌지 않고
+     승인된 설계로 구현만 고친다. 설계는 `orch/design.md` 「설계 받기」 로 받는다(review 의 원격 agent 브랜치가 이미 머지·정리됐으면 개발
+     브랜치의 design.md). 이 시점에 서버 단계는 이미 `ip` 이므로 「설계 받기」 게이트가 불통이면 design-reopen 을 부르지 않고
+     「승인된 설계 고정」 절의 `failed 설계 게이트 불통(구현 중)` 으로 끝난다(design.md 구조 자체가 모자란 경우). 반려 사유가 설계
+     내용을 바꿔야 풀리면(구조는 있으나 내용을 고쳐야 하는 경우) 설계를 고치지 않고 `"{TSK} 는 설계를 바꿔야 합니다: <이유>"` 로 알리고
+     끝낸다(사람이 설계를 고친 뒤 다시 돌린다 — review 는 agent 브랜치에 push, human 은 개발 브랜치). 완전자동은 위처럼 설계부터 다시
+     판단한다.
+   - **구현 전환(계약 2.11)**: 재작업의 `build-start` 는 방식과 무관하게 `--scope rework` 다(`orch/design.md` 「Design 게이트」). 완료 보고가
+     도는 PC 를 비워 두었으므로 어느 PC 에서 돌려도 이 PC 가 넘겨받는다.
 
 
-**다음 단계**: `orch/phase-common.md` → `orch/design.md`(설계부터 다시 판단한다). 새 `agent/` 브랜치를 따야 하면 `orch/claim.md` 3번 규칙대로 딴다.
+**다음 단계**: `orch/phase-common.md` → `orch/design.md`(완전자동은 설계부터 다시 판단하고, 범위 `build` 는 「설계 받기」 와 게이트 뒤 Build 로 간다). 새 `agent/` 브랜치를 따야 하면 `orch/claim.md` 3번 규칙대로 딴다.

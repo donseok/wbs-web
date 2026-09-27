@@ -110,23 +110,31 @@ describe('assembleAgentHub — 카운터·큐·상태', () => {
       order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1' }),
       order({ id: '11111111-aaaa-4aaa-8aaa-000000000002', wbs_item_id: 'a2', status: 'reported' }),
     ] }), NOW, VIEWER)
-    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 1, waiting: 1, stuck: 0 })
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 1, waiting: 1, stuck: 0, designReview: 0 })
   })
   it('설계 완료·선행 대기(claimed ∧ wait_pred)는 WAIT 이지만 승인 대기(waiting)로 세지 않는다', () => {
     const hub = assembleAgentHub(rows({ orders: [
       order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1', heartbeat_phase: 'wait_pred', last_heartbeat_at: ago(OFFLINE_MS * 3), updated_at: ago(OFFLINE_MS * 3) }),
     ] }), NOW, VIEWER)
     expect(hub.rows.find(r => r.code === 'TSK-A-01')?.order?.state).toBe('WAIT')
-    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0 })
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0, designReview: 0 })
   })
-  it('설계 완료·검토 대기(claimed ∧ wait_review, 스펙 §14.5)도 WAIT 이지만 승인 대기(waiting)로 세지 않고, order.reviewWait 이 참이다', () => {
+  it('설계 검토 대기(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행)도 WAIT 이지만 승인 대기(waiting)로 세지 않고 designReview 로 센다', () => {
     const hub = assembleAgentHub(rows({ orders: [
-      order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 3), updated_at: ago(OFFLINE_MS * 3) }),
+      order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1', design_state: 'review', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 3), updated_at: ago(OFFLINE_MS * 3) }),
     ] }), NOW, VIEWER)
     const row = hub.rows.find(r => r.code === 'TSK-A-01')
     expect(row?.order?.state).toBe('WAIT')
     expect(row?.order?.reviewWait).toBe(true)
-    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0 })
+    expect(row?.order?.designState).toBe('review')
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0, designReview: 1 })
+  })
+  it('heartbeat wait_review 만 남은 주문(「설계 승인」 뒤)은 검토 대기로 세지 않는다 — 설계 상태로만 가른다(설계 상태 스펙 8절)', () => {
+    const hub = assembleAgentHub(rows({ orders: [
+      order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1', design_state: 'accepted', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 3), updated_at: ago(OFFLINE_MS * 3) }),
+    ] }), NOW, VIEWER)
+    expect(hub.rows.find(r => r.code === 'TSK-A-01')?.order?.reviewWait).toBe(false)
+    expect(hub.counters.designReview).toBe(0)
   })
   it('queue: reported 주문마다 최신 completion 보고 1건, 오래된 것 먼저, 보고 없으면 빈 요약', () => {
     const o1 = '11111111-aaaa-4aaa-8aaa-000000000001', o2 = '11111111-aaaa-4aaa-8aaa-000000000002'
@@ -371,5 +379,55 @@ describe('assembleAgentHub — 단계 잠금(stageLocked, 스펙 2026-09-15 §3.
     expect(locked('TSK-H')).toBe(false)
     expect(locked('TSK-R')).toBe(true)
     expect(locked('TSK-N')).toBe(false)
+  })
+})
+
+describe('assembleAgentHub — 설계 화면 판정(설계 상태 스펙 3절·7절)', () => {
+  const by = (hub: ReturnType<typeof assembleAgentHub>, c: string) => hub.rows.find(r => r.code === c)!
+  const leaf = (over: Partial<HubItemRow> = {}) => item({
+    id: 'a1', parent_id: 'a', code: 'TSK-A-01', name: '리프1', sort_order: 1, dev_workflow: true, tags: ['agent'], assignee_member_id: 'm1',
+    stage: 'dd', actual_pct: 20, design_mode: 'review', ...over,
+  })
+  const withLeaf = (l: HubItemRow, over: Partial<AgentHubRows> = {}) => rows({ items: [...rows().items.filter(i => i.id !== 'a1'), l], ...over })
+  const silent = { last_heartbeat_at: ago(OFFLINE_MS * 2), updated_at: ago(OFFLINE_MS * 2) }
+  it('설계 검토 대기는 1행 — 「설계 승인」 버튼과 되돌림 사유를 싣는다', () => {
+    const hub = assembleAgentHub(withLeaf(leaf(), { orders: [order({ wbs_item_id: 'a1', design_state: 'review', design_note: '테스트 계획 보강', heartbeat_phase: 'wait_review', ...silent })] }), NOW, VIEWER)
+    expect(by(hub, 'TSK-A-01').design).toMatchObject({ row: 1, label: '설계 검토 대기', note: '테스트 계획 보강', buttons: ['accept'] })
+  })
+  it('승인된 설계는 구현 대기(WAIT)이고 3행과 「설계 되돌리기」 — 버튼은 권한과 따로 싣는다(화면이 canToggle 로 거른다)', () => {
+    const hub = assembleAgentHub(withLeaf(leaf({ assignee_member_id: 'm9' }), { orders: [order({ wbs_item_id: 'a1', design_state: 'accepted', heartbeat_phase: 'wait_review', ...silent })] }), NOW, VIEWER)
+    const r = by(hub, 'TSK-A-01')
+    expect(r.order).toMatchObject({ state: 'WAIT', buildWait: true, reviewWait: false })
+    expect(hub.counters).toMatchObject({ waiting: 0, working: 0, designReview: 0 })
+    expect(r.canToggle).toBe(false)
+    expect(r.design).toMatchObject({ row: 3, label: '구현 대기(설계 승인됨)', buttons: ['reopen'] })
+  })
+  it('B12(최종 수정) — 승인된 설계인데 선행이 남았으면(2행) 상태 칩도 선행 대기로 접는다(buildWait 거짓)', () => {
+    const hub = assembleAgentHub(withLeaf(leaf({ assignee_member_id: 'm9', depends: ['M/NOPE'] }), { orders: [order({ wbs_item_id: 'a1', design_state: 'accepted', heartbeat_phase: 'wait_review', ...silent })] }), NOW, VIEWER)
+    const r = by(hub, 'TSK-A-01')
+    expect(r.design).toMatchObject({ row: 2, label: '선행 대기(설계 승인됨)' })
+    expect(r.order).toMatchObject({ state: 'WAIT', buildWait: false, reviewWait: false })
+  })
+  it('사람 설계 대기(human ∧ 위임 ∧ ready ∧ as)는 6행과 「설계 확정」', () => {
+    const ready = order({ wbs_item_id: 'a1', status: 'ready', claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null })
+    const hub = assembleAgentHub(withLeaf(leaf({ stage: 'as', actual_pct: 0, design_mode: 'human' }), { orders: [ready] }), NOW, VIEWER)
+    expect(by(hub, 'TSK-A-01').design).toMatchObject({ row: 6, label: '사람 설계 대기', buttons: ['confirm'] })
+  })
+  it('7일 창 밖에서 승인된 위임 리프(xx·활성 주문 없음)는 정상 완료다 — approvedItemIds 로 알아 9·10행에 걸리지 않는다', () => {
+    const done = leaf({ stage: 'xx', actual_pct: 100 })
+    expect(by(assembleAgentHub(withLeaf(done, { orders: [], approvedItemIds: ['a1'] }), NOW, VIEWER), 'TSK-A-01').design).toBeNull()
+    // 승인 주문을 모르면 10행(위임 보류)으로 잘못 보인다 — 로더가 위임 리프의 승인 주문까지 읽는 이유다.
+    expect(by(assembleAgentHub(withLeaf(done, { orders: [], approvedItemIds: [] }), NOW, VIEWER), 'TSK-A-01').design).toMatchObject({ row: 10 })
+  })
+  it('살아 있는 주문이 없으면 pickOrder 의 approved 폴백을 활성 주문으로 넘기지 않는다 — 9행 「위임 보류(승인된 주문 있음)」', () => {
+    const hub = assembleAgentHub(withLeaf(leaf({ stage: 'ip', actual_pct: 30 }), { orders: [order({ wbs_item_id: 'a1', status: 'approved', updated_at: ago(3600_000) })], approvedItemIds: ['a1'] }), NOW, VIEWER)
+    const r = by(hub, 'TSK-A-01')
+    expect(r.order?.status).toBe('approved') // 표의 주문 칸은 종전대로 최근 승인분이다
+    expect(r.design).toMatchObject({ row: 9, label: '위임 보류(승인된 주문 있음)', buttons: [] })
+  })
+  it('맞는 행이 없는 리프와 부모 행은 null — 첫 구현(claimed·ip·accepted)은 「작업 중」 그대로다', () => {
+    const hub = assembleAgentHub(withLeaf(leaf({ stage: 'ip', actual_pct: 30 }), { orders: [order({ wbs_item_id: 'a1', design_state: 'accepted' })] }), NOW, VIEWER)
+    expect(by(hub, 'TSK-A-01').design).toBeNull()
+    expect(by(hub, 'SUB-A').design).toBeNull()
   })
 })

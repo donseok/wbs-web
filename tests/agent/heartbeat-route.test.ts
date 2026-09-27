@@ -31,6 +31,7 @@ function useAdmin(queues: Record<string, Resp[]>, calls: Record<string, unknown[
       // 가드 조건(.eq('heartbeat_phase', …)·.in('status', …))을 시험이 확인할 수 있게 인자를 남긴다.
       b.eq = (...a: unknown[]) => { (calls[`${table}:eq`] ??= []).push(a); return b }
       b.in = (...a: unknown[]) => { (calls[`${table}:in`] ??= []).push(a); return b }
+      b.is = (...a: unknown[]) => { (calls[`${table}:is`] ??= []).push(a); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
@@ -176,6 +177,49 @@ describe('POST /agent/work/[id]/heartbeat', () => {
   it('403 insufficient_scope — work:read 만 있는 PAT', async () => {
     useAdmin({ ...okQueues(), agent_runners: [{ data: { ...RUNNER, scopes: ['work:read'] } }, { data: null }] })
     expect((await post({ agent: 'a', phase: 'build' })).status).toBe(403)
+  })
+  it('runner 가 없으면 넘겨받는다 — runner·runner_seen_at 을 쓰고 runner 가 비었음을 CAS 로 건다(P6)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues({ ...ORDER, runner: null, runner_seen_at: null } as typeof ORDER), calls)
+    const res = await post({ agent: 'hong/mbp/w1', phase: 'build' })
+    expect(res.status).toBe(200)
+    const upd = calls.agent_work_orders?.[0] as Record<string, unknown>
+    expect(upd.runner).toBe('hong/mbp/w1')
+    expect(upd.runner_seen_at).toBe(upd.last_heartbeat_at)
+    expect(calls['agent_work_orders:is']).toContainEqual(['runner', null])
+  })
+  it('다른 PC 가 30분 안에 신호를 냈으면 409 runner_active — 아무것도 쓰지 않는다(Y1)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    const fresh = new Date(Date.now() - 60_000).toISOString()
+    useAdmin(okQueues({ ...ORDER, runner: 'hong/pc2/w1', runner_seen_at: fresh } as typeof ORDER), calls)
+    const res = await post({ agent: 'hong/mbp/w1', phase: 'build' })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'runner_active', runner: 'hong/pc2/w1', runner_seen_at: fresh })
+    expect(calls.agent_work_orders).toBeUndefined()
+  })
+  it('다른 PC 가 30분 넘게 조용하면 넘겨받는다 — 읽은 runner 로 CAS', async () => {
+    const calls: Record<string, unknown[]> = {}
+    const stale = new Date(Date.now() - 31 * 60_000).toISOString()
+    useAdmin(okQueues({ ...ORDER, runner: 'hong/pc2/w1', runner_seen_at: stale } as typeof ORDER), calls)
+    expect((await post({ agent: 'hong/mbp/w1', phase: 'build' })).status).toBe(200)
+    expect(calls['agent_work_orders:eq']).toContainEqual(['runner', 'hong/pc2/w1'])
+  })
+  it('Minor 7(최종 수정) — runner 판정·기록은 검증된 라벨(actor.agentLabel)을 쓴다: 형식 밖 라벨은 claim 과 같은 pat-<runner> 로 본다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    const fresh = new Date(Date.now() - 60_000).toISOString()
+    // claim 이 형식 밖 라벨을 pat-r-1 로 적어 둔 주문 — 같은 워커의 heartbeat 가 runner_active 로 멈추면 안 된다.
+    useAdmin(okQueues({ ...ORDER, runner: 'pat-r-1', runner_seen_at: fresh } as typeof ORDER), calls)
+    const res = await post({ agent: 'my worker #1', phase: 'build' })
+    expect(res.status).toBe(200)
+    const upd = calls.agent_work_orders?.[0] as Record<string, unknown>
+    expect(upd.runner).toBe('pat-r-1')
+    expect(upd.heartbeat_agent).toBe('pat-r-1') // 완료 보고 관문(P16)이 actor.agentLabel 과 비교한다
+    expect(calls['agent_work_orders:eq']).toContainEqual(['runner', 'pat-r-1'])
+  })
+  it('같은 PC 의 다른 슬롯·수동 세션은 넘겨받는다', async () => {
+    const fresh = new Date(Date.now() - 60_000).toISOString()
+    useAdmin(okQueues({ ...ORDER, runner: 'hong/mbp/w2', runner_seen_at: fresh } as typeof ORDER))
+    expect((await post({ agent: 'claude-mbp', phase: 'build' })).status).toBe(200)
   })
 })
 

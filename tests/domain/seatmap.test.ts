@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { animFor, OFFLINE_MS, STALE_MS } from '@/lib/domain/seatState'
-import { ageLabel, assembleSeatmap, seatmapChannelProjectIds, type LeaseRow, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
+import { ageLabel, assembleSeatmap, seatmapChannelProjectIds, type ItemRow, type LeaseRow, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
 import { assembleRoster } from '@/lib/domain/agentRoster'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
@@ -53,6 +53,15 @@ describe('assembleSeatmap — 층·구역·책상', () => {
     expect(names).toEqual(['구역 없음'])
     expect(m.floors[0].seatCount).toBe(1)
     expect(m.counters.active + m.counters.idle + m.counters.offline).toBe(1)
+  })
+  // 컨트롤러 지시(T15 ⚠️b·T24 ⚠️e): WBS 에서 지워진 항목의 claimed 주문은 위 테스트대로 좌석 자체가 보이지 않는다
+  // (agentOrders 필터가 항목 없는 주문을 뺀다 — 이 Task 는 그 필터를 건드리지 않는다). 새 설계 상태 필드를 실어도
+  // 이 결과가 바뀌지 않음을 고정한다 — 좌석이 없으니 seatOps 「중단」도 이 경로로는 뜨지 않는다(보고서 참고).
+  it('설계 상태(review·accepted)가 실려도 지워진 항목의 주문은 여전히 보이지 않는다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ wbs_item_id: null, design_state: 'review', heartbeat_phase: 'wait_review' })],
+    }), NOW)
+    expect(m.floors).toHaveLength(0)
   })
   it('책상은 구역 안에서 code 순', () => {
     const m = assembleSeatmap(rows({
@@ -259,8 +268,8 @@ describe('assembleSeatmap — 착수 대기 사유(waitReason)', () => {
     expect(seatOf(freed).waitReason?.kind).toBe('dependency')
     expect(seatOf(freed).waitReason?.text).toContain('재개')
   })
-  it('설계 완료·검토 대기(claimed ∧ wait_review, 스펙 §14.5)는 오래 침묵해도 WAIT·설계 검토 대기·실루엣이고, 미충족 선행이 있어도 사유는 바뀌지 않는다', () => {
-    const waitReview = order({ heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 5), updated_at: ago(OFFLINE_MS * 5) })
+  it('설계 검토 대기(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행)는 오래 침묵해도 WAIT·설계 검토 대기·실루엣이고, 미충족 선행이 있어도 사유는 바뀌지 않는다', () => {
+    const waitReview = order({ design_state: 'review', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 5), updated_at: ago(OFFLINE_MS * 5) })
     const base = { orders: [waitReview], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 10, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }
     const m = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'ip', order_approved: false }] }), NOW)
     const s = seatOf(m)
@@ -565,5 +574,95 @@ describe('무거운 작업 표시(0106)', () => {
     expect(busy.floors[0].leads[0].heavy).toEqual({ text: '🔥 2/2 · ⏳ 1 · load 9', hot: true })
     const idle = assembleSeatmap(rows({ leases: [lease(120_000, { k: 2, held: 0, waiting: 0, load: 1, cpus: 10 })] }), NOW)
     expect(idle.floors[0].leads[0].heavy).toBeNull()
+  })
+})
+
+describe('assembleSeatmap — 설계 문구(설계 상태 스펙 3절 화면 판정)', () => {
+  const seatOf = (m: ReturnType<typeof assembleSeatmap>) => m.floors[0].zones[0].seats[0]
+  const item = (over: Partial<ItemRow> = {}): ItemRow => ({
+    id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 20, assignee_member_id: null, tags: ['agent'],
+    stage: 'dd', design_mode: 'review', ...over,
+  })
+  const silent = { last_heartbeat_at: ago(OFFLINE_MS * 2), updated_at: ago(OFFLINE_MS * 2) }
+  it('설계 검토 대기(claimed ∧ review)는 1행 — 문구·되돌림 사유·안내를 싣고, 버튼은 싣지 않는다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ design_state: 'review', design_note: '테스트 계획이 비었습니다', heartbeat_phase: 'wait_review', ...silent })],
+      items: [item()],
+    }), NOW)
+    const s = seatOf(m)
+    expect(s.state).toBe('WAIT')
+    expect(s.reviewWait).toBe(true)
+    expect(s.design).toMatchObject({ row: 1, label: '설계 검토 대기', note: '테스트 계획이 비었습니다' })
+    expect(s.design?.hint).toContain('「설계 승인」')
+    expect(s.design).not.toHaveProperty('buttons') // 좌석에는 설계 버튼이 없다 — WBS 작업 패널·허브가 누른다
+  })
+  it('「설계 승인」 뒤(RPC 모양: accepted·dd·phase wait_review·도는 PC 없음)는 구현 대기 — 차분한 WAIT 와 3행 문구이고, 10분이 지나도 무응답·끊김으로 오르지 않는다', () => {
+    const accepted = (hbAgo: number, upAgo: number) => assembleSeatmap(rows({
+      orders: [order({ design_state: 'accepted', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(hbAgo), updated_at: ago(upAgo) })],
+      items: [item()],
+    }), NOW)
+    const fresh = seatOf(accepted(20 * 60_000, 10_000))
+    expect(fresh.state).toBe('WAIT')
+    expect(fresh.reviewWait).toBe(false) // 승인 뒤 남은 phase 로 검토 대기가 되지 않는다
+    expect(fresh.buildWait).toBe(true)
+    expect(fresh.design).toMatchObject({ row: 3, label: '구현 대기(설계 승인됨)' })
+    const later = accepted(30 * 60_000, 10 * 60_000)
+    expect(seatOf(later).state).toBe('WAIT')
+    expect(seatOf(later).anim).toBe('waiting')
+    expect(later.attention).toEqual([])
+    // 「승인 대기」 타일·구역 요약에 세지 않는다 — 결재할 것이 없다.
+    expect(later.counters).toMatchObject({ idle: 0, offline: 1 })
+    expect(later.floors[0].zones[0].summary).toMatchObject({ wait: 0, ready: 1 })
+  })
+  it('runner 가 있어도 heartbeat 가 죽었으면(prepare 중 죽어 build-start 전) 3행 문구에 「도는 중」을 붙이지 않는다 — 좌석은 끊김(OFFLINE)인데 문구만 "돈다"고 말하면 안 된다(리뷰 수정 1회차 I-1)', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ design_state: 'accepted', runner: 'kim/pc2/w1', heartbeat_phase: 'prepare', last_heartbeat_at: ago(OFFLINE_MS + 1), updated_at: ago(OFFLINE_MS + 1) })],
+      items: [item()],
+    }), NOW)
+    const s = seatOf(m)
+    expect(s.state).toBe('OFFLINE')
+    expect(s.design?.label).toBe('구현 대기(설계 승인됨)')
+    expect(s.design?.label).not.toContain('도는 중')
+  })
+  it('선행이 설계 완료·작업 중뿐이면 승인된 설계는 2행, 확정된 사람 설계는 「설계 확정됨」', () => {
+    const base = { predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'ip', order_approved: false }] }
+    const review = assembleSeatmap(rows({ ...base,
+      orders: [order({ design_state: 'accepted', heartbeat_phase: 'wait_review', ...silent })], items: [item({ depends: ['M/T1'] })] }), NOW)
+    expect(seatOf(review).design).toMatchObject({ row: 2, label: '선행 대기(설계 승인됨)' })
+    const human = assembleSeatmap(rows({ ...base,
+      orders: [order({ status: 'ready', claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_state: 'accepted' })],
+      items: [item({ depends: ['M/T1'], design_mode: 'human' })] }), NOW)
+    expect(seatOf(human).design).toMatchObject({ row: 2, label: '선행 대기(설계 확정됨)' })
+  })
+  it('살아 있는 워커(신선한 heartbeat)와 BLOCKED 좌석에는 싣지 않는다 — 지금 문구가 맞다', () => {
+    // 팀장이 띄운 구현 워커가 준비 중(prepare)이면 단계는 아직 dd 지만 3행 「구현 대기」가 아니다. 워커의 heartbeat 가 도는 PC(runner)를 넘겨받았다.
+    const live = assembleSeatmap(rows({ orders: [order({ design_state: 'accepted', heartbeat_phase: 'prepare', last_heartbeat_at: ago(1000), runner: 'hong/mbp/w2' })], items: [item()] }), NOW)
+    expect(seatOf(live).state).toBe('ACTIVE')
+    expect(seatOf(live).design).toBeNull()
+    const blocked = assembleSeatmap(rows({ orders: [order({ design_state: 'review', heartbeat_phase: 'blocked', ...silent })], items: [item()] }), NOW)
+    expect(seatOf(blocked).state).toBe('BLOCKED')
+    expect(seatOf(blocked).design).toBeNull()
+  })
+  it('승인분(DONE) 좌석은 활성 주문이 아니라 싣지 않는다 — 9·10행(활성 주문 없음)은 허브·WBS 몫이다', () => {
+    const m = assembleSeatmap(rows({ orders: [order({ status: 'approved', updated_at: ago(3600_000) })], items: [item({ stage: 'im' })] }), NOW)
+    expect(seatOf(m).state).toBe('DONE')
+    expect(seatOf(m).design).toBeNull()
+  })
+  it('사람 설계 대기(ready ∧ human ∧ 위임 ∧ as)는 6행 — 되돌림 사유를 싣는다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ status: 'ready', claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_note: '빠진 절: 테스트 계획' })],
+      items: [item({ stage: 'as', actual_pct: 0, design_mode: 'human' })],
+    }), NOW)
+    const s = seatOf(m)
+    expect(s.state).toBe('READY')
+    expect(s.design).toMatchObject({ row: 6, label: '사람 설계 대기', note: '빠진 절: 테스트 계획' })
+  })
+  it('claimed ∧ ds 로 멈춘 좌석은 선행이 막혔을 때만 12행이다 — 선행이 충족이면 싣지 않는다', () => {
+    const base = { orders: [order({ heartbeat_phase: 'design', ...silent })], items: [item({ stage: 'ds', actual_pct: 10, design_mode: 'auto', depends: ['M/T1'] })] }
+    const blocked = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'as', order_approved: false }] }), NOW)
+    expect(seatOf(blocked).state).toBe('OFFLINE')
+    expect(seatOf(blocked).design).toMatchObject({ row: 12, label: '선행 대기(설계 중 멈춤)' })
+    const met = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'im', order_approved: false }] }), NOW)
+    expect(seatOf(met).design).toBeNull()
   })
 })

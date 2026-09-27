@@ -115,6 +115,30 @@ describe('fetchSeatmapRows — 선행 항목(predecessors)', () => {
     expect(calls['agent_work_orders.in']).toHaveLength(1)
     expect(rows.predecessors).toEqual([])
   })
+  it('claimed 주문이면서 단계가 ds·dd 인 항목의 depends 도 같은 조회에 넣는다(설계 화면 판정 2·4·12행) — ip 는 넣지 않는다', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const a = admin({
+      agent_work_orders: [{ data: [
+        { ...O, id: 'o-ds', wbs_item_id: 'i-ds' }, { ...O, id: 'o-dd', wbs_item_id: 'i-dd' }, { ...O, id: 'o-ip', wbs_item_id: 'i-ip' },
+      ] }],
+      wbs_items: [{ data: [
+        { ...ITEM, id: 'i-ds', stage: 'ds', depends: ['M/A'] },
+        { ...ITEM, id: 'i-dd', stage: 'dd', depends: ['M/B'] },
+        { ...ITEM, id: 'i-ip', stage: 'ip', depends: ['M/C'] },
+      ] }, { data: [] }],
+    }, calls)
+    await fetchSeatmapRows(a, ['p1'], NOW)
+    // 조회 횟수는 그대로다 — 선행 항목 조회 한 번에 대상만 넓힌다.
+    expect(calls['wbs_items.in']?.[2]).toEqual(['external_ref', ['M/A', 'M/B']])
+    expect(calls['wbs_items.in']?.filter(c => c[0] === 'external_ref')).toHaveLength(1)
+  })
+  it('주문 조회에 설계 상태·되돌림 사유·도는 PC 를, 항목 조회에 설계 방식을 싣는다(화면 판정 재료)', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    await fetchSeatmapRows(admin({ agent_work_orders: [{ data: [O] }], wbs_items: [{ data: [ITEM] }] }, calls), ['p1'], NOW)
+    const orderCols = String(calls['agent_work_orders.select']?.[0]?.[0] ?? '')
+    for (const c of ['design_state', 'design_note', 'runner', 'runner_seen_at']) expect(orderCols).toContain(c)
+    expect(String(calls['wbs_items.select']?.[0]?.[0] ?? '')).toContain('design_mode')
+  })
   it('선행 조회가 error 면 throw — 미충족으로 위장하지 않는다', async () => {
     const a = admin({ agent_work_orders: [{ data: [READY] }], wbs_items: [{ data: [ITEM] }, { data: null, error: { message: 'boom' } }] })
     await expect(fetchSeatmapRows(a, ['p1'], NOW)).rejects.toThrow('선행 항목')
