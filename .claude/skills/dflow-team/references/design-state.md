@@ -33,6 +33,14 @@ git -C '<MAIN>' show "origin/<개발브랜치>:<TASK_DIR>/design.md" 2>/dev/null
 - 배열이면 `status` 가 `claimed` 인 원소(「설계 승인」 된 설계 검토 작업 — poll 에 나오지 않는다) 중 슬롯·영구 제외에 없는 것을 재개 대상에
   더한다(SKILL.md 「2-3」 4번의 순서, 「5-1」 의 **승인** 대상). 이 PC 에 워크트리가 있으면 그것을, 없으면 `references/resume.md` 3항이 원격
   agent 브랜치에서 만든다. 띄우기 전 확인은 resume.md 「서버 판단 확인」 이다.
+- **fetch·push 실패의 되풀이 방지(고아 스캔과 같은 규칙, 12절 Y11)**: `build_ready` 는 claimed·accepted·dd·mine 인 주문을 계속
+  싣는다 — 그래서 워커가 `skipped fetch 실패`·`skipped push 실패` 로 끝나도 주문은 그대로 이 목록에 남아, 고치지 않으면 결과가 도착한
+  같은 기상에도 곧바로 다시 뜬다. `EXCLUDE_TEMP` 는 만료가 없어 그대로 가두면 다른 사유(설계 관문 등)까지 영구히 막으므로 쓰지 않는다.
+  대신 `lead-state.sh` 의 id8 별 신호로 가른다: `WARN_RETRY` 면 재개 대상에 넣지 않고 「멈춤」(사유 `fetch·push 3회 연속 실패`)으로
+  보낸다. `RETRY_DUE` 면 재개 대상에 더한다(고아 스캔과 같은 30분 신호). 둘 다 아니고 `EXCLUDE_TEMP` 에는 있으면(마지막 결과가
+  skipped 인데 아직 30분이 안 지났다) 이번 기상에는 더하지 않는다 — `build_ready` 에 남는 claimed 주문은 실질적으로 fetch·push
+  실패만 되풀이하므로(다른 사유의 skip 은 서버 상태가 바뀌어 이 목록을 벗어난다) `EXCLUDE_TEMP` 를 `RETRY_DUE`·`WARN_RETRY` 와
+  같이 쓰는 것은 다른 사유를 막지 않는다. 셋 다 아니면(한 번도 실패한 적이 없거나 팀장 재시작으로 이력이 사라졌다) 그대로 더한다.
 - `ready` 원소(구현자동 확정)는 poll(`action=build`)이 가져오므로 여기서 띄우지 않는다.
 - 이 처리는 **건너뛴 TICK**(「2-2」 `--may-skip`)에서는 돌지 않는다 — `EXCLUDE_TEMP`(`skipped`, 만료 없음)에 걸린 claimed
   원소는 `tick.sh` 의 깨울지 판정에서 깨우는 이유가 되지 못해 TICK 자체가 건너뛰어질 수 있다(`RETRY_DUE` 만 이 판정에서
@@ -49,16 +57,21 @@ SKILL.md 「3. 결과 처리」 표가 가리키는 보충이다.
   지우지 않고 `parked` 로 두며 다음 기상에 다시 부르고, 「멈춤」 표에 사유 `설계 멈춤 미완료` 로 올린다.
 - **`skipped fetch 실패`·`skipped push 실패`**(잡은 작업): 워크트리를 지우지 않는다(push 하지 못한 커밋이 있을 수 있다). 30분 뒤 재구성의
   `RETRY_DUE` 로 고아 스캔이 다시 띄우고, 같은 계열이 3회 연속이면 `WARN_RETRY` 로 「멈춤」 표에 `fetch·push 3회 연속 실패` 를 올린다
-  (12절 Y11 — 네트워크·권한을 사람이 확인한 뒤 `--resume`). **팀장 재시작에 주의**: 「1. 시작」 5번의 재기록은 **흡수한 슬롯**(살아
-  있는 팀원)만 다시 쓴다. `skipped fetch·push 실패` 는 이미 슬롯을 반납한 뒤라 재시작 뒤의 새 창에는 이 id8 의 `team.result` 가
-  없다 — `lead-state.sh` 가 `RETRY_DUE` 를 내지 않고, 고아 스캔은 `.result` 의 `skipped` 를 최종 판정으로 보아 재개 가능에
-  넣지 않는다. 재시작 **전** 재구성이 이미 `RETRY_DUE` 로 잡아 재개를 시작했을 때만 자동으로 이어지고, 그렇지 않으면 「멈춤」 으로
-  남아 사람의 `--resume` 이 있어야 다시 돈다.
+  (12절 Y11 — 네트워크·권한을 사람이 확인한 뒤 `--resume`). 「2」 의 `build` 목록도 같은 `RETRY_DUE`·`WARN_RETRY` 신호를 쓴다. **팀장
+  재시작에 주의**: 「1. 시작」 5번의 재기록은 **흡수한 슬롯**(살아 있는 팀원)만 다시 쓴다. `skipped fetch·push 실패` 는 이미 슬롯을
+  반납한 뒤라 재시작 뒤의 새 창에는 이 id8 의 `team.result` 가 없다 — `lead-state.sh` 가 `RETRY_DUE` 를 내지 않고, 고아 스캔은
+  `.result` 의 `skipped` 를 최종 판정으로 보아 재개 가능에 넣지 않는다. 재시작 **전** 재구성이 이미 `RETRY_DUE` 로 잡아 재개를
+  시작했을 때만 자동으로 이어지고, 그렇지 않으면 「멈춤」 으로 남아 사람의 `--resume` 이 있어야 다시 돈다. **`build` 목록 예외**:
+  재시작 뒤 build 목록 주문은 영구 제외가 비어 있고(위 「2」 는 EXCLUDE_PERM 만 최종 차단으로 쓴다) 재구성이 재기록하지 않은 새 창에는
+  `RETRY_DUE`·`WARN_RETRY` 도 없으므로(위 「2」 의 "셋 다 아니면" 갈래) 「2」 가 다음 기상에 그대로 다시 띄운다 — 자동으로 이어지되
+  30분 대기·3회 상한은 재시작 전 이력만큼은 못 지킨다.
 - **`skipped 다른 PC 도는 중(<runner>)`**: 워크트리를 지우지 않고 「멈춤」 표에 올린다(다른 PC 의 세션이 이어 간다).
 - **결과 줄 없이 `heartbeat.sh` 의 `runner_active` 훅이 세운 워커**: 팀원은 결과 줄을 쓰지 못한 채 멈춘다(hook 의 `stopReason`
   은 사람에게만 보인다). 무응답(정체)으로 잡혀 `restart.md` 「판정」 순서 3(`mine` 이 거짓)으로 떨어지고, 거두기 → 슬롯 해제 →
-  「멈춤」(사유 `다른 PC 도는 중(<runner>)`)으로 간다 — 재시작 후보로 가지 않는다. 워크트리는 `parked` 로 남고, 나중에 사람이
-  `--resume` 하면 build-start 가 exit 12 를 받아 `skipped 다른 PC 도는 중` 으로 끝난다(위 행과 같은 처리, P7).
-- **`design_reopened`**(설계를 사람에게 되돌렸거나 주문이 바뀜): 실패가 아니다. 워크트리는 미커밋 변경이 있어도 지운다 — 설계 원본은 개발
+  「멈춤」(사유 `다른 PC claim`, `restart.md` 「판정」 3행 그대로)으로 간다 — 재시작 후보로 가지 않는다. 워크트리는 `parked` 로
+  남는다. 나중에 사람이 `--resume` 해도 2.11 에서는 build-start 까지 가지 않는다 — `resume.md` 「서버 판단 확인」 의 `mine` 이
+  거짓 행이 먼저 막아 사유 `다른 PC 도는 중(<runner>)` 으로 다시 「멈춤」 에 오른다(옛 서버만 build-start exit 12 를 받아
+  `skipped 다른 PC 도는 중` 으로 끝난다).
+- **`design_reopened`**(설계를 사람에게 되돌렸다): 실패가 아니다. 워크트리는 미커밋 변경이 있어도 지운다 — 설계 원본은 개발
   브랜치이거나 이미 push 돼 있다. `git worktree remove --force <워크트리>`(Orca 는 Orca 정리 명령에 `--force`) 뒤 backends.md
   「고아 정리 규칙」 5번의 생성 브랜치 정리. 보고 한 줄: `<TSK> 설계를 사람에게 되돌렸습니다 — <사유>. 다시 확정·승인되면 새로 띄웁니다`.

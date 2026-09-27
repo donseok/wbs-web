@@ -240,7 +240,9 @@ describe('다른 스킬', () => {
   it('팀장: 결과 표·설계 사전 검사·build 목록·금지 예외 — 긴 절차는 design-state.md(6.2·6.3·6.7·D22·Y11·L11)', () => {
     const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
     expect(team).toContain('| `design_review`(설계 검토 대기로 멈춤) | 해제 | 없음 |')
-    expect(team).toContain('| `design_reopened`(설계를 사람에게 되돌렸거나 주문이 바뀜, 계약 2.11) | 해제 | 없음 | 미커밋 변경이 있어도 지운다')
+    expect(team).toContain('| `design_reopened`(설계를 사람에게 되돌렸다, 계약 2.11) | 해제 | 없음 | 미커밋 변경이 있어도 지운다')
+    expect(team).toContain('`주문이 바뀜`')
+    expect(team).not.toContain('design_reopened`(설계를 사람에게 되돌렸거나 주문이 바뀜')
     expect(team).toContain('**설계 사전 검사**(계약 2.11)')
     expect(team).toContain('**`build`(계약 2.11)는 「설계 승인」 된 작업 목록이다.**')
     expect(team).toContain('`RETRY_DUE`')
@@ -265,6 +267,11 @@ describe('다른 스킬', () => {
     expect(ds).toContain('「설계 승인」을 누르면 다음 TICK 에 팀장이 구현을 이어 간다')
     expect(ds).toContain('`WARN_RETRY`')
     expect(ds).toContain('`git worktree remove --force <워크트리>`')
+    // I-1 — build 목록도 고아 스캔과 같은 RETRY_DUE·WARN_RETRY 신호로 fetch·push 실패의 되풀이를 막는다(EXCLUDE_TEMP 단독 금지)
+    expect(ds).toContain('`EXCLUDE_TEMP` 는 만료가 없어 그대로 가두면 다른 사유(설계 관문 등)까지 영구히 막으므로 쓰지 않는다')
+    expect(ds).toContain('`WARN_RETRY` 면 재개 대상에 넣지 않고 「멈춤」(사유 `fetch·push 3회 연속 실패`)으로')
+    expect(ds).toContain('`RETRY_DUE` 면 재개 대상에 더한다(고아 스캔과 같은 30분 신호)')
+    expect(ds).toContain('재시작 뒤 build 목록 주문은 영구 제외가 비어')
   })
   it('팀장: 이어 가기는 resume.md 「서버 판단 확인」 한 곳이 막고, 원격 재개는 승인 대상뿐이다(Y3·Y5·Y8·Y9·Y10·Y12·D16·L2)', () => {
     const team = flat(read('.claude/skills/dflow-team/SKILL.md'))

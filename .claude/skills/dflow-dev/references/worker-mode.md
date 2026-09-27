@@ -151,7 +151,8 @@ agent 브랜치 tip 이고, push 전에 끝났으면 로컬 tip, 브랜치가 �
 | design 「설계만 멈춤」 4·design-first 멈춤 4 의 exit 11 | `failed` | `design-done 거부(<code>)` |
 | design-first 멈춤 4 의 exit 6(계약 2.11) | `design_waiting` | `design-done 미확인` |
 | design 「승인된 설계 고정」, 「설계 받기」 게이트 불통(서버 단계 `ip` 이상 — design-reopen 을 부르지 않는다) | `failed` | `설계 게이트 불통(구현 중)` |
-| design-done 호출(같은 절 2·design 「설계만 멈춤」 4·design-first 멈춤 4)의 그 밖의 exit(6·11 이 아님) | `failed` | `design-done <exit>` |
+| design-done 호출(start 「끝나지 않은 설계 멈춤 이어받기」 2)의 exit 6 이 아닌 것(11 포함) | `failed` | `design-done <exit>` |
+| design-done 호출(design 「설계만 멈춤」 4·design-first 멈춤 4)의 그 밖의 exit(6·11 이 아님) | `failed` | `design-done <exit>` |
 | rework 「범위」: 설계 변경 필요 | `failed` | `설계 변경 필요 — <이유>` |
 | close: push 가 non-fast-forward 로 거부 | `failed` | `원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume` |
 | close: done 의 exit 11 | `failed` | `완료 보고 거부(<code>)` |
