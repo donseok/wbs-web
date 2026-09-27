@@ -5020,7 +5020,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ## Task 18: dflow.sh — exit 11·12, claim·build-start 범위, design-done·design-reopen, list 의 action·mine
 
 **Files:**
-- Modify: `.claude/skills/dflow-work/scripts/dflow.sh`(머리 exit 줄 5행, usage 25~67행, `api_raw` 181~187행, `print_list` 218~226행, `cmd_list` 258~288행, `cmd_claim` 360~401행, `cmd_build_start` 408~428행, `cmd_watch` 572~607행, 디스패치 853~873행)
+- Modify: `.claude/skills/dflow-work/scripts/dflow.sh`(머리 exit 줄 5행, usage 25~67행, `api_raw` 181~187행, `print_list` 218~226행, `cmd_list` 258~288행, `cmd_show` 290~294행, `cmd_claim` 360~401행, `cmd_build_start` 408~428행, `cmd_watch` 572~607행, 디스패치 853~873행)
 - Test: `tests/skills/dflow-design-state-cli.test.ts`(새)
 
 **Interfaces:**
@@ -5033,6 +5033,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `design-done <ref>` → `design-done <id8> <review|accepted|none>`; 404 이고 서버 계약 < 2.11 이면 stderr `DESIGN_STATE_UNSUPPORTED …` 에 exit 7
   - `design-reopen <ref> --reason "<이유>"` → `design-reopened <id8> <status> <design_state|none>`
   - `list [...] [--require-tag t] [--wp W] [--lead]` — 요청에 `agent=<agent_id_default>`, 출력 TSV 끝에 `action`·`mine`(1·0) 두 열. 옛 서버면 두 열이 빈 값
+  - `show <ref>` — 요청에 `agent=<agent_id_default>`. Task 16 의 상세 라우트는 이 라벨의 PC 로 `mine` 을 계산한다. 라벨이 없으면 `runner` 가 찬 주문은 늘 `mine=false` 라, 이어받은 워커가 자기 작업을 "다른 PC 도는 중" 으로 잘못 알고 멈춘다(워커·팀장 문서가 `.order.mine` 을 본다)
   - `watch [...] [--require-tag t] [--wp W]` — 본문에 `require_tag`·`wp`. `--json` 이면 응답 그대로(`build_ready` 포함)
 
 - [ ] **Step 1: 실패하는 테스트**
@@ -5224,6 +5225,10 @@ describe('list·watch(Y4·D22)', () => {
     expect(run(['watch', '--agent', 'hong/mbp/lead', '--require-tag', 'agent', '--wp', 'WP-02,dict/WP-3', '--json']).status).toBe(0)
     expect(sent().at(-1)).toMatchObject({ agent: 'hong/mbp/lead', require_tag: 'agent', wp: 'WP-02,dict/WP-3' })
   })
+  it('show 는 요청 라벨(agent)을 싣는다 — 상세 응답의 mine 이 이 PC 로 계산된다', () => {
+    expect(run(['show', WORK_ID]).status).toBe(0)
+    expect(urlsSent().find(x => x.includes(`/agent/work/${WORK_ID}`)) ?? '').toContain(`/agent/work/${WORK_ID}?agent=hong%2Fmbp%2Fw1`)
+  })
 })
 ```
 
@@ -5328,6 +5333,17 @@ cmd_list() {
 ```
 
 그리고 두 곳의 `"/api/v1/agent/work/mine?scope=$_scope&limit=$MINE_LIMIT"` 를 `"/api/v1/agent/work/mine?$_q"` 로 바꾼다.
+
+`cmd_show` 도 요청 라벨을 싣는다(옛 서버는 모르는 쿼리를 무시한다). `cmd_claim` 안의 상세 조회(선행 evidence 용)는 `mine` 을 쓰지 않으므로 그대로 둔다:
+
+```sh
+cmd_show() {
+  _id=$(resolve_ref "$1")
+  # 요청 라벨(계약 2.11) — 서버가 이 라벨의 PC 로 mine 을 계산한다. 없으면 runner 가 찬 주문은 늘 mine=false 다.
+  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id?agent=$(uri "$(agent_id_default)")") || exit $?
+  printf '%s' "$_body" | jq .
+}
+```
 
 (테스트의 `agent=hong%2Fmbp%2Fw1` 은 `@uri` 가 `/` 를 `%2F` 로 바꾸기 때문이다.)
 
@@ -5467,7 +5483,7 @@ cmd_design_reopen() {
 - [ ] **Step 7: 통과 확인(옛 서버 폴백 포함)**
 
 Run: `npx vitest run tests/skills/dflow-design-state-cli.test.ts tests/skills/dflow-design-first.test.ts tests/skills/dflow-exit-cancelled.test.ts tests/skills/dflow-list-limit.test.ts tests/skills/dflow-claim-identity.test.ts tests/skills/dflow-key-select.test.ts tests/skills/shell-syntax.test.ts`
-Expected: PASS. `dflow-list-limit` 이 URL 을 글자 그대로 비교하면 `&agent=…` 가 붙은 새 URL 에 맞춘다. `shell-syntax` 는 dash·bash 로 문법을 검사한다.
+Expected: PASS. `dflow-list-limit` 이 URL 을 글자 그대로 비교하면 `&agent=…` 가 붙은 새 URL 에 맞춘다. 상세 조회(`show`) URL 을 글자 그대로 비교하거나 `*"/agent/work/<id>")` 처럼 끝을 닫은 패턴으로 가짜 응답을 고르는 기존 테스트가 있으면 `?agent=…` 가 붙은 URL 에 맞춘다(`rtk proxy grep -rln 'agent/work/' tests/skills` 로 찾는다). `shell-syntax` 는 dash·bash 로 문법을 검사한다.
 
 - [ ] **Step 8: 커밋**
 
