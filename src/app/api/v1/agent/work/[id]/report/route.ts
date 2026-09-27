@@ -9,6 +9,8 @@ import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/age
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
 import { emitNotification } from '@/lib/notify/emit'
 import { applyWorkflowEvent, notifyOnReached } from '@/lib/agent/workflowEvent'
+import { canReportCompletion } from '@/lib/domain/designGate'
+import { orderFactsOf } from '@/lib/agent/designFacts'
 
 export const dynamic = 'force-dynamic'
 
@@ -92,6 +94,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       }
     }
 
+    // 완료 보고 관문(설계 상태 스펙 12절 Y1·W23, 계획 P16) — 도는 PC 가 아니거나 살아 있는 다른 세션이 있으면 받지 않는다.
+    // 리프의 단계 ip 조건(Y2)은 RPC 가 잠근 행으로 본다(항목을 여기서 다시 읽지 않는다).
+    const facts = orderFactsOf(order)
+    if (kind === 'completion') {
+      const refusal = canReportCompletion(null, facts, actor.agentLabel, Date.now())
+      if (refusal) {
+        return NextResponse.json({ error: refusal.message, code: refusal.code, ...(refusal.code === 'runner_active' ? { runner: facts.runner } : {}) }, { status: refusal.status })
+      }
+    }
+
     // 계약 v2.3(스펙 2026-09-15 §3.4) — progress 보고는 보고 행만 남긴다. 실적은 단계 전이 사건의 크레딧과
     // 사람의 수기 입력으로만 바뀐다(에이전트가 찍는 임의의 % 대신 정해진 값). 응답 필드는 호환을 위해 둔다.
     const appliedToWbs = false
@@ -125,6 +137,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       // 경합·오류는 보고 행을 지워(고아 행 무해) 같은 내용의 재시도가 수렴하게 한다.
       const transition = await applyWorkflowEvent(admin, {
         event: 'report_completion', actorUserId: loaded.userId, orderId: id,
+        cas: { runner: facts.runner, design_state: facts.designState },
         agent: actor.principal.kind === 'pat' ? null : actor.agentLabel,
         agentUserId: actor.principal.kind === 'pat' ? (actor.userId as string) : null,
       })
@@ -132,7 +145,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         const { error: cleanupErr } = await admin
           .from('agent_work_reports').delete().eq('id', reportId)
         if (cleanupErr) console.error('[agent-api] 보고 행 cleanup 실패(고아 행 남음):', cleanupErr.message)
-        if (transition.conflict) return apiFail(409, 'conflict', '완료 요청 가능한 상태가 아닙니다.')
+        if (transition.reason === 'design_gate') {
+          return apiFail(409, 'design_gate', '완료 보고는 작업 중(ip) 단계에서만 받습니다 — 설계 검토 대기이거나 구현을 시작하지 않은 작업입니다.')
+        }
+        if (transition.conflict) return apiFail(409, 'conflict', '완료 요청 가능한 상태가 아닙니다(다른 PC 가 이어받았을 수 있습니다).')
         console.error('[agent-api] completion 전이 실패:', transition.error)
         return apiInternalError()
       }
