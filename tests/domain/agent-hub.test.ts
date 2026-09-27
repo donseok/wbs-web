@@ -402,6 +402,12 @@ describe('assembleAgentHub — 설계 화면 판정(설계 상태 스펙 3절·7
     expect(r.canToggle).toBe(false)
     expect(r.design).toMatchObject({ row: 3, label: '구현 대기(설계 승인됨)', buttons: ['reopen'] })
   })
+  it('B12(최종 수정) — 승인된 설계인데 선행이 남았으면(2행) 상태 칩도 선행 대기로 접는다(buildWait 거짓)', () => {
+    const hub = assembleAgentHub(withLeaf(leaf({ assignee_member_id: 'm9', depends: ['M/NOPE'] }), { orders: [order({ wbs_item_id: 'a1', design_state: 'accepted', heartbeat_phase: 'wait_review', ...silent })] }), NOW, VIEWER)
+    const r = by(hub, 'TSK-A-01')
+    expect(r.design).toMatchObject({ row: 2, label: '선행 대기(설계 승인됨)' })
+    expect(r.order).toMatchObject({ state: 'WAIT', buildWait: false, reviewWait: false })
+  })
   it('사람 설계 대기(human ∧ 위임 ∧ ready ∧ as)는 6행과 「설계 확정」', () => {
     const ready = order({ wbs_item_id: 'a1', status: 'ready', claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null })
     const hub = assembleAgentHub(withLeaf(leaf({ stage: 'as', actual_pct: 0, design_mode: 'human' }), { orders: [ready] }), NOW, VIEWER)

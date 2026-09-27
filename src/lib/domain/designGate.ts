@@ -297,7 +297,8 @@ export function designModeChangeBlock(p: { designState: DesignState | null; orde
 }
 
 export type DesignButton = 'accept' | 'confirm' | 'reopen'
-export type ScreenOrder = Pick<OrderFacts, 'status' | 'designState' | 'runner' | 'lastHeartbeatAt' | 'heartbeatPhase'> & { designNote: string | null }
+/** claimedBy — 3행 안내가 팀장이 가져갈 주문(팀원 라벨, Y9)인지 가른다. */
+export type ScreenOrder = Pick<OrderFacts, 'status' | 'designState' | 'runner' | 'lastHeartbeatAt' | 'heartbeatPhase' | 'claimedBy'> & { designNote: string | null }
 const HUMAN_DRAFT_STAGES: ReadonlySet<string | null> = new Set([null, 'as', 'ds'])
 
 /** 7절 버튼(서버 조건은 4.1 과 같다). active = 활성 주문(ready·claimed·reported, 0077 로 항목당 하나). */
@@ -336,7 +337,12 @@ export function designScreen(p: {
     // 죽은 구현 워커(runner 는 남았지만 heartbeat 가 끊김)까지 "도는 중"이라 하면 확인 필요 띠(끊김)·허브(무응답)와
     // 반대로 말한다 — 살아 있을 때만(workerAlive) 꼬리를 붙인다(스펙 3절 row 3 "다른 PC 가 도는 중이면").
     const who = active?.runner && alive ? ` · ${active.runner} 가 도는 중` : ''
-    return r(3, `구현 대기(설계 ${which}됨)${who}`, '팀장이 떠 있으면 다음 TICK(기본 30분) 안에 구현을 시작합니다.')
+    // 팀장은 팀원 라벨이 점유한 claimed 주문만 이어받는다(Y9, isMine lead) — 사람이 손으로 점유한 주문(claude-<host> 등)은
+    // build_ready 에 오르지 않으므로 TICK 을 약속하지 않고 사람이 이어 가게 한다(최종 리뷰 Minor 5). ready 는 팀장이 claim 한다.
+    const leadTakes = active?.status !== 'claimed' || isWorkerLabel(active.claimedBy)
+    return r(3, `구현 대기(설계 ${which}됨)${who}`, leadTakes
+      ? '팀장이 떠 있으면 다음 TICK(기본 30분) 안에 구현을 시작합니다.'
+      : '팀장이 가져가지 않는 주문입니다 — /dflow-dev <TSK> 로 이어 가세요.')
   }
   if (active?.status === 'claimed' && ds === null && item.stage === 'dd') {
     return r(4, item.preds !== 'met' ? '설계 완료·선행 대기' : '설계 완료·구현 대기', null)
@@ -358,7 +364,7 @@ export function designScreen(p: {
   if (item.delegated && active === null && item.hasApprovedOrder && item.stage !== 'xx') {
     return r(9, '위임 보류(승인된 주문 있음)', '「재작업」을 쓰세요.')
   }
-  if (item.delegated && active === null && !item.hasApprovedOrder && (stageAtOrPastIp(item.stage) || item.actualPct === 100)) {
+  if (item.delegated && active === null && !item.hasApprovedOrder && alreadyProgressed(item)) {
     return r(10, '위임 보류(단계가 이미 진행됨)', '위임 표식을 떼고 단계를 되돌린 뒤 다시 위임하세요(표식이 있는 동안은 단계 변경이 잠깁니다).')
   }
   if (item.mode === 'review' && active?.status === 'ready' && ds === null && item.preds === 'blocked') return r(11, '선행 대기', null)

@@ -84,7 +84,7 @@ const mine = (s: S, x: PC, lead: boolean) => s.ord !== 'none'
 const activeOf = (s: S) => {
   if (!ACTIVE.has(s.ord)) return null
   const o = order(s)
-  return { status: o.status, designState: o.designState, runner: o.runner, lastHeartbeatAt: o.lastHeartbeatAt, heartbeatPhase: o.heartbeatPhase, designNote: null }
+  return { status: o.status, designState: o.designState, runner: o.runner, lastHeartbeatAt: o.lastHeartbeatAt, heartbeatPhase: o.heartbeatPhase, claimedBy: o.claimedBy, designNote: null }
 }
 const reportOk = (s: S, caller: string) => canReportCompletion({ stage: s.stage, isLeaf: true }, order(s), caller, NOW) === null
 const unapproved = (s: S) => s.dst === 'review' || ((s.mode === 'review' || s.mode === 'human') && s.dst !== 'accepted')

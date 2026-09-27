@@ -50,7 +50,7 @@ const DETAIL = {
 const ITEM: ItemFacts = { mode: 'review', stage: 'as', actualPct: 0, delegated: true, hasApprovedOrder: false, preds: 'met' }
 type ActiveOrder = NonNullable<DesignTarget['active']>
 const ORDER: ActiveOrder = {
-  id: 'o-1', status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null,
+  id: 'o-1', status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null, claimedBy: null,
 }
 /** 서버와 같은 판정(designPanelOf)으로 패널을 만든다 — 화면 문구·사유·버튼·잠금이 규칙 원본(designGate)에서 온다. */
 function panelOf(item: Partial<ItemFacts>, order: Partial<ActiveOrder> | null): DesignPanel {

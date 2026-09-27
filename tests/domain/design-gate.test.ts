@@ -280,7 +280,7 @@ describe('designModeChangeBlock(4.1 설계 방식 변경)', () => {
 
 describe('designButtons(7절, P8)', () => {
   const s = (o: Partial<ScreenOrder>): ScreenOrder => ({
-    status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null, ...o,
+    status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null, claimedBy: null, ...o,
   })
   it('설계 승인: claimed ∧ review ∧ dd', () => {
     expect(designButtons(item({ stage: 'dd', mode: 'review' }), s({ status: 'claimed', designState: 'review' }))).toEqual(['accept'])
@@ -307,7 +307,7 @@ describe('designButtons(7절, P8)', () => {
 
 describe('designScreen — 3절 판정표(12절 L2·L14, P8)', () => {
   const s = (o: Partial<ScreenOrder>): ScreenOrder => ({
-    status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null, ...o,
+    status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null, claimedBy: null, ...o,
   })
   const row = (i: Partial<ItemFacts>, o: Partial<ScreenOrder> | null, lastReview: 'approve' | 'reject' | null = null) =>
     designScreen({ item: item(i), active: o === null ? null : s(o), lastReview, nowMs: NOW })
@@ -343,6 +343,19 @@ describe('designScreen — 3절 판정표(12절 L2·L14, P8)', () => {
   it('3행은 runner 가 있어도 heartbeat 가 죽었으면(prepare 중 죽어 build-start 전) 꼬리를 붙이지 않는다 — 확인 필요 띠(끊김)·허브(무응답)와 반대로 말하지 않는다', () => {
     expect(row({ stage: 'dd', mode: 'review' }, { status: 'claimed', designState: 'accepted', runner: 'kim/pc2/w1', lastHeartbeatAt: ago(10), heartbeatPhase: 'prepare' })?.label)
       .toBe('구현 대기(설계 승인됨)')
+  })
+  it('Minor 5(최종 수정) — 3행 안내: 팀원 라벨이 아닌 claimed 주문은 팀장이 가져가지 않으므로 /dflow-dev 로 이어 가라고 한다', () => {
+    const tick = '팀장이 떠 있으면 다음 TICK(기본 30분) 안에 구현을 시작합니다.'
+    const resume = '팀장이 가져가지 않는 주문입니다 — /dflow-dev <TSK> 로 이어 가세요.'
+    const accepted = { status: 'claimed', designState: 'accepted' } as const
+    expect(row({ stage: 'dd', mode: 'review' }, { ...accepted, claimedBy: 'claude-mbp' })).toMatchObject({ row: 3, hint: resume })
+    expect(row({ stage: 'dd', mode: 'review' }, { ...accepted, claimedBy: 'hong/mbp/w1' })).toMatchObject({ row: 3, hint: tick })
+    // 사람이 확정한 ready 주문은 점유자가 없다(claimedBy null) — 팀장이 가져가므로 TICK 안내 그대로다.
+    expect(row({ stage: 'dd', mode: 'human' }, { designState: 'accepted' })).toMatchObject({ row: 3, hint: tick })
+  })
+  it('C17(최종 수정) — 10행은 alreadyProgressed 와 같은 식(실적 100 이상)', () => {
+    expect(row({ actualPct: 100 }, null)?.row).toBe(10)
+    expect(row({ stage: 'im' }, null)?.row).toBe(10)
   })
   it('5행 재작업 대기는 살아 있는 heartbeat 가 없을 때만(L2)', () => {
     expect(row({ stage: 'ip' }, { status: 'claimed' }, 'reject')?.row).toBe(5)

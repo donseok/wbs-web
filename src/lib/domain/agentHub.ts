@@ -2,7 +2,7 @@
 // 좌석 층은 여기서 만들지 않는다 — /agents/office 가 좌석표 로더로 그린다(2026-09-14 스튜디오 분리 스펙 §4-2).
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
 import { deriveSeatState, isApprovalWait, isBuildWait, isReviewWait, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
-import { AGENT_TAG, isSubtreeManagerOf, screenItemFacts, screenOrderOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
+import { AGENT_TAG, LIVE_ORDER_STATUSES, isSubtreeManagerOf, screenItemFacts, screenOrderOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 import { deriveWaitReason, type PredecessorLike, type WaitReason } from './waitReason'
 import { designScreen, toDesignState, type DesignScreenRow, type DesignState } from './designGate'
 import { parseDecisions, stageLockedForHuman, type DecisionsParse } from './agentWork'
@@ -105,7 +105,6 @@ export interface AgentHub {
 }
 export interface HubViewer { userId: string; userEmail: string | null; isAdmin: boolean }
 
-const LIVE: readonly OrderStatus[] = ['ready', 'claimed', 'reported']
 const WORKING: readonly SeatState[] = ['ACTIVE', 'STALE', 'OFFLINE', 'BLOCKED', 'REJECTED']
 
 /** 로스터 이중 매칭(src/lib/agent/assignee.ts 와 같은 규칙): user_id 링크 또는 이메일 소문자 일치. */
@@ -149,7 +148,7 @@ function flatten(items: HubItemRow[]): { item: HubItemRow; depth: number }[] {
 /** 살아 있는 주문(ready/claimed/reported) 중 updated_at 최신 1건, 없으면 최근 approved 1건. */
 function pickOrder(list: OrderRow[]): OrderRow | null {
   const newest = (xs: OrderRow[]) => xs.reduce<OrderRow | null>((best, o) => (!best || Date.parse(o.updated_at) > Date.parse(best.updated_at) ? o : best), null)
-  return newest(list.filter(o => LIVE.includes(o.status))) ?? newest(list.filter(o => o.status === 'approved'))
+  return newest(list.filter(o => LIVE_ORDER_STATUSES.includes(o.status))) ?? newest(list.filter(o => o.status === 'approved'))
 }
 
 /** 층이 없을 때(위임 주문 0)도 감시 중인 에이전트는 보여야 한다 — seatmap.ts 의 층 감시자 규칙과 같다(프로젝트 일치 또는 전역, TTL 안, agent 순). */
@@ -244,7 +243,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     if (waitReason !== null && (waitReason.kind === 'dependency' || waitReason.kind === 'agent_off')) counters.stuck++
     // 설계 화면 판정(설계 상태 스펙 3절) — 리프만. 활성 주문만 active 로 넘긴다: pickOrder 의 approved 폴백은 활성 주문이
     // 아니다(활성 주문이 없어야 걸리는 9·10행이 그 경우를 본다).
-    const live = picked !== null && LIVE.includes(picked.status) ? picked : null
+    const live = picked !== null && LIVE_ORDER_STATUSES.includes(picked.status) ? picked : null
     const design = isLeaf
       ? designScreen({
           item: screenItemFacts(item, predOf, approved.has(item.id)),
@@ -253,6 +252,9 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
           nowMs,
         })
       : null
+    // 3절 2행(선행 대기, 설계 승인·확정됨)이면 상태 칩도 선행 대기로 접는다 — isBuildWait 은 선행을 보지 않아 「구현 대기」 칩과
+    // 「선행 대기(설계 승인됨)」 문구가 한 행에 섞였다(최종 수정 B12). 판정은 designScreen 의 행 번호 하나를 따른다.
+    if (order?.buildWait && design?.row === 2) order = { ...order, buildWait: false }
     hubRows.push({
       itemId: item.id, code: item.code, name: item.name, depth, parentId: item.parent_id,
       isLeaf, milestone: item.milestone,

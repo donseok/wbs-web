@@ -232,12 +232,12 @@ export function screenItemFacts(
 export function screenOrderOf(o: OrderRow, heartbeatPhase: string | null = o.heartbeat_phase): ScreenOrder {
   return {
     status: o.status, designState: toDesignState(o.design_state ?? null), runner: o.runner ?? null,
-    lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase, designNote: o.design_note ?? null,
+    lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase, designNote: o.design_note ?? null, claimedBy: o.claimed_by ?? null,
   }
 }
 
-/** 활성 주문(0077) — 설계 화면 판정은 이 셋만 본다. */
-const LIVE_STATUSES: ReadonlySet<OrderStatus> = new Set<OrderStatus>(['ready', 'claimed', 'reported'])
+/** 활성 주문(0077, 항목당 하나) — 설계 화면 판정은 이 셋만 본다. 좌석(seatmap)과 허브(agentHub)가 같이 쓴다. */
+export const LIVE_ORDER_STATUSES: readonly OrderStatus[] = ['ready', 'claimed', 'reported']
 
 const WORK_STATES: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED']
 const ATTENTION_ORDER: readonly SeatState[] = ['BLOCKED', 'STALE', 'OFFLINE', 'REJECTED']
@@ -435,7 +435,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     // 설계 문구(설계 상태 스펙 3절 화면 판정) — 활성 주문만 본다: 승인분(DONE)은 활성 주문이 없어야 걸리는 9·10행의 대상이
     // 아니다. BLOCKED 와 살아 있는 워커(신선한 heartbeat, wait_* 제외 — workerAlive)를 먼저 본다. 좌석 상태(ACTIVE)로 가르지
     // 않는 까닭: 「설계 승인」은 updated_at 만 새로 써 좌석이 잠시 ACTIVE 로 보이지만 도는 워커는 없다.
-    if (item && LIVE_STATUSES.has(o.status)) {
+    if (item && LIVE_ORDER_STATUSES.includes(o.status)) {
       const active = screenOrderOf(o, seat.heartbeatPhase)
       if (seat.state !== 'BLOCKED' && !workerAlive(active, nowMs)) {
         const facts = screenItemFacts(item, ref => predByKey.get(`${o.project_id}\u0000${ref}`), approvedItemIds.has(item.id))

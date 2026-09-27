@@ -86,7 +86,7 @@ describe('designPanelOf', () => {
   const base = { itemId: W1, projectId: 'p1', lastReview: null as null }
   it('설계 검토 대기 — 1행 문구·사유, 「설계 승인」 버튼, 방식 잠금', () => {
     const p = designPanelOf({ ...base, item: facts(), orderStatuses: ['claimed'],
-      active: { id: O1, status: 'claimed', designState: 'review', runner: null, lastHeartbeatAt: null, heartbeatPhase: 'wait_review', designNote: '빠진 절: 테스트 전략' } }, Date.now())
+      active: { id: O1, status: 'claimed', designState: 'review', runner: null, lastHeartbeatAt: null, heartbeatPhase: 'wait_review', designNote: '빠진 절: 테스트 전략', claimedBy: null } }, Date.now())
     expect(p.screen).toMatchObject({ row: 1, label: '설계 검토 대기', note: '빠진 절: 테스트 전략' })
     expect(p.buttons).toEqual(['accept'])
     expect(p.modeLock).toMatch(/설계가/)
@@ -95,20 +95,20 @@ describe('designPanelOf', () => {
   })
   it('구현자동 ready — 6행과 「설계 확정」, 방식은 바꿀 수 있다', () => {
     const p = designPanelOf({ ...base, item: facts({ mode: 'human', stage: 'as', actualPct: 0 }), orderStatuses: ['ready'],
-      active: { id: O1, status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null } }, Date.now())
+      active: { id: O1, status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null, claimedBy: null } }, Date.now())
     expect(p.screen?.row).toBe(6)
     expect(p.buttons).toEqual(['confirm'])
     expect(p.modeLock).toBeNull()
   })
   it('승인된 설계로 구현 중 — push 경고(Y13), 버튼 없음', () => {
     const p = designPanelOf({ ...base, item: facts({ stage: 'ip', actualPct: 50 }), orderStatuses: ['claimed'],
-      active: { id: O1, status: 'claimed', designState: 'accepted', runner: 'a/b/w1', lastHeartbeatAt: new Date().toISOString(), heartbeatPhase: 'build', designNote: null } }, Date.now())
+      active: { id: O1, status: 'claimed', designState: 'accepted', runner: 'a/b/w1', lastHeartbeatAt: new Date().toISOString(), heartbeatPhase: 'build', designNote: null, claimedBy: null } }, Date.now())
     expect(p.pushWarning).toMatch(/agent 브랜치에 push 하지 마세요/)
     expect(p.buttons).toEqual([])
   })
   it('어느 행에도 맞지 않으면 screen 은 null(단계 문구 그대로) — 완전자동 대기 주문', () => {
     const p = designPanelOf({ ...base, item: facts({ mode: 'auto', stage: 'as', actualPct: 0 }), orderStatuses: ['ready'],
-      active: { id: O1, status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null } }, Date.now())
+      active: { id: O1, status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null, claimedBy: null } }, Date.now())
     expect(p).toEqual({ mode: 'auto', designState: null, screen: null, buttons: [], pushWarning: null, modeLock: null })
   })
 })

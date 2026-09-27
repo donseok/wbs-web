@@ -57,14 +57,14 @@ function admin(row: { design_mode: string | null } | null, error: { message: str
 const target = (over: Record<string, unknown> = {}) => ({
   itemId: W1, projectId: P1, lastReview: null, orderStatuses: ['claimed'],
   item: { mode: 'review', stage: 'dd', actualPct: 20, delegated: true, hasApprovedOrder: false, preds: 'met' },
-  active: { id: O1, status: 'claimed', designState: 'review', runner: null, lastHeartbeatAt: null, heartbeatPhase: 'wait_review', designNote: null },
+  active: { id: O1, status: 'claimed', designState: 'review', runner: null, lastHeartbeatAt: null, heartbeatPhase: 'wait_review', designNote: null, claimedBy: null },
   ...over,
 })
 /** 구현자동(human) 작업의 ready 주문 — 「설계 확정」 자리. */
 const humanReady = () => target({
   orderStatuses: ['ready'],
   item: { mode: 'human', stage: 'as', actualPct: 0, delegated: true, hasApprovedOrder: false, preds: 'met' },
-  active: { id: O1, status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null },
+  active: { id: O1, status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null, claimedBy: null },
 })
 
 beforeEach(() => {
@@ -192,7 +192,7 @@ describe('설계 세 버튼 — 서버 판정으로 다시 보고, CAS 로 쓴�
   })
   it('「설계 되돌리기」 — 사유를 다듬어 싣고, 비면 서버 기본 사유', async () => {
     admin(null)
-    const accepted = { id: O1, status: 'claimed', designState: 'accepted', runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null }
+    const accepted = { id: O1, status: 'claimed', designState: 'accepted', runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null, claimedBy: null }
     mocks.loadDesignTarget.mockResolvedValue(target({ active: accepted }))
     mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, actualChanged: true, skipped: null })
     expect(await designReopen(W1, '  테스트 전략이 모자람  ')).toEqual({ ok: true })
