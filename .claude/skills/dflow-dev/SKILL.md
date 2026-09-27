@@ -73,6 +73,7 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   `/dflow-team` 팀장이 spawn 직전에 서버 status(`ready`·`claimed`)로 확인하고 지운다. 수동 `/dflow-dev` 세션은 사람이
   지운다. `cancelled` 는 진행 중 phase 가 아니다 — 스윕·재개 판정은 건너뛴다.
   exit 12(다른 PC 가 이어받음)도 그 자리에서 멈추되 state.json 은 바꾸지 않는다(`orch/start.md` 「서버 판단」).
+  `design-done`·`design-reopen` 도 같은 api_raw 경로라 exit 10·12 는 위와 같이 처리한다.
   **`api_base` 는 claim 한 시점의 `DFLOW_API_BASE` 에서 끝 `/` 를 뺀 값이다**(dflow.sh `base()` 와 같은 정규화). 스윕이
   이 값으로 자기 D'Flow 인스턴스의 후보만 고른다. Phase 01 에서 state.json 을 처음 쓰는 곳(3번 `prepare`·스택 기록 또는
   4번 기준선)에서 기록한다. 반려 재작업이 기존 state.json 에 `phase=rejected` 를 쓸 때 `api_base` 가 없으면 같은 규칙으로 채운다.

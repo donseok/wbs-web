@@ -116,10 +116,27 @@ describe('Design(design.md)', () => {
     expect(sec).toContain('`wait_pred` 를 쓰지 않는 이유')
     expect(sec).toContain('옛 서버면 `dflow.sh heartbeat <ref> --phase wait_review` 를 부른다')
   })
-  it('승인된 설계는 ip 이상에서 고정이다(D24·L3)', () => {
+  it('설계 받기 게이트 불통은 서버 단계로 갈래를 정하고, design-reopen 은 exit 로 결과가 갈린다(I-1)', () => {
+    expect(d).toContain('**이미 `ip` 이상이면**')
+    expect(d).toContain('design-reopen 을 부르지 않는다 — 서버는 설계 상태가 `review` 이거나 `accepted`∧단계 `dd` 일 때만 그 동사를 받는다')
+    expect(d).toContain('0108_design_state.sql 259~262행')
+    expect(d).toContain('**단계가 아직 `ds`·`dd` 면** 빠진 절을 적어')
+    expect(d).toContain('exit 0 이면 서버가 review 는 설계 검토 대기로, human 은 사람 설계 대기로 되돌린다')
+    expect(d).toContain('exit 6(네트워크)이면 다시 부를 수 있는 상태로 알리고 끝낸다. 그 밖의 exit 는 서버가 거부한 것이다')
+  })
+  it('승인된 설계는 ip 이상에서 고정이고, 「설계 받기」 게이트 불통도 같은 자리로 간다(D24·L3·I-1)', () => {
     expect(d).toContain('### 승인된 설계 고정 (D24, 계약 2.11)')
     expect(d).toContain('`## 도커 금지로 생략한 검증`')
     expect(d).toContain('Design 으로 후퇴하려 하면 후퇴하지 않고')
+    expect(d).toContain('「설계 받기」 자체의 게이트 불통도 같다')
+  })
+  it('승인된 설계 고정은 다음 단계 앞에 있고, 다음 단계 뒤에는 절이 없다(M-2)', () => {
+    const iFixed = d.indexOf('### 승인된 설계 고정')
+    const iNext = d.indexOf('**다음 단계**')
+    expect(iFixed).toBeGreaterThan(-1)
+    expect(iNext).toBeGreaterThan(-1)
+    expect(iFixed).toBeLessThan(iNext)
+    expect(d.indexOf('###', iNext)).toBe(-1)
   })
   it('워커는 알림 대신 결과 줄 표를 쓴다(표지 블록 안)', () => {
     const b = workerBlocks(devOrch('design')).map((x) => x.body).join('\n')
@@ -142,7 +159,7 @@ describe('설계 선행·재작업·마감', () => {
   it('재작업은 claim_scope build 면 Design 없이 승인된 설계로, build-start 는 rework(6.5)', () => {
     const r = flat(devOrch('rework'))
     expect(r).toContain('서버 `claim_scope` 가 `build` 면')
-    expect(r).toContain('`"{TSK} 설계 변경 필요 — <이유>"`')
+    expect(r).toContain('`"{TSK} 는 설계를 바꿔야 합니다: <이유>"`')
     expect(r).toContain('재작업의 `build-start` 는 방식과 무관하게 `--scope rework` 다')
   })
   it('마감은 사람 커밋 충돌(Y13)과 done 의 exit 11·12 를 가른다', () => {
@@ -163,12 +180,31 @@ describe('워커 규칙(worker-mode.md·worker-prompt.md)', () => {
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('### 설계 상태의 결과 줄(계약 2.11)')
   })
-  it('결과 줄 표가 새 status·사유를 모두 싣는다', () => {
-    for (const t of ['`<action_reason>`', '`다른 PC 도는 중(<runner>)`', '`방식 확인 필요`', '`design-done 미확인`',
-      '`브랜치 갈라짐 <로컬 sha> <origin sha>`', '`fetch 실패`', '`push 실패`', '`사람 설계 초안 있음`', '`설계 관문(<code>)`',
-      '`design_reopened`', '`주문이 바뀜`', '`design-done 거부(<code>)`', '`설계 게이트 불통(구현 중)`', '`설계 변경 필요 — <이유>`',
-      '`원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume`', '`완료 보고 거부(<code>)`'])
-      expect(w, t).toContain(t)
+  it('결과 줄 표는 한 행 안에 status 와 사유가 짝으로 있다(M-5)', () => {
+    const rows = read(WORKER_MODE).split('\n').filter((l) => l.trim().startsWith('|'))
+    const pair = (status: string, reason: string) => {
+      const hit = rows.some((r) => r.includes(status) && r.includes(reason))
+      expect(hit, `${status} / ${reason}`).toBe(true)
+    }
+    pair('`skipped`', '`<action_reason>`')
+    pair('`skipped`', '`다른 PC 도는 중(<runner>)`')
+    pair('`failed`', '`방식 확인 필요`')
+    pair('`design_review`', '`design-done 미확인`')
+    pair('`failed`', '`브랜치 갈라짐 <로컬 sha> <origin sha>`')
+    pair('`skipped`', '`fetch 실패`')
+    pair('`skipped`', '`push 실패`')
+    pair('`skipped`', '`사람 설계 초안 있음`')
+    pair('`skipped`', '`설계 관문(<code>)`')
+    pair('`skipped`', '`주문이 바뀜`')
+    pair('`skipped`', '`design-reopen 미확인`')
+    pair('`failed`', '`design-reopen 거부(<code>)`')
+    pair('`failed`', '`design-done 거부(<code>)`')
+    pair('`failed`', '`설계 게이트 불통(구현 중)`')
+    pair('`failed`', '`설계 변경 필요 — <이유>`')
+    pair('`failed`', '`원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume`')
+    pair('`failed`', '`완료 보고 거부(<code>)`')
+    // M-1: order_changed 는 이제 skipped 다 — design_reopened 와 짝짓지 않는다(회귀 방지)
+    expect(rows.some((r) => r.includes('`design_reopened`') && r.includes('`주문이 바뀜`'))).toBe(false)
   })
   it('worker-prompt: SCOPE 는 늘 --scope 로 넘기고, 서버 쓰기 범위와 결과 표에 새 동사·status 가 있다', () => {
     const wp = flat(read('.claude/skills/dflow-team/references/worker-prompt.md'))

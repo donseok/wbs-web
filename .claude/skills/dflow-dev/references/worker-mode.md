@@ -141,17 +141,22 @@ agent 브랜치 tip 이고, push 전에 끝났으면 로컬 tip, 브랜치가 �
 | 훅 거부가 아닌 push 실패(이어받기·「설계만 멈춤」 3·design-first 멈춤 3·close) | `skipped` | `push 실패` |
 | claim 「사람 설계 초안 확인」 | `skipped` | `사람 설계 초안 있음` |
 | claim 「범위」 의 exit 11, design 표의 그 밖의 exit 11 | `skipped` | `설계 관문(<code>)` |
-| design 「설계 받기」 게이트 불통(review), design-first 「3」 5 선행 계약 바뀜(review) | `design_review` | `<빠진 절>` 또는 `선행 계약 바뀜: <파일…>` |
-| design 「설계 받기」 게이트 불통(human), design-first 「3」 5 선행 계약 바뀜(human) | `design_reopened` | 같은 사유 |
-| design 표의 exit 11 + `order_changed` | `design_reopened` | `주문이 바뀜` |
+| design 「설계 받기」 게이트 불통(review, exit 0, 단계 아직 `ds`·`dd`), design-first 「3」 5 선행 계약 바뀜(review, exit 0) | `design_review` | `<빠진 절>` 또는 `선행 계약 바뀜: <파일…>` |
+| design 「설계 받기」 게이트 불통(human, exit 0, 단계 아직 `ds`·`dd`), design-first 「3」 5 선행 계약 바뀜(human, exit 0) | `design_reopened` | 같은 사유 |
+| design 표의 exit 11 + `order_changed`(build-start, 방식과 무관) | `skipped` | `주문이 바뀜` |
+| design 「설계 받기」·design-first 「3」 5 의 design-reopen 호출 exit 6 | `skipped` | `design-reopen 미확인` |
+| 같은 호출의 그 밖의 exit | `failed` | `design-reopen 거부(<code>)` |
 | design 「설계만 멈춤」 5 | `design_review` | `-` |
 | design 「설계만 멈춤」 4 의 exit 6 | `design_review` | `design-done 미확인` |
 | design 「설계만 멈춤」 4·design-first 멈춤 4 의 exit 11 | `failed` | `design-done 거부(<code>)` |
 | design-first 멈춤 4 의 exit 6(계약 2.11) | `design_waiting` | `design-done 미확인` |
-| design 「승인된 설계 고정」 | `failed` | `설계 게이트 불통(구현 중)` |
+| design 「승인된 설계 고정」, 「설계 받기」 게이트 불통(서버 단계 `ip` 이상 — design-reopen 을 부르지 않는다) | `failed` | `설계 게이트 불통(구현 중)` |
 | rework 「범위」: 설계 변경 필요 | `failed` | `설계 변경 필요 — <이유>` |
 | close: push 가 non-fast-forward 로 거부 | `failed` | `원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume` |
 | close: done 의 exit 11 | `failed` | `완료 보고 거부(<code>)` |
 
-exit 12 로 끝날 때는 state.json 을 바꾸지 않는다(다른 PC 가 이어 간다). `design_reopened` 는 주문이 사람 설계 대기로 돌아갔거나(구현자동)
-주문이 바뀐 것이다 — 팀장이 워크트리를 지운다(설계 원본은 개발 브랜치이거나 이미 push 돼 있다).
+exit 12 로 끝날 때는 state.json 을 바꾸지 않는다(다른 PC 가 이어 간다). `design_reopened` 는 구현자동 작업의 사람 설계가 게이트·선행
+계약 검사를 통과하지 못해 사람 설계 대기로 되돌아간 것이다 — 팀장이 워크트리를 지운다. human 방식은 설계 원본이 개발 브랜치에,
+review 방식은 원격 agent 브랜치에 있으므로 다시 잡아도 잃을 것이 없다. `주문이 바뀜`(build-start exit 11 의 `order_changed`)은
+`skipped` 다(build-start exit 11·12 는 방식과 무관하게 늘 일시 제외) — full·legacy 범위는 그 설계가 이 PC 의 로컬 agent 브랜치에
+커밋돼 남아 있으므로, 같은 PC 가 다시 잡으면 그 브랜치로 이어 간다.

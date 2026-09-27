@@ -22,7 +22,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
    (exit 2)는 파일 형식 오류다 — 고쳐 다시 부른다. stderr 경고 `DECISIONS_COUNT_MISMATCH`·`DECISIONS_SUFFIX_MISSING`(요약
    접미사와 목록 건수가 어긋남)과 `서버가 결정 목록을 모릅니다(계약 < 2.6)`(옛 서버라 요약 접미사로만 전달)는 보고는 된 것이다.
    done 이 exit 12(stderr 끝줄 `RUNNER_ACTIVE <runner>`)면 다른 PC 가 이 작업을 넘겨받았다 — state.json 을 바꾸지 않고
-   `"{TSK} 다른 PC 도는 중 — <runner>"` 로 알리고 끝낸다. exit 11(`DESIGN_GATE <code>`)이면 서버가 완료 보고를 거부했다(설계 검토 대기이거나
+   `"{TSK} 는 다른 PC(<runner>)가 돌리고 있어 멈춥니다."` 로 알리고 끝낸다. exit 11(`DESIGN_GATE <code>`)이면 서버가 완료 보고를 거부했다(설계 검토 대기이거나
    단계가 작업 중이 아님) — 그 코드를 적어 보고하고 끝낸다.
 4. state.json 을 `phase=reported` 로 갱신하고, 그 파일을 파일명을 명시해 커밋한 뒤 `git push origin <agent 브랜치>` 한다.
    push 가 훅에 거부되면 우회하지 않고 보고한다. done 은 이미 보고됐으므로 되돌리지 않는다(이 push 가 실패해도

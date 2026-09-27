@@ -28,7 +28,8 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
    `action`(`full`·`design`·`build`·`wait`·`skip`)·`action_reason`·`mine`·`design_mode`·`design_state`(`review`·`accepted`·없음)·
    `claim_scope`·`runner`·`runner_seen_at` 이다. claimed 주문의 `mine` 은 "같은 신원이고 이 PC 가 돌려도 된다" 는 뜻이다(`dflow.sh show`
    가 이 세션의 라벨을 보낸다). 계약 2.11 이 아니면(옛 서버) 이 문단을 건너뛰고 종전대로 한다 — 모든 작업을 완전자동으로 보고, 수동
-   `--scope design`·`build` 는 로컬 state.json 으로 돈다(아래 「옛 서버의 설계 검토 대기」·「옛 서버의 범위 build」).
+   `--scope design`·`build` 는 로컬 state.json 으로 돈다(아래 「옛 서버의 설계 검토 대기」·「옛 서버의 범위 build」). 범위는 `--scope`
+   가 있으면 그 값이고, 없으면 state.json `scope`, 그것도 없으면 `full` 이다.
    - ready: 범위는 `--scope` 가 있으면 그 값이다(팀장은 늘 넘긴다). 없으면 `action` 이 `full`·`design`·`build` 일 때 그 값이다.
      `action` 이 `wait`·`skip` 이면 착수하지 않고 `"{TSK} 지금은 할 일이 없다 — <action_reason>"` 으로 알리고 끝낸다. 범위가 작업과
      맞는지는 서버가 claim 때 다시 본다(exit 11 — `orch/claim.md`).
@@ -54,7 +55,8 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
    1. `git fetch origin` 뒤 로컬 agent 브랜치를 origin 과 견준다(로컬에 없으면 `orch/design-first.md` 「3」 0 처럼 origin 에서 만든다).
       로컬이 앞서 있으면 `git push origin <agent 브랜치>` 한다. origin 이 앞서거나 같으면 push 하지 않는다. 갈라졌으면 이어 가지 않고
       두 끝의 sha 를 적어 알리고 끝낸다. fetch·push 가 실패하면 그 사실을 알리고 끝낸다(다시 돌리면 여기부터 이어 간다).
-   2. `dflow.sh design-done <ref>` 를 부른다. 실패하면(exit 6) 그 사실을 알리고 끝낸다(다시 돌리면 이어 간다). `wait_review` 였으면
+   2. `dflow.sh design-done <ref>` 를 부른다. 실패하면(exit 6) 그 사실을 알리고 끝낸다(다시 돌리면 이어 간다). 그 밖의 exit 는
+      `failed design-done <exit>` 로 알리고 끝낸다. `wait_review` 였으면
       출력의 설계 상태가 `review` 일 때 위 「서버 판단」 의 설계 검토 대기처럼 알리고 끝낸다. `review` 가 아니면(2.10 설계만 잔재가
       완전자동 작업에 남았다) `"{TSK} 설계만으로 멈춘 작업인데 서버에 설계 검토 대기가 없습니다 — 작업의 설계 방식을 확인하세요"` 로
       알리고 끝낸다. `wait_pred` 였으면 아래 「설계 선행 재개」 로 간다.

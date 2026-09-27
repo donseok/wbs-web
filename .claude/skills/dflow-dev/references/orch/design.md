@@ -13,9 +13,14 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
   덮어쓰고, 바뀌었으면 그 파일만 파일명을 명시해 커밋한다(`DFlow-Order` 트레일러). 같은 주문의 옛 agent 브랜치에 남은 옛 사본으로 게이트가
   되풀이해 실패하지 않게 한다. 개발 브랜치에 그 파일이 없으면 아래 게이트 불통과 같게 다룬다(빠진 것은 `design.md 없음`).
 
-받아 온 바로 뒤, 다른 것을 커밋하기 전에 아래 Design 게이트를 돈다. 불통이면 빠진 절을 적어
-`dflow.sh design-reopen <ref> --reason "<빠진 절>"` 을 부르고 알린 뒤 끝낸다 — 서버가 review 는 설계 검토 대기로, human 은 사람 설계
-대기로 되돌리고 사유를 화면에 보인다. 빠진 절을 스스로 채우지 않는다(설계는 사람이 고친다).
+받아 온 바로 뒤, 다른 것을 커밋하기 전에 아래 Design 게이트를 돈다. 통과하면 이어 간다. 불통이면 먼저 서버 단계(`.order.item.stage`)를
+본다. **이미 `ip` 이상이면**(반려 재작업이거나, build-start 가 이미 성공한 뒤 state.json 만 `design` 에 남아 재개가 여기로 들어왔다)
+design-reopen 을 부르지 않는다 — 서버는 설계 상태가 `review` 이거나 `accepted`∧단계 `dd` 일 때만 그 동사를 받는다(migration
+0108_design_state.sql 259~262행). 「승인된 설계 고정」 절의 `"{TSK} 설계 게이트 불통(구현 중) — 사람이 설계를 고친 뒤 --resume 하세요"`
+로 알리고 끝낸다. **단계가 아직 `ds`·`dd` 면** 빠진 절을 적어 `dflow.sh design-reopen <ref> --reason "<빠진 절>"` 을 부른다. exit 0
+이면 서버가 review 는 설계 검토 대기로, human 은 사람 설계 대기로 되돌린다 — 빠진 절을 사유로 알리고 끝낸다. exit 6(네트워크)이면
+다시 부를 수 있는 상태로 알리고 끝낸다. 그 밖의 exit 는 서버가 거부한 것이다 — 그 코드를 적어 알리고 끝낸다. 빠진 절을 스스로 채우지
+않는다(설계는 사람이 고친다).
 
 ### Design 게이트
 
@@ -48,8 +53,8 @@ state.json 전진·`progress 25`)과 3번(회수)은 이 절을 마친 뒤 한�
    | exit 4 | 설계 완료·선행 대기로 멈춘다(아래 멈춤 절차) |
    | exit 10 | 중단(상태 모델) |
    | exit 11 + stderr 끝줄 `DESIGN_GATE design_gate order_changed` | 그 사이 사람이 설계를 되돌렸거나 주문이 바뀌었다. Build 로 가지 않고 `"{TSK} 주문이 바뀌어 구현을 시작하지 않았습니다 — 다시 확정되면 새로 시작합니다"` 로 알리고 끝낸다 |
-   | 그 밖의 exit 11(`DESIGN_GATE <code>`) | 설계 관문 거부다. Build 로 가지 않고 `"{TSK} 설계 관문 거부(<code>)"` 로 알리고 끝낸다(`phase` 는 그대로) |
-   | exit 12(`RUNNER_ACTIVE <runner>`) | 다른 PC 가 이 작업을 돌리는 중이다. state.json 을 바꾸지 않고 push·done 없이 `"{TSK} 다른 PC 도는 중 — <runner>"` 로 알리고 끝낸다 |
+   | 그 밖의 exit 11(`DESIGN_GATE <code>`) | 설계 관문 거부다. Build 로 가지 않고 `"{TSK} 는 설계 관문에서 거부됐습니다(<code>)."` 로 알리고 끝낸다(`phase` 는 그대로) |
+   | exit 12(`RUNNER_ACTIVE <runner>`) | 다른 PC 가 이 작업을 돌리는 중이다. state.json 을 바꾸지 않고 push·done 없이 `"{TSK} 는 다른 PC(<runner>)가 돌리고 있어 멈춥니다."` 로 알리고 끝낸다 |
    | 그 밖 | Build 로 가지 않고 중단·보고한다. `phase` 는 `design` 그대로라 재실행하면 Design 게이트 뒤에서 다시 부른다. 워커는 `failed build-start <exit>` |
 
 
@@ -65,7 +70,8 @@ state.json 전진·`progress 25`)과 3번(회수)은 이 절을 마친 뒤 한�
    「끝나지 않은 설계 멈춤 이어받기」 가 마저 한다).
 4. 계약 2.11(`dflow.sh contract-ge 2.11` 이 exit 0)이면 `dflow.sh design-done <ref>` 를 부른다. 서버가 단계를 `dd`, 설계 상태를 `review`
    로 두고 도는 PC 를 비운다(좌석은 「설계 검토 대기」). exit 6(네트워크)이면 멈춤을 계속한다(다시 돌리면 이어받기가 마저 한다). exit 11
-   이면 서버가 거부한 것이다 — 그 코드를 적어 보고하고 끝낸다. 옛 서버면 `dflow.sh heartbeat <ref> --phase wait_review` 를 부른다. 실패해도
+   이면 서버가 거부한 것이다 — 그 코드를 적어 보고하고 끝낸다. 그 밖의 exit 는 `failed design-done <exit>` 로 알리고 끝낸다. 옛 서버면
+   `dflow.sh heartbeat <ref> --phase wait_review` 를 부른다. 실패해도
    (계약 2.10 전 서버는 400) 멈춤을 계속한다 — 좌석 이름표만 틀리고, 이어 갈지는 로컬 state.json 으로 판정한다.
 5. supervised 는 계약 2.11 이면 `"{TSK} 설계 완료·검토 대기 — agent 브랜치의 design.md 를 검토·수정해 push 한 뒤 「설계 승인」을 누르면
    팀장이 이어 간다(팀장이 없으면 /dflow-dev {TSK})"`, 옛 서버면 `"{TSK} 설계 완료·검토 대기 — design.md 를 검토·수정한 뒤 /dflow-dev {TSK}
@@ -81,11 +87,12 @@ design.md 의 `## 담당자 확인 필요 결정` 절은 이 멈춤에서 서버
 알림 대신 worker-mode.md 「설계 상태의 결과 줄」 의 줄을 `.result` 에 쓰고 끝낸다(형식 정본은 worker-prompt.md).
 <!-- worker:end -->
 
-**다음 단계**: 범위 `design` 이면 여기서 끝난다. 아니면 `build-start` exit 0 이면 `orch/build.md`, exit 4 면 `orch/design-first.md` 「2」.
-
 ### 승인된 설계 고정 (D24, 계약 2.11)
 
 서버 `design_state=accepted`(「설계 승인」·「설계 확정」)이고 단계가 `ip` 이상이면 설계는 고정이다. design.md 의 설계 내용을 고치지
 않는다. 게이트가 적는 기록 절(`## 담당자 확인 필요 결정`·`## 도커 금지로 생략한 검증`)만 예외다. 재개 판정(SKILL.md 상태 모델의 산출물
-교차 확인)이 design.md 가 없거나 5절이 모자라 Design 으로 후퇴하려 하면 후퇴하지 않고 `"{TSK} 설계 게이트 불통(구현 중) — 사람이 설계를
+교차 확인)이 design.md 가 없거나 5절이 모자라 Design 으로 후퇴하려 하면 후퇴하지 않고, 「설계 받기」 자체의 게이트 불통도 같다(단계
+`ip` 이상이면 design-reopen 을 부르지 않는다). `"{TSK} 설계 게이트 불통(구현 중) — 사람이 설계를
 고친 뒤 --resume 하세요"` 로 알리고 끝낸다. 완전자동(설계 상태 없음)은 반려 재작업에서도 종전대로 설계부터 다시 판단한다.
+
+**다음 단계**: 범위 `design` 이면 여기서 끝난다. 아니면 `build-start` exit 0 이면 `orch/build.md`, exit 4 면 `orch/design-first.md` 「2」.
