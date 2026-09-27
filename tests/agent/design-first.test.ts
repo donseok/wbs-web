@@ -263,6 +263,9 @@ describe('POST /work/{id}/build-start', () => {
     expect(admin.rpc).toHaveBeenCalledTimes(1)
     expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({
       p_event: 'build_start', p_order_id: O1, p_agent: 'cli-1', p_agent_user_id: null, p_actor: USER.id,
+      // 이 주문은 claim_scope 열이 없다(0108 전 옛 claim) — CAS 는 정규화 값('legacy')이 아니라
+      // 읽은 값 그대로(null)를 실어야 한다. RPC 의 CAS 비교는 원행의 null 과 맞대야 하기 때문이다.
+      p_cas: expect.objectContaining({ claim_scope: null }),
     }))
     const body = await res.json()
     expect(body).toMatchObject({ ok: true, status: 'claimed', stage: 'ip', stage_changed: true })
@@ -395,8 +398,10 @@ describe('PAT 경로(dflow.sh 가 쓰는 신원)', () => {
     })
     const res = await buildStartPOST(post('build-start', { agent: 'hong/mbp/w1' }, PAT.token), ctx)
     expect(res.status).toBe(200)
+    // PAT 경로는 p_agent 가 null 이라 p_runner 가 runner 의 유일한 원천이다 — 응답 runner 도 같아야 한다.
+    expect(await res.json()).toMatchObject({ runner: 'hong/mbp/w1' })
     expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({
-      p_event: 'build_start', p_agent: null, p_agent_user_id: 'u-1',
+      p_event: 'build_start', p_agent: null, p_agent_user_id: 'u-1', p_runner: 'hong/mbp/w1',
     }))
 
     const other = useAdmin({

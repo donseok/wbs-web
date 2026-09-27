@@ -95,7 +95,7 @@ describe('build-start — 설계 상태 관문(5.2, P4, Y7)', () => {
     const res = await bs({ scope: 'full' }, 'hong/pc2/w1')
     // 호출자=점유자(hong/pc2/w1)지만 runner 는 mbp 가 신선하다
     expect(res.status).toBe(409)
-    expect(await res.json()).toMatchObject({ code: 'runner_active', runner: 'hong/mbp/w1' })
+    expect(await res.json()).toMatchObject({ code: 'runner_active', runner: 'hong/mbp/w1', runner_seen_at: CLAIMED.runner_seen_at })
   })
   it('claimed 가 아니면 409 design_gate·reason order_changed(Y7)', async () => {
     useAdmin({ agent_work_orders: [{ data: { ...CLAIMED, status: 'ready' } }], ...member() })
@@ -138,5 +138,22 @@ describe('build-start — 설계 상태 관문(5.2, P4, Y7)', () => {
     const res = await bs({ scope: 'rework' })
     expect(res.status).toBe(200)
     expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_scope: 'rework' }))
+  })
+  it('항목 없는 주문(wbs_item_id null)도 도는 PC 조건은 본다 — 다른 PC 가 신선하면 409 runner_active, RPC 미호출', async () => {
+    // 항목이 지워진 주문은 canBuildStart(설계 관문)를 타지 않는다(라우트가 건너뛴다) — 그래도 도는 PC
+    // 조건(runnerFree)은 별도로 봐야 한다(route.ts 92~95행). 이 분기를 지우면 이 시험만 빨강이 된다.
+    const admin = useAdmin({
+      agent_work_orders: [{ data: { ...CLAIMED, wbs_item_id: null, claimed_by: 'hong/pc2/w1' } }], ...member(),
+    })
+    const res = await bs({ scope: 'full' }, 'hong/pc2/w1')
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'runner_active', runner: 'hong/mbp/w1', runner_seen_at: CLAIMED.runner_seen_at })
+    expect(admin.rpc).not.toHaveBeenCalled()
+  })
+  it.each(['design', 'bogus'])('build-start 의 scope 는 full·build·rework 만 허용 — %s 면 400, RPC 미호출', async (bad) => {
+    const admin = useAdmin({ agent_work_orders: [{ data: CLAIMED }], ...member(), wbs_items: [{ data: itemRow() }] })
+    const res = await bs({ scope: bad })
+    expect(res.status).toBe(400)
+    expect(admin.rpc).not.toHaveBeenCalled()
   })
 })
