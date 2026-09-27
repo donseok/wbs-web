@@ -5493,40 +5493,82 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Consumes: Task 18 `dflow.sh list … --require-tag --wp --lead` 의 6·7열
 - Produces:
   - 새 옵션 `--actions <목록>`(기본 `full,design,build`), `--lead`(list 에 넘김). `--require-tag`·`--wp` 는 list 에도 넘긴다.
-  - ready 출력 줄 `순번<TAB>id8<TAB>이름<TAB>action`(4번째 칸 새로 — 옛 서버면 빈 값). 새 서버 행은 `action ∈ --actions ∧ mine=1` 만. 옛 서버 행(6열이 빈 값)은 종전 규칙(show 로 태그·WP 거르기).
+  - ready 출력 줄 `순번<TAB>id8<TAB>이름<TAB>action`(4번째 칸은 새 서버만 — 옛 서버면 종전 세 칸 그대로). 새 서버 행은 `action ∈ --actions ∧ mine=1` 만. 옛 서버 행(6열이 빈 값)은 종전 규칙(show 로 태그·WP 거르기).
 
 - [ ] **Step 1: 실패하는 테스트**
 
-`tests/skills/dflow-poll-actions.test.ts` — `tests/skills/dflow-poll-exclude-wait.test.ts` 의 가짜 `dflow.sh`(DFLOW_SH 로 끼우는 스크립트)와 실행 헬퍼를 복사해 머리에 두고, 가짜 list 가 `LIST_ROWS` 환경변수의 줄을 그대로 내게 한 뒤:
+`tests/skills/dflow-poll-actions.test.ts`:
 
 ```ts
+// tests/skills/dflow-poll-actions.test.ts — poll.sh 가 서버 판단(action·mine, 계약 2.11)으로 ready 를 고른다(설계 상태 스펙 12절 Y4).
+// 가짜 dflow.sh 로 실제 poll.sh 를 돌린다(dflow-poll-exclude-wait.test.ts 와 같은 방식).
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const POLL_SH = join(process.cwd(), '.claude/skills/dflow-poll/scripts/poll.sh')
+const ENV = { PATH: process.env.PATH ?? '', HOME: '/nonexistent', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }
+let tmp: string, cfg: string, bin: string
+beforeEach(() => {
+  tmp = realpathSync(mkdtempSync(join(tmpdir(), 'dflow-poll-act-')))
+  cfg = join(tmp, 'cfg'); bin = join(tmp, 'bin'); mkdirSync(cfg); mkdirSync(bin)
+  writeFileSync(join(cfg, '.dflow'), 'api_base=https://p.test\nproject_id=11111111-1111-4111-8111-111111111111\nrelease_branch=main\n')
+  writeFileSync(join(cfg, '.dflow.local'), 'pats=dflow_pat_TEST_token\ndev_branch=main\n')
+})
+afterEach(() => rmSync(tmp, { recursive: true, force: true }))
+
+// list 는 받은 인자를 args 파일에 적고 rows 를 돌려준다. show 가 불리면 shows 에 적는다(새 서버 행은 불리면 안 된다).
+function stub(rows: string[]) {
+  const f = join(bin, 'dflow.sh')
+  writeFileSync(f, `#!/bin/sh
+case "$1" in
+  list) printf '%s\\n' "$*" >> '${join(tmp, 'args')}'; printf '%s\\n' ${rows.map((r) => `'${r}'`).join(' ')} ;;
+  show) echo "$2" >> '${join(tmp, 'shows')}'; printf '{"order":{"id":"x","item":{"tags":["agent"],"external_ref":"M/TSK-02-01"}}}' ;;
+  *) exit 0 ;;
+esac
+`)
+  chmodSync(f, 0o755)
+  return f
+}
+function poll(args: string[], rows: string[]) {
+  const r = spawnSync('sh', [POLL_SH, '--interval', '0', '--until', 'none', ...args], {
+    cwd: cfg, encoding: 'utf8', timeout: 20000,
+    env: { ...ENV, DFLOW_SH: stub(rows), DFLOW_WATCH: '0', DFLOW_CONFIG_DIR: cfg } as NodeJS.ProcessEnv,
+  })
+  return { code: r.status, out: (r.stdout ?? '').trim(), err: r.stderr ?? '' }
+}
+const listArgs = () => readFileSync(join(tmp, 'args'), 'utf8')
+const shows = () => (existsSync(join(tmp, 'shows')) ? readFileSync(join(tmp, 'shows'), 'utf8').trim().split('\n') : [])
 const rowNew = (n: number, id8: string, action: string, mine: '1' | '0') => `${n}\tRD\tx\t${id8}\t작업${id8}\t${action}\t${mine}`
 const rowOld = (n: number, id8: string) => `${n}\tRD\tx\t${id8}\t작업${id8}\t\t`
 
-describe('poll.sh — 서버 판단으로 고른다(설계 상태 스펙 12절 Y4)', () => {
-  it('새 서버: action ∈ full·design·build ∧ mine=1 인 RD 만, 4번째 칸에 action', () => {
-    const r = poll(['--interval', '1', '--until', 'none'], { LIST_ROWS: [rowNew(1, 'aaaaaaaa', 'wait', '1'), rowNew(2, 'bbbbbbbb', 'design', '1'), rowNew(3, 'cccccccc', 'full', '0')].join('\n') })
-    expect(r.status).toBe(0)
-    expect(r.stdout.trim()).toBe('2\tbbbbbbbb\t작업bbbbbbbb\tdesign')
+describe('poll.sh — 서버 판단으로 고른다(Y4)', { timeout: 30000 }, () => {
+  it('새 서버: action ∈ full·design·build ∧ mine=1 인 RD 만, 4번째 칸에 action, show 를 부르지 않는다', () => {
+    const r = poll(['--require-tag', 'agent'], [rowNew(1, 'aaaaaaaa', 'wait', '1'), rowNew(2, 'bbbbbbbb', 'design', '1'), rowNew(3, 'cccccccc', 'full', '0')])
+    expect(r.code, r.err).toBe(0)
+    expect(r.out).toBe('2\tbbbbbbbb\t작업bbbbbbbb\tdesign')
+    expect(shows()).toEqual([])
   })
   it('--actions full 이면 design·build 는 고르지 않는다(/dflow-poll 단독)', () => {
-    const r = poll(['--interval', '1', '--until', 'none', '--actions', 'full'], { LIST_ROWS: [rowNew(1, 'aaaaaaaa', 'design', '1'), rowNew(2, 'bbbbbbbb', 'full', '1')].join('\n') })
-    expect(r.stdout.trim()).toBe('2\tbbbbbbbb\t작업bbbbbbbb\tfull')
+    const r = poll(['--actions', 'full'], [rowNew(1, 'aaaaaaaa', 'design', '1'), rowNew(2, 'bbbbbbbb', 'full', '1')])
+    expect(r.out).toBe('2\tbbbbbbbb\t작업bbbbbbbb\tfull')
   })
-  it('옛 서버(6열 빈 값)는 종전대로 RD 를 돌려준다', () => {
-    const r = poll(['--interval', '1', '--until', 'none'], { LIST_ROWS: rowOld(1, 'aaaaaaaa') })
-    expect(r.stdout.trim()).toBe('1\taaaaaaaa\t작업aaaaaaaa\t')
+  it('옛 서버(6열 빈 값)는 종전대로 — show 로 거르고 3칸 줄을 낸다', () => {
+    const r = poll(['--require-tag', 'agent'], [rowOld(1, 'aaaaaaaa')])
+    expect(r.out).toBe('1\taaaaaaaa\t작업aaaaaaaa')
+    expect(shows()).toEqual(['aaaaaaaa'])
   })
-  it('거르기와 --lead 를 list 에 넘긴다', () => {
-    poll(['--interval', '1', '--until', 'none', '--require-tag', 'agent', '--wp', 'WP-02', '--lead'], { LIST_ROWS: rowNew(1, 'aaaaaaaa', 'full', '1') })
-    expect(listArgs()).toContain('--require-tag agent')
-    expect(listArgs()).toContain('--wp WP-2')
-    expect(listArgs()).toContain('--lead')
+  it('거르기와 --lead 를 list 에 넘긴다(WP 는 정규화해서)', () => {
+    poll(['--require-tag', 'agent', '--wp', 'WP-02', '--lead'], [rowNew(1, 'aaaaaaaa', 'full', '1')])
+    expect(listArgs()).toContain('list --scope assigned --require-tag agent --wp WP-2 --lead')
+  })
+  it('--actions 에 모르는 값은 사용법(exit 2)', () => {
+    expect(poll(['--actions', 'weird'], []).code).toBe(2)
   })
 })
 ```
-
-(`poll`·`listArgs` 는 복사한 헬퍼 이름이다 — 가짜 `dflow.sh` 가 `list` 로 불리면 받은 인자를 `ARGS_LOG` 에 적고 `LIST_ROWS` 를 출력하게 만든다. `--wp WP-02` 는 poll.sh 가 `WP-2` 로 정규화한 뒤 넘긴다.)
 
 - [ ] **Step 2: 실패 확인**
 
@@ -5573,7 +5615,7 @@ for _a in $(printf '%s' "$ACTIONS" | tr ',' ' '); do case "$_a" in full|design|b
       # 새 서버(계약 2.11)는 6열 action·7열 mine 을 준다 — action ∈ ACTIONS ∧ mine=1 인 RD 만(Y4). 서버가 태그·WP 거르기를 이미
       # 반영했으므로 아래 show 거르기는 건너뛴다. 옛 서버(6열 빈 값)는 종전 규칙(show 로 거르기)을 그대로 탄다.
       ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE,$EXCLUDE_TEMP,$EXCLUDE_WAIT," -v acts=",$ACTIONS," \
-        '$2=="RD" && index(ex, ","$4",")==0 && ($6=="" || (index(acts, ","$6",") > 0 && $7=="1")) {print $1"\t"$4"\t"$5"\t"$6}')
+        '$2=="RD" && index(ex, ","$4",")==0 && ($6=="" || (index(acts, ","$6",") > 0 && $7=="1")) {l = $1"\t"$4"\t"$5; if ($6 != "") l = l"\t"$6; print l}')
 ```
 
 그리고 show 거르기 루프 머리(`while IFS= read -r _line; do` 다음)에서 새 서버 행은 그대로 남긴다:
@@ -5587,7 +5629,7 @@ for _a in $(printf '%s' "$ACTIONS" | tr ',' ' '); do case "$_a" in full|design|b
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run tests/skills/dflow-poll-actions.test.ts tests/skills/dflow-poll-exclude-wait.test.ts tests/skills/dflow-poll-tag-cache.test.ts tests/skills/dflow-poll-task-dirs.test.ts tests/skills/shell-syntax.test.ts`
-Expected: PASS. 기존 poll 테스트의 가짜 행은 5칸이라 6열이 비어 옛 서버 규칙을 탄다. 그 테스트가 출력 줄을 글자 그대로 비교하면 끝에 탭 하나(`\t`)가 붙은 새 줄에 맞춘다.
+Expected: PASS. 기존 poll 테스트의 가짜 행은 5칸이라 6열이 비어 옛 서버 규칙을 타고, 출력도 종전 세 칸 그대로다.
 
 - [ ] **Step 5: 커밋**
 
