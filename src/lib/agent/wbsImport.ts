@@ -2,8 +2,15 @@ import { chunked } from '@/lib/ai/util'
 import { treeMaxDepth, validateLevelSettings } from '@/lib/domain/levelSettings'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
+import { cancelOrders } from '@/lib/agent/cancelOrder'
 import { emitNotification } from '@/lib/notify/emit'
 import { HUMAN_STAGE_CODES } from '@/lib/domain/stageLabels'
+import { AGENT_TAG } from '@/lib/domain/seatmap'
+
+/** .in() 인자 청크 크기 — supabase-js 필터는 GET 쿼리스트링으로 나가므로 MAX_NODES(1000)를
+ *  한 번에 실으면 UUID 1000개 ≈ 37KB 가 프록시 URI 상한(8~16KB)을 넘는다(재리뷰 지적). `runWbsImport`
+ *  의 L7 표식 확인·주문 조회와 `ensureOrdersForPayload` 가 함께 쓴다 — 선언을 그 위로 올려 둔다. */
+const IN_CHUNK = 200
 
 /**
  * WBS 업로드(export JSON → upsert) 변환·후처리 — 계약 v2.0 §2.6.
@@ -206,7 +213,9 @@ async function findStubConflicts(
  */
 export type RunWbsImportResult =
   | { ok: true; upserted: number; skipped: number
-      unmatched: Array<{ id: string; assignee: string }>; nonLeafSkipped: string[]; ordersCreated: number }
+      unmatched: Array<{ id: string; assignee: string }>; nonLeafSkipped: string[]; ordersCreated: number
+      /** L7(설계 상태 스펙 12절) — 이번 업로드로 위임 표식이 빠져 공용 취소로 끝난 ready·claimed 주문 수. */
+      delegationCancelled: number }
   | { ok: false; code: 'validation_failed' | 'levels_mismatch' | 'attach_not_found' | 'apply_failed'; message: string }
 
 export async function runWbsImport(
@@ -281,6 +290,17 @@ export async function runWbsImport(
       message: `스텁 제거 작업과 충돌하는 노드 ${stubConflicts.length}건: ${stubConflicts.slice(0, 5).join(' / ')}` }
   }
 
+  // L7(설계 상태 스펙 12절) — 이번 업로드로 위임 표식(agent)이 빠지는 기존 항목. RPC 가 tags 를 덮어쓰므로 호출 전에 읽는다.
+  const untagRefs = (rpcNodes as Array<{ external_ref: string; tags: string[] }>)
+    .filter(n => !(n.tags ?? []).includes(AGENT_TAG)).map(n => n.external_ref)
+  const losingIds: string[] = []
+  for (const refChunk of chunked(untagRefs, IN_CHUNK)) {
+    const { data, error } = await admin.from('wbs_items').select('id, tags')
+      .eq('project_id', projectId).in('external_ref', refChunk)
+    if (error) throw new Error(`표식 확인 조회 실패: ${error.message}`)
+    for (const r of (data ?? []) as Array<{ id: string; tags: string[] | null }>) if ((r.tags ?? []).includes(AGENT_TAG)) losingIds.push(r.id)
+  }
+
   // p_attach_id 는 attach 경로에서만 싣는다 — 레거시 payload 는 구 2인자 시그니처와도 호환(배포 순서 안전).
   const { data: rpcOut, error: rpcErr } = await admin
     .rpc('import_wbs_upsert', attachId
@@ -292,12 +312,27 @@ export async function runWbsImport(
   }
   const out = rpcOut as { upserted: number; skipped: number; ids: Record<string, string>; new_refs: string[] }
 
+  // 표식이 빠진 항목의 ready·claimed 주문을 공용 취소로 끝낸다(L7) — 확정 설계가 표식 없이 떠 있지 않게.
+  let delegationCancelled = 0
+  if (losingIds.length > 0) {
+    const act: string[] = []
+    for (const idChunk of chunked(losingIds, IN_CHUNK)) {
+      const { data, error } = await admin.from('agent_work_orders').select('id')
+        .in('wbs_item_id', idChunk).in('status', ['ready', 'claimed'])
+      if (error) throw new Error(`표식 제거 주문 조회 실패: ${error.message}`)
+      act.push(...((data ?? []) as Array<{ id: string }>).map(r => r.id))
+    }
+    const c = await cancelOrders(admin, { orderIds: act, actorUserId })
+    if (c.failed.length > 0) throw new Error(`표식 제거 주문 취소 실패: ${c.failed.map(f => f.error).join(' / ')}`)
+    delegationCancelled = c.cancelled.length
+  }
+
   const post = await applyAssigneesAndOrders(admin, {
     projectId, actorUserId, module: module_,
     newRefs: out.new_refs, idsByRef: out.ids, assigneeByRef, titleByRef, kindByRef,
   })
   return { ok: true, upserted: out.upserted, skipped: out.skipped,
-    unmatched: post.unmatched, nonLeafSkipped: post.nonLeafSkipped, ordersCreated: post.ordersCreated }
+    unmatched: post.unmatched, nonLeafSkipped: post.nonLeafSkipped, ordersCreated: post.ordersCreated, delegationCancelled }
 }
 
 /**
@@ -372,10 +407,6 @@ export async function applyAssigneesAndOrders(
  * 집합을 구해 MAX_NODES(1000) 규모에서도 쿼리 수를 상수로 유지한다.
  * .in() 인자는 이번 payload 의 task ref 만이다(프로젝트 전체가 아니다 — 무한정 커지지 않는다).
  */
-/** .in() 인자 청크 크기 — supabase-js 필터는 GET 쿼리스트링으로 나가므로 MAX_NODES(1000)를
- *  한 번에 실으면 UUID 1000개 ≈ 37KB 가 프록시 URI 상한(8~16KB)을 넘는다(재리뷰 지적). */
-const IN_CHUNK = 200
-
 async function ensureOrdersForPayload(
   admin: AdminClient,
   args: { projectId: string; actorUserId: string; module: string; taskRefs: string[] },

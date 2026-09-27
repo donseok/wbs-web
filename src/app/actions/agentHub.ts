@@ -10,6 +10,7 @@ import { getAgentHub } from '@/lib/data/agentHub'
 import { viewerEmail } from '@/lib/data/agentSeatmap'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { applyDelegation, ERR_NOT_ASSIGNEE } from '@/lib/agent/delegation'
+import { cancelOrders } from '@/lib/agent/cancelOrder'
 import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 import { emitNotification } from '@/lib/notify/emit'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
@@ -165,11 +166,12 @@ function isProcessOp(op: unknown): op is HubProcessOp {
 /**
  * 중단 본체(2026-09-19 중단 설계 §1) — 호출부(runHubProcessOp)가 관리자 또는 서브트리 관리자로 자격을 이미 가렸다.
  *
- * 위임 해제 경로(applyDelegation, delegated:false)를 그대로 탄다: 태그 해제 → ready·claimed 주문 cancelled(CAS)
- * → claimed 를 취소했으면 set_stage as. 체크 해제로 위임을 끄는 길과 똑같이 동작하게 하려는 것이다.
+ * 위임 해제 경로(applyDelegation, delegated:false)를 그대로 탄다: 태그 해제 → ready·claimed 주문을 공용 취소
+ * (cancelOrders, D14)로 정리 — claimed 를 취소했으면 그 RPC cancel 사건이 단계도 as 로 같이 되돌린다.
+ * 체크 해제로 위임을 끄는 길과 똑같이 동작하게 하려는 것이다.
  * release 사건(→ ready)을 쓰지 않는 이유: ready 를 거치면 그 사이 /dflow-team·/dflow-poll 이 다시 집어 가
  * 같은 태스크를 두 워커가 동시에 개발한다. cancelled 는 종착 상태라 그 틈이 없다.
- * WBS 항목이 지워진 주문은 위임 태그가 없으므로 주문만 CAS 로 cancelled 로 바꾼다.
+ * WBS 항목이 지워진 주문은 위임 태그가 없으므로 주문만 공용 취소(cancelOrders, D14)로 cancelled 로 바꾼다.
  * 알림은 러너 반납(release 라우트)과 같은 work.released 타입을 배정자에게 — fire-and-forget.
  */
 async function stopOrderByAdmin(
@@ -194,13 +196,9 @@ async function stopOrderByAdmin(
     // 허브 액션은 페이지 재렌더를 싣지 않는다(응답의 hub 로 갱신) — 실적이 바뀌었으면 진척 스냅샷만 남긴다.
     if (r.actualChanged) after(() => recordProgressSnapshot(projectId))
   } else {
-    const { data: updated, error: upErr } = await admin
-      .from('agent_work_orders')
-      .update({ status: 'cancelled', claimed_by: null, claimed_by_user_id: null, claimed_at: null, updated_at: new Date().toISOString() })
-      .eq('id', orderId).eq('status', 'claimed')
-      .select('id')
-    if (upErr) return { ok: false, error: `주문 취소 실패: ${upErr.message}` }
-    if (!updated || (updated as unknown[]).length === 0) {
+    const c = await cancelOrders(admin, { orderIds: [orderId], actorUserId })
+    if (c.failed.length > 0) return { ok: false, error: `주문 취소 실패: ${c.failed[0].error}` }
+    if (!c.cancelled.some(x => x.id === orderId && x.prevStatus === 'claimed')) {
       return { ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다. 다시 시도하세요.' }
     }
   }

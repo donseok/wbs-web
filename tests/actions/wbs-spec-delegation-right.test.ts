@@ -129,56 +129,59 @@ describe('setAgentDelegation — 멤버 경로', () => {
     admin({ wbs_items: [{ data: { assignee_member_id: 'm1' } }, { data: { tags: [], dev_workflow: true } }], agent_projects: [{ data: { enabled: false } }] })
     expect(await setAgentDelegation(W1, true)).toEqual({ ok: false, error: ERR_AGENT_OFF })
   })
-  it('담당자 본인 해제(false)는 프로젝트 상태와 무관하게 진행 — ready 주문 취소', async () => {
-    const { captured } = admin({
+  it('담당자 본인 해제(false)는 프로젝트 상태와 무관하게 진행 — ready 주문을 cancel 사건으로 취소', async () => {
+    admin({
       wbs_items: [{ data: { assignee_member_id: 'm1' } }, { data: { tags: ['agent'], dev_workflow: true } }, { data: [{ id: W1 }] }],
-      agent_work_orders: [{ data: [{ id: 'o1', status: 'ready' }] }, { data: null }],
+      agent_work_orders: [{ data: [{ id: 'o1', status: 'ready' }] }],
     })
     const r = await setAgentDelegation(W1, false)
     expect(r.ok).toBe(true)
-    expect((captured.agent_work_orders?.[0] as { status: string }).status).toBe('cancelled')
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'cancel', actorUserId: 'member-1', orderId: 'o1' })
   })
-  // 2026-09-19 중단 설계 §1 — 위임 해제가 진행 중(claimed) 주문을 취소했으면 단계를 착수 전(as)으로 되돌린다.
-  const offQueues = (orders: Array<{ id: string; status: string }>, cancelledIds: string[]) => ({
+  // 2026-09-19 중단 설계 §1 — 위임 해제가 진행 중(claimed) 주문을 취소하면 그 cancel 사건이 단계를 착수 전(as)
+  // 으로도 되돌린다(D14 — 취소와 단계 되돌리기가 한 RPC 트랜잭션). CAS·되돌리기 성패는 이제 그 RPC 응답(prevStatus·
+  // conflict·ok)으로만 통제한다 — 두 번째 agent_work_orders 조회는 더 이상 없다.
+  const offQueues = (orders: Array<{ id: string; status: string }>) => ({
     wbs_items: [{ data: { assignee_member_id: 'm1' } }, { data: { tags: ['agent'], dev_workflow: true } }, { data: [{ id: W1 }] }],
-    agent_work_orders: [{ data: orders }, { data: cancelledIds.map(id => ({ id })) }],
+    agent_work_orders: [{ data: orders }],
   })
-  it('해제가 claimed 주문을 취소하면 태그·주문 정리 뒤 set_stage as 로 단계를 되돌린다', async () => {
-    const { calls } = admin(offQueues([{ id: 'o1', status: 'claimed' }], ['o1']))
-    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, actualChanged: true })
+  it('해제가 claimed 주문을 취소하면 cancel 사건이 직전 status·실적 변경을 함께 돌려준다', async () => {
+    const { calls } = admin(offQueues([{ id: 'o1', status: 'claimed' }]))
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, prevStatus: 'claimed', actualChanged: true })
     const r = await setAgentDelegation(W1, false)
     expect(r).toMatchObject({ ok: true, cancelledClaimedIds: ['o1'], actualChanged: true })
     expect(r.warning).toBeUndefined()
-    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'set_stage', actorUserId: 'member-1', itemId: W1, stage: 'as' })
-    // 순서: 태그 update(wbs_items) → 주문 조회·취소(agent_work_orders) 뒤에 전이 RPC 가 온다(locked 회피).
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'cancel', actorUserId: 'member-1', orderId: 'o1' })
+    // set_stage 는 더 이상 별도로 불리지 않는다 — cancel 사건 하나가 취소와 단계 되돌리기를 함께 한다(D14).
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledTimes(1)
+    // 순서: 태그 update(wbs_items) → 주문 조회(agent_work_orders) 뒤에 취소 사건이 온다(locked 회피).
     expect(calls.lastIndexOf('agent_work_orders')).toBeGreaterThan(calls.lastIndexOf('wbs_items'))
     // 실적이 바뀌었으면 진척 스냅샷을 응답 뒤로 미룬다.
     expect(mocks.after).toHaveBeenCalledTimes(1)
     mocks.after.mock.calls[0][0]()
     expect(mocks.recordProgressSnapshot).toHaveBeenCalledWith(P1)
   })
-  it('ready 만 취소했으면 단계는 건드리지 않는다(재작업 대기 단계를 지우지 않는다)', async () => {
-    admin(offQueues([{ id: 'o1', status: 'ready' }], ['o1']))
+  it('ready 만 취소했으면 cancelledClaimedIds 에 담기지 않는다(직전 status 가 claimed 가 아니다)', async () => {
+    admin(offQueues([{ id: 'o1', status: 'ready' }]))
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, prevStatus: 'ready', actualChanged: false })
     const r = await setAgentDelegation(W1, false)
     expect(r.ok).toBe(true)
     expect(r.cancelledClaimedIds).toBeUndefined()
-    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'cancel', actorUserId: 'member-1', orderId: 'o1' })
   })
-  it('claimed 로 읽었어도 CAS 가 못 바꿨으면(경합) 단계를 되돌리지 않는다', async () => {
-    admin(offQueues([{ id: 'o1', status: 'claimed' }], []))
+  it('경합으로 취소가 conflict 로 끝나면 완료 보고 안내와 같은 warning 을 낸다', async () => {
+    admin(offQueues([{ id: 'o1', status: 'claimed' }]))
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: false, conflict: true, reason: 'conflict', orderStatus: 'reported', error: '상태가 바뀌어 처리하지 못했습니다. 다시 시도하세요.' })
     const r = await setAgentDelegation(W1, false)
     expect(r.ok).toBe(true)
     expect(r.cancelledClaimedIds).toBeUndefined()
-    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+    expect(r.warning).toContain('완료 보고가 이미 올라온 주문은 취소되지 않았습니다')
   })
-  it('단계 되돌리기가 실패해도 해제는 성공 — warning 으로 드러낸다', async () => {
-    admin(offQueues([{ id: 'o1', status: 'claimed' }], ['o1']))
+  it('취소 RPC 자체가 실패하면 해제 전체가 실패로 끝난다(취소·되돌리기가 한 트랜잭션이라 부분 성공이 없다)', async () => {
+    admin(offQueues([{ id: 'o1', status: 'claimed' }]))
     mocks.applyWorkflowEvent.mockResolvedValue({ ok: false, conflict: false, reason: 'rpc_error', orderStatus: null, error: '전이 실패: boom' })
     const r = await setAgentDelegation(W1, false)
-    expect(r.ok).toBe(true)
-    expect(r.cancelledClaimedIds).toEqual(['o1'])
-    expect(r.warning).toContain('단계를 착수 전(as)으로 되돌리지 못했습니다')
-    expect(r.warning).toContain('전이 실패: boom')
+    expect(r).toEqual({ ok: false, error: '주문 취소 실패: 전이 실패: boom' })
   })
   it('관리자 경로는 agent_projects 사전 확인 없이 ensureAgentProject 로 간다(종전 동작)', async () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: true, actor: { userId: 'admin-1' } })

@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true, upserted: result.upserted, skipped: result.skipped,
       unmatched_assignees: result.unmatched, non_leaf_skipped: result.nonLeafSkipped,
-      orders_created: result.ordersCreated,
+      orders_created: result.ordersCreated, delegation_cancelled: result.delegationCancelled,
     })
   } catch (e) {
     console.error('[wbs-import] 처리 실패:', e instanceof Error ? e.message : e)

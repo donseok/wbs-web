@@ -259,10 +259,10 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       recipientMemberIds: ['m1'],
     }))
   })
-  it('stop — 위임 해제의 warning(단계 되돌리기 실패 등)은 응답에 싣는다', async () => {
+  it('stop — 위임 해제가 돌려준 warning 은 그대로 응답에 싣는다', async () => {
     fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
-    mocks.applyDelegation.mockResolvedValue({ ok: true, cancelledClaimedIds: [O(1)], warning: '단계를 되돌리지 못했습니다' })
-    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB, warning: '단계를 되돌리지 못했습니다' })
+    mocks.applyDelegation.mockResolvedValue({ ok: true, cancelledClaimedIds: [O(1)], warning: '완료 보고가 이미 올라온 주문은 취소되지 않았습니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB, warning: '완료 보고가 이미 올라온 주문은 취소되지 않았습니다.' })
   })
   it('stop — claimed 가 아니면 거부(위임 해제 없음), 위임 해제 실패는 오류 그대로', async () => {
     fakeAdmin({ orders: ORDERS })
@@ -280,13 +280,21 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
     expect(r).toEqual({ ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다 — 위임은 해제됐습니다. 새로고침 후 확인하세요.' })
     expect(mocks.emitNotification).not.toHaveBeenCalled()
   })
-  it('stop — WBS 항목이 지워진 주문은 주문만 CAS 로 cancelled(위임 해제 경로 없음), 경합이면 재시도 문구', async () => {
-    const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } } })
+  it('stop — WBS 항목이 지워진 주문은 주문만 cancel 사건으로(위임 해제 경로 없음), 경합이면 재시도 문구', async () => {
+    const { updates, rpcCalls } = fakeAdmin({
+      orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } },
+      rpc: { data: { ok: true, order_status: 'cancelled', prev_status: 'claimed', stage: null, actual_pct: null, stage_changed: false, actual_changed: false, reached_first: false, skipped: null } },
+    })
     expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
     expect(mocks.applyDelegation).not.toHaveBeenCalled()
-    expect(updates).toHaveLength(1)
-    expect(updates[0]).toMatchObject({ table: 'agent_work_orders', payload: { status: 'cancelled', claimed_by: null, claimed_by_user_id: null, claimed_at: null } })
-    fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } }, updateRows: 0 })
+    // 취소는 이제 RPC cancel 사건으로 한다 — agent_work_orders 에 직접 update 하지 않는다(D14).
+    expect(updates).toHaveLength(0)
+    expect(rpcCalls).toHaveLength(1)
+    expect(rpcCalls[0]).toMatchObject({ p_event: 'cancel', p_order_id: O(1) })
+    fakeAdmin({
+      orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } },
+      rpc: { data: { ok: false, conflict: true, order_status: 'cancelled' } },
+    })
     expect(await runHubProcessOp(P1, { kind: 'stop', orderId: O(1) }))
       .toEqual({ ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다. 다시 시도하세요.' })
   })

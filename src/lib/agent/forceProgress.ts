@@ -3,6 +3,7 @@
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { WAIVE_BLOCK_TEXT } from '@/lib/domain/forceProgress'
 import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
+import { cancelOrders } from '@/lib/agent/cancelOrder'
 
 export const WAIVER_REASON_TEXT: Record<string, string> = {
   ...WAIVE_BLOCK_TEXT,
@@ -70,11 +71,9 @@ export async function cancelStub(
   if (logErr) return { ok: false, error: `이력 기록 실패: ${logErr.message}` }
 
   if (list.length > 0) {
-    const { data: done, error: cErr } = await admin.from('agent_work_orders')
-      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-      .in('id', list.map(o => o.id)).eq('status', 'ready').select('id')
-    if (cErr) return { ok: false, error: `주문 취소 실패: ${cErr.message}` }
-    if (((done ?? []) as unknown[]).length !== list.length) return { ok: false, error: '상태가 바뀌어 취소하지 못했습니다. 다시 시도하세요.' }
+    const c = await cancelOrders(admin, { orderIds: list.map(o => o.id), actorUserId: a.actorUserId })
+    if (c.failed.length > 0) return { ok: false, error: `주문 취소 실패: ${c.failed[0].error}` }
+    if (c.cancelled.length !== list.length) return { ok: false, error: '상태가 바뀌어 취소하지 못했습니다. 다시 시도하세요.' }
   }
   const { data: del, error: dErr } = await admin.from('wbs_items').delete().eq('id', a.subTaskId).not('stub_for', 'is', null).select('id')
   if (dErr) return { ok: false, error: `삭제 실패: ${dErr.message}` }

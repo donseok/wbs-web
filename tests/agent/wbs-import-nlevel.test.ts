@@ -221,6 +221,7 @@ describe('POST /wbs/import — v2.2 nlevel', () => {
       project_members: [{ data: [] }],
       wbs_items: [
         { data: { id: 'attach-1' } }, // attach_ref → 노드 해석
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음(두 노드 모두 tags 에 agent 없음)
         { data: [{ id: 'id-t', external_ref: 'mes-op/TSK-OP-EV-PR-01', dev_workflow: true }] }, // 갭 후보
       ],
       agent_work_orders: [{ data: [{ wbs_item_id: 'id-t' }] }], // 활성 주문 있음 — 갭 없음
@@ -299,7 +300,10 @@ describe('POST /wbs/import — v2.2 nlevel', () => {
     const q = authzQueues(); q.agent_runners[0].data = row
     const { admin, upserts } = useAdmin({
       ...q,
-      wbs_items: [{ data: [] }], // 트리 depth 조회 — 빈 트리
+      wbs_items: [
+        { data: [] }, // 트리 depth 조회 — 빈 트리
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음
+      ],
       project_members: [{ data: [] }],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'mes-skel/PH-01': 'id-p' }, new_refs: [] } }])
 
@@ -322,7 +326,10 @@ describe('POST /wbs/import — v2.2 nlevel', () => {
     const { admin } = useAdmin({
       ...q,
       project_members: [{ data: [] }],
-      wbs_items: [{ data: [{ id: 'id-t', external_ref: 'MES/T1', dev_workflow: true }] }],
+      wbs_items: [
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음
+        { data: [{ id: 'id-t', external_ref: 'MES/T1', dev_workflow: true }] },
+      ],
       agent_work_orders: [{ data: [{ wbs_item_id: 'id-t' }] }],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T1': 'id-t' }, new_refs: [] } }])
     const res = await importPOST(post({

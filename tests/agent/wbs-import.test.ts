@@ -160,6 +160,7 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음(3건 모두 신규 업로드 노드, tags 에 agent 없음)
         { data: null }, // assignee_member_id update(T-A)
         { data: [ // 갭 후보 조회(payload 의 task ref 전체: T-A, T-B) — RPC 가 이미 dev_workflow:true 로 심었다고 가정
           { id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true },
@@ -246,7 +247,8 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-x', email: 'other@example.com' }] }], // 다른 email 만 — 매칭 실패
       wbs_items: [
-        // 미매칭이므로 assignee_member_id update 는 없다 — 첫 항목이 바로 갭 후보 조회.
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음
+        // 미매칭이므로 assignee_member_id update 는 없다 — 갭 후보 조회.
         { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }, // 갭 후보 조회
         { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: null, dev_workflow: true } }, // ensureOrder: 항목 조회
         { data: null }, // ensureOrder: 자식 없음(리프)
@@ -329,7 +331,10 @@ describe('POST /wbs/import', () => {
       project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
-      wbs_items: [{ data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }], // 갭 후보 조회
+      wbs_items: [
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }, // 갭 후보 조회
+      ],
       agent_work_orders: [{ data: [{ wbs_item_id: 'id-a' }] }], // 이미 활성 주문 존재 — 갭 아님
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } }]) // 이미 존재 — 신규 없음
 
@@ -352,6 +357,7 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음
         { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }, // 갭 후보 조회
         { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder: 항목 조회
         { data: null }, // ensureOrder: 자식 없음(리프)
@@ -385,6 +391,7 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음
         { data: null }, // assignee_member_id update
         { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }, // 갭 후보 조회
         { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder: 항목 조회(dev_workflow 게이트 통과)
@@ -415,6 +422,7 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
+        { data: [] }, // L7 표식 확인 — kind 무관하게 payload 의 모든 노드가 대상이다(WP-01 도 tags 없음)
         { data: null }, // assignee_member_id update(WP-01, kind 무관하게 assignee 매칭은 이뤄진다)
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/WP-01': 'id-wp' }, new_refs: ['MES/WP-01'] } }])
@@ -437,6 +445,7 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [] }], // 매칭 대상 없음 — 그래도 로스터는 로드된다
       wbs_items: [
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음
         { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }, // 갭 후보 조회
         { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: null, dev_workflow: true } }, // ensureOrder: 항목 조회
         { data: null }, // ensureOrder: 자식 없음(리프)
@@ -468,6 +477,7 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [] }],
       wbs_items: [
+        { data: [] }, // L7 표식 확인 — 기존 항목 없음
         { data: [ // 갭 후보 조회 — T-B 는 dev_workflow:false(다른 트리거가 그 사이 껐다고 가정)
           { id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true },
           { id: 'id-b', external_ref: 'MES/T-B', dev_workflow: false },
@@ -485,5 +495,33 @@ describe('POST /wbs/import', () => {
     const res = await importPOST(post(body, token))
     const json = await res.json()
     expect(json).toMatchObject({ ok: true, orders_created: 1 })
+  })
+
+  it('업로드가 위임 표식을 떼면 그 항목의 ready·claimed 주문을 cancel 로 취소한다(L7)', async () => {
+    const { token, row } = patRow()
+    const body = { project_id: PROJECT_ID, module: 'MES', nodes: [NODE({ id: 'T-A' })] } // tags: [] — 표식 없음
+    const admin = useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }],
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [] }],
+      wbs_items: [
+        { data: [{ id: 'id-a', tags: ['agent'] }] },                              // L7 표식 확인 — 기존 항목은 표식이 있었다
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] },  // 갭 후보 조회
+      ],
+      agent_work_orders: [
+        { data: [{ id: 'order-a' }] },         // L7 — 표식이 빠진 항목의 ready·claimed 주문
+        { data: [{ wbs_item_id: 'id-a' }] },   // 갭 판정 — 활성 주문으로 본다(취소 뒤 재발행은 이 테스트 범위 밖)
+      ],
+    }, [
+      { data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } },    // import_wbs_upsert
+      { data: { ok: true, order_status: 'cancelled', prev_status: 'claimed', stage: 'as', actual_pct: 0,
+        stage_changed: true, actual_changed: true, reached_first: false, skipped: null } }, // apply_workflow_event(cancel)
+    ])
+    const res = await importPOST(post(body, token))
+    expect(res.status).toBe(200)
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_event: 'cancel', p_order_id: 'order-a' }))
+    expect(await res.json()).toMatchObject({ ok: true, delegation_cancelled: 1 })
   })
 })

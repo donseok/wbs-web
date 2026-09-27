@@ -10,6 +10,7 @@ import { isHumanStageCode, type StageCode } from '@/lib/domain/stageLabels'
 import { emitNotification } from '@/lib/notify/emit'
 import { backfillProjectOrders, ensureAgentProject, ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { applyWorkflowEvent, notifyOnReached } from '@/lib/agent/workflowEvent'
+import { cancelOrders } from '@/lib/agent/cancelOrder'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { after } from 'next/server'
 import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
@@ -380,9 +381,9 @@ type DevWorkflowUpdatedRow = { id: string; assignee_member_id: string | null; st
  * OFF 대상(enabled=false): 위임(agent 태그)된 항목은 대상에서 뺀다 — 단건이면 거부하고, 일괄이면
  * 그 항목만 제외한 뒤 몇 건을 뺐는지 skippedDelegated 로 알린다.
  *
- * OFF 후처리(enabled=false): 갱신된 항목들의 활성 주문 중 `ready` 만 `cancelled` 로 일괄 전환한다
+ * OFF 후처리(enabled=false): 갱신된 항목들의 활성 주문 중 `ready` 만 공용 취소(cancelOrders, D14)로 일괄 전환한다
  * (claimed/reported 는 건드리지 않는다 — 진행 중인 작업을 강제 중단하지 않는다, §2.8 취지 연장).
- * 이 UPDATE 실패는 로깅 + `cascadeFailed:true` 로 알린다(본 토글 자체는 이미 커밋됐으므로 위장하지
+ * 이 취소 실패는 로깅 + `cascadeFailed:true` 로 알린다(본 토글 자체는 이미 커밋됐으므로 위장하지
  * 않는다 — cascade 부분 실패를 전체 실패로 보고하지 않는 setWbsAssigneeCascade 와 동일한 원칙).
  */
 export async function setWbsDevWorkflow(
@@ -547,15 +548,16 @@ export async function setWbsDevWorkflow(
       }
     }
   } else {
-    // OFF — 갱신된 항목들의 ready 주문만 일괄 취소(claimed/reported 는 진행 중이라 건드리지 않음).
-    const { error: cancelErr } = await admin
-      .from('agent_work_orders')
-      .update({ status: 'cancelled', updated_at: nowIso })
-      .in('wbs_item_id', updatedIds)
-      .eq('status', 'ready')
-    if (cancelErr) {
-      console.error('[wbsAssign] dev_workflow OFF 주문 취소 실패:', cancelErr.message)
+    // OFF — 갱신된 항목들의 ready 주문만 취소(claimed/reported 는 진행 중이라 건드리지 않음). RPC cancel 사건이
+    // 단계 dd 의 확정 설계를 as 로 되돌린다(설계 상태 스펙 D14).
+    const { data: readyRows, error: readyErr } = await admin
+      .from('agent_work_orders').select('id').in('wbs_item_id', updatedIds).eq('status', 'ready')
+    if (readyErr) {
+      console.error('[wbsAssign] dev_workflow OFF 주문 조회 실패:', readyErr.message)
       cascadeFailed = true
+    } else {
+      const c = await cancelOrders(admin, { orderIds: ((readyRows ?? []) as Array<{ id: string }>).map(r => r.id), actorUserId: g.actor.userId })
+      if (c.failed.length > 0) cascadeFailed = true
     }
   }
 
