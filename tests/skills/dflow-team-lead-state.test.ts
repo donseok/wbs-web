@@ -235,4 +235,12 @@ describe('lead-state.sh — 설계 상태(계약 2.11)', () => {
     expect(get(out, 'RETRY_DUE')).toEqual([])
     expect(get(out, 'WARN_RETRY')).toEqual([])
   })
+  it('team.result 의 ts 가 없거나 빈 문자열이면 오래된 것으로 보고 즉시 RETRY_DUE 를 낸다(리뷰 1회차 — strptime 없이 문자열 비교)', () => {
+    const missingTs = JSON.parse(result('1', 'aaaa0001', 'skipped', { reason: 'push 실패' }))
+    delete missingTs.ts
+    const out = run([start(), spawnE('1', 'aaaa0001'), JSON.stringify(missingTs)])
+    expect(get(out, 'RETRY_DUE')).toEqual(['RETRY_DUE aaaa0001 reason=push n=1'])
+    const out2 = run([start(), spawnE('2', 'bbbb0002'), result('2', 'bbbb0002', 'skipped', { reason: 'fetch 실패', ts: '' })])
+    expect(get(out2, 'RETRY_DUE')).toEqual(['RETRY_DUE bbbb0002 reason=fetch n=1'])
+  })
 })

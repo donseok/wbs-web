@@ -355,7 +355,7 @@ describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, 
     expect(r.out.trim().split('\n')[0]).toMatch(/^TICK_SKIPPED /)
     expect(lastWatch()).toBe('watch --agent hong/mbp/lead --slots 3 --busy 0 --until 18:00 --json --holder h1 --require-tag agent --wp WP-02')
   })
-  it('wake.sh 요약: 새 서버면 reqs 에 mine·design_state, 끝에 build·build_err. 옛 서버(build_ready 없음)면 붙이지 않는다', () => {
+  it('wake.sh 요약: 새 서버면 reqs 에 mine·design_state, 끝에 build·build_err. build_ready 가 null(조회 실패)이면 build 는 NULL·build_err 를 낸다(리뷰 1회차 — 제목을 본문에 맞춤)', () => {
     writeFileSync(join(fake, 'watch.json'), JSON.stringify({
       resume_requests: [{ id8: 'aaaa0001', code: 'c', host: 'mbp', requested_at: 't', project_id: 'p1', mine: true, design_state: null }],
       build_ready: [{ order_id: 'o3', id8: 'cccc0003', code: '1.1', name: 'x', status: 'claimed' }],
@@ -368,5 +368,29 @@ describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, 
     writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: null, build_ready_error: 'db' }))
     const r2 = spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events'], { cwd: repo, encoding: 'utf8', env: envFor() })
     expect(JSON.parse(r2.stdout.split('\n')[1])).toMatchObject({ build: 'NULL', build_err: 'db' })
+  })
+  it('lead-state.sh 조회 자체가 실패하면(제외 목록을 못 읽음) 건너뛰지 않고 깨운다(리뷰 1회차)', async () => {
+    const badEv = join(tmp, 'unreadable-events.jsonl')
+    writeFileSync(badEv, '{}\n')
+    chmodSync(badEv, 0o000)
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: [{ order_id: 'o-cccc0003', id8: 'cccc0003', code: '1', name: 'x', status: 'claimed' }] }))
+    try {
+      expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'], { env: { DFLOW_EVENTS: badEv } })).out.trim()).toBe('TICK')
+    } finally {
+      chmodSync(badEv, 0o644)
+    }
+  })
+  it('RETRY_DUE 인 id 는 EXCLUDE_TEMP(skipped)에도 걸려 있지만 ign 에서 빼 TICK 을 건너뛰지 않는다(리뷰 1회차 — 재시도 지연 방지)', async () => {
+    let n = 0
+    const oldEv = (e: Record<string, string>) =>
+      JSON.stringify({ ts: `2026-01-01T00:00:${String(n++).padStart(2, '0')}Z`, host: 'mbp', repo, tsk: '-', order: '-', phase: 'team', agent: OWNER, ...e })
+    writeFileSync(join(tmp, 'retry-events.jsonl'), [
+      oldEv({ event: 'team.start', backend: 'tmux', slots: '3', until: '18:00', wp: '-' }),
+      oldEv({ event: 'team.spawn', slot: '1', id8: 'aaaa0009', spawn_kind: 'new' }),
+      oldEv({ event: 'team.result', slot: '1', id8: 'aaaa0009', status: 'skipped', reason: 'push 실패', hash: 'h-aaaa0009' }),
+    ].join('\n') + '\n')
+    const env = { DFLOW_EVENTS: join(tmp, 'retry-events.jsonl') }
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: [{ order_id: 'o-aaaa0009', id8: 'aaaa0009', code: '1', name: 'x', status: 'claimed' }] }))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'], { env })).out.trim()).toBe('TICK')
   })
 })

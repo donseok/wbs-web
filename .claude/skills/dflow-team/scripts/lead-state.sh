@@ -124,7 +124,10 @@ jq -R -c --arg a "$AGENT" --arg r "$REPO" 'select(test("\\S")) | (try fromjson c
            if .stop then . elif (($r.status // "") == "skipped" and (($r.reason // "") | test("^(fetch|push) 실패"))) then .n += 1 else .stop = true end)
        | .n) as $n
     | if $n >= 3 then "WARN_RETRY \($e.id8) reason=\($why) n=\($n)"
-      elif ((($e.ts // "") | try fromdateiso8601 catch 0) <= (now - 1800)) then "RETRY_DUE \($e.id8) reason=\($why) n=\($n)"
+      # Windows jq(1.8.1 미만)는 strptime 이 없어 fromdateiso8601 이 오류를 낸다(jq #2071, #3342 로 1.8.1 에서 고침).
+      # ts 는 events.md 「기록 명령」이 항상 date -u +%Y-%m-%dT%H:%M:%SZ 로 고정 기록해 사전순 비교가 곧 시간순이다
+      # (kit/dflow-team/SKILL.md·design-ahead.md 의 todate 선례와 같은 방식). 빈 ts 는 "오래됨"(참)으로 본다.
+      elif ((($e.ts // "") <= (now - 1800 | todate))) then "RETRY_DUE \($e.id8) reason=\($why) n=\($n)"
       else empty end ),
   ( $last | to_entries[] | .value | select(.event == "team.spawn" or .event == "team.blocked") | . as $e | ($sp[$e.id8] // $e) as $s
     | "SLOT \($s.slot // "-") \($e.id8) tsk=\($s.tsk // "-") order=\($s.order // "-") kind=\(kind($s)) state=\($e.event | ltrimstr("team.")) resolve=\(if ($res | index($e.id8)) then 1 else 0 end) worktree=\($s.worktree // "-") handle=\($s.handle // "-")" ),
