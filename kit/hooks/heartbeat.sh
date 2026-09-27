@@ -5,11 +5,11 @@
 # 예외 하나(2026-09-19 중단 설계 §3): 사람이 D'Flow 에서 작업을 중단하면(서버 409 code=cancelled) 표식 파일
 # ~/.dflow/hb/<order>.cancelled 를 남기고 {"continue":false,"stopReason":…} 를 출력해 세션을 세운다. 표식이 있는 동안은
 # 절제와 무관하게 매 호출 다시 세운다 — 서브에이전트 안의 continue:false 가 부모 세션까지 멈춘다는 보장이 없어서다.
-# 그 밖의 결과(네트워크 실패·다른 409·5xx)는 지금처럼 무시한다(fail-open). 확실한 중단 신호일 때만 세운다.
-# dflow.sh 를 거치지 않는 이유: api_raw 는 타임아웃이 없고 비-2xx 마다 exit 하며 임시파일을 쓴다.
 # 예외 둘(설계 상태 스펙 12절 Y1): 다른 PC 가 이 작업을 이어받았으면(서버 409 code=runner_active) state.json 은 그대로 두고 세운다.
 # 영속 표식을 남기지 않는 대신 절제 스탬프를 지워 다음 도구 호출이 다시 묻고 다시 세운다 — 나중에 이 PC 가 정당하게 넘겨받으면
 # (다른 PC 가 30분 넘게 조용) heartbeat 가 200 이 되어 저절로 풀린다.
+# 그 밖의 결과(네트워크 실패·다른 409·5xx)는 지금처럼 무시한다(fail-open). 확실한 중단 신호일 때만 세운다.
+# dflow.sh 를 거치지 않는 이유: api_raw 는 타임아웃이 없고 비-2xx 마다 exit 하며 임시파일을 쓴다.
 set -u
 GIT=$(command -v git 2>/dev/null) || exit 0
 CURL="${CURL:-$(command -v curl 2>/dev/null)}"; [ -n "$CURL" ] || exit 0

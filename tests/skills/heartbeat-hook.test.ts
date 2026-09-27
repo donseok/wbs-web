@@ -365,6 +365,15 @@ describe('heartbeat.sh — 세션 절제(스캔 전)', () => {
     expect(JSON.parse(runS()).continue).toBe(false)
     expect(sent()).toHaveLength(1)
   })
+  it('runner_active 를 받으면 절제 스탬프를 지워 세션 지름길(2-b)도 다시 스캔·전송한다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    const RA = { FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"code":"runner_active","runner":"kim/pc2/w1"}' }
+    expect(JSON.parse(runS(RA)).continue).toBe(false)
+    expect(sent()).toHaveLength(1)
+    // 같은 세션이 60초 안에 다시 불러도(2-b 지름길 대상) 스탬프가 지워졌으니 스캔·전송을 다시 한다
+    expect(JSON.parse(runS(RA)).continue).toBe(false)
+    expect(sent()).toHaveLength(2)
+  })
   it('다른 주문의 낡은 표식만 있어도 스캔은 하되(표식 검사), 이 주문은 절제한다', () => {
     writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
     mkdirSync(join(home, '.dflow/hb'), { recursive: true })
@@ -560,9 +569,13 @@ describe('heartbeat.sh — 다른 PC 가 이어받음(409 runner_active, 설계 
   })
   it('다음 heartbeat 가 200 이면 세우지 않는다(이 PC 가 정당하게 넘겨받음)', () => {
     runOut(RA)
-    expect(runOut({ FAKE_HB_CODE: '200', FAKE_HB_BODY: '{"ok":true}' }).trim()).toBe('')
+    const out = runOut({ FAKE_HB_CODE: '200', FAKE_HB_BODY: '{"ok":true}' })
+    expect(sent()).toHaveLength(2) // 절제로 안 보낸 게 아니라 실제로 보내서 200 을 받았다
+    expect(out.trim()).toBe('')
   })
   it('다른 409(conflict)는 종전대로 무시한다(fail-open)', () => {
-    expect(runOut({ FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"code":"conflict"}' }).trim()).toBe('')
+    const out = runOut({ FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"code":"conflict"}' })
+    expect(sent()).toHaveLength(1)
+    expect(out.trim()).toBe('')
   })
 })
