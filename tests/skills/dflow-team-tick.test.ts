@@ -185,7 +185,7 @@ describe('tick.sh — 변화 없는 TICK 은 연속 한 번까지만 건너뛴�
     // 건너뛸 때 잠금 beat 를 갱신하고 좌석표 watch 를 보냈다(STANDBY 70분이 끊기지 않게)
     expect(Number(readFileSync(join(repo, '.git', 'dflow-team.lock', 'beat'), 'utf8'))).toBeGreaterThan(1)
     const calls = readFileSync(join(fake, 'calls'), 'utf8')
-    expect(calls).toMatch(/^watch --agent hong\/mbp\/lead --slots 3 --busy 0 --until 18:00 --json --holder h1$/m)
+    expect(calls).toMatch(/^watch --agent hong\/mbp\/lead --slots 3 --busy 0 --until 18:00 --json --holder h1 --require-tag agent$/m)
   })
 
   it('건너뛴 뒤 루프를 바꿔도(--new-tick 없이) 건너뛴 수가 이어져 다음 TICK 은 곧바로 낸다', async () => {
@@ -301,5 +301,72 @@ describe('wake.sh — 기상 블록(「2-3」)', () => {
   it('lease 갱신 beat 가 3분보다 오래되면 LEASE_KEEP_DEAD 를 낸다', () => {
     writeFileSync(join(repo, '.git', 'dflow-team.lease.beat'), '100\n')
     expect(wake(['--pid', PID, '--no-events']).stdout).toMatch(/^LEASE_KEEP_DEAD 마지막 갱신 100$/m)
+  })
+})
+
+describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, () => {
+  // 제외 목록은 lead-state.sh 가 events.jsonl 에서 읽는다. 실제 ~/.dflow/events.jsonl 을 읽지 않게 가짜 경로를 준다
+  const noEvents = () => ({ DFLOW_EVENTS: join(tmp, 'no-events.jsonl') })
+  it('build_ready 조회 실패(null)이거나 claimed 승인 주문이 있으면 건너뛰지 않는다. 비었거나 ready 뿐이면 건너뛴다(D22)', async () => {
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: null, build_ready_error: 'db' }))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'])).out.trim()).toBe('TICK')
+    lockOwner()
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: [{ order_id: 'o3', id8: 'cccc0003', code: '1.1', name: 'x', status: 'claimed' }] }))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'], { env: noEvents() })).out.trim()).toBe('TICK')
+    lockOwner()
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: [{ order_id: 'o4', id8: 'dddd0004', code: '1.2', name: 'y', status: 'ready' }] }))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'])).out.trim().split('\n')[0]).toMatch(/^TICK_SKIPPED at=\d+ next=\d+$/)
+  })
+  it('build 의 claimed 원소에서 슬롯에 있거나 팀장이 제외·멈춤으로 기록한 id 를 빼고, 남는 것이 있을 때만 건너뛰지 않는다(D22, 4차 C8)', async () => {
+    let n = 0
+    const ev = (e: Record<string, string>) => JSON.stringify({ ts: `2026-09-27T00:00:${String(n++).padStart(2, '0')}Z`, host: 'mbp', repo, tsk: '-', order: '-', phase: 'team', agent: OWNER, ...e })
+    const ended = (id8: string, status: string, reason: string) =>
+      [ev({ event: 'team.spawn', slot: '1', id8, spawn_kind: 'new' }), ev({ event: 'team.result', slot: '1', id8, status, reason, hash: `h-${id8}` })]
+    writeFileSync(join(tmp, 'events.jsonl'), [
+      ev({ event: 'team.start', backend: 'tmux', slots: '3', until: '18:00', wp: '-' }),
+      ...ended('cccc0003', 'failed gate', '-'), // 영구 제외(「멈춤」 표)
+      ...ended('dddd0004', 'skipped', '설계 관문(design_gate)'), // 일시 제외
+      ev({ event: 'team.spawn', slot: '2', id8: 'eeee0005', spawn_kind: 'resume' }),
+      ev({ event: 'team.lost', slot: '2', id8: 'eeee0005', cause: 'no-response', next: 'park', restart_at: '-' }), // PARKED(「멈춤」 표)
+    ].join('\n') + '\n')
+    const env = { DFLOW_EVENTS: join(tmp, 'events.jsonl') }
+    const line = `TSK-01-01 ${ID8} agent/x 1a2b - blocked 질문?`
+    writeFileSync(result, line + '\n') // 슬롯 — 답을 기다리는 blocked 라 생존 증거는 재지 않는다
+    const claimed = (...ids: string[]) =>
+      JSON.stringify({ resume_requests: [], build_ready: ids.map((id8) => ({ order_id: `o-${id8}`, id8, code: '1', name: 'x', status: 'claimed' })) })
+    writeFileSync(join(fake, 'watch.json'), claimed('cccc0003', 'dddd0004', 'eeee0005', ID8))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--', entry(cksum(line))], { env })).out.trim().split('\n')[0]).toMatch(/^TICK_SKIPPED /)
+    lockOwner()
+    writeFileSync(join(fake, 'watch.json'), claimed('cccc0003', 'ffff0006'))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--', entry(cksum(line))], { env })).out.trim()).toBe('TICK')
+  })
+  it('wake.sh 는 watch 에 poll 과 같은 거르기(태그 agent·--wp)를 싣고, --wp 가 없거나 - 면 WP 는 싣지 않는다. tick.sh 는 --wp 를 wake.sh 에 넘긴다(D22·Y9)', async () => {
+    const lastWatch = () => readFileSync(join(fake, 'calls'), 'utf8').trim().split('\n').filter((l) => l.startsWith('watch ')).at(-1)
+    const wakeWith = (...extra: string[]) =>
+      spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events', ...extra], { cwd: repo, encoding: 'utf8', env: envFor() })
+    const base = 'watch --agent hong/mbp/lead --slots 4 --busy 2 --until 09-21 06:00 --json --holder h1 --require-tag agent'
+    wakeWith('--wp', 'WP-02,dict/WP-3')
+    expect(lastWatch()).toBe(`${base} --wp WP-02,dict/WP-3`)
+    wakeWith('--wp', '-')
+    expect(lastWatch()).toBe(base)
+    wakeWith()
+    expect(lastWatch()).toBe(base)
+    const r = await tick(['--new-tick', '--may-skip', '--wp', 'WP-02', ...baseArgs(), '--'])
+    expect(r.out.trim().split('\n')[0]).toMatch(/^TICK_SKIPPED /)
+    expect(lastWatch()).toBe('watch --agent hong/mbp/lead --slots 3 --busy 0 --until 18:00 --json --holder h1 --require-tag agent --wp WP-02')
+  })
+  it('wake.sh 요약: 새 서버면 reqs 에 mine·design_state, 끝에 build·build_err. 옛 서버(build_ready 없음)면 붙이지 않는다', () => {
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({
+      resume_requests: [{ id8: 'aaaa0001', code: 'c', host: 'mbp', requested_at: 't', project_id: 'p1', mine: true, design_state: null }],
+      build_ready: [{ order_id: 'o3', id8: 'cccc0003', code: '1.1', name: 'x', status: 'claimed' }],
+    }))
+    const r = spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events'], { cwd: repo, encoding: 'utf8', env: envFor() })
+    expect(JSON.parse(r.stdout.split('\n')[1])).toEqual({
+      n: 1, err: '-', reqs: [{ id8: 'aaaa0001', code: 'c', host: 'mbp', requested_at: 't', mine: true, design_state: null }], other_project: [],
+      build: [{ id8: 'cccc0003', code: '1.1', status: 'claimed' }], build_err: '-',
+    })
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: null, build_ready_error: 'db' }))
+    const r2 = spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events'], { cwd: repo, encoding: 'utf8', env: envFor() })
+    expect(JSON.parse(r2.stdout.split('\n')[1])).toMatchObject({ build: 'NULL', build_err: 'db' })
   })
 })

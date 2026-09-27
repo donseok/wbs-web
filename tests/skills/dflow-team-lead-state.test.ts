@@ -204,3 +204,35 @@ describe('lead-state.sh — 재구성 보조 요약', () => {
     expect(get(run([start(), result('1', 'eeee0005', 'resolved'), cleared('eeee0005')]), 'CONFLICT_CLEARED')).toEqual(['CONFLICT_CLEARED resolved=1 other=0'])
   })
 })
+
+describe('lead-state.sh — 설계 상태(계약 2.11)', () => {
+  const nowTs = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  it('design_review·design_reopened 는 제외하지 않는다(설계 검토 대기·사람 설계 대기로 돌아간 작업)', () => {
+    const out = run([start(), spawnE('1', 'aaaa0001'), result('1', 'aaaa0001', 'design_review', { reason: '-' }),
+      spawnE('2', 'bbbb0002'), result('2', 'bbbb0002', 'design_reopened', { reason: '주문이 바뀜' })])
+    expect(get(out, 'EXCLUDE_PERM')).toEqual(['EXCLUDE_PERM -'])
+    expect(get(out, 'EXCLUDE_TEMP')).toEqual(['EXCLUDE_TEMP -'])
+  })
+  it('fetch·push 실패 skipped 는 처리한 지 30분이 지나면 RETRY_DUE, 30분 전이면 아직 아니다(Y11)', () => {
+    const out = run([start(), spawnE('1', 'aaaa0001'), result('1', 'aaaa0001', 'skipped', { reason: 'push 실패' }),
+      spawnE('2', 'bbbb0002'),
+      line({ event: 'team.result', slot: '2', id8: 'bbbb0002', tsk: 'TSK-bbbb0002', worktree: WT('bbbb0002'), hash: 'h-b', status: 'skipped', reason: 'fetch 실패', ts: nowTs() })])
+    expect(get(out, 'RETRY_DUE')).toEqual(['RETRY_DUE aaaa0001 reason=push n=1'])
+    expect(get(out, 'WARN_RETRY')).toEqual([])
+  })
+  it('같은 계열 사유가 연속 3회면 RETRY_DUE 대신 WARN_RETRY — 다른 결과가 끼면 다시 센다', () => {
+    const push = () => result('1', 'aaaa0001', 'skipped', { reason: 'push 실패' })
+    const again = () => spawnE('1', 'aaaa0001', { spawn_kind: 'resume' })
+    const out = run([start(), spawnE('1', 'aaaa0001'), push(), again(), result('1', 'aaaa0001', 'skipped', { reason: 'fetch 실패' }), again(), push()])
+    expect(get(out, 'WARN_RETRY')).toEqual(['WARN_RETRY aaaa0001 reason=push n=3'])
+    expect(get(out, 'RETRY_DUE')).toEqual([])
+    const out2 = run([start(), spawnE('1', 'aaaa0001'), push(), again(), result('1', 'aaaa0001', 'skipped', { reason: '설계 관문(design_gate)' }), again(), push()])
+    expect(get(out2, 'RETRY_DUE')).toEqual(['RETRY_DUE aaaa0001 reason=push n=1'])
+  })
+  it('다른 사유의 skipped 이거나 그 뒤에 다시 띄웠으면 내지 않는다', () => {
+    const out = run([start(), spawnE('1', 'aaaa0001'), result('1', 'aaaa0001', 'skipped', { reason: '설계 관문(design_gate)' }),
+      spawnE('2', 'bbbb0002'), result('2', 'bbbb0002', 'skipped', { reason: 'push 실패' }), spawnE('2', 'bbbb0002', { spawn_kind: 'resume' })])
+    expect(get(out, 'RETRY_DUE')).toEqual([])
+    expect(get(out, 'WARN_RETRY')).toEqual([])
+  })
+})
