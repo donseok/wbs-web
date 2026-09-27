@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { generateAgentToken } from '@/lib/agent/token'
 
@@ -84,6 +84,10 @@ beforeEach(() => {
   process.env.AGENT_API_SECRET = SECRET
   vi.clearAllMocks()
 })
+// console.error 스파이가 단언 실패로 mockRestore 를 건너뛰어도 다음 테스트로 새지 않게(수정 2회차 Minor).
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('design-done', () => {
   const CL = { id: O1, project_id: P1, status: 'claimed', claimed_by: 'hong/mbp/w1', claimed_by_user_id: null, wbs_item_id: W1, design_state: null }
@@ -112,6 +116,25 @@ describe('design-done', () => {
     expect(res.status).toBe(403)
     expect((await res.json()).code).toBe('not_claim_owner')
     expect(admin.rpc).not.toHaveBeenCalled()
+  })
+  it('점유자가 아니면 403 not_claim_owner(PAT) — 계정이 다르거나 레거시 세션 점유 모두, RPC 를 부르지 않는다', async () => {
+    const other = useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: { ...CL, claimed_by_user_id: 'u-9' } }], ...member(),
+    })
+    const r1 = await doneRoute(post('design-done', { agent: 'hong/mbp/w1' }, PAT.token), ctx)
+    expect(r1.status).toBe(403)
+    expect((await r1.json()).code).toBe('not_claim_owner')
+    expect(other.rpc).not.toHaveBeenCalled()
+
+    const legacyHeld = useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: { ...CL, claimed_by_user_id: null } }], ...member(),
+    })
+    const r2 = await doneRoute(post('design-done', { agent: 'hong/mbp/w1' }, PAT.token), ctx)
+    expect(r2.status).toBe(403)
+    expect((await r2.json()).code).toBe('not_claim_owner')
+    expect(legacyHeld.rpc).not.toHaveBeenCalled()
   })
   it('RPC 가 conflict 를 주면 409 reason order_changed, error 를 주면 500', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -186,6 +209,13 @@ describe('design-reopen', () => {
       agent_work_orders: [{ data: { ...CL, claimed_by_user_id: 'u-9' } }], ...member(),
     })
     const res = await call(undefined, PAT.token)
+    expect(res.status).toBe(403)
+    expect((await res.json()).code).toBe('not_claim_owner')
+    expect(admin.rpc).not.toHaveBeenCalled()
+  })
+  it('claimed 이고 점유 라벨이 다르면 403 not_claim_owner(레거시) — RPC 를 부르지 않는다', async () => {
+    const admin = useAdmin({ agent_work_orders: [{ data: CL }], ...member() })
+    const res = await reopenRoute(post('design-reopen', { user_email: USER.email, agent: 'other-agent', reason: '사유' }), ctx)
     expect(res.status).toBe(403)
     expect((await res.json()).code).toBe('not_claim_owner')
     expect(admin.rpc).not.toHaveBeenCalled()
