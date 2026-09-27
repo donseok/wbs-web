@@ -7860,3 +7860,232 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
+
+## Task 23: `/dflow-poll`·`/dflow-work` 문서 — full 만 착수, exit 11·12, 설계 상태 동사
+
+**Files:**
+- Modify: `.claude/skills/dflow-poll/SKILL.md`(「절차」 1·2번)
+- Modify: `.claude/skills/dflow-work/SKILL.md`(머리 exit 표, 설계 선행 문단 뒤, heartbeat, 포기)
+- Modify: `.claude/skills/dflow-work/references/troubleshooting.md`(exit 7 절 뒤)
+- Test: `tests/skills/dflow-design-state-docs.test.ts`(새)
+
+**Interfaces:**
+- Consumes: Task 18 의 `dflow.sh` 동사·exit·`CLAIM_SCOPE`, Task 19 의 `poll.sh --actions`·넷째 칸 `action`
+- Produces: 사람과 `/dflow-poll` 세션이 읽는 안내. `/dflow-poll` 은 `--actions full` 로 기동하고, 넷째 칸이 `full` 이 아니면 알리고 건너뛴다(Review Focus 5)
+
+**계획 단계 검증**: Task 21~22b 를 적용한 리포 사본에 아래 문구를 적용해 새 테스트 6건이 통과했다(문서 수정 전에는 6건 모두 실패). `tests/skills` 전체에서 기준선에 없던 실패가 없었다.
+
+- [ ] **Step 1: 실패하는 테스트**
+
+**T** — `tests/skills/dflow-design-state-docs.test.ts` 를 새로 만든다.
+
+```ts
+// tests/skills/dflow-design-state-docs.test.ts — 설계 상태(계약 2.11)의 /dflow-poll·/dflow-work 문서.
+// 설계: docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md 6.5·6.7·7절·12절(Review Focus 5)
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const flat = (s: string) => s.replace(/\s+/g, ' ')
+const read = (p: string) => flat(readFileSync(join(process.cwd(), p), 'utf8'))
+
+describe('/dflow-poll — full 만 착수한다(스펙 7절)', () => {
+  const p = read('.claude/skills/dflow-poll/SKILL.md')
+  it('기동 줄에 --actions full 이 표준이다', () => {
+    expect(p).toContain('poll.sh --interval 300 --until 18:00 --require-tag agent --actions full')
+    expect(p).toContain('`--actions full` 도 표준이다')
+  })
+  it('넷째 칸이 full 이 아니면 사유를 알리고 건너뛴다', () => {
+    expect(p).toContain('`순번<TAB>id8<TAB>이름[<TAB>action]`')
+    expect(p).toContain('설계 검토·구현자동 작업이라 건너뜁니다')
+  })
+})
+
+describe('/dflow-work — exit 11·12 와 설계 상태 동사', () => {
+  const w = read('.claude/skills/dflow-work/SKILL.md')
+  it('exit 표에 11·12 가 있다', () => {
+    expect(w).toContain('11 설계 관문 — 409 `design_gate`·`design_not_accepted`(계약 2.11)')
+    expect(w).toContain('12 다른 PC 도는 중 — 409 `runner_active`(계약 2.11)')
+  })
+  it('claim·build-start 범위, design-done·design-reopen, 옛 서버 폴백을 적는다', () => {
+    expect(w).toContain('**설계 상태(계약 2.11)**')
+    expect(w).toContain('`claim <ref> [--design-first] [--scope full|design|build]`')
+    expect(w).toContain('`design-reopen <ref> --reason "<이유>"`')
+    expect(w).toContain('`DESIGN_STATE_UNSUPPORTED` 에 exit 7')
+  })
+  it('설계 멈춤은 계약 2.11 이면 design-done, release 는 설계 상태가 있으면 거부된다(D13)', () => {
+    expect(w).toContain('계약 2.11 이면 `dflow.sh design-done <ref>`, 옛 서버면 `--phase wait_review`(계약 2.10)')
+    expect(w).toContain('설계 상태(검토 대기·승인됨)가 있는 주문은 반납하지 않는다(exit 11')
+  })
+  it('troubleshooting 에 exit 10·11·12 절이 있다', () => {
+    const t = read('.claude/skills/dflow-work/references/troubleshooting.md')
+    for (const h of ['### exit 10 — 중단됨', '### exit 11 — 설계 관문(계약 2.11)', '### exit 12 — 다른 PC 도는 중(계약 2.11)']) expect(t, h).toContain(h)
+    expect(t).toContain('`DESIGN_GATE design_gate order_changed`')
+  })
+})
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/skills/dflow-design-state-docs.test.ts`
+Expected: FAIL 6건
+
+- [ ] **Step 3: `/dflow-poll` SKILL.md**
+
+**A** — 아래 원문을 바꾼다.
+
+````text
+   .claude/skills/dflow-poll/scripts/poll.sh --interval 300 --until 18:00 --require-tag agent
+   ```
+   (`--require-tag agent` 는 표준 — 사용자가 `--all` 을 명시한 경우에만 뺀다.)
+````
+
+바꿀 문구:
+
+````text
+   .claude/skills/dflow-poll/scripts/poll.sh --interval 300 --until 18:00 --require-tag agent --actions full
+   ```
+   (`--require-tag agent` 는 표준 — 사용자가 `--all` 을 명시한 경우에만 뺀다. `--actions full` 도 표준이다 — 설계 검토·구현자동
+   작업(서버 판단 `action` 이 `design`·`build`, 계약 2.11)은 사람의 「설계 승인」·「설계 확정」 을 거쳐 `/dflow-team` 팀장이나 사람의
+   `/dflow-dev` 가 맡는다. 옛 서버면 이 칸이 없어 종전대로 모두 온다.)
+````
+
+**B1** — 아래 원문을 바꾼다.
+
+```text
+   - **0 = ready 발견**: stdout 각 줄이 `순번<TAB>id8<TAB>이름`. **착수 전에 dflow-dev
+```
+
+바꿀 문구:
+
+```text
+   - **0 = ready 발견**: stdout 각 줄이 `순번<TAB>id8<TAB>이름[<TAB>action]`(넷째 칸은 계약 2.11 서버 판단 — 옛 서버면 없다). **착수 전에 dflow-dev
+```
+
+**B2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+     순번은 그 시점 목록 캐시 기준이라 시간이 지나면 어긋날 수 있다 — **claim 은 반드시 id8 로.**
+```
+
+더할 문구:
+
+```text
+     넷째 칸이 있고 `full` 이 아니면(겹쳐 뜬 옛 poll 등) 착수하지 않고 "`<id8>` 는 설계 검토·구현자동 작업이라 건너뜁니다(/dflow-team 이나
+     사람의 /dflow-dev 가 맡는다)" 를 통지한 뒤 그 id8 을 exclude 에 넣어 재기동한다.
+```
+
+- [ ] **Step 4: `/dflow-work` SKILL.md·troubleshooting.md**
+
+C~F 는 `.claude/skills/dflow-work/SKILL.md`, G 는 `references/troubleshooting.md` 다.
+
+**C** — 아래 줄 바로 뒤에 더한다.
+
+```text
+10 중단됨 — 사람이 D'Flow 에서 작업을 중단했다(409 바디 `code=cancelled`). 재시도하지 말고 즉시 멈춘다.
+```
+
+더할 문구:
+
+```text
+11 설계 관문 — 409 `design_gate`·`design_not_accepted`(계약 2.11). stderr 끝줄 `DESIGN_GATE <code>[ <reason>]`. 재시도하지 않는다 —
+서버 판단(`action`)을 다시 보거나 사람이 「설계 승인」·「설계 확정」 을 누른다.
+12 다른 PC 도는 중 — 409 `runner_active`(계약 2.11). stderr 끝줄 `RUNNER_ACTIVE <runner>`. 이 세션은 멈춘다(다른 PC 의 세션이 이어 간다).
+```
+
+**D** — 아래 줄 바로 뒤에 더한다.
+
+```text
+흐름 정본은 `/dflow-dev` `references/orch/design-first.md` 「설계 선행」 이다.
+```
+
+더할 문구:
+
+```text
+
+**설계 상태(계약 2.11)**: 작업마다 설계 방식(완전자동·설계 검토·구현자동)이 있고, 서버가 판단을 싣는다 — `list` 출력 끝의 두 칸
+`action`·`mine`, `show` 의 `.order.action`·`.order.mine`·`.order.design_state`·`.order.claim_scope`·`.order.runner`.
+- `claim <ref> [--design-first] [--scope full|design|build]` — 서버가 저장한 범위를 `CLAIM_SCOPE <범위>` 한 줄로 낸다.
+- `build-start <ref> [--scope full|build|rework]` — 설계 관문이면 exit 11, 다른 PC 가 돌면 exit 12.
+- `design-done <ref>` — 설계를 마치고 멈춘다(단계 `dd`, 설계 검토 방식이면 설계 상태 `review`). 출력 `design-done <id8> <review|accepted|none>`.
+- `design-reopen <ref> --reason "<이유>"` — 설계를 사람에게 되돌린다. 사유는 화면에 보인다.
+- 옛 서버(계약 < 2.11)면 두 동사는 stderr `DESIGN_STATE_UNSUPPORTED` 에 exit 7 이다. 지원 여부는 `dflow.sh contract-ge 2.11` 로 본다.
+흐름 정본은 `/dflow-dev` `references/orch/start.md` 「서버 판단」·`references/orch/design.md` 「설계 받기」·「설계만 멈춤」 이다.
+```
+
+**E** — 아래 원문을 바꾼다.
+
+```text
+- 설계를 마치고 선행을 기다리며 멈추기 직전: `--phase wait_pred`(계약 2.9). 훅은 이 값을 보내지 않으므로 직접 부른다.
+- 설계만(`/dflow-dev --scope design`) 마치고 사람의 검토를 기다리며 멈추기 직전: `--phase wait_review`(계약 2.10). 훅은 보내지 않는다.
+```
+
+바꿀 문구:
+
+```text
+- 설계를 마치고 선행을 기다리며 멈추기 직전: `--phase wait_pred`(계약 2.9). 훅은 이 값을 보내지 않으므로 직접 부른다. 계약 2.11 이면
+  heartbeat 대신 `dflow.sh design-done <ref>` 를 부른다(단계·좌석을 한 번에 바꾼다).
+- 설계만(`/dflow-dev --scope design`) 마치고 사람의 검토를 기다리며 멈추기 직전: 계약 2.11 이면 `dflow.sh design-done <ref>`, 옛 서버면
+  `--phase wait_review`(계약 2.10). 훅은 보내지 않는다.
+```
+
+**F** — 아래 줄 바로 뒤에 더한다.
+
+```text
+claim 했던 작업을 포기. 상태 -> ready 로 돌아감.
+```
+
+더할 문구:
+
+```text
+계약 2.11 에서 설계 상태(검토 대기·승인됨)가 있는 주문은 반납하지 않는다(exit 11, 설계 상태 스펙 D13). 사람이 D'Flow 에서 「설계 되돌리기」나
+중단을 쓴다.
+```
+**G** — 아래 줄 바로 앞에 더한다.
+
+```text
+## cache 와 상태 복구
+```
+
+더할 문구:
+
+```text
+### exit 10 — 중단됨
+
+**HTTP 409 `code=cancelled`** — 사람이 D'Flow 에서 작업을 중단했다(주문 `cancelled`, 위임 해제). 재시도하지 않는다. 하던 일은 로컬 커밋으로만
+남기고 push·done 하지 않는다(`/dflow-dev` SKILL.md 상태 모델). 다시 맡기려면 사람이 위임 체크를 켠다 — 새 주문이 생긴다.
+
+### exit 11 — 설계 관문(계약 2.11)
+
+**HTTP 409 `code=design_gate`·`design_not_accepted`** — stderr 끝줄 `DESIGN_GATE <code>[ <reason>]`.
+
+| 끝줄 | 뜻 | 해결 |
+|---|---|---|
+| `DESIGN_GATE design_not_accepted` | 승인·확정된 설계가 없는데 구현(`--scope build`)을 시작하려 했다 | 사람이 「설계 승인」(설계 검토) 또는 「설계 확정」(구현자동)을 누른다 |
+| `DESIGN_GATE design_gate order_changed` | 그 사이 사람이 설계를 되돌렸거나 주문이 바뀌었다 | 재시도하지 않는다. 다시 확정·승인되면 새로 시작한다 |
+| `DESIGN_GATE design_gate` | 작업의 설계 방식·상태와 요청 범위가 맞지 않는다(예: 설계 검토 작업을 `--scope full` 로) | `dflow.sh show <ref>` 의 `.order.action`·`.order.action_reason` 을 보고 그 범위로 돌린다 |
+
+### exit 12 — 다른 PC 도는 중(계약 2.11)
+
+**HTTP 409 `code=runner_active`** — stderr 끝줄 `RUNNER_ACTIVE <runner>`. 다른 PC(`<runner>`)가 30분 안에 이 작업을 돌렸다. 이 세션은 멈춘다.
+그 PC 의 세션이 정말 끝났으면 30분 뒤 다시 돌리면 이어받는다(`mine` 이 참이 된다). 두 PC 가 같은 작업을 구현하지 않게 하는 관문이라 우회하지
+않는다. 새 heartbeat 훅을 깐 PC 에서는 훅이 먼저 세션을 세운다.
+
+```
+
+- [ ] **Step 5: 통과 확인**
+
+Run: `npx vitest run tests/skills/dflow-design-state-docs.test.ts tests/skills/dflow-design-first.test.ts`
+Expected: PASS
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add .claude/skills/dflow-poll/SKILL.md .claude/skills/dflow-work/SKILL.md .claude/skills/dflow-work/references/troubleshooting.md \
+  tests/skills/dflow-design-state-docs.test.ts
+git commit -m "docs(dflow-poll·dflow-work): 설계 상태(계약 2.11) — /dflow-poll 은 full 만 착수, exit 11·12 와 design-done·design-reopen 안내
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
