@@ -41,3 +41,15 @@ describe('/dflow-work — exit 11·12 와 설계 상태 동사', () => {
     expect(t).toContain('`DESIGN_GATE design_gate order_changed`')
   })
 })
+
+describe('api-contract.md — v2.11 목록 셰이프와 mine 의 뜻(deferred C19·최종 리뷰 Minor 4·Important 2)', () => {
+  const c = read('.claude/skills/dflow-work/references/api-contract.md')
+  it('목록 응답의 추가 칸을 적는다', () => {
+    expect(c).toContain('주문에 `claimed_by`(점유 라벨), `item` 에 `project_id`·`stage`· `actual_pct`·`tags`·`depends`·`depends_waived`·`design_mode`')
+    expect(c).toContain('v2.11 목록 셰이프(PAT)')
+  })
+  it('ready 의 mine 은 태그·WP 만, 라벨 없는 claimed 의 mine 은 종전 뜻이다', () => {
+    expect(c).toContain('ready 의 `mine` 은 태그·WP 만 본다(담당자는 claim 이 막는다)')
+    expect(c).toContain('요청에 `agent` 가 없으면(라벨을 보내지 않는 옛 킷) claimed 의 `mine` 은 종전 뜻 `claimed_by_user_id === 호출자` 다')
+  })
+})

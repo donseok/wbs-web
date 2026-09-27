@@ -13,6 +13,11 @@
   `runner`·`runner_seen_at`·`action`(`full`·`design`·`build`·`skip`·`wait`)·`action_reason`·`deps_unmet`·`mine`.
   팀장·워커는 스스로 판정하지 않고 이 값을 따른다. `mine` 은 ready·claimed 주문이면 5.3 판단(같은 신원 ∧ 도는 PC, 목록의
   `lead=1` 이면 거르기·팀원 라벨까지)이고, 그 밖(reported·approved 등)은 종전처럼 점유 사용자 일치다.
+  - ready 의 `mine` 은 태그·WP 만 본다(담당자는 claim 이 막는다). 남에게 배정된 ready 주문도 `mine=true` 일 수 있고, claim 이 403
+    `not_assignee` 로 거부한다.
+  - 요청에 `agent` 가 없으면(라벨을 보내지 않는 옛 킷) claimed 의 `mine` 은 종전 뜻 `claimed_by_user_id === 호출자` 다. 상세·목록 공통.
+- **목록 응답의 추가 칸**(PAT, 읽기용 — 옛 파서는 무시한다): 주문에 `claimed_by`(점유 라벨), `item` 에 `project_id`·`stage`·
+  `actual_pct`·`tags`·`depends`·`depends_waived`·`design_mode`. 아래 「`GET /agent/work/mine` 200」 셰이프를 보라.
 - **목록 요청**(`GET /work/mine`): `agent=<라벨>`(PC 판정), `require_tag=<태그>`, `wp=<WP 목록>`, `lead=1`(claimed 의 mine 에
   거르기·팀원 라벨 `/w<n>` 을 요구). 상세(`GET /work/{id}`)는 `agent` 만.
 - **watch**: 본문 `require_tag`·`wp`. 응답에는 주문마다의 판단 칸을 싣지 않고 둘만 더한다 — `build_ready`(이 신원·이 PC 가
@@ -234,6 +239,20 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
                  "instructions": "…", "claimed_at": "…", "item": { "id": "…", "code": "…", "name": "…", "external_ref": "MDM/TSK-01-01|null" } } ],
   "available": [ …같은 셰이프… ], "assigned": [ …같은 셰이프… ] }
 ```
+v2.11 목록 셰이프(PAT) — 위 칸에 더해 주문마다 아래가 실린다. `wbs_item_id`·`created_at`·`item.planned_start`·`item.planned_end` 는
+전부터 실리던 칸이다.
+```json
+{ "id": "…", "project_id": "…", "status": "claimed", "priority": 0, "instructions": "…", "claimed_at": "…",
+  "wbs_item_id": "…", "created_at": "…", "claimed_by": "<점유 라벨>|null",
+  "item": { "id": "…", "code": "…", "name": "…", "external_ref": "…|null", "planned_start": "…|null", "planned_end": "…|null",
+            "project_id": "…", "stage": "<단계 코드>|null", "actual_pct": 0, "tags": ["agent"], "depends": ["MES/TSK-01-02"],
+            "depends_waived": [], "design_mode": "<DB 원문>" },
+  "design_mode": "auto|review|human", "design_state": "review|accepted|null", "design_note": "…|null", "claim_scope": "full|design|build|legacy|null",
+  "runner": "…|null", "runner_seen_at": "…|null", "action": "full|design|build|skip|wait", "action_reason": "…",
+  "deps_unmet": false, "mine": true }
+```
+`mine` 의 뜻은 위 「v2.11 변경점」 을 따른다 — ready 는 태그·WP 만 보고(담당자는 claim 이 막는다), 요청에 `agent` 가 없으면 claimed 는
+종전 뜻(`claimed_by_user_id === 호출자`)이다.
 요청 scope에 해당하는 구획만 채운다(`available`이면 `available`만). 정렬은 구획 내 `priority desc, created_at asc`. `limit` 기본 20 최대 100(구획별 적용). 페이지 넘김은 없다 — `dflow.sh` 는 모든 호출에 `limit=100` 을 싣고, 한 구획이 100건으로 차면 `LIST_TRUNCATED` 를 stderr 로 알린다(limit 을 빼 20건에서 잘린 2026-09-24 사고). 미지원 scope → 400 `unsupported_scope`. `item.external_ref`는 import 로 들어온 항목의 `"<module>/<id>"` 다(웹에서 직접 만든 항목은 null). dflow.sh scaffold 가 작업 폴더 이름(TSK)을 여기서 얻는다.
 
 `POST /wbs/import` 요청( `wbs-parse.py --export` 출력 v2 + 2필드) — **계약 v2 확장(결정 E, 두 리포 공통·고정)**:
