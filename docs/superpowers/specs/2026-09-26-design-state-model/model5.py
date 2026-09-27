@@ -12,6 +12,7 @@
 #   python3 model5.py PASS=1 IMPORT=1 MANUAL_PCT=1 BLOCKED=1 LEAD_MOVES=1  → 1,457,472
 #   python3 model5.py PASS=2 SLIM=0 QUIET=0 LEAD_MOVES=0 IMPORT=0 MANUAL_PCT=0 BLOCKED=0 RELEASE_STOPS_WORKER=1 → 205,830 (PC 둘 동시 워커)
 #   python3 model5.py PASS=2 SLIM=1 IMPORT=0 MANUAL_PCT=0 BLOCKED=0 RELEASE_STOPS_WORKER=1 → 167,084 (⑤ 축소판, 조용한 워커·팀장 이동 켬)
+#   python3 model5.py PASS=2 SLIM=0 QUIET=0 LEAD_MOVES=0 IMPORT=0 MANUAL_PCT=1 BLOCKED=0 RELEASE_STOPS_WORKER=1 MANUAL_DONE=1 FIX_DONE_AT_IP=1 FIX_HB_REPORT_RUNNER=1 FIX_CONFLICT_EXIT=1 FIX_CLAIM_PCT100=1 REOPEN_NONHUMAN_CLEARS_RUNNER=1 FIX_TAKE_ON_RESUME=1 FIX_DONE_NO_LIVE_OTHER=1 ASSIGN_SETS_AS=0 → 340,206 (구현 계획서 판 — 위반 0, 두 구현자 0. tests/domain/design-gate-model.test.ts 가 옮긴 판)
 #   PASS=2 에 모든 기능을 켠 판은 3.8GB 를 넘어 끝나지 않았다(중단).
 #   PASS=1 은 IMPORT·MANUAL_PCT·QUIET·BLOCKED·LEAD_MOVES 를 명령줄에서 켜지 않으면 끈다.
 #   한계: PC 마다 워커는 하나라 같은 PC 의 두 세션(사람 체크아웃 + 팀장 워크트리)은 표현하지 못한다. 시간은 5분·30분·일시 제외 풀림 세 문턱뿐이다.
@@ -43,6 +44,7 @@ V = dict(
     FIX_DONE_AT_IP=0,       # 완료 보고는 단계 ip 에서만(리프)
     FIX_CONFLICT_EXIT=0,    # 주문이 claimed 가 아닐 때의 409 를 exit 4 가 아닌 별도 exit 로(워커는 design_reopened 처럼 끝남)
     FIX_CLAIM_PCT100=0,     # claim 관문·5.3 3행이 D26 조건(실적 100) 전체를 본다
+    FIX_DONE_NO_LIVE_OTHER=0, # 계획 P16: 완료 보고는 살아 있는 다른 세션(heartbeat_agent 가 다르고 5분 안)이 있으면 거부
 )
 for a in ' '.join(sys.argv[1:]).split():
     k, v = a.split('=')
@@ -297,6 +299,7 @@ def transitions(s):
                 add(f'수동 --resume@{X}(워커 {ws}, {"build-start 뒤 phase" if st else "게이트부터"})', t, 'cli')
     if V['MANUAL_DONE'] and s.ord == 'claimed':
         r = s.dst != 'review' and (not V['FIX_DONE_AT_IP'] or s.stage == 'ip')
+        if V['FIX_DONE_NO_LIVE_OTHER'] and (running(s.wA) or running(s.wB)): r = False
         if r:
             if unapproved(s): viol('I4 완료 보고(미승인 설계)', s, '수동 dflow.sh done')
             add('수동 dflow.sh done', s._replace(ord='reported', stage='im', pct=mx(s.pct, 'im'), runner=None, rage=0, rw=False), 'cli')
