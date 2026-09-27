@@ -7,6 +7,8 @@
 // 관문·판단·mine·버튼·화면 판정은 실제 designGate 함수를 부르고, 전이(스펙 4.1 사건 표의 결과)는 이 파일이 따로 적는다 —
 // 전이까지 designGate 에서 가져오면 자기 자신과 대조하는 셈이 된다.
 // 위반이 나오면 먼저 Python 판과 같은 전이인지 대조한다. 옮김 오류가 아니면 designGate 를 고친다.
+// P13(실적을 낮추지 않음)은 전이를 이 파일이 손으로 적어서 검사할 제품 코드가 없다 — 0108 전이 RPC(apply_workflow_event)의
+// greatest() 가 맡는다(이 파일은 그 계산을 흉내만 낸다).
 import { describe, expect, it } from 'vitest'
 import {
   canBuildStart, canClaim, canRelease, canReportCompletion, designButtons, designScreen, isMine, nextAgentAction, runnerFree,
@@ -158,7 +160,6 @@ function transitions(s: S): S[] {
   if (btn.includes('accept')) add({ ...s, dst: 'accepted', cs: 'build' })
   if (btn.includes('confirm')) {
     const t: S = { ...s, stage: 'dd', dst: 'accepted', pct: mx(s.pct, 'dd') }
-    if (t.pct < s.pct) viol('I6 실적 역행', s, '설계 확정')
     add(t)
   }
   if (btn.includes('reopen')) add(reopen(s))
@@ -266,7 +267,6 @@ function transitions(s: S): S[] {
       if (r === null) {
         let t: S = s
         if (s.stage === 'ds' || s.stage === 'dd') t = { ...t, stage: 'ip', pct: mx(s.pct, 'ip') }
-        if (t.pct < s.pct) viol('I6 실적 역행', s, 'build-start')
         if (unapproved(s)) viol('I4 build-start 통과(미승인 설계)', s, `워커@${x} ${sc}`)
         if (w(s, other(x))?.step === 1) viol('I5 build-start 통과(다른 PC 워커가 구현 중)', s, `워커@${x} ${sc}`)
         add(setw({ ...t, runner: x, rage: 0 }, x, { w: { sc, step: 1, own } }))
@@ -366,7 +366,7 @@ function screenProbes(states: readonly S[]): string[] {
 }
 
 describe('설계 상태 모델 — 도달 상태 전수(스펙 5.1)', () => {
-  it('판단↔관문 0 · 미승인 구현 0 · 두 구현자 0 · 실적 역행 0 · 완료로 가는 길 · 화면 문구', () => {
+  it('판단↔관문 0 · 미승인 구현 0 · 두 구현자 0 · 완료로 가는 길 · 화면 문구', () => {
     const { states, succ } = explore()
     expect(states.length).toBeGreaterThan(100_000)
     expect(VIOL.slice(0, 5)).toEqual([])
