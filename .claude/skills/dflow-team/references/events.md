@@ -22,8 +22,8 @@
 | `team.stop` | 「7. 마감」 | 없음 |
 
 - `team.start`: `backend` 는 `tmux` 또는 `orca`, `slots` 는 숫자, `until` 은 `HH:MM`·`YYYY-MM-DD HH:MM`·`none`(종료 요청 전까지) 중 하나, `wp` 는 WP 범위를 쉼표로 이은
-  문자열(예: `WP-2,dict/WP-3`)이며 전체면 `-` 다. 재구성이 이 값으로 poll 의 `--wp` 를 복원한다. `scope` 는 실행 범위
-  `full`·`design`·`build` 다(SKILL.md 「인자」). 재구성이 `<SCOPE>` 를 복원한다.
+  문자열(예: `WP-2,dict/WP-3`)이며 전체면 `-` 다. 재구성이 이 값으로 poll 의 `--wp` 를 복원한다. `scope` 는 계약 2.11 팀장이면 늘
+  `server` 다(설계 방식은 작업마다 서버 판단, SKILL.md 「인자」). 옛 줄의 `full`·`design`·`build` 는 재구성이 쓰지 않는다.
 - `team.extend`: `until` 은 `team.start` 의 `until` 과 같은 형식이고, `until_label` 은 좌석표에 싣는 표시 문자열이다.
   재구성은 마지막 `team.extend` 를 `team.start` 의 `until` 보다 우선한다(SKILL.md 「팀장 상태」).
 - `team.spawn`: `worktree` 는 팀원 워크트리 절대경로이며 모르면 `-`. `handle` 은 tmux 백엔드의

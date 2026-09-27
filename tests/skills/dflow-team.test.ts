@@ -328,7 +328,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('mkdir -p "$(git rev-parse --git-path dflow-team-poll)"')
     expect(s()).toContain('POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)')
     expect(s()).toContain('( cd "$POLL_DIR" && DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0 \\')
-    expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until \'<UNTIL>\' --interval 180 --recheck-cycles 10 \\')
+    expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --lead --until \'<UNTIL>\' --interval 180 --recheck-cycles 10 \\')
     expect(s()).toContain('--wait-cycles 40 [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] [--exclude-wait <id8,id8>] )')
   })
 

@@ -2,7 +2,7 @@
 // 설계: docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md 6절·12절(2.10 의 router 설계 §14 를 대신한다)
 import { describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { devOrch, devRouter } from './_dflow-dev'
 import { stripWorkerBlocks, workerBlocks } from './_preserve'
@@ -199,6 +199,7 @@ describe('워커 규칙(worker-mode.md·worker-prompt.md)', () => {
     pair('`skipped`', '`design-reopen 미확인`')
     pair('`failed`', '`design-reopen 거부(<code>)`')
     pair('`failed`', '`design-done 거부(<code>)`')
+    pair('`failed`', '`design-done <exit>`')
     pair('`failed`', '`설계 게이트 불통(구현 중)`')
     pair('`failed`', '`설계 변경 필요 — <이유>`')
     pair('`failed`', '`원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume`')
@@ -222,20 +223,84 @@ describe('다른 스킬', () => {
     expect(read('.claude/skills/dflow-merge/SKILL.md')).toContain(f)
     expect(read('.claude/skills/dflow-merge/scripts/sweep-check.sh')).toContain(f)
   })
-  it('팀장: 인자로 범위를 정해 team.start·포인터로 넘기고, 워커가 --scope 로 바꾼다', () => {
+  it('팀장: 범위 인자를 받지 않고 작업마다 서버 판단(action)을 포인터 SCOPE 로 넘긴다(D27)', () => {
     const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
-    expect(team).toContain('"설계만"·"설계까지" → `design`, "구현부터"·"개발자동" → `build`, 없으면 `full`')
+    expect(team).toContain('- **설계 방식은 인자가 아니다**(계약 2.11, 설계 상태 스펙 D27).')
+    expect(team).not.toContain('"설계만"·"설계까지" → `design`')
     expect(team).toContain('`team.start`(backend, slots, until, wp, scope)')
+    expect(team).toContain('`scope` 는 늘 `server` 다')
     expect(team).toContain('SCOPE=<full|design|build>')
-    expect(team).toContain('| `design_review`(설계만 멈춤, `<SCOPE>`=`design`) | 해제 | 없음 |')
+    expect(team).toContain('`SCOPE` 는 그 주문의 서버 판단 `action` 이다(계약 2.11)')
+    expect(team).toContain('--require-tag agent --lead --until')
+    expect(team).not.toContain('scope.md')
+    expect(existsSync(join(process.cwd(), '.claude/skills/dflow-team/references/scope.md'))).toBe(false)
+    expect(read('.claude/skills/dflow-team/references/help.md')).not.toMatch(/설계만\|구현부터|개발자동/)
     expect(read('.claude/skills/dflow-team/scripts/lead-state.sh')).toContain('scope=\\($st.scope // "-")')
   })
-  it('팀장: 범위 build 만 검토 대기 설계를 이어 가고, 좌석 「이어서 시작」 은 범위와 무관하게 build 로 띄운다', () => {
-    const sc = flat(read('.claude/skills/dflow-team/references/scope.md'))
-    expect(sc).toContain('select(.phase == "wait_review")')
-    expect(sc).toContain('`full`·`design` 에서는 1 을 하지 않는다')
-    expect(sc).toContain('요청 작업이 검토 대기면 포인터를 `SCOPE=build` 로 띄운다')
-    expect(sc).toContain('git -C \'<MAIN>\' cat-file -e "origin/<개발브랜치>:<TASK_DIR>/design.md"')
-    expect(flat(read('.claude/skills/dflow-team/references/restart.md'))).toContain('| 4-2 | `local_phase=wait_review` |')
+  it('팀장: 결과 표·설계 사전 검사·build 목록·금지 예외 — 긴 절차는 design-state.md(6.2·6.3·6.7·D22·Y11·L11)', () => {
+    const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
+    expect(team).toContain('| `design_review`(설계 검토 대기로 멈춤) | 해제 | 없음 |')
+    expect(team).toContain('| `design_reopened`(설계를 사람에게 되돌렸거나 주문이 바뀜, 계약 2.11) | 해제 | 없음 | 미커밋 변경이 있어도 지운다')
+    expect(team).toContain('**설계 사전 검사**(계약 2.11)')
+    expect(team).toContain('**`build`(계약 2.11)는 「설계 승인」 된 작업 목록이다.**')
+    expect(team).toContain('`RETRY_DUE`')
+    expect(team).toContain('예외 넷:')
+    expect(team).toContain('| `references/design-state.md` |')
+    expect(team).toContain('`design-done 미확인` 이면 `references/design-state.md` 「3」 먼저')
+    // D22·Y9 — 기상 블록·감시 루프도 poll 과 같은 WP 범위를 watch 에 넘긴다
+    expect(team).toContain("[--until '<UNTIL>'] [--wp <WP-02,dict/WP-03>] --tm")
+    expect(team).toContain("--until-label '<UNTIL_LABEL>' [--wp <WP-02,dict/WP-03>]")
+    expect(team).toContain('`wake.sh`·`tick.sh` 에도 같은 값을 `--wp` 로 넘긴다')
+    const ds = flat(read('.claude/skills/dflow-team/references/design-state.md'))
+    expect(ds).toContain('poll 과 같은 거르기(태그 `agent`, `wake.sh` 의 `--wp`)로 좁혀 준')
+    // 6.2 — fetch 실패면 되돌리지도 띄우지도 않고 그 기상을 넘긴다
+    expect(ds).toContain("git -C '<MAIN>' fetch -q origin || echo FETCH_FAIL")
+    expect(ds).toContain('실패하면 이 기상에는 `action` 이 있는 후보를 하나도 띄우지 않는다(모르는 채 띄우지 않는다. 제외도 하지 않는다 — 다음 기상에 다시 본다)')
+    // 6.3 — design-done 미확인은 팀장이 마저 하고, 실패하면 워크트리를 남겨 「멈춤」 에 올린다
+    expect(ds).toContain('워크트리를 지우기 전에 `.claude/skills/dflow-work/scripts/dflow.sh design-done <id8>` 를 부른다(설계 멈춤 이어받기, 스펙 6.3)')
+    expect(ds).toContain('실패하면 워크트리를 지우지 않고 `parked` 로 두며 다음 기상에 다시 부르고, 「멈춤」 표에 사유 `설계 멈춤 미완료` 로 올린다')
+    expect(ds).toContain('## 1. 설계 사전 검사')
+    expect(ds).toContain('dflow.sh design-reopen <id8> --reason')
+    expect(ds).toContain('`사람 설계 초안 있음 — 방식을 구현자동으로 바꾸거나 초안을 지우라`')
+    expect(ds).toContain('「설계 승인」을 누르면 다음 TICK 에 팀장이 구현을 이어 간다')
+    expect(ds).toContain('`WARN_RETRY`')
+    expect(ds).toContain('`git worktree remove --force <워크트리>`')
+  })
+  it('팀장: 이어 가기는 resume.md 「서버 판단 확인」 한 곳이 막고, 원격 재개는 승인 대상뿐이다(Y3·Y5·Y8·Y9·Y10·Y12·D16·L2)', () => {
+    const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
+    const r = flat(read('.claude/skills/dflow-team/references/resume.md'))
+    expect(r).toContain('## 서버 판단 확인 (계약 2.11)')
+    expect(r).toContain('**띄우지 않게 막기만 한다**')
+    expect(r).toContain('새로 여는 길은 **승인** 대상의 원격 재개 하나다')
+    expect(r).toContain('`수동 세션 점유`')
+    expect(r).toContain('- **승인**(계약 2.11)')
+    expect(r).toContain('`-B` 로 덮지 않고 로컬 브랜치로 만든다')
+    // Y5 — 재개 전에도 선행 반영 사전 검사를 하고, 미반영이면 다음 기상에 다시 본다
+    expect(r).toContain('`NOT_REFLECTED` 면 이번 기상에 띄우지 않는다(12절 Y5 — 다음 기상에 다시 본다)')
+    // Y10 — 좌석 「이어서 시작」 은 skip 이어도 띄우고, 숨김(거부)은 설계 검토 대기에만
+    expect(r).toContain('| 대상이 요청·지목 | 띄운다 — `action` 이 `skip`·`wait` 이어도(사람의 명시 요청, 12절 Y10·Y12.')
+    expect(r).toContain('| `design_state` 가 `review` | 띄우지 않는다. 「멈춤」 에 올리지 않는다')
+    expect(team).toContain('`design_state` 가 `review` 면 띄우지 않고 "「설계 승인」 뒤에 이어 갑니다" 를 한 줄 알린다. 그 밖에는 서버 판단이 `skip` 이어도 띄운다(12절 Y10).')
+    // Y12 — 사람의 지목은 action 이 아니라 mine 만 본다(mine 거짓 행 → 요청·지목 행 → action 행 순서)
+    const rowMine = r.indexOf('| `mine` 이 거짓 |'), rowAsk = r.indexOf('| 대상이 요청·지목 |'), rowWait = r.indexOf('| `action` 이 `wait` |')
+    expect(rowMine).toBeGreaterThan(-1)
+    expect(rowAsk).toBeGreaterThan(rowMine)
+    expect(rowWait).toBeGreaterThan(rowAsk)
+    expect(team).toContain('계약 2.11 서버에서는 서버 `mine` 이 거짓이면(다른 PC 가 30분 안에 돌렸거나 다른 신원이 잡았다) 띄우지 않는다')
+    // L2 — 「멈춤」 사유를 마지막 완료 보고로 가른다
+    expect(r).toContain('[.reports[]? | select(.kind == "completion")] | last | .review_action // "-"')
+    expect(r).toContain('`reject`(반려·재작업 요청)면 `runner` 가 없을 때 `재작업 대기 — 사람이 /dflow-dev 로 재작업을 돌린다`, 있을 때 `재작업 중(<runner>)` 이다')
+    expect(r).toContain('그 밖은 `워크트리 없음 — 구현 중`')
+    const rs = flat(read('.claude/skills/dflow-team/references/restart.md'))
+    expect(rs).toContain('| 4-2 | `local_phase=wait_review` |')
+    expect(rs).toContain('`설계 멈춤 미완료')
+    expect(rs).not.toContain('scope.md')
+    const da = flat(read('.claude/skills/dflow-team/references/design-ahead.md'))
+    expect(da).toContain('서버가 claimed·`mine`·단계 `dd` 로 확인한 것만 센다')
+    expect(da).toContain('`<id8> 선행 주문 없음: <ref>`')
+    // D16 — 설계만 하는 설계 검토 작업은 설계 선행 상한에 세지 않는다
+    expect(da).toContain('설계 검토(`review`) 작업의 설계 선행은 이 상한과 무관하다 — poll 이 `action=design` 으로 곧바로 준다')
+    expect(da).toContain('구현자동(`human`)은 서버가 선행이 풀릴 때까지 `wait` 로 둬 후보에 오지 않는다')
+    expect(team).toContain('`action` 이 `design` 이면 `deps_unmet` 이 있어도 선행 대기에 넣지 않는다(설계만 한다, 스펙 6.6)')
   })
 })

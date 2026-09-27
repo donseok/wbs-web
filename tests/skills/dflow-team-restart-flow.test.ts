@@ -72,9 +72,9 @@ describe('dflow-team 자동 재시작 흐름', () => {
     expect(s51).toContain('- **재시작**: `references/restart.md` 「재투입」')
     expect(s51).toContain('7. **띄운다.** 먼저 `references/restart.md` 「중단 표식 정리」 블록을 돈다')
   })
-  it('같은 작업 재spawn 예외가 넷이고 마감은 재시작 대기를 멈춤 표에 적는다', () => {
-    expect(S).toContain('같은 작업을 다시 띄우는 것은 다섯뿐이다(')
-    expect(S).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 다섯뿐이다.')
+  it('같은 작업 재spawn 예외가 여섯이고 마감은 재시작 대기를 멈춤 표에 적는다', () => {
+    expect(S).toContain('같은 작업을 다시 띄우는 것은 여섯뿐이다(')
+    expect(S).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 여섯뿐이다.')
     const closing = readFileSync('.claude/skills/dflow-team/references/closing.md', 'utf8')
     expect(closing.slice(0, closing.indexOf('**잠금 상실 마감**'))).toContain('`references/restart.md` 「마감·lease·잠금」 대로')
   })
