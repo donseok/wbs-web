@@ -151,6 +151,7 @@ describe('ensureOrderForWorkflowLeaf', () => {
       null
     )
     ;(admin as MockAdminClient).pushResponse(null, null)
+    ;(admin as MockAdminClient).pushResponse(null, null) // D26 — approved 조회(없음)
     ;(admin as MockAdminClient).pushResponse({ id: 'o-1' }, null)
 
     const result = await ensureOrderForWorkflowLeaf(admin, {
@@ -176,6 +177,7 @@ describe('ensureOrderForWorkflowLeaf', () => {
       null
     )
     ;(admin as MockAdminClient).pushResponse(null, null)
+    ;(admin as MockAdminClient).pushResponse(null, null) // D26 — approved 조회(없음)
     ;(admin as MockAdminClient).pushResponse(null, null)
     ;(admin as MockAdminClient).pushResponse({ id: 'order-1' }, null)
 
@@ -229,6 +231,7 @@ describe('ensureOrderForWorkflowLeaf', () => {
       null
     )
     ;(admin as MockAdminClient).pushResponse(null, null)
+    ;(admin as MockAdminClient).pushResponse(null, null) // D26 — approved 조회(없음)
     ;(admin as MockAdminClient).pushResponse(null, null)
     ;(admin as MockAdminClient).pushResponse({ id: 'order-2' }, null)
 
@@ -257,6 +260,7 @@ describe('ensureOrderForWorkflowLeaf', () => {
       null
     )
     ;(admin as MockAdminClient).pushResponse(null, null)
+    ;(admin as MockAdminClient).pushResponse(null, null) // D26 — approved 조회(없음)
     ;(admin as MockAdminClient).pushResponse(null, null)
     ;(admin as MockAdminClient).pushResponse(
       null,
@@ -331,5 +335,36 @@ describe('ensureOrderForWorkflowLeaf', () => {
 
     const { emitNotification } = await import('@/lib/notify/emit')
     expect(emitNotification).not.toHaveBeenCalled()
+  })
+
+  describe('D26 — 이미 진행된 항목에는 주문을 만들지 않는다', () => {
+    it.each([
+      ['단계 ip', { stage: 'ip', actual_pct: 30 }],
+      ['단계 xx', { stage: 'xx', actual_pct: 100 }],
+      ['실적 100', { stage: 'as', actual_pct: 100 }],
+    ])('%s 면 progressed', async (_n, extra) => {
+      const admin = new MockAdminClient()
+      admin.pushResponse({ enabled: true }, null)
+      admin.pushResponse(
+        { name: 't', priority: null, external_ref: null, assignee_member_id: null, dev_workflow: true, ...extra },
+        null
+      )
+      const r = await ensureOrderForWorkflowLeaf(admin as unknown as AdminClient, { projectId: 'p', wbsItemId: 'w', actorUserId: 'u' })
+      expect(r).toEqual({ ok: true, created: false, reason: 'progressed' })
+      expect(admin.lastInsertPayload).toBeNull()
+    })
+
+    it('approved 주문이 있으면 progressed', async () => {
+      const admin = new MockAdminClient()
+      admin.pushResponse({ enabled: true }, null)
+      admin.pushResponse(
+        { name: 't', priority: null, external_ref: null, assignee_member_id: null, dev_workflow: true, stage: 'im', actual_pct: 80 },
+        null
+      )
+      admin.pushResponse(null, null) // 하위 없음
+      admin.pushResponse({ id: 'o-old' }, null) // approved 주문 있음
+      const r = await ensureOrderForWorkflowLeaf(admin as unknown as AdminClient, { projectId: 'p', wbsItemId: 'w', actorUserId: 'u' })
+      expect(r).toEqual({ ok: true, created: false, reason: 'progressed' })
+    })
   })
 })

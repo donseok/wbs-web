@@ -11,7 +11,7 @@ export async function ensureOrderForWorkflowLeaf(
   admin: AdminClient,
   args: { projectId: string; wbsItemId: string; actorUserId: string; instructions?: string },
 ): Promise<
-  | { ok: true; created: boolean; reason?: 'not_agent_project' | 'not_leaf' | 'active_exists' | 'not_workflow' }
+  | { ok: true; created: boolean; reason?: 'not_agent_project' | 'not_leaf' | 'active_exists' | 'not_workflow' | 'progressed' }
   | { ok: false; error: string }
 > {
   const { projectId, wbsItemId, actorUserId } = args
@@ -32,7 +32,7 @@ export async function ensureOrderForWorkflowLeaf(
   // 수용 기준은 주문에 복제하지 않는다 — 정본은 wbs_items.acceptance jsonb 이고 claim/show 응답이 실어 나른다(결정 B).
   const { data: item, error: itemErr } = await admin
     .from('wbs_items')
-    .select('name, priority, external_ref, assignee_member_id, dev_workflow')
+    .select('name, priority, external_ref, assignee_member_id, dev_workflow, stage, actual_pct')
     .eq('id', wbsItemId)
     .maybeSingle()
   if (itemErr) return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
@@ -43,11 +43,18 @@ export async function ensureOrderForWorkflowLeaf(
         external_ref: string | null
         assignee_member_id: string | null
         dev_workflow: boolean | null
+        stage: string | null
+        actual_pct: number | string | null
       }
     | null
   // 3원칙 — 항목 없음을 "미도입"으로 위장하지 않는다(최종 리뷰 F3).
   if (!row) return { ok: false, error: '항목 없음' }
   if (row.dev_workflow !== true) return { ok: true, created: false, reason: 'not_workflow' }
+  // D26(설계 상태 스펙) — 이미 진행된 항목(단계 ip 이상·실적 100)에는 새 주문을 만들지 않는다. 완료 항목에 ready 가 생기면
+  // 「재작업」이 0077 유니크 인덱스에 막히고, 재위임이 실적을 낮추던 결함도 여기서 닫는다.
+  if (row.stage === 'ip' || row.stage === 'im' || row.stage === 'xx' || Number(row.actual_pct ?? 0) >= 100) {
+    return { ok: true, created: false, reason: 'progressed' }
+  }
 
   // Step 3: 리프 검증 — 자식 없어야 함
   const { data: child, error: childErr } = await admin
@@ -59,6 +66,12 @@ export async function ensureOrderForWorkflowLeaf(
     .maybeSingle()
   if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }
   if (child) return { ok: true, created: false, reason: 'not_leaf' }
+
+  // D26 — approved 주문이 있는 항목도 진행된 항목이다(「재작업」으로 다시 연다).
+  const { data: approved, error: apprErr } = await admin
+    .from('agent_work_orders').select('id').eq('wbs_item_id', wbsItemId).eq('status', 'approved').limit(1).maybeSingle()
+  if (apprErr) return { ok: false, error: `승인 주문 확인 실패: ${apprErr.message}` }
+  if (approved) return { ok: true, created: false, reason: 'progressed' }
 
   // Step 4: 활성 주문 확인 — ready/claimed/reported 상태의 주문 존재 확인
   const { data: active, error: activeErr } = await admin

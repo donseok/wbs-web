@@ -143,6 +143,9 @@ export async function applyDelegation(
       const ord = await ensureOrderForWorkflowLeaf(admin, { projectId, wbsItemId: itemId, actorUserId })
       if (!ord.ok) return { ok: false, error: ord.error }
       if (!ord.created && ord.reason === 'not_leaf') warnings.push('리프(하위 없음) 항목만 에이전트가 집어갑니다 — 이 항목은 하위가 있어 주문이 없습니다.')
+      if (!ord.created && ord.reason === 'progressed') {
+        warnings.push('이미 진행된 작업이라 새 주문을 만들지 않았습니다(단계 작업 중 이상·실적 100·승인된 주문) — 단계를 되돌리거나 「재작업」을 쓰세요.')
+      }
     }
   } else {
     // ready·claimed 는 체크 해제만으로 취소한다(2026-08-24 — 위임을 끄면 그 항목엔 에이전트를 더 안 쓰겠다는
