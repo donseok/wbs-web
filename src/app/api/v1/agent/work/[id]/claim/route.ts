@@ -85,9 +85,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     // 설계 관문(설계 상태 스펙 5.2 claim·D26) — 방식·설계 상태·진행 여부·선행을 designGate 하나로 판정한다.
     // 항목이 지워진 주문은 관문을 보지 않는다(종전처럼 claim 되고 RPC 가 단계·실적만 건너뛴다).
+    // status 가 ready 가 아니면(레거시 점유·reported·approved 등) 관문도 보지 않는다 — 그런 주문은
+    // RPC 의 CAS 가 conflict 로 답해야지, alreadyProgressed(단계 ip 이상)에 걸려 남이 이미 진행 중인
+    // 작업에 "단계를 되돌리거나 재작업을 쓰라"는 엉뚱한 사유(design_gate)를 내면 안 된다(리뷰 1회차).
     const order = orderFactsOf(loaded.order)
     const mode = toDesignMode(item?.design_mode)
-    if (item && loaded.order.wbs_item_id) {
+    if (item && loaded.order.wbs_item_id && loaded.order.status === 'ready') {
       const refusal = canClaim({
         mode, stage: item.stage ?? null, actualPct: item.actual_pct == null ? null : Number(item.actual_pct),
         delegated: (item.tags ?? []).includes('agent'), hasApprovedOrder: await hasApprovedOrder(admin, loaded.order.wbs_item_id),

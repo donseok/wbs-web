@@ -148,4 +148,18 @@ describe('claim — 범위와 설계 관문(설계 상태 스펙 5.2)', () => {
     useAdmin({})
     expect((await claim({ scope: 'weird' })).status).toBe(400)
   })
+  // 리뷰 1회차 — 관문은 status ready 일 때만 본다. 이미 점유된(claimed) 주문은 RPC 의 CAS 가
+  // conflict 를 내야지, alreadyProgressed(단계 ip)에 걸려 design_gate 로 잘못 거부되면 안 된다.
+  it('이미 점유된 주문(claimed·단계 ip)은 관문을 보지 않고 RPC conflict 그대로 나간다(design_gate 아님)', async () => {
+    const CLAIMED = { id: O1, project_id: P1, status: 'claimed', claimed_by: 'other-cli', claimed_by_user_id: null, wbs_item_id: W1 }
+    useAdmin({
+      agent_work_orders: [{ data: CLAIMED }],
+      ...member(),
+      wbs_items: [{ data: ITEM_ROW({ depends: null, stage: 'ip' }) }],
+      rpc: [{ data: { ok: false, conflict: true, order_status: 'claimed' } }],
+    })
+    const res = await claim()
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'conflict', status: 'claimed' })
+  })
 })
