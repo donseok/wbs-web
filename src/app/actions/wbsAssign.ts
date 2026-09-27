@@ -9,7 +9,7 @@ import { AGENT_TAG } from '@/lib/domain/seatmap'
 import { isHumanStageCode, type StageCode } from '@/lib/domain/stageLabels'
 import { emitNotification } from '@/lib/notify/emit'
 import { backfillProjectOrders, ensureAgentProject, ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
-import { applyWorkflowEvent, notifyOnReached } from '@/lib/agent/workflowEvent'
+import { REASON_TEXT, applyWorkflowEvent, notifyOnReached } from '@/lib/agent/workflowEvent'
 import { cancelOrders } from '@/lib/agent/cancelOrder'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { after } from 'next/server'
@@ -338,7 +338,7 @@ export async function setWbsAssigneeCascade(
 export async function setWbsStage(
   itemId: string, stage: StageCode | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (stage !== null && !isHumanStageCode(stage)) return { ok: false, error: '허용되지 않는 단계입니다. 설계 완료(dd)는 「설계 확정」·「설계 승인」으로만 생깁니다.' }
+  if (stage !== null && !isHumanStageCode(stage)) return { ok: false, error: REASON_TEXT.bad_stage }
   const resolved = await resolveItemProjectId(itemId)
   if (!resolved.ok) return resolved
   const g = await requireSubtreeManagerOrAdmin(itemId, resolved.projectId)

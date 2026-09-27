@@ -74,6 +74,17 @@ describe('loadItemFacts', () => {
     expect((await loadItemFacts(client, [])).size).toBe(0)
     expect(calls).toEqual([])
   })
+  it('A5(최종 수정) — 배치 조회가 PostgREST max_rows(1000)에 닿으면 잘렸을 수 있어 throw 한다(조용히 자르지 않는다)', async () => {
+    const full = Array.from({ length: 1000 }, (_, i) => ({ wbs_item_id: `x${i}` }))
+    const item = { id: 'w1', project_id: 'P', external_ref: null, stage: 'as', actual_pct: 0, tags: [], depends: ['M/TSK-01-01'], depends_waived: [], design_mode: 'auto' }
+    const approvedFull = useAdmin({ agent_work_orders: [{ data: full }] })
+    await expect(loadItemFacts(approvedFull.client, [item])).rejects.toThrow('1000')
+    const predsFull = useAdmin({
+      agent_work_orders: [{ data: [] }],
+      wbs_items: [{ data: Array.from({ length: 1000 }, (_, i) => ({ id: `p${i}`, project_id: 'P', external_ref: `M/X-${i}`, stage: 'as', actual_pct: 0 })) }],
+    })
+    await expect(loadItemFacts(predsFull.client, [item])).rejects.toThrow('1000')
+  })
   it('조회 실패는 throw(위장하지 않는다)', async () => {
     const { client } = useAdmin({ agent_work_orders: [{ error: { message: 'boom' } }] })
     await expect(loadItemFacts(client, [{ id: 'w1', project_id: 'P', external_ref: null, stage: 'as', actual_pct: 0, tags: [], depends: [], depends_waived: [], design_mode: 'auto' }]))

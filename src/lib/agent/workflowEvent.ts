@@ -34,8 +34,8 @@ export type WorkflowEventArgs = {
   agentUserId?: string | null
   /** claim: full·design·build(없으면 legacy) / build_start: full·build·rework(없으면 legacy) — 0108. */
   scope?: string | null
-  /** 라우트가 읽은 값 CAS(P1) — 키가 있으면 같아야 한다. null 값은 "없음". */
-  cas?: Record<string, string | null> | null
+  /** 라우트가 읽은 값 CAS(P1) — 키가 있으면 같아야 한다. null 값은 "없음". 키는 0108 RPC 가 보는 다섯뿐이다(오타가 CAS 를 조용히 빼지 않게). */
+  cas?: WorkflowCas | null
   /** design_reopen 의 사유. */
   note?: string | null
   /** set_design_mode 의 목표 방식. */
@@ -43,6 +43,9 @@ export type WorkflowEventArgs = {
   /** claim·build_start·design_done 이 도는 PC 로 적을 호출 라벨(D25). */
   runner?: string | null
 }
+
+/** 0108 apply_workflow_event 의 p_cas 가 보는 키(최종 수정 A6) — 그 밖의 키는 RPC 가 무시해 CAS 가 조용히 빠진다. */
+export type WorkflowCas = Partial<Record<'design_state' | 'design_mode' | 'claim_scope' | 'runner' | 'runner_seen_at', string | null>>
 
 export type WorkflowSkipped = 'parent' | 'not_workflow' | 'stage' | 'no_item'
 export type WorkflowEventOk = {

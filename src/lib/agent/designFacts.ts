@@ -3,6 +3,7 @@
 // (게이트 재료를 "없음"으로 위장하면 막아야 할 claim 이 통과한다 — 에러 3원칙).
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { predecessorReached } from '@/lib/domain/agentWork'
+import { AGENT_TAG } from '@/lib/domain/seatmap'
 import {
   isMine, nextAgentAction, predsState, toClaimScope, toDesignMode, toDesignState,
   type ActionResult, type DesignMode, type ItemFacts, type MineRequest, type OrderFacts,
@@ -14,6 +15,13 @@ export const ORDER_FACT_COLUMNS =
   'claimed_by, claimed_by_user_id, last_heartbeat_at, heartbeat_phase, heartbeat_agent, design_state, claim_scope, design_note, runner, runner_seen_at'
 export const ITEM_FACT_COLUMNS = 'id, project_id, external_ref, stage, actual_pct, tags, depends, depends_waived, design_mode'
 const IN_CHUNK = 200
+/** PostgREST max_rows(Supabase 기본 1000) — 배치 조회가 여기에 닿으면 잘렸을 수 있다. */
+const PG_MAX_ROWS = 1000
+
+/** 잘렸을 수 있는 배치 결과는 throw 한다 — 빠진 행을 "없음"으로 읽으면 게이트 재료가 거짓이 된다(에러 3원칙, 최종 수정 A5). */
+function assertNotTruncated(rows: readonly unknown[], what: string): void {
+  if (rows.length >= PG_MAX_ROWS) throw new Error(`${what} 조회가 한도(${PG_MAX_ROWS}행)에 닿아 잘렸을 수 있습니다.`)
+}
 
 export type FactOrderRow = {
   status: string; claimed_by: string | null; claimed_by_user_id: string | null
@@ -53,6 +61,7 @@ async function approvedItemIds(admin: AdminClient, itemIds: readonly string[]): 
   for (const c of chunked(itemIds, IN_CHUNK)) {
     const { data, error } = await admin.from('agent_work_orders').select('wbs_item_id').in('wbs_item_id', c).eq('status', 'approved')
     if (error) throw new Error(`승인 주문 조회 실패: ${error.message}`)
+    assertNotTruncated(data ?? [], '승인 주문')
     for (const r of (data ?? []) as Array<{ wbs_item_id: string | null }>) if (r.wbs_item_id) out.add(r.wbs_item_id)
   }
   return out
@@ -83,6 +92,7 @@ export async function loadItemFacts(
       const { data, error } = await admin.from('wbs_items').select('id, project_id, external_ref, stage, actual_pct')
         .in('project_id', projects).in('external_ref', c)
       if (error) throw new Error(`선행 항목 조회 실패: ${error.message}`)
+      assertNotTruncated(data ?? [], '선행 항목')
       for (const p of (data ?? []) as Array<{ id: string; project_id: string; external_ref: string; stage: string | null; actual_pct: number | string | null }>) {
         preds.set(`${p.project_id}|${p.external_ref}`, p)
       }
@@ -102,7 +112,7 @@ export async function loadItemFacts(
     out.set(i.id, {
       facts: {
         mode: toDesignMode(i.design_mode), stage: i.stage, actualPct: i.actual_pct == null ? null : Number(i.actual_pct),
-        delegated: (i.tags ?? []).includes('agent'), hasApprovedOrder: approved.has(i.id), preds: predsState(depsUnmet),
+        delegated: (i.tags ?? []).includes(AGENT_TAG), hasApprovedOrder: approved.has(i.id), preds: predsState(depsUnmet),
       },
       depsUnmet,
     })

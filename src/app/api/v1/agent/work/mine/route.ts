@@ -15,6 +15,8 @@ export const dynamic = 'force-dynamic'
 const SUPPORTED_SCOPES = ['available', 'claimed', 'all', 'assigned'] as const
 
 type Row = { wbs_item_id: string | null } & Record<string, unknown>
+/** 판단 재료로만 읽고 응답에는 싣지 않는 주문 열(M-3). */
+const RAW_FACT_KEYS: ReadonlySet<string> = new Set(['claimed_by_user_id', 'last_heartbeat_at', 'heartbeat_phase', 'heartbeat_agent'])
 
 export async function GET(req: NextRequest) {
   const scope = req.nextUrl.searchParams.get('scope') ?? 'available'
@@ -140,7 +142,7 @@ export async function GET(req: NextRequest) {
       const mine = responseMine(order, { userId: principal.userId, label: agentParam, lead, filtersPass }, nowMs)
       // M-3(리뷰 수정 1회차) — ORDER_FACT_COLUMNS 로 늘어난 이 넷은 판단 재료일 뿐 계약에 없는 칸이다. 원시 값이
       // 새어 나가지 않게 뺀다(claim_scope·design_note·runner·runner_seen_at·design_state 는 designFieldsOf 가 정규화해 다시 싣는다).
-      const { claimed_by_user_id: _cu, last_heartbeat_at: _lh, heartbeat_phase: _hp, heartbeat_agent: _ha, ...pub } = o
+      const pub = Object.fromEntries(Object.entries(o).filter(([k]) => !RAW_FACT_KEYS.has(k)))
       return { ...pub, item: it, ...designFieldsOf(o as unknown as FactOrderRow, it?.design_mode ?? null, action, mine) }
     })
 

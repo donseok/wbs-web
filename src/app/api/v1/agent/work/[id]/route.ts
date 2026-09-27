@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { AGENT_NAME_RE, isUuidLike, isClaimStale } from '@/lib/domain/agentWork'
 import { predsState, toDesignMode } from '@/lib/domain/designGate'
+import { AGENT_TAG } from '@/lib/domain/seatmap'
 import { decide, designFieldsOf, hasApprovedOrder, orderFactsOf, responseMine, type FactOrderRow } from '@/lib/agent/designFacts'
 import {
   apiBadRequest, apiInternalError, apiNotFound, isAgentProjectMember, patProjectAllowed,
@@ -114,7 +115,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       const order2 = orderFactsOf(full as unknown as FactOrderRow)
       const itemFacts = it ? {
         mode: toDesignMode(it.design_mode), stage: it.stage, actualPct: it.actual_pct == null ? null : Number(it.actual_pct),
-        delegated: (it.tags ?? []).includes('agent'), hasApprovedOrder: await hasApprovedOrder(admin, it.id),
+        delegated: (it.tags ?? []).includes(AGENT_TAG), hasApprovedOrder: await hasApprovedOrder(admin, it.id),
         preds: predsState(dependsInfo.filter(d => !d.reached)),
       } : null
       const nowMs = Date.now()
