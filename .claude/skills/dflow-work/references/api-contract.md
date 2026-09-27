@@ -1,6 +1,35 @@
-# D'Flow Agent API 계약 v2.10
+# D'Flow Agent API 계약 v2.11
 
-`contract_version: "2.10"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다. v2.5는 팀장 lease 를 더했다. v2.6은 완료 보고의 결정 목록(`decisions`)을 더했다. v2.7은 heartbeat 에 팀장의 머지 충돌 표시를 더했다. v2.8은 강제 진행(간선 면제·스텁 제거 작업)을 더했다. v2.9는 설계 단계 `ds` 와 설계 선행(claim `design_first`·`build-start`)을 더했다. v2.10은 heartbeat phase `wait_review`(설계만 멈춤·사람 검토 대기)를 더했다.
+`contract_version: "2.11"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다. v2.5는 팀장 lease 를 더했다. v2.6은 완료 보고의 결정 목록(`decisions`)을 더했다. v2.7은 heartbeat 에 팀장의 머지 충돌 표시를 더했다. v2.8은 강제 진행(간선 면제·스텁 제거 작업)을 더했다. v2.9는 설계 단계 `ds` 와 설계 선행(claim `design_first`·`build-start`)을 더했다. v2.10은 heartbeat phase `wait_review`(설계만 멈춤·사람 검토 대기)를 더했다. v2.11은 설계 상태(설계 방식·설계 검토·구현자동)와 도는 PC 를 더했다.
+
+## v2.11 변경점 (2026-09-27)
+
+설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md(12절 우선).
+
+- **설계 방식**(`wbs_items.design_mode`): `auto`(완전자동, 기본)·`review`(설계 검토 — 에이전트 설계를 사람이 「설계 승인」)·
+  `human`(구현자동 — 사람 설계를 「설계 확정」). 수동은 위임 표식 없음.
+- **새 단계** `dd`(설계 완료, 실적 20). 사람의 단계 선택·import 는 `dd` 를 받지 않는다.
+- **목록·상세 응답**(PAT): 주문마다 `design_mode`·`design_state`(null·`review`·`accepted`)·`design_note`·`claim_scope`·
+  `runner`·`runner_seen_at`·`action`(`full`·`design`·`build`·`skip`·`wait`)·`action_reason`·`deps_unmet`·`mine`.
+  팀장·워커는 스스로 판정하지 않고 이 값을 따른다. `mine` 은 ready·claimed 주문이면 5.3 판단(같은 신원 ∧ 도는 PC, 목록의
+  `lead=1` 이면 거르기·팀원 라벨까지)이고, 그 밖(reported·approved 등)은 종전처럼 점유 사용자 일치다.
+- **목록 요청**(`GET /work/mine`): `agent=<라벨>`(PC 판정), `require_tag=<태그>`, `wp=<WP 목록>`, `lead=1`(claimed 의 mine 에
+  거르기·팀원 라벨 `/w<n>` 을 요구). 상세(`GET /work/{id}`)는 `agent` 만.
+- **watch**: 본문 `require_tag`·`wp`. 응답에는 주문마다의 판단 칸을 싣지 않고 둘만 더한다 — `build_ready`(이 신원·이 PC 가
+  띄울 build 주문 `{order_id, id8, code, name, status}` 목록, 실패면 null + `build_ready_error`)와 `resume_requests[]` 의
+  `mine`(5.3 판단)·`design_state`.
+- **claim**: 본문 `scope`(`full`·`design`·`build`, 없으면 legacy). 성공 응답(PAT)에 `claim_scope`(서버가 저장한 범위 — `scope` 를
+  보내지 않았으면 `legacy`). **build-start**: 본문 `scope`(`full`·`build`·`rework`). 성공 응답에 `runner`(넘겨받은 호출 라벨).
+- **새 동사**: `POST /work/{id}/design-done`(설계 멈춤 — 점유자), `POST /work/{id}/design-reopen` 본문 `reason`(되돌리기 —
+  claimed 면 점유자, ready 면 그 주문을 후보로 받는 PAT).
+- **새 409**: `design_gate`(설계 관문. 판정 뒤 주문이 바뀌었으면 `reason: order_changed` — build-start·design-done 은 주문이
+  claimed 가 아니거나 CAS 가 어긋날 때, design-reopen 은 CAS 가 어긋날 때), `design_not_accepted`(승인·확정된 설계 없음),
+  `runner_active`(다른 PC 가 도는 중 — 본문 `runner`·`runner_seen_at`).
+  heartbeat 도 다른 PC 가 30분 안에 신호를 냈으면 `runner_active` 다. 완료 보고는 도는 PC 에서만, 살아 있는 다른 세션이
+  없을 때만, 리프면 단계 `ip` 에서만 받는다. release 는 설계 상태가 있으면 `design_gate`(웹의 「중단」을 쓴다).
+- **dflow.sh**: `design_gate`·`design_not_accepted` → exit 11(stderr `DESIGN_GATE <code> [reason]`), `runner_active` → exit 12
+  (stderr `RUNNER_ACTIVE <runner>`). 옛 서버(2.11 미만)는 모든 작업을 auto 로 본다 — 스킬은 `contract-ge 2.11` 이 거짓이면
+  design-done·design-reopen 을 부르지 않는다(`DESIGN_STATE_UNSUPPORTED`).
 
 ## v2.10 변경점 (2026-09-26)
 
@@ -186,10 +215,10 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 ```json
 { "ok": true, "user_email": "a@b.c", "token_name": "맥북 에어", "token_prefix": "OxMb1D1097Qz",
   "scopes": ["work:read"], "kind": "user_pat",
-  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.10",
+  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.11",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.10"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.11"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
 `projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
@@ -320,11 +349,14 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ds`=설계
 | 409 | `apply_failed` | WBS 반영 실패 |
 | 409 | `wbs_item_missing` | 항목 삭제된 주문 |
 | 409 | `lead_lease_held` | 팀장 lease 가 다른 holder 에 있음(v2.5) — `held:[{project_id, host, agent, expires_at}]` 동반 |
+| 409 | `design_gate` | 설계 관문 거부 — 방식·설계 상태·단계(v2.11). `reason: order_changed` 는 판정 뒤 주문이 바뀐 것이다(설계가 되돌려졌거나 다른 PC 가 이어받음 — build-start·design-done·design-reopen). dflow.sh exit 11 |
+| 409 | `design_not_accepted` | 승인·확정된 설계가 없다 — 「설계 승인」·「설계 확정」을 먼저(v2.11). dflow.sh exit 11 |
+| 409 | `runner_active` | 다른 PC 가 이 작업을 돌리는 중(v2.11, 본문 `runner`·`runner_seen_at`). dflow.sh exit 12 |
 
 ## 로컬 클라이언트 계약
 
 - env: `DFLOW_API_BASE`(기본값 없음 — 미설정 시 즉시 실패) · `DFLOW_PATS`(쉼표 구분 1~N개) · `DFLOW_PAT`(단일, PATS 미설정 시 폴백).
-- `dflow.sh` exit code: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증(401) / 4 상태 충돌(409)·선행 미반영 로컬 차단·선행 미충족(403 `code=dependency_not_met`) / 5 권한(403, 그 외) / 6 네트워크·서버(5xx)·로컬 환경 실패(파싱·파일 쓰기) / 7 기능 꺼짐(404) / 10 중단됨(409 `code=cancelled`).
+- `dflow.sh` exit code: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증(401) / 4 상태 충돌(409)·선행 미반영 로컬 차단·선행 미충족(403 `code=dependency_not_met`) / 5 권한(403, 그 외) / 6 네트워크·서버(5xx)·로컬 환경 실패(파싱·파일 쓰기) / 7 기능 꺼짐(404) / 10 중단됨(409 `code=cancelled`) / 11 설계 관문(409 `code=design_gate`·`design_not_accepted`) / 12 다른 PC 도는 중(409 `code=runner_active`).
   - 403 을 body 의 `code` 로 갈라 읽는다: 선행 미충족은 권한 문제가 아니라 상태 문제라
     호출부가 할 일이 "권한을 얻어라"가 아니라 "선행을 끝내고 다시 와라"이다.
   - 로컬 파싱·파일 쓰기 실패를 4 로 내지 않는다 — 호출부가 "선행을 기다린다"로 읽고 영원히 재시도한다.

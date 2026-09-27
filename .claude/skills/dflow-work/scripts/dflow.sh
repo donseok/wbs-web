@@ -12,7 +12,8 @@ set -u
 # 2.8: 강제 진행 — 의존 면제·스텁 제거 작업(stub-check, 과제 D).
 # 2.9: 설계 단계 ds — claim --design-first·build-start, heartbeat phase wait_pred(설계 선행).
 # 2.10: heartbeat phase wait_review — 설계만 멈춤, 2026-09-26 설계 §14(dflow-dev-skill-router-design.md §14.5).
-CONTRACT_VERSION=2.10
+# 2.11: 설계 상태·구현자동 — claim·build-start --scope, design-done·design-reopen, list 의 action·mine, exit 11(DESIGN_GATE)·12(RUNNER_ACTIVE).
+CONTRACT_VERSION=2.11
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"
