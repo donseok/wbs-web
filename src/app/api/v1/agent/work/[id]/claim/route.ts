@@ -24,7 +24,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!isUuidLike(id)) return apiBadRequest('경로 id 형식이 올바르지 않습니다.')
   let raw: unknown
   try { raw = await req.json() } catch { return apiBadRequest('잘못된 요청입니다.') }
-  // 설계 선행(계약 v2.9, 스펙 2026-09-26 §6.3) — true 일 때만 켠다. 없거나 false 면 종전과 글자 그대로 같다.
+  // 설계 선행(계약 v2.9, 스펙 2026-09-26 §6.3) — 요청 값은 full·legacy 범위에서만 쓴다. design 범위는 선행으로 정하고
+  // build 범위는 끈다(designGate.canClaim). 없거나 false 면 설계 선행 없이 claim 한다.
   const designFirstRaw = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>).design_first : undefined
   if (designFirstRaw !== undefined && typeof designFirstRaw !== 'boolean') return apiBadRequest('design_first는 불리언이어야 합니다.')
   const designFirst = designFirstRaw === true

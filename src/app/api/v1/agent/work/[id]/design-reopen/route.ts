@@ -14,7 +14,7 @@ const REASON_MAX = 500
 
 /**
  * 설계를 사람에게 되돌린다(계약 2.11, 설계 상태 스펙 4.1 design_reopen·6.2 띄우기 전 검사·6.4). human 은 사람 설계 대기(as),
- * 그 밖은 설계 검토 대기(review)로 간다. 사유는 design_note 에 남아 화면이 보인다.
+ * 그 밖은 설계 검토 대기(review)로 간다. 사유는 design_note 에 남아 화면에 보인다.
  * 부르는 쪽(8절): claimed 면 점유자, ready 면 그 주문을 후보로 받는 에이전트 PAT(담당자가 있으면 담당자 신원 — claim 과 같다).
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   try { raw = await req.json() } catch { return apiBadRequest('잘못된 요청입니다.') }
   const b = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
   const reason = typeof b.reason === 'string' ? b.reason.trim() : ''
-  if (!reason || reason.length > REASON_MAX) return apiBadRequest(`reason 은 1~${REASON_MAX}자여야 합니다(되돌리는 이유 — 화면에 보인다).`)
+  if (!reason || reason.length > REASON_MAX) return apiBadRequest(`reason 은 1~${REASON_MAX}자여야 합니다. 되돌리는 이유로, 화면에 보입니다.`)
   try {
     const admin = createAdminClient()
     const actor = await resolveWriteActor(req, admin, raw, 'work:claim')

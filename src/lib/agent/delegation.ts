@@ -22,7 +22,7 @@ export type AgentDelegationResult = {
   warning?: string
   /** 위임 해제가 진행 중(claimed) 주문을 취소한 경우 그 주문 id — 중단(stop) op 가 대상 주문이 실제로 멈췄는지 본다. */
   cancelledClaimedIds?: string[]
-  /** cancel 사건이 단계를 as 로 되돌리며 실적을 바꿨다 — 호출부가 진척 스냅샷을 남긴다. */
+  /** cancel 사건이 단계를 as 로 되돌리며 실적을 바꿨다 — applyDelegation 의 호출부(허브 위임 묶음·중단, setDelegationAndMode)가 진척 스냅샷을 남긴다. */
   actualChanged?: boolean
 }
 
@@ -164,7 +164,9 @@ export async function applyDelegation(
     const cancelledClaimedIds = c.cancelled.filter(x => x.prevStatus === 'claimed').map(x => x.id)
     const actualChanged = c.actualChanged
     if (rows.some(o => o.status === 'reported') || c.conflicts.length > 0) {
-      warnings.push('완료 보고가 이미 올라온 주문은 취소되지 않았습니다 — 진행 상황에서 승인·반려로 정리하세요.')
+      // conflicts 는 완료 보고로 넘어간 주문만이 아니다 — 판정과 쓰기 사이에 다른 곳(동시 위임 해제·「중단」)에서 먼저 취소된
+      // 주문도 같은 conflict 로 온다. 두 경우를 모두 덮는 문장으로 알린다(최종 수정 B11).
+      warnings.push('취소되지 않은 주문이 있습니다. 완료 보고가 이미 올라왔거나 그 사이 다른 곳에서 상태가 바뀌었습니다 — 진행 상황을 확인하고, 완료 보고가 올라온 주문은 승인·반려로 정리하세요.')
     }
     const extra = {
       ...(cancelledClaimedIds.length > 0 ? { cancelledClaimedIds } : {}),

@@ -207,7 +207,8 @@ describe('선행 게이트 — approved 주문을 도달로 인정', () => {
       agent_work_reports: [{ data: { evidence: {} } }],
     })
     const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
-    expect(res.status).not.toBe(403)
+    // not.toBe(403) 은 409 design_gate 같은 다른 거부도 통과시켰다 — 통과를 단언한다(D20).
+    expect(res.status).toBe(200)
   })
 })
 

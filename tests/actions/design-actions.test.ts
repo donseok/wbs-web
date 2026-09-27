@@ -401,10 +401,12 @@ describe('applyDelegation — 위임 본체(멤버는 등록·활성 프로젝�
     expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'cancel', actorUserId: 'member-1', orderId: 'o1' })
   })
   it('해제가 claimed 주문을 취소하면 cancelledClaimedIds·actualChanged 를 싣는다 — 단계 되돌리기는 cancel 사건이 한다(D14)', async () => {
-    const { client } = queueAdmin(offQueues('claimed'))
+    const { client, calls } = queueAdmin(offQueues('claimed'))
     mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, prevStatus: 'claimed', actualChanged: true })
     expect(await d.applyDelegation(client as never, asMember(false))).toEqual({ ok: true, cancelledClaimedIds: ['o1'], actualChanged: true })
     expect(mocks.applyWorkflowEvent).toHaveBeenCalledTimes(1)
+    // 태그를 먼저 쓰고(wbs_items) 그 뒤에 활성 주문을 읽어 취소한다(agent_work_orders) — 옮기기 전 테스트의 순서 단언(D21).
+    expect(calls.lastIndexOf('agent_work_orders')).toBeGreaterThan(calls.lastIndexOf('wbs_items'))
   })
   it('취소가 경합으로 막히면(conflict) 경고로 알리고, 그 밖의 취소 실패는 오류로 돌려준다', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -412,7 +414,7 @@ describe('applyDelegation — 위임 본체(멤버는 등록·활성 프로젝�
     const r = await d.applyDelegation(queueAdmin(offQueues('claimed')).client as never, asMember(false))
     expect(r.ok).toBe(true)
     expect(r.cancelledClaimedIds).toBeUndefined()
-    expect(r.warning).toContain('완료 보고가 이미 올라온 주문은 취소되지 않았습니다')
+    expect(r.warning).toContain('완료 보고가 이미 올라왔거나 그 사이 다른 곳에서 상태가 바뀌었습니다')
     mocks.applyWorkflowEvent.mockResolvedValueOnce({ ok: false, conflict: false, reason: 'rpc_error', orderStatus: null, error: '전이 실패: boom' })
     expect(await d.applyDelegation(queueAdmin(offQueues('claimed')).client as never, asMember(false)))
       .toEqual({ ok: false, error: '주문 취소 실패: 전이 실패: boom' })

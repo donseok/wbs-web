@@ -4,7 +4,7 @@ import { generateAgentToken } from '@/lib/agent/token'
 
 /**
  * 설계 선행 claim 과 build-start(스펙 2026-09-26 §6.3, 계약 v2.9).
- * - claim + design_first:true — 미충족 선행이 모두 ip 면 claim 을 허용하고 RPC 에 p_stage 'ds'.
+ * - claim + design_first:true — 미충족 선행이 모두 dd·ip 면(0108, D15) claim 을 허용하고 RPC 에 p_stage 'ds'.
  *   아니면 403 dependency_not_met + reason design_first_too_early. 플래그가 없으면 종전과 글자 그대로 같다.
  * - POST /work/{id}/build-start — 점유자 본인·claimed·선행 모두 reached 일 때 build_start 사건.
  * 레거시 시크릿 경로를 쓴다 — agent_runners 조회를 피해 큐를 단순하게 유지한다(stage-lifecycle 과 같은 방식).

@@ -9,7 +9,11 @@ export type CancelOrdersResult = {
   /** 판정과 쓰기 사이에 상태가 바뀐 주문(보고됨 등) — 실패가 아니라 "취소 대상이 아니게 됨". */
   conflicts: string[]
   failed: Array<{ id: string; error: string }>
-  /** 단계·실적이 되돌아간 주문이 있으면 참 — 호출부가 진척 스냅샷을 남긴다. */
+  /**
+   * 단계·실적이 되돌아간 주문이 있으면 참 — 스냅샷을 남기는 것은 호출부 몫이다. 위임 해제(delegation.applyDelegation →
+   * 허브·setDelegationAndMode)는 이 값으로 남기지만, 개발 워크플로 끄기(wbsAssign)·import 표식 제거(wbsImport)·
+   * 스텁 제거(forceProgress)는 이 값을 보지 않는다.
+   */
   actualChanged: boolean
 }
 
