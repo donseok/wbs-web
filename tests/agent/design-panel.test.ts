@@ -10,16 +10,25 @@ import type { ItemFacts } from '@/lib/domain/designGate'
 const W1 = '33333333-3333-4333-8333-333333333333'
 const O1 = '44444444-4444-4444-8444-444444444444'
 type Resp = { data?: unknown; error?: { message: string } | null }
-/** 테이블별 순차 응답 흉내 — select/eq/in/order/limit 체인 뒤 maybeSingle 또는 thenable. */
+/**
+ * 테이블별 순차 응답 흉내 — select/eq/in/order/limit 체인 뒤 maybeSingle 또는 thenable.
+ * 고른 열(select)과 eq 필터를 테이블별로 기록한다(design-actions.test.ts 의 admin() 과 같은 이유 —
+ * 목이 고른 열·필터와 무관하게 응답을 돌려주므로, 실제로 무엇을 골랐는지는 따로 봐야 드러난다).
+ */
 function admin(queues: Record<string, Resp[]>) {
-  return { from: vi.fn((table: string) => {
+  const selected: Record<string, string[]> = {}
+  const eqCalls: Record<string, Array<[string, unknown]>> = {}
+  const client = { from: vi.fn((table: string) => {
     const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
     const b: Record<string, unknown> = {}
-    for (const k of ['select', 'eq', 'in', 'order', 'limit']) b[k] = () => b
+    b.select = (cols: string) => { (selected[table] ??= []).push(cols); return b }
+    b.eq = (col: string, v: unknown) => { (eqCalls[table] ??= []).push([col, v]); return b }
+    for (const k of ['in', 'order', 'limit']) b[k] = () => b
     b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
     b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
     return b
-  }) } as never
+  }), selected, eqCalls }
+  return client as never
 }
 const ITEM = { id: W1, project_id: 'p1', external_ref: 'm/TSK-01-01', stage: 'dd', actual_pct: 20, tags: ['agent'], depends: [], depends_waived: [], design_mode: 'review' }
 const facts = (f: Partial<ItemFacts> = {}): ItemFacts => ({ mode: 'review', stage: 'dd', actualPct: 20, delegated: true, hasApprovedOrder: false, preds: 'met', ...f })
@@ -41,6 +50,17 @@ describe('loadDesignTarget', () => {
     expect(t).toMatchObject({ itemId: W1, projectId: 'p1', item: facts(), orderStatuses: ['cancelled', 'claimed'], lastReview: 'reject' })
     expect(t?.active).toMatchObject({ id: O1, status: 'claimed', designState: 'review', designNote: '빠진 절: 테스트 전략' })
     expect(mocks.loadItemFacts).toHaveBeenCalledWith(expect.anything(), [ITEM])
+  })
+  it('agent_work_orders 는 design_note 를 select 하고, agent_work_reports 는 work_order_id·kind=completion 으로 거른다', async () => {
+    const a = admin({
+      wbs_items: [{ data: ITEM }],
+      agent_work_orders: [{ data: [CLAIMED_REVIEW] }],
+      agent_work_reports: [{ data: { review_action: null } }],
+    })
+    await loadDesignTarget(a, W1)
+    const { selected, eqCalls } = a as unknown as { selected: Record<string, string[]>; eqCalls: Record<string, Array<[string, unknown]>> }
+    expect(selected.agent_work_orders[0]).toContain('design_note')
+    expect(eqCalls.agent_work_reports).toEqual([['work_order_id', O1], ['kind', 'completion']])
   })
   it('활성 주문(ready·claimed·reported)이 없으면 active·lastReview 는 null — 승인·취소된 주문은 활성이 아니다', async () => {
     const t = await loadDesignTarget(admin({

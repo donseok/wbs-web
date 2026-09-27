@@ -11,7 +11,10 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminCli
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }))
 vi.mock('next/server', () => ({ after: mocks.after }))
 vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: mocks.recordProgressSnapshot }))
-vi.mock('@/lib/agent/delegation', () => ({ requireDelegationRight: mocks.requireDelegationRight, applyDelegation: mocks.applyDelegation }))
+vi.mock('@/lib/agent/delegation', () => ({
+  requireDelegationRight: mocks.requireDelegationRight, applyDelegation: mocks.applyDelegation,
+  ERR_NOT_ASSIGNEE: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.',
+}))
 // 전이 RPC 만 목으로 바꾸고 나머지(SKIPPED_WARN 등)는 실제 모듈 그대로 둔다 — 목에 없는 이름은 그 경로를 탈 때만 터진다.
 vi.mock('@/lib/agent/workflowEvent', async (orig) => ({ ...(await orig<typeof import('@/lib/agent/workflowEvent')>()), applyWorkflowEvent: mocks.applyWorkflowEvent }))
 vi.mock('@/lib/agent/designPanel', async (orig) => ({ ...(await orig<typeof import('@/lib/agent/designPanel')>()), loadDesignTarget: mocks.loadDesignTarget }))
@@ -190,11 +193,14 @@ describe('설계 세 버튼 — 서버 판정으로 다시 보고, CAS 로 쓴�
     await designReopen(W1, 'x'.repeat(600))
     expect(mocks.applyWorkflowEvent).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ note: 'x'.repeat(500) }))
   })
-  it('처리는 됐지만 단계·실적을 건너뛰었으면 경고로 알린다', async () => {
+  it('처리는 됐지만 단계·실적을 건너뛰었으면 경고로 알린다 — parent 는 위임 해제 안내를 덧붙인다(SKIPPED_WARN 자체는 안 바꾼다)', async () => {
     admin(null)
     mocks.loadDesignTarget.mockResolvedValue(humanReady())
     mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, actualChanged: false, skipped: 'parent' })
-    expect(await designConfirm(W1)).toEqual({ ok: true, warning: SKIPPED_WARN.parent })
+    expect(await designConfirm(W1)).toEqual({ ok: true, warning: `${SKIPPED_WARN.parent} 이 주문을 끝내려면 위임을 해제하세요 — 주문이 취소됩니다.` })
+    // parent 가 아닌 skipped 는 SKIPPED_WARN 그대로 — 덧붙이지 않는다.
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, actualChanged: false, skipped: 'stage' })
+    expect(await designConfirm(W1)).toEqual({ ok: true, warning: SKIPPED_WARN.stage })
   })
   it('설계 상태를 읽지 못하면 조회 실패로 알리고(없음으로 위장하지 않는다), 항목이 없으면 대상 없음', async () => {
     admin(null)
@@ -224,6 +230,19 @@ describe('getDesignPanel — 멤버면 보고, 버튼은 위임 권한이 있을
     expect(await getDesignPanel(W1)).toMatchObject({ ok: true, canAct: true, panel: { designState: 'review', buttons: ['accept'], screen: { row: 1 } } })
     mocks.requireDelegationRight.mockResolvedValue(DENIED)
     expect(await getDesignPanel(W1)).toMatchObject({ ok: true, canAct: false, panel: { buttons: ['accept'] } })
+  })
+  it('위임 권한 판정이 담당자 아님이 아닌 이유로 실패하면 로그를 남긴다(담당자 아님은 정상 소음이라 남기지 않는다), canAct 은 그대로 boolean', async () => {
+    admin(null)
+    mocks.loadDesignTarget.mockResolvedValue(target())
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.requireDelegationRight.mockResolvedValue({ ok: false, error: '항목 조회 실패: db' })
+    expect(await getDesignPanel(W1)).toMatchObject({ ok: true, canAct: false })
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('[designActions]'), '항목 조회 실패: db')
+    err.mockClear()
+    mocks.requireDelegationRight.mockResolvedValue(DENIED)
+    expect(await getDesignPanel(W1)).toMatchObject({ ok: true, canAct: false })
+    expect(err).not.toHaveBeenCalled()
+    err.mockRestore()
   })
   it('멤버가 아니면 읽지 않는다', async () => {
     mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '권한이 없습니다.' })

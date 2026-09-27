@@ -266,6 +266,16 @@ describe('designModeChangeBlock(4.1 설계 방식 변경)', () => {
     expect(designModeChangeBlock({ designState: null, orderStatuses: ['approved'] })).toMatch(/승인된 주문/)
     expect(designModeChangeBlock({ designState: null, orderStatuses: ['ready', 'cancelled'] })).toBeNull()
   })
+  it('reported·approved 를 가장 먼저 본다 — 검수 대기가 설계 상태·claimed 뒤에 가려지지 않는다', () => {
+    // 설계 상태가 accepted 여도 주문이 reported 면 진짜 이유(완료 보고 대기)가 먼저 나와야 한다 —
+    // 「설계 되돌리기」도 「중단」도 reported 주문에는 안 통하기 때문(RPC 는 ready·claimed 만 받는다).
+    expect(designModeChangeBlock({ designState: 'accepted', orderStatuses: ['reported'] })).toMatch(/완료 보고/)
+    expect(designModeChangeBlock({ designState: 'review', orderStatuses: ['claimed', 'approved'] })).toMatch(/완료 보고|승인/)
+  })
+  it('설계 상태가 있으면(=reported·approved 는 없다는 뜻) 문구가 위임 해제를 가리킨다 — 그때는 실제로 통하는 길이라서', () => {
+    expect(designModeChangeBlock({ designState: 'review', orderStatuses: ['claimed'] })).toMatch(/위임을 해제/)
+    expect(designModeChangeBlock({ designState: 'accepted', orderStatuses: [] })).toMatch(/위임을 해제/)
+  })
 })
 
 describe('designButtons(7절, P8)', () => {
@@ -282,9 +292,13 @@ describe('designButtons(7절, P8)', () => {
     expect(designButtons(item({ mode: 'human', delegated: false }), s({}))).toEqual([])
     expect(designButtons(item({ mode: 'human', actualPct: 100 }), s({}))).toEqual([])
   })
-  it('설계 되돌리기: accepted ∧ dd', () => {
+  it('설계 되돌리기: accepted ∧ dd ∧ 주문 status 가 ready·claimed 일 때만(reopen RPC 는 그 둘만 받는다, 0108)', () => {
     expect(designButtons(item({ stage: 'dd', mode: 'human' }), s({ designState: 'accepted' }))).toEqual(['reopen'])
+    expect(designButtons(item({ stage: 'dd', mode: 'human' }), s({ status: 'claimed', designState: 'accepted' }))).toEqual(['reopen'])
     expect(designButtons(item({ stage: 'ip', mode: 'human' }), s({ status: 'claimed', designState: 'accepted' }))).toEqual([])
+    // reported·approved 는 stage 가 dd 로 얼어 있어도(부모 항목처럼) 버튼을 보이지 않는다 — 눌러도 RPC 가 매번 conflict.
+    expect(designButtons(item({ stage: 'dd', mode: 'human' }), s({ status: 'reported', designState: 'accepted' }))).toEqual([])
+    expect(designButtons(item({ stage: 'dd', mode: 'review' }), s({ status: 'approved', designState: 'accepted' }))).toEqual([])
   })
   it('활성 주문이 없으면 버튼 없음', () => {
     expect(designButtons(item({ mode: 'human' }), null)).toEqual([])

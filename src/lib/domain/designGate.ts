@@ -267,11 +267,18 @@ export function canDesignDone(item: { stage: string | null } | null, order: Pick
   return null
 }
 
-/** 4.1 설계 방식 변경 — 설계 상태가 없고 claimed·reported·approved 주문이 없을 때만. 막히면 사람이 할 일을 담은 사유를 낸다. */
+/**
+ * 4.1 설계 방식 변경 — 설계 상태가 없고 claimed·reported·approved 주문이 없을 때만. 막히면 사람이 할 일을 담은 사유를 낸다.
+ * 검사 순서(잠금 조건의 합집합은 그대로다): reported·approved 를 가장 먼저 본다 — 검수 대기 중인 주문은 「설계
+ * 되돌리기」(order status 가 ready·claimed 가 아니면 RPC 가 거부한다)도 「중단」(claimed 만 받는다)도 통하지 않으므로,
+ * 그 진짜 이유를 designState 유무보다 앞에서 밝힌다. 그다음 설계 상태 유무 — 이 갈래에 닿았다는 것은 이미 reported·
+ * approved 가 없다는 뜻이라 「설계 되돌리기」·「중단」이 실제로 남은 주문(ready·claimed)을 치울 수 있다. 마지막으로
+ * claimed 단독(설계 상태 없이 구현 중인 경우) — 이때도 designState 가 없으므로 되돌리기는 의미가 없고 중단만 남는다.
+ */
 export function designModeChangeBlock(p: { designState: DesignState | null; orderStatuses: readonly string[] }): string | null {
-  if (p.designState !== null) return '설계가 확정·검토 중입니다 — 「설계 되돌리기」나 「중단」 뒤에 바꾸세요.'
-  if (p.orderStatuses.includes('claimed')) return '에이전트가 작업 중입니다 — 「중단」 뒤에 바꾸세요.'
-  if (p.orderStatuses.some(s => s === 'reported' || s === 'approved')) return '완료 보고·승인된 주문이 있습니다 — 방식을 바꿀 수 없습니다.'
+  if (p.orderStatuses.some(s => s === 'reported' || s === 'approved')) return '완료 보고·승인된 주문이 있어 방식을 바꿀 수 없습니다.'
+  if (p.designState !== null) return '설계가 확정·검토 중이라 방식을 바꿀 수 없습니다 — 바꾸려면 위임을 해제해 주문을 취소한 뒤 다시 위임하세요.'
+  if (p.orderStatuses.includes('claimed')) return '에이전트가 작업 중이라 방식을 바꿀 수 없습니다 — 바꾸려면 위임을 해제해 주문을 취소한 뒤 다시 위임하세요.'
   return null
 }
 
@@ -286,7 +293,9 @@ export function designButtons(item: ItemFacts, active: Pick<ScreenOrder, 'status
   if (active.status === 'claimed' && active.designState === 'review' && item.stage === 'dd') out.push('accept')
   if (active.status === 'ready' && item.mode === 'human' && item.delegated && HUMAN_DRAFT_STAGES.has(item.stage)
     && active.designState === null && !alreadyProgressed(item)) out.push('confirm')
-  if (active.designState === 'accepted' && item.stage === 'dd') out.push('reopen')
+  // design_reopen RPC 는 주문 status 가 ready·claimed 일 때만 받는다(0108) — reported·approved 에도 버튼을 보이면
+  // 누를 때마다 conflict 만 돌아온다(부모 항목처럼 stage 가 dd 에 얼어 있는데 주문이 reported 로 넘어간 경우 등).
+  if ((active.status === 'ready' || active.status === 'claimed') && active.designState === 'accepted' && item.stage === 'dd') out.push('reopen')
   return out
 }
 

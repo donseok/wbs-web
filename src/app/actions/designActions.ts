@@ -8,7 +8,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { DESIGN_MODES, designButtons, toDesignMode, type DesignButton, type DesignMode } from '@/lib/domain/designGate'
-import { applyDelegation, requireDelegationRight, type AgentDelegationResult } from '@/lib/agent/delegation'
+import { applyDelegation, requireDelegationRight, ERR_NOT_ASSIGNEE, type AgentDelegationResult } from '@/lib/agent/delegation'
 import { SKIPPED_WARN, applyWorkflowEvent } from '@/lib/agent/workflowEvent'
 import { designPanelOf, loadDesignTarget, type DesignPanel, type DesignTarget } from '@/lib/agent/designPanel'
 
@@ -38,6 +38,11 @@ export async function getDesignPanel(itemId: string): Promise<DesignPanelResult>
     // 판정 재료와 버튼 자격은 서로 기대지 않는다 — 함께 읽어 패널을 열 때의 왕복을 줄인다.
     const [target, right] = await Promise.all([loadDesignTarget(createAdminClient(), itemId), requireDelegationRight(itemId)])
     if (!target) return { ok: false, error: ERR_MISSING }
+    // 담당자 본인이 아니라 거부되는 것은 정상 소음이라 남기지 않는다 — 그 밖의 실패(조회 오류 등)만 로그로 남긴다.
+    // canAct 은 그대로 boolean 이다 — 화면은 버튼을 숨길 뿐, 실패 사유를 canAct 하나로 뭉개지 않으려는 것뿐이다.
+    if (!right.ok && right.error !== ERR_NOT_ASSIGNEE) {
+      console.error('[designActions] 위임 권한 판정 실패(canAct=false 로 열화):', right.error)
+    }
     return { ok: true, panel: designPanelOf(target, Date.now()), canAct: right.ok }
   } catch (e) {
     console.error('[designActions] 설계 영역 조회 실패:', e instanceof Error ? e.message : e)
@@ -117,7 +122,13 @@ async function runDesignOp(
   }
   revalidatePath(`/p/${right.projectId}`, 'layout')
   if (tr.actualChanged) after(() => recordProgressSnapshot(right.projectId))
-  return tr.skipped ? { ok: true, warning: SKIPPED_WARN[tr.skipped] } : { ok: true }
+  if (!tr.skipped) return { ok: true }
+  // 부모 항목은 이 주문 하나만 처리해선 안 끝난다 — 사람이 위임을 해제해야 주문이 취소되며 끝난다(SKIPPED_WARN 자체는
+  // 승인 흐름(agentWork.ts)도 같이 쓰므로 바꾸지 않고, 이 세 버튼(설계 동작)에서만 안내를 덧붙인다).
+  const warning = tr.skipped === 'parent'
+    ? `${SKIPPED_WARN.parent} 이 주문을 끝내려면 위임을 해제하세요 — 주문이 취소됩니다.`
+    : SKIPPED_WARN[tr.skipped]
+  return { ok: true, warning }
 }
 
 /** 「설계 승인」 — 설계 검토 대기(claimed·review·dd) 작업의 설계를 승인한다. 팀장이 다음 TICK 에 구현을 이어 간다. */
