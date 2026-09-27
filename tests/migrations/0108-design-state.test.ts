@@ -128,6 +128,10 @@ describe('0108 전이 RPC', () => {
   it('앞으로 가는 사건은 실적을 낮추지 않는다(D19·P13)', () => {
     expect(fn()).toContain('if v_keep_max and v_new_pct is not null and v_old_pct is not null and v_old_pct > v_new_pct then v_new_pct := v_old_pct; end if;')
     expect(fn()).toContain("v_keep_max := p_event in ('report_completion','approve');")
+    // P13 이 꼽은 다섯 사건 중 build_start·design_accept②·report_completion 은 위나 다른 테스트가 이미 고정한다.
+    // claim·design_done 은 여기서 고정한다(리뷰 지적 — 이 둘이 빠지면 v_keep_max := true; 를 지워도 테스트가 초록이었다).
+    expect(fn()).toContain('v_apply := true; v_keep_max := true;')
+    expect(fn()).toContain("if v_old_stage in ('ds','dd') then v_apply := true; v_new_stage := 'dd'; v_credit_key := 'dd'; v_keep_max := true;")
   })
   it('dd 크레딧 채움은 greatest(ds, least(20, ip-5))(D18·P12)', () => {
     expect(fn()).toContain('v_new_pct := greatest(v_ds, least(20, v_ip - 5));')
