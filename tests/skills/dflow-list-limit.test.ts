@@ -87,10 +87,16 @@ describe('dflow.sh — /work/mine limit', () => {
     expect(r.stderr).toContain('LIST_TRUNCATED assigned')
   })
 
-  it('스크립트 안의 모든 /work/mine 호출이 limit=100 을 싣는다', () => {
+  it('스크립트 안의 모든 /work/mine 호출이 limit=100 을 싣는다(직접 또는 쿼리 변수로)', () => {
+    // 계약 2.11(cmd_list)부터는 agent·require_tag·wp·lead 를 더한 공통 쿼리 문자열 $_q 를 미리 지어
+    // 호출부에 꽂는다 — limit= 이 호출부 줄이 아니라 $_q 를 짓는 줄에 있다. 그 변수 이름 자체도 허용한다.
     const src = readFileSync(DFLOW, 'utf8')
     const calls = src.split('\n').filter((l) => l.includes('/api/v1/agent/work/mine') && !l.trim().startsWith('#'))
     expect(calls.length).toBeGreaterThan(0)
-    for (const l of calls) expect(l).toMatch(/limit=(100|\$MINE_LIMIT|\$\{MINE_LIMIT\})/)
+    const inline = /limit=(100|\$MINE_LIMIT|\$\{MINE_LIMIT\})/
+    for (const l of calls) {
+      const viaQueryVar = /\?\$_q"/.test(l) && new RegExp(`_q=.*limit=(100|\\$MINE_LIMIT|\\$\\{MINE_LIMIT\\})`).test(src)
+      expect(inline.test(l) || viaQueryVar, l).toBe(true)
+    }
   })
 })
