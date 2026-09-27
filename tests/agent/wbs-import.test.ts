@@ -507,11 +507,11 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [] }],
       wbs_items: [
-        { data: [{ id: 'id-a', tags: ['agent'] }] },                              // L7 표식 확인 — 기존 항목은 표식이 있었다
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', tags: ['agent'] }] },     // L7 표식 확인 — 기존 항목은 표식이 있었다
         { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] },  // 갭 후보 조회
       ],
       agent_work_orders: [
-        { data: [{ id: 'order-a' }] },         // L7 — 표식이 빠진 항목의 ready·claimed 주문
+        { data: [{ id: 'order-a', wbs_item_id: 'id-a' }] },  // L7 — 표식이 빠진 항목의 ready·claimed 주문
         { data: [{ wbs_item_id: 'id-a' }] },   // 갭 판정 — 활성 주문으로 본다(취소 뒤 재발행은 이 테스트 범위 밖)
       ],
     }, [
@@ -522,6 +522,90 @@ describe('POST /wbs/import', () => {
     const res = await importPOST(post(body, token))
     expect(res.status).toBe(200)
     expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_event: 'cancel', p_order_id: 'order-a' }))
-    expect(await res.json()).toMatchObject({ ok: true, delegation_cancelled: 1 })
+    expect(await res.json()).toMatchObject({ ok: true, delegation_cancelled: 1, delegation_cancel_failed: [] })
+  })
+
+  it('부모 ref 를 해석하지 못해 RPC 가 건너뛴 노드(out.ids 에 없음)는 표식이 빠져도 취소 대상에서 빠진다(0096, 리뷰 수정 1회차)', async () => {
+    const { token, row } = patRow()
+    const body = {
+      project_id: PROJECT_ID, module: 'MES',
+      nodes: [NODE({ id: 'T-A' }), NODE({ id: 'T-B', parent_id: 'GONE' })], // 둘 다 tags:[] — 표식 없음
+    }
+    const admin = useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }],
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [] }],
+      wbs_items: [
+        // L7 표식 확인 — DB 상 T-B 만 표식이 있었다(T-A 는 원래도 표식이 없어 "빠질 것"이 아니다).
+        // 이렇게 둬야 out.ids 필터를 빼면(회귀) 이 테스트가 실제로 실패한다 — 둘 다 표식이 있다고 두면
+        // T-A·T-B 모두 order-a 하나로 응답이 갈려 필터 유무와 무관하게 통과해 버린다.
+        { data: [{ id: 'id-b', external_ref: 'MES/T-B', tags: ['agent'] }] },
+        { data: [] }, // 갭 후보 조회 — T-A·T-B 둘 다 dev_workflow 갱신된 행이 없다(대상 없음)
+      ],
+      // 이 큐는 "독약" 픽스처다 — 정답 코드라면 L7 도 갭 판정도 agent_work_orders 를 아예 조회하지
+      // 않아 이 항목이 그대로 남는다. 필터가 빠지면(회귀) losingIds 에 id-b 가 들어가 이 항목을
+      // 소비하며 order-b 를 집어 취소를 시도한다.
+      agent_work_orders: [{ data: [{ id: 'order-b', wbs_item_id: 'id-b' }] }],
+    }, [
+      { data: { upserted: 1, skipped: 1, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } }, // import_wbs_upsert — T-B 는 ids 에 없다(건너뜀)
+    ])
+    const res = await importPOST(post(body, token))
+    expect(res.status).toBe(200)
+    expect(admin.rpc).toHaveBeenCalledTimes(1) // upsert 뿐 — T-B 는 취소 사건을 부르지 않는다
+    expect(await res.json()).toMatchObject({ ok: true, delegation_cancelled: 0, delegation_cancel_failed: [] })
+  })
+
+  it('L7 주문 조회가 실패해도 throw 하지 않는다 — 업로드는 성공, 실패 ref 가 결과에 실린다(리뷰 수정 1회차)', async () => {
+    const { token, row } = patRow()
+    const body = { project_id: PROJECT_ID, module: 'MES', nodes: [NODE({ id: 'T-A' })] }
+    useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }],
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [] }],
+      wbs_items: [
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', tags: ['agent'] }] },     // L7 표식 확인
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] },  // 갭 후보 조회
+      ],
+      agent_work_orders: [
+        { data: null, error: { message: 'db down' } }, // L7 — 주문 조회 자체가 실패
+        { data: [{ wbs_item_id: 'id-a' }] },           // 갭 판정
+      ],
+    }, [
+      { data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } }, // import_wbs_upsert
+    ])
+    const res = await importPOST(post(body, token))
+    expect(res.status).toBe(200) // upsert 는 이미 커밋됐다 — 500 으로 전체를 실패 처리하지 않는다
+    expect(await res.json()).toMatchObject({ ok: true, delegation_cancelled: 0, delegation_cancel_failed: ['T-A'] })
+  })
+
+  it('L7 취소 사건이 실패해도 throw 하지 않는다 — 업로드는 성공, 실패 ref 가 결과에 실린다(리뷰 수정 1회차)', async () => {
+    const { token, row } = patRow()
+    const body = { project_id: PROJECT_ID, module: 'MES', nodes: [NODE({ id: 'T-A' })] }
+    const admin = useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }],
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [] }],
+      wbs_items: [
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', tags: ['agent'] }] },
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] },
+      ],
+      agent_work_orders: [
+        { data: [{ id: 'order-a', wbs_item_id: 'id-a' }] }, // L7 — 취소 대상 주문
+        { data: [{ wbs_item_id: 'id-a' }] },                // 갭 판정
+      ],
+    }, [
+      { data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } }, // import_wbs_upsert
+      { error: { message: 'rpc down' } }, // apply_workflow_event(cancel) 자체가 실패
+    ])
+    const res = await importPOST(post(body, token))
+    expect(res.status).toBe(200)
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_order_id: 'order-a' }))
+    expect(await res.json()).toMatchObject({ ok: true, delegation_cancelled: 0, delegation_cancel_failed: ['T-A'] })
   })
 })

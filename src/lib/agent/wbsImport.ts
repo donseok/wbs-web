@@ -215,7 +215,10 @@ export type RunWbsImportResult =
   | { ok: true; upserted: number; skipped: number
       unmatched: Array<{ id: string; assignee: string }>; nonLeafSkipped: string[]; ordersCreated: number
       /** L7(설계 상태 스펙 12절) — 이번 업로드로 위임 표식이 빠져 공용 취소로 끝난 ready·claimed 주문 수. */
-      delegationCancelled: number }
+      delegationCancelled: number
+      /** L7 취소를 끝내지 못한 항목의 bare id(리뷰 수정 1회차) — upsert 는 이미 커밋됐으므로 throw 하지
+       *  않고 여기 담는다. 비어 있으면 전부 정리됐다는 뜻. */
+      delegationCancelFailed: string[] }
   | { ok: false; code: 'validation_failed' | 'levels_mismatch' | 'attach_not_found' | 'apply_failed'; message: string }
 
 export async function runWbsImport(
@@ -291,14 +294,18 @@ export async function runWbsImport(
   }
 
   // L7(설계 상태 스펙 12절) — 이번 업로드로 위임 표식(agent)이 빠지는 기존 항목. RPC 가 tags 를 덮어쓰므로 호출 전에 읽는다.
+  // ref → id 로 양방향을 남긴다 — RPC 는 부모 ref 를 해석하지 못한 노드를 건너뛰고 그 행의 tags 를 바꾸지
+  // 않는다(0096 import_wbs_upsert). out.ids(실제로 갱신된 ref)로 좁히기 전엔 "빠질 뻔한" 후보일 뿐이다(리뷰 수정 1회차).
   const untagRefs = (rpcNodes as Array<{ external_ref: string; tags: string[] }>)
     .filter(n => !(n.tags ?? []).includes(AGENT_TAG)).map(n => n.external_ref)
-  const losingIds: string[] = []
+  const losingByRef = new Map<string, string>() // ref → 항목 id(현재 tags 에 agent 가 있던 것만)
   for (const refChunk of chunked(untagRefs, IN_CHUNK)) {
-    const { data, error } = await admin.from('wbs_items').select('id, tags')
+    const { data, error } = await admin.from('wbs_items').select('id, external_ref, tags')
       .eq('project_id', projectId).in('external_ref', refChunk)
     if (error) throw new Error(`표식 확인 조회 실패: ${error.message}`)
-    for (const r of (data ?? []) as Array<{ id: string; tags: string[] | null }>) if ((r.tags ?? []).includes(AGENT_TAG)) losingIds.push(r.id)
+    for (const r of (data ?? []) as Array<{ id: string; external_ref: string | null; tags: string[] | null }>) {
+      if (r.external_ref && (r.tags ?? []).includes(AGENT_TAG)) losingByRef.set(r.external_ref, r.id)
+    }
   }
 
   // p_attach_id 는 attach 경로에서만 싣는다 — 레거시 payload 는 구 2인자 시그니처와도 호환(배포 순서 안전).
@@ -312,19 +319,44 @@ export async function runWbsImport(
   }
   const out = rpcOut as { upserted: number; skipped: number; ids: Record<string, string>; new_refs: string[] }
 
+  // out.ids 에 있는 ref 만 실제로 갱신됐다(리뷰 수정 1회차) — 부모를 해석 못해 RPC 가 건너뛴 노드는
+  // tags 가 그대로라 취소 대상이 아니다.
+  const losingRefs = [...losingByRef.keys()].filter(ref => ref in out.ids)
+  const refByLosingId = new Map(losingRefs.map(ref => [losingByRef.get(ref) as string, ref]))
+  const losingIds = losingRefs.map(ref => losingByRef.get(ref) as string)
+
   // 표식이 빠진 항목의 ready·claimed 주문을 공용 취소로 끝낸다(L7) — 확정 설계가 표식 없이 떠 있지 않게.
+  // upsert 는 이미 커밋된 뒤라(리뷰 수정 1회차) 이 아래 조회·취소 실패는 throw 하지 않는다 — 로깅하고
+  // 못 끝낸 항목의 ref 를 결과에 담는다(setWbsAssigneeCascade 의 cascadeFailed 와 같은 원칙: 커밋된 쓰기를
+  // 위장하지 않되 이미 끝난 업로드를 전체 실패로 갚지 않는다).
   let delegationCancelled = 0
+  const delegationCancelFailed = new Set<string>()
   if (losingIds.length > 0) {
+    const orderItemId = new Map<string, string>()
     const act: string[] = []
     for (const idChunk of chunked(losingIds, IN_CHUNK)) {
-      const { data, error } = await admin.from('agent_work_orders').select('id')
+      const { data, error } = await admin.from('agent_work_orders').select('id, wbs_item_id')
         .in('wbs_item_id', idChunk).in('status', ['ready', 'claimed'])
-      if (error) throw new Error(`표식 제거 주문 조회 실패: ${error.message}`)
-      act.push(...((data ?? []) as Array<{ id: string }>).map(r => r.id))
+      if (error) {
+        console.error('[wbs-import] L7 표식 제거 주문 조회 실패:', error.message)
+        for (const id of idChunk) { const ref = refByLosingId.get(id); if (ref) delegationCancelFailed.add(ref) }
+        continue
+      }
+      for (const r of (data ?? []) as Array<{ id: string; wbs_item_id: string | null }>) {
+        if (r.wbs_item_id) orderItemId.set(r.id, r.wbs_item_id)
+        act.push(r.id)
+      }
     }
-    const c = await cancelOrders(admin, { orderIds: act, actorUserId })
-    if (c.failed.length > 0) throw new Error(`표식 제거 주문 취소 실패: ${c.failed.map(f => f.error).join(' / ')}`)
-    delegationCancelled = c.cancelled.length
+    if (act.length > 0) {
+      const c = await cancelOrders(admin, { orderIds: act, actorUserId })
+      delegationCancelled = c.cancelled.length
+      for (const f of c.failed) {
+        console.error('[wbs-import] L7 표식 제거 주문 취소 실패:', f.id, f.error)
+        const itemId = orderItemId.get(f.id)
+        const ref = itemId ? refByLosingId.get(itemId) : undefined
+        if (ref) delegationCancelFailed.add(ref)
+      }
+    }
   }
 
   const post = await applyAssigneesAndOrders(admin, {
@@ -332,7 +364,8 @@ export async function runWbsImport(
     newRefs: out.new_refs, idsByRef: out.ids, assigneeByRef, titleByRef, kindByRef,
   })
   return { ok: true, upserted: out.upserted, skipped: out.skipped,
-    unmatched: post.unmatched, nonLeafSkipped: post.nonLeafSkipped, ordersCreated: post.ordersCreated, delegationCancelled }
+    unmatched: post.unmatched, nonLeafSkipped: post.nonLeafSkipped, ordersCreated: post.ordersCreated,
+    delegationCancelled, delegationCancelFailed: [...delegationCancelFailed].map(ref => ref.slice(module_.length + 1)) }
 }
 
 /**

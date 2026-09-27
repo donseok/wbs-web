@@ -154,7 +154,7 @@ describe('applyWbsUpload', () => {
       project_settings: [{ data: { level_labels: SERVER_LABELS } }],
       agent_projects: [{ data: { enabled: true } }], // 이미 활성 — ensureAgentProject no-op
     }
-    runWbsImport.mockResolvedValue({ ok: true, upserted: 3, skipped: 0, unmatched: [], nonLeafSkipped: [], ordersCreated: 2 })
+    runWbsImport.mockResolvedValue({ ok: true, upserted: 3, skipped: 0, unmatched: [], nonLeafSkipped: [], ordersCreated: 2, delegationCancelled: 0, delegationCancelFailed: [] })
     const r = await applyWbsUpload(PID, PL_MD)
     expect(r).toMatchObject({ ok: true, upserted: 3, ordersCreated: 2 })
     expect(runWbsImport).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
@@ -180,5 +180,36 @@ describe('applyWbsUpload', () => {
     const r = await applyWbsUpload(PID, PL_MD)
     expect(r.ok).toBe(false)
     expect(r.error).toContain('attach')
+  })
+
+  // L7(리뷰 수정 1회차) — 코어의 취소 건수·실패 ref 를 버리지 않고 그대로 돌려준다(웹 업로드도 PAT 응답과
+  // 같은 정보를 사용자에게 보여줘야 한다 — "새 칸은 PAT 응답에만"은 레거시 v1 API 규칙이지 서버 액션엔 해당 없음).
+  it('L7 — 코어가 돌려준 취소 건수·실패 ref 를 그대로 담는다', async () => {
+    db.queues = {
+      wbs_items: [{ data: [{ external_ref: 'mes-skel/SYS-QA' }] }],
+      project_settings: [{ data: { level_labels: SERVER_LABELS } }],
+      agent_projects: [{ data: { enabled: true } }],
+    }
+    runWbsImport.mockResolvedValue({
+      ok: true, upserted: 3, skipped: 0, unmatched: [], nonLeafSkipped: [], ordersCreated: 2,
+      delegationCancelled: 2, delegationCancelFailed: ['TSK-QA-JD-02'],
+    })
+    const r = await applyWbsUpload(PID, PL_MD)
+    expect(r).toMatchObject({ ok: true, delegationCancelled: 2, delegationCancelFailed: ['TSK-QA-JD-02'] })
+  })
+
+  it('L7 — 취소 0건·실패 없음이면 그 두 칸을 응답에 싣지 않는다', async () => {
+    db.queues = {
+      wbs_items: [{ data: [{ external_ref: 'mes-skel/SYS-QA' }] }],
+      project_settings: [{ data: { level_labels: SERVER_LABELS } }],
+      agent_projects: [{ data: { enabled: true } }],
+    }
+    runWbsImport.mockResolvedValue({
+      ok: true, upserted: 3, skipped: 0, unmatched: [], nonLeafSkipped: [], ordersCreated: 2,
+      delegationCancelled: 0, delegationCancelFailed: [],
+    })
+    const r = await applyWbsUpload(PID, PL_MD)
+    expect(r).not.toHaveProperty('delegationCancelled')
+    expect(r).not.toHaveProperty('delegationCancelFailed')
   })
 })

@@ -16,7 +16,11 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
   const [fileName, setFileName] = useState<string | null>(null)
   const [text, setText] = useState<string | null>(null)
   const [preview, setPreview] = useState<WbsUploadPreview | null>(null)
-  const [result, setResult] = useState<{ upserted?: number; ordersCreated?: number; unmatched?: Array<{ id: string; assignee: string }>; taskCount?: number; agentStopped?: boolean } | null>(null)
+  const [result, setResult] = useState<{
+    upserted?: number; ordersCreated?: number; unmatched?: Array<{ id: string; assignee: string }>
+    taskCount?: number; agentStopped?: boolean
+    delegationCancelled?: number; delegationCancelFailed?: string[]
+  } | null>(null)
   const [pending, startTransition] = useTransition()
 
   function reset() {
@@ -134,6 +138,21 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
                     {result.agentStopped
                       ? '프로젝트가 "에이전트 중지" 상태입니다 — 설정 › 에이전트에서 재개하면 백필로 주문이 발행됩니다.'
                       : '이미 활성 주문이 있는 항목(재업로드)이거나 task 가 리프가 아닙니다. WBS 화면에서 확인하세요.'}
+                  </span>
+                </p>
+              )}
+              {/* L7(리뷰 수정 1회차) — 위임 표식이 빠진 항목의 ready·claimed 주문을 취소했음을 알린다. */}
+              {(result.delegationCancelled ?? 0) > 0 && (
+                <p className="text-xs text-ink-subtle">
+                  위임 표식이 빠진 작업 {result.delegationCancelled}건의 에이전트 주문을 취소했습니다.
+                </p>
+              )}
+              {(result.delegationCancelFailed?.length ?? 0) > 0 && (
+                <p role="alert" className="flex items-start gap-1.5 rounded-lg border border-danger/30 bg-danger-weak/30 p-3 text-xs text-danger">
+                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    주문 취소에 실패한 작업이 있습니다: {result.delegationCancelFailed!.join(', ')}.{' '}
+                    그 작업에서 「중단」을 누르거나 위임을 켰다가 끄세요.
                   </span>
                 </p>
               )}

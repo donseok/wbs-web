@@ -105,4 +105,33 @@ describe('WbsMarkdownImport', () => {
     expect(container.textContent).toContain('권한이 없습니다.')
     expect(container.querySelector('button[data-md-apply]')).toBeNull()
   })
+
+  // L7(리뷰 수정 1회차) — 위임 표식 제거로 인한 주문 취소 건수·실패 ref 를 적용 결과 카드에 보여준다.
+  it('적용 결과에 L7 취소 건수·실패 ref 목록을 보여준다', async () => {
+    previewWbsUpload.mockResolvedValue(PREVIEW_OK)
+    applyWbsUpload.mockResolvedValue({
+      ok: true, upserted: 3, ordersCreated: 2, unmatched: [],
+      delegationCancelled: 2, delegationCancelFailed: ['TSK-01'],
+    })
+    await selectFile(container)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[data-md-apply]')!.click()
+      await Promise.resolve()
+    })
+    expect(container.textContent).toContain('위임 표식이 빠진 작업 2건의 에이전트 주문을 취소했습니다')
+    expect(container.textContent).toContain('주문 취소에 실패한 작업이 있습니다')
+    expect(container.textContent).toContain('TSK-01')
+  })
+
+  it('L7 취소·실패가 없으면 관련 문구를 보여주지 않는다', async () => {
+    previewWbsUpload.mockResolvedValue(PREVIEW_OK)
+    applyWbsUpload.mockResolvedValue({ ok: true, upserted: 3, ordersCreated: 2, unmatched: [] })
+    await selectFile(container)
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('button[data-md-apply]')!.click()
+      await Promise.resolve()
+    })
+    expect(container.textContent).not.toContain('에이전트 주문을 취소했습니다')
+    expect(container.textContent).not.toContain('주문 취소에 실패한 작업이 있습니다')
+  })
 })
