@@ -15,7 +15,8 @@
   `lead=1` 이면 거르기·팀원 라벨까지)이고, 그 밖(reported·approved 등)은 종전처럼 점유 사용자 일치다.
   - ready 의 `mine` 은 태그·WP 만 본다(담당자는 claim 이 막는다). 남에게 배정된 ready 주문도 `mine=true` 일 수 있고, claim 이 403
     `not_assignee` 로 거부한다.
-  - 요청에 `agent` 가 없으면(라벨을 보내지 않는 옛 킷) claimed 의 `mine` 은 종전 뜻 `claimed_by_user_id === 호출자` 다. 상세·목록 공통.
+  - 요청에 `agent` 를 보내지 않았고 `lead` 도 아니면, claimed 주문의 `mine` 은 종전 뜻(`claimed_by_user_id` 가 호출자와 같음)이다.
+    상세·목록 공통이고(라벨을 보내지 않는 옛 킷), 상세(show)는 형식이 틀린 `agent` 를 보낸 경우도 이 규칙을 따른다.
 - **목록 응답의 추가 칸**(PAT, 읽기용 — 옛 파서는 무시한다): 주문에 `claimed_by`(점유 라벨), `item` 에 `project_id`·`stage`·
   `actual_pct`·`tags`·`depends`·`depends_waived`·`design_mode`. 아래 「`GET /agent/work/mine` 200」 셰이프를 보라.
 - **목록 요청**(`GET /work/mine`): `agent=<라벨>`(PC 판정), `require_tag=<태그>`, `wp=<WP 목록>`, `lead=1`(claimed 의 mine 에
@@ -31,7 +32,8 @@
   claimed 가 아니거나 CAS 가 어긋날 때, design-reopen 은 CAS 가 어긋날 때), `design_not_accepted`(승인·확정된 설계 없음),
   `runner_active`(다른 PC 가 도는 중 — 본문 `runner`·`runner_seen_at`).
   heartbeat 도 다른 PC 가 30분 안에 신호를 냈으면 `runner_active` 다. 완료 보고는 도는 PC 에서만, 살아 있는 다른 세션이
-  없을 때만, 리프면 단계 `ip` 에서만 받는다. release 는 설계 상태가 있으면 `design_gate`(웹의 「중단」을 쓴다) — 설계만 하던
+  없을 때만, 리프면 단계 `ip` 에서만 받는다. 완료 보고의 `runner_active` 본문 `runner` 는 실제로 막고 있는 라벨이다(다른 PC 면
+  그 runner, 같은 PC 의 다른 세션이면 그 세션의 heartbeat 라벨). release 는 설계 상태가 있으면 `design_gate`(웹의 「중단」을 쓴다) — 설계만 하던
   주문(`claim_scope` `design`)이 단계 `ds`·`dd` 에 있으면 설계 상태가 없어도 마찬가지로 `design_gate` 다.
 - **dflow.sh**: `design_gate`·`design_not_accepted` → exit 11(stderr `DESIGN_GATE <code> [reason]`), `runner_active` → exit 12
   (stderr `RUNNER_ACTIVE <runner>`). 옛 서버(2.11 미만)는 모든 작업을 auto 로 본다 — 스킬은 `contract-ge 2.11` 이 거짓이면
@@ -251,8 +253,8 @@ v2.11 목록 셰이프(PAT) — 위 칸에 더해 주문마다 아래가 실린�
   "runner": "…|null", "runner_seen_at": "…|null", "action": "full|design|build|skip|wait", "action_reason": "…",
   "deps_unmet": false, "mine": true }
 ```
-`mine` 의 뜻은 위 「v2.11 변경점」 을 따른다 — ready 는 태그·WP 만 보고(담당자는 claim 이 막는다), 요청에 `agent` 가 없으면 claimed 는
-종전 뜻(`claimed_by_user_id === 호출자`)이다.
+`mine` 의 뜻은 위 「v2.11 변경점」 을 따른다 — ready 는 태그·WP 만 보고(담당자는 claim 이 막는다), 요청에 `agent` 를 보내지 않았고
+`lead` 도 아니면 claimed 는 종전 뜻(`claimed_by_user_id` 가 호출자와 같음)이다.
 요청 scope에 해당하는 구획만 채운다(`available`이면 `available`만). 정렬은 구획 내 `priority desc, created_at asc`. `limit` 기본 20 최대 100(구획별 적용). 페이지 넘김은 없다 — `dflow.sh` 는 모든 호출에 `limit=100` 을 싣고, 한 구획이 100건으로 차면 `LIST_TRUNCATED` 를 stderr 로 알린다(limit 을 빼 20건에서 잘린 2026-09-24 사고). 미지원 scope → 400 `unsupported_scope`. `item.external_ref`는 import 로 들어온 항목의 `"<module>/<id>"` 다(웹에서 직접 만든 항목은 null). dflow.sh scaffold 가 작업 폴더 이름(TSK)을 여기서 얻는다.
 
 `POST /wbs/import` 요청( `wbs-parse.py --export` 출력 v2 + 2필드) — **계약 v2 확장(결정 E, 두 리포 공통·고정)**:

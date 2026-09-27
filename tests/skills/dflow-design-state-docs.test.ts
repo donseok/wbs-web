@@ -50,6 +50,13 @@ describe('api-contract.md — v2.11 목록 셰이프와 mine 의 뜻(deferred C1
   })
   it('ready 의 mine 은 태그·WP 만, 라벨 없는 claimed 의 mine 은 종전 뜻이다', () => {
     expect(c).toContain('ready 의 `mine` 은 태그·WP 만 본다(담당자는 claim 이 막는다)')
-    expect(c).toContain('요청에 `agent` 가 없으면(라벨을 보내지 않는 옛 킷) claimed 의 `mine` 은 종전 뜻 `claimed_by_user_id === 호출자` 다')
+    expect(c).toContain('요청에 `agent` 를 보내지 않았고 `lead` 도 아니면, claimed 주문의 `mine` 은 종전 뜻(`claimed_by_user_id` 가 호출자와 같음)이다.')
+    expect(c).toContain('상세(show)는 형식이 틀린 `agent` 를 보낸 경우도 이 규칙을 따른다')
+  })
+  it('완료 보고의 runner_active 본문 runner 는 실제로 막는 라벨이다(갈래 S A2)', () => {
+    expect(c).toContain('완료 보고의 `runner_active` 본문 `runner` 는 실제로 막고 있는 라벨이다')
+    const t = read('.claude/skills/dflow-work/references/troubleshooting.md')
+    expect(t).toContain('완료 보고의 `RUNNER_ACTIVE <runner>` 라벨은 **실제로 막고 있는 PC·세션**이다')
+    expect(t).not.toContain('막는 세션이 아닐 수 있다')
   })
 })
