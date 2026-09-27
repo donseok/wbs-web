@@ -258,6 +258,31 @@ describe('GET /agent/work/mine', () => {
     const body = await res.json()
     expect(body.claimed[0].mine).toBe(false)
   })
+  it('Important 2(최종 수정) — agent 를 보내지 않은 요청의 claimed mine 은 종전 뜻(점유 사용자 일치), 라벨을 보내면 5.3 mine', async () => {
+    const fresh = new Date(Date.now() - 60_000).toISOString()
+    const queues = () => ({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_orders: [
+        { data: [
+          // 다른 PC(pc2)가 30분 안에 신호를 낸 claimed 주문 — 라벨이 있으면 mine 이 아니다.
+          { id: 'o-c', project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_at: null, wbs_item_id: 'w-c', created_at: '2026-08-01T00:00:00Z',
+            claimed_by: 'hong/mbp/w1', claimed_by_user_id: 'u-1', last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_state: null, claim_scope: 'full', design_note: null, runner: 'hong/pc2/w1', runner_seen_at: fresh },
+        ] },
+        { data: [] },
+      ],
+      wbs_items: [{ data: [{ id: 'w-c', project_id: P1, code: '1', name: 'c', planned_start: null, planned_end: null, external_ref: 'M/TSK-02-01',
+        stage: 'ds', actual_pct: 0, tags: ['agent'], depends: [], depends_waived: [], design_mode: 'auto' }] }],
+    })
+    useAdmin(queues())
+    const legacy = await (await mineGET(get('http://l/api/v1/agent/work/mine?scope=claimed', PAT.token))).json()
+    expect(legacy.claimed[0].mine).toBe(true) // 옛 킷(라벨 없음) — 점유 사용자가 호출자다
+    useAdmin(queues())
+    const labelled = await (await mineGET(get('http://l/api/v1/agent/work/mine?scope=claimed&agent=hong/mbp/w1', PAT.token))).json()
+    expect(labelled.claimed[0].mine).toBe(false) // 새 킷 — 다른 PC 가 도는 중
+  })
   it('M-1(리뷰 수정 1회차) — require_tag 불일치는 ready 주문도 mine:false(거르기 실패)', async () => {
     useAdmin({
       agent_runners: [{ data: RUNNER }, { data: null }],

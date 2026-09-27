@@ -356,6 +356,25 @@ describe('GET /agent/work/[id] — 판단 칸(계약 2.11)', () => {
     expect((await (await detailAs('hong/mbp/lead')).json()).order.mine).toBe(true) // 같은 PC
   })
 
+  it('Important 2(최종 수정) — agent 를 보내지 않은 옛 킷의 claimed mine 은 종전 뜻(점유 사용자 일치)이다', async () => {
+    const order = { id: O1, project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_by: 'hong/mbp/w1', claimed_by_user_id: 'u-1',
+      claimed_at: null, wbs_item_id: W1, design_state: null, claim_scope: 'full', design_note: null, runner: 'hong/pc2/w1', runner_seen_at: fresh() }
+    const item = { id: W1, code: 'C1', name: '항목1', external_ref: 'MES/TSK-02-00', stage: 'ds', actual_pct: 10, tags: ['agent'],
+      depends: [], depends_waived: [], design_mode: 'auto' }
+    const queues = (o: Record<string, unknown>) => ({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: o }, { data: null }],
+      ...memberQ(), wbs_items: [{ data: [item] }],
+    })
+    const noLabel = () => detailGET(get(`http://l/api/v1/agent/work/${O1}`, PAT.token), { params: Promise.resolve({ id: O1 }) })
+    useAdmin(queues(order))
+    expect((await (await noLabel()).json()).order.mine).toBe(true) // 다른 PC 의 runner 가 신선해도 — 옛 뜻
+    useAdmin(queues({ ...order, claimed_by_user_id: 'u-2' }))
+    expect((await (await noLabel()).json()).order.mine).toBe(false) // 남의 점유는 여전히 아니다
+    useAdmin(queues(order))
+    expect((await (await detailAs('hong/mbp/w1')).json()).order.mine).toBe(false) // 라벨을 보내면 5.3 mine(다른 PC 도는 중)
+  })
+
   it('레거시 응답에는 판단 칸이 없다(v1 회귀 기준선)', async () => {
     useAdmin({
       agent_work_orders: [{ data: { id: O1, project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_by: 'x', claimed_at: null, wbs_item_id: null } }],

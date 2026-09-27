@@ -120,6 +120,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       const nowMs = Date.now()
       const action = decide(itemFacts, order2, nowMs)
       // ready·claimed 는 5.3 mine, 그 밖(reported·approved 등)은 종전 뜻(점유 사용자 일치) — 팀장의 머지 충돌 해소가 기댄다.
+      // 라벨이 없거나 형식이 틀리면(null) claimed 도 종전 뜻이다(옛 킷 호환, designFacts.responseMine).
       const mine = responseMine(order2, { userId: principal.userId, label: agentParam && AGENT_NAME_RE.test(agentParam) ? agentParam : null, lead: false, filtersPass: true }, nowMs)
       extra = { ...extra, ...designFieldsOf(full as unknown as FactOrderRow, it?.design_mode ?? null, action, mine) }
     }

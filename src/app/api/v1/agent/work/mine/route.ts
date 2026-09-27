@@ -136,7 +136,7 @@ export async function GET(req: NextRequest) {
       const order = orderFactsOf(o as unknown as FactOrderRow)
       const action = decide(f?.facts ?? null, order, nowMs)
       const filtersPass = it ? listFilterPass({ tags: it.tags, externalRef: it.external_ref }, { requireTag, wp }) : false
-      // ready·claimed 는 5.3 mine, 그 밖(reported 등)은 종전 뜻(점유 사용자 일치) — designFacts.responseMine.
+      // ready·claimed 는 5.3 mine, 그 밖(reported 등)과 agent 없는 claimed 는 종전 뜻(점유 사용자 일치) — designFacts.responseMine.
       const mine = responseMine(order, { userId: principal.userId, label: agentParam, lead, filtersPass }, nowMs)
       // M-3(리뷰 수정 1회차) — ORDER_FACT_COLUMNS 로 늘어난 이 넷은 판단 재료일 뿐 계약에 없는 칸이다. 원시 값이
       // 새어 나가지 않게 뺀다(claim_scope·design_note·runner·runner_seen_at·design_state 는 designFieldsOf 가 정규화해 다시 싣는다).

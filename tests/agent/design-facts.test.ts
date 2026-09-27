@@ -44,6 +44,12 @@ describe('responseMine — 응답의 mine(계약 2.11)', () => {
     expect(responseMine(orderFactsOf({ ...row, status: 'claimed' }), req, NOW)).toBe(false)
     expect(responseMine(orderFactsOf({ ...row, status: 'claimed', runner: 'hong/mbp/w1' }), req, NOW)).toBe(true)
   })
+  it('라벨 없는(팀장 아닌) 요청의 claimed 는 종전 뜻 — 옛 킷 호환(최종 리뷰 Important 2), 팀장 요청은 5.3 그대로', () => {
+    const claimed = orderFactsOf({ ...row, status: 'claimed' })
+    expect(responseMine(claimed, { ...req, label: null }, NOW)).toBe(true)
+    expect(responseMine(claimed, { ...req, label: null, userId: 'other' }, NOW)).toBe(false)
+    expect(responseMine(claimed, { ...req, label: null, lead: true }, NOW)).toBe(false) // 팀장 거르기는 라벨 없이도 건너뛰지 않는다
+  })
 })
 
 describe('loadItemFacts', () => {

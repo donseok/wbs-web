@@ -120,10 +120,14 @@ export function decide(item: ItemFacts | null, order: OrderFacts, nowMs: number)
  * 응답의 mine(계약 2.11, 목록·상세 공통). ready·claimed 주문은 5.3 정의(isMine — 같은 신원 ∧ 도는 PC, 팀장 요청이면 거르기·팀원 라벨까지)다.
  * 그 밖(reported·approved 등)은 종전 뜻(점유 사용자 일치)을 그대로 둔다. isMine 은 claimed 가 아니면 늘 거짓인데, 팀장의 머지 충돌 해소
  * (.claude/skills/dflow-team/references/merge-conflict.md)가 reported·approved 주문의 mine 으로 자기 주문을 가리기 때문이다.
+ * 요청 라벨이 없는(팀장 요청도 아닌) claimed 주문도 종전 뜻이다(최종 리뷰 Important 2) — 2.10 까지의 상세·목록 mine 은
+ * 점유 사용자 일치였고, 라벨을 보내지 않는 옛 킷(claim.md 재claim 판정·restart.md 거두기)이 그 뜻에 기댄다. 라벨이 없으면
+ * runnerFree 가 같은 PC 판정을 못 해 자기 주문도 거짓이 되므로 새 뜻을 적용하지 않는다. 새 킷은 늘 agent= 를 보낸다.
  */
 export function responseMine(
   order: Pick<OrderFacts, 'status' | 'claimedBy' | 'claimedByUserId' | 'runner' | 'runnerSeenAt'>, req: MineRequest, nowMs: number,
 ): boolean {
+  if (order.status === 'claimed' && req.label === null && !req.lead) return order.claimedByUserId === req.userId
   if (order.status === 'ready' || order.status === 'claimed') return isMine(order, req, nowMs)
   return order.claimedByUserId === req.userId
 }
