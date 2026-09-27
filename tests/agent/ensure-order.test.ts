@@ -366,5 +366,22 @@ describe('ensureOrderForWorkflowLeaf', () => {
       const r = await ensureOrderForWorkflowLeaf(admin as unknown as AdminClient, { projectId: 'p', wbsItemId: 'w', actorUserId: 'u' })
       expect(r).toEqual({ ok: true, created: false, reason: 'progressed' })
     })
+
+    // 위 'approved 주문이 있으면 progressed' 는 stage:'im' 을 쓰는데, 'im' 은 이미 앞선 단계 검사(stage
+    // ip/im/xx) 에서 progressed 를 돌려주므로 실제로는 approved 조회 분기를 타지 않는다(자기 검토에서
+    // 발견 — 큐에 넣어 둔 하위·approved 응답이 소비되지 않는다). approved 조회 분기 자체를 단독으로
+    // 태우려면 단계·실적이 '진행 전'인 항목이 필요하다.
+    it('단계·실적은 진행 전이어도 approved 주문이 있으면 progressed(approved 분기 단독 검증)', async () => {
+      const admin = new MockAdminClient()
+      admin.pushResponse({ enabled: true }, null)
+      admin.pushResponse(
+        { name: 't', priority: null, external_ref: null, assignee_member_id: null, dev_workflow: true, stage: 'as', actual_pct: 50 },
+        null
+      )
+      admin.pushResponse(null, null) // 하위 없음(리프)
+      admin.pushResponse({ id: 'o-old' }, null) // approved 주문 있음
+      const r = await ensureOrderForWorkflowLeaf(admin as unknown as AdminClient, { projectId: 'p', wbsItemId: 'w', actorUserId: 'u' })
+      expect(r).toEqual({ ok: true, created: false, reason: 'progressed' })
+    })
   })
 })
