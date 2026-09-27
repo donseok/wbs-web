@@ -166,6 +166,23 @@ describe('claim — design_first(설계 선행)', () => {
     expect(mocks.emitNotification).not.toHaveBeenCalled()
   })
 
+  // dd(설계 완료)는 ip 와 함께 "설계 선행 가능" 으로 본다(설계 상태 스펙 D15, designGate.predsState).
+  it('미충족 선행이 ip·dd 섞여도 허용한다(D15) — RPC 에 p_stage ds', async () => {
+    const admin = useAdmin({
+      agent_work_orders: [{ data: ORDER }, { data: null }, { data: null }],
+      ...member(),
+      wbs_items: [
+        { data: ITEM_ROW({ depends: [DEP_REF, DEP_REF2] }) },
+        { data: [dep('ip'), { id: DEP_ID2, external_ref: DEP_REF2, stage: 'dd', actual_pct: 0 }] },
+      ],
+    })
+    const res = await claim({ design_first: true })
+    expect(res.status).toBe(200)
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_stage: 'ds' }))
+    const body = await res.json()
+    expect(body).toMatchObject({ design_first: true, unmet: [{ external_ref: DEP_REF, stage: 'ip' }, { external_ref: DEP_REF2, stage: 'dd' }] })
+  })
+
   it('선행 ref 가 프로젝트에 없으면(fail-closed) design_first 여도 403 too_early', async () => {
     const admin = useAdmin({
       agent_work_orders: [{ data: ORDER }],
