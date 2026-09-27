@@ -133,8 +133,9 @@
 | `.claude/skills/dflow-poll/SKILL.md`·`dflow-work/SKILL.md` | 문서 | 23 |
 | `.claude/skills/dflow-work/references/troubleshooting.md` | exit 10·11·12 절 | 23 |
 | `src/lib/agent/designPanel.ts`(새)·`src/app/actions/designActions.ts`(새)·`wbsSpec.ts`·`agentHub.ts` | 패널 판정 재료·버튼·방식 서버 액션 | 24 |
-| `src/components/wbs/*` | 작업 패널 | 25 |
-| `src/lib/domain/seatState.ts`·`seatmap.ts`·`agentHub.ts`, `src/lib/data/agentSeatmap.ts`, `src/components/agents/*`·`agent-hub/*` | 좌석·허브 | 26 |
+| `src/components/wbs/WbsDesignSection.tsx`(새)·`WbsSpecPanel.tsx`, `src/lib/i18n/dict/wbs.ts`·`wbs.en.ts`, `src/app/actions/wbsSpec.ts`(`setAgentDelegation` 삭제)·`agentHub.ts`(주석) | 작업 패널의 위임·방식·설계 영역 | 25 |
+| `src/lib/domain/seatState.ts`·`seatmap.ts`·`waitReason.ts`·`officeChatter.ts`·`agentHub.ts`, `src/lib/data/agentSeatmap.ts`·`agentHub.ts`, `src/components/agents/*`·`agent-hub/*` | 좌석·허브의 설계 문구·버튼·검토 대기 판정 | 26 |
+| 없음(staging 머지 커밋, 검사 재료는 `<SCRATCH>`) | 전체 검증·staging 반영·브라우저와 CLI E2E | 27 |
 
 ---
 
@@ -1427,7 +1428,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/lib/domain/stageLabels.ts`, `src/lib/domain/agentWork.ts:8-9`, `src/lib/domain/stageCredits.ts`
 - Modify: `src/lib/i18n/dict/wbs.ts:235-240`, `src/lib/i18n/dict/wbs.en.ts:219-224`, `src/lib/i18n/dict/settings.ts:166-171`, `src/lib/i18n/dict/settings.en.ts:169-174`(그리고 두 settings 사전의 `settings.creditPvEvBuildStart` 옆)
-- Modify: `src/components/settings/StageCreditSlider.tsx:24-60`, `src/components/wbs/shared.tsx:144-151`, `src/components/wbs/WbsAssigneeStagePanel.tsx:18-37`, `src/components/agent-hub/DelegationTable.tsx:458`, `src/components/agent-hub/labels.ts:79`, `src/app/actions/agentHub.ts:20,128,159`, `src/app/actions/wbsAssign.ts:9,340`, `src/lib/agent/wbsImport.ts:6,92`
+- Modify: `src/components/settings/StageCreditSlider.tsx:24-60`, `src/components/wbs/shared.tsx:144-151`, `src/components/wbs/WbsAssigneeStagePanel.tsx:18-37`, `src/components/agent-hub/DelegationTable.tsx:23-26,458`, `src/components/agent-hub/labels.ts:79`, `src/app/actions/agentHub.ts:20,128,159`, `src/app/actions/wbsAssign.ts:9,340`, `src/lib/agent/wbsImport.ts:6,92`
 - Test: `tests/domain/stage-labels.test.ts`, `tests/domain/stage-credits.test.ts`, `tests/domain/predecessor-reached.test.ts:26`
 
 **Interfaces:**
@@ -1737,7 +1738,14 @@ const RING_CLS: Record<CreditKey, string> = {
 
 `src/components/wbs/WbsAssigneeStagePanel.tsx` — import 를 `import { HUMAN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'` 로 바꾸고, 선택지 목록을 `const STAGES: readonly Stage[] = HUMAN_STAGE_CODES` 로 바꾼다. 같은 파일의 `STAGE_KEYS`(단계 → 사전 키 표)에 `dd: 'wbs.stageDd'` 를 더한다(읽기 전용 표시는 dd 도 보여야 한다).
 
-`src/components/agent-hub/labels.ts:79` 를 `export { STAGE_CODES, HUMAN_STAGE_CODES } from '@/lib/domain/stageLabels'` 로 바꾸고, `DelegationTable.tsx` 의 import 목록에 `HUMAN_STAGE_CODES` 를 더한 뒤 458행의 `STAGE_CODES.map(` 을 `HUMAN_STAGE_CODES.map(` 으로 바꾼다.
+`src/components/agent-hub/labels.ts:79` 를 `export { STAGE_CODES, HUMAN_STAGE_CODES } from '@/lib/domain/stageLabels'` 로 바꾼다. `DelegationTable.tsx` 는 458행의 `STAGE_CODES.map(` 을 `HUMAN_STAGE_CODES.map(` 으로 바꾼다. 그러면 이 파일에서 `STAGE_CODES` 를 쓰는 곳이 없어지므로, `./labels` import 목록(23~26행)에서 `STAGE_CODES` 를 빼고 `HUMAN_STAGE_CODES` 를 넣는다. 남겨 두면 eslint 가 `'STAGE_CODES' is defined but never used` 경고를 낸다. 목록의 다른 이름은 그대로 둔다. 바꾼 뒤의 import 는 아래와 같다.
+
+```ts
+import {
+  DELEGATE_OFF_TITLE, DELEGATE_ON_TITLE, NEEDS_DELEGATION, NEEDS_DELEGATION_TONE, NO_ORDER, NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE,
+  HUMAN_STAGE_CODES, REASON_TONE, STAGE_NONE_LABEL, TOGGLE_DENIED_TITLE, hubStateLabel, hubStateTone, isHubApprovalWait,
+} from './labels'
+```
 
 `src/app/actions/agentHub.ts` — 20행 import 를 `import { HUMAN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'`, 128행을 `const STAGE_CODES: ReadonlySet<string> = new Set(HUMAN_STAGE_CODES)` 로 바꾼다(허브의 단계 선택도 dd 를 받지 않는다).
 
@@ -1751,8 +1759,8 @@ const RING_CLS: Record<CreditKey, string> = {
 
 - [ ] **Step 5: 테스트와 타입 검사**
 
-Run: `npx vitest run tests/domain/stage-labels.test.ts tests/domain/stage-credits.test.ts tests/domain/predecessor-reached.test.ts tests/components tests/ui tests/actions tests/agent && npx tsc --noEmit -p .`
-Expected: PASS, 타입 오류 없음. `Record<CreditKey, …>`·`Record<StageCode, …>` 를 쓰는 곳이 더 있으면 tsc 가 알려 준다 — 그 표에 dd 항목을 더한다. `tests/migrations/0107-wbs-design-stage.test.ts` 의 "단계 CHECK 가 도메인 STAGE_CODES 와 같다"·"set_stage 허용 값" 두 테스트는 0107 파일이 dd 없이 고정돼 있어 이제 실패한다 — 두 테스트의 `STAGE_CODES` 를 0107 시점 목록 리터럴 `['as','ds','ip','im','xx']` 로 바꿔 0107 파일 자체를 고정하는 테스트로 남긴다(0108 대조는 Task 4 가 한다).
+Run: `npx vitest run tests/domain/stage-labels.test.ts tests/domain/stage-credits.test.ts tests/domain/predecessor-reached.test.ts tests/components tests/ui tests/actions tests/agent && npx tsc --noEmit -p . && npx eslint --max-warnings 0 src/components/agent-hub/DelegationTable.tsx src/components/agent-hub/labels.ts`
+Expected: PASS, 타입 오류 없음, eslint 경고 없음(쓰이지 않는 import 가 남으면 `--max-warnings 0` 때문에 실패한다). `Record<CreditKey, …>`·`Record<StageCode, …>` 를 쓰는 곳이 더 있으면 tsc 가 알려 준다 — 그 표에 dd 항목을 더한다. `tests/migrations/0107-wbs-design-stage.test.ts` 의 "단계 CHECK 가 도메인 STAGE_CODES 와 같다"·"set_stage 허용 값" 두 테스트는 0107 파일이 dd 없이 고정돼 있어 이제 실패한다 — 두 테스트의 `STAGE_CODES` 를 0107 시점 목록 리터럴 `['as','ds','ip','im','xx']` 로 바꿔 0107 파일 자체를 고정하는 테스트로 남긴다(0108 대조는 Task 4 가 한다).
 
 - [ ] **Step 6: 커밋**
 
@@ -1880,6 +1888,18 @@ describe('0108 전이 RPC', () => {
     expect(f).toContain("set status = 'reported', runner = null, runner_seen_at = null, updated_at = v_now")
     expect(f).toContain('claim_scope = null, runner = null, runner_seen_at = null,')
     expect(f).toContain("set status = 'cancelled', claimed_by = null, claimed_by_user_id = null, claimed_at = null,")
+  })
+  it('승인·반려·재작업·승인 취소는 status 만 바꾸고 설계 상태·claim_scope·runner 는 그대로 둔다(4.1 — review·human 재작업이 build 범위로 돈다, D21·6.5)', () => {
+    const sec = fn().split('-- 주문 갱신')[1]?.split('-- 단계·실적 결정')[0] ?? ''
+    // 주문 갱신의 사건 갈래(들여쓰기 4칸의 if·elsif)다. reject·rework 에 따로 갈래를 두면 이 목록이 달라진다.
+    expect([...sec.matchAll(/\n {4}(?:if|elsif) (p_event[^\n]*) then/g)].map(m => m[1])).toEqual([
+      "p_event = 'claim'", "p_event = 'release'", "p_event = 'build_start'", "p_event = 'report_completion'",
+      "p_event = 'cancel'", "p_event = 'design_done'", "p_event = 'design_accept'", "p_event = 'design_reopen'",
+    ])
+    // 나머지 사건(approve·reject·unapprove·rework)이 가는 마지막 else 는 status 만 바꾼다.
+    const rest = sec.split(/\n {4}else\n/).at(-1) ?? ''
+    expect(rest).toContain('update public.agent_work_orders set status = v_next, updated_at = v_now where id = p_order_id;')
+    expect(rest).not.toMatch(/claim_scope|design_state|runner/)
   })
   it('design_done — review 는 방식 review 이거나 claim_scope design 일 때, review 가 되면 runner 를 비운다', () => {
     const f = fn()
@@ -2619,23 +2639,59 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 스테이징 DB 가 먼저 올라가도 지금 스테이징 앱(계약 2.10)은 그대로 돈다(새 칸 기본값·RPC 새 인자 기본값). 그래서 코드보다 먼저 한다.
 
+**확인 SQL 의 모양.** `npm run db:apply` 는 조회 결과를 출력하지 않는다(`scripts/db-apply.mjs` 73·87·88행 — 결과를 받아 버린다). 성공하면
+`대상: <프로젝트 이름> (<ref>) / 파일: <파일>` 줄과 `✓ staging 적용 완료 — 검증 쿼리(스키마 조회 등)로 반드시 확인할 것` 줄만 낸다. SQL 이 오류로 끝나면
+Management API 의 오류 본문(그 안에 오류 문장이 있다)을 stderr 에 내고 exit 1 로 끝난다. 그래서 이 Task 의 확인 SQL 은 모두 `do $$ … $$` 블록으로 쓴다.
+- **조건 검사**(Step 1 의 살아 있는 팀장): 조건이 맞으면 조용히 끝나 `✓ staging 적용 완료` 가 나온다. 틀리면 값을 담아 `raise exception` 으로 끝난다.
+- **건수 기록**(Step 1 의 잔재 목록, Step 3·6 의 전후 건수): 값을 내는 길이 오류 문장뿐이라 **늘** `raise exception` 으로 끝난다. 그래서 이 단계들의
+  exit 1 은 기대한 것이다. 출력 전체를 `<SCRATCH>` 의 로그 파일로 받고, 그 로그에서 `대상:` 줄(ref 가 스테이징 `abtyahghvvkcriawffty` 인지)과 값 줄
+  (`PRE_SYNC …`·`COUNTS_PRE …`·`COUNTS_POST …`)을 grep 으로 뽑는다. 값 줄이 없으면 SQL 이 값을 내기 전에 실패한 것이다 — 로그의 오류 문장을 그대로
+  보고하고 멈춘다.
+- 값 줄은 grep 이 확실히 뽑도록 영문 키·숫자·id8 로만 쓴다.
+
 - [ ] **Step 1: 스테이징에 살아 있는 팀장·2.10 잔재가 있는지 본다(Y6, sync 전)**
 
-`<SCRATCH>/pre-sync.sql`:
+파일이 둘이다. 첫째는 조건 검사이고 둘째는 목록 기록이다.
+
+`<SCRATCH>/live-leads.sql` — 스테이징에서 팀장·감시자가 돌고 있으면 두 숫자를 담아 오류로 끝난다:
 
 ```sql
-select 'live_watchers' k, count(*)::text v from public.agent_watchers where last_seen_at > now() - interval '70 minutes'
-union all select 'live_leases', count(*)::text from public.agent_lead_leases where expires_at > now()
-union all select 'wait_review_orders', count(*)::text from public.agent_work_orders where status = 'claimed' and heartbeat_phase = 'wait_review'
-union all select 'wait_review_list', coalesce(string_agg(left(id::text, 8), ','), '-') from public.agent_work_orders where status = 'claimed' and heartbeat_phase = 'wait_review';
+do $$
+declare n_w int; n_l int;
+begin
+  select count(*) into n_w from public.agent_watchers where last_seen_at > now() - interval '70 minutes';
+  select count(*) into n_l from public.agent_lead_leases where expires_at > now();
+  if n_w > 0 or n_l > 0 then raise exception 'LIVE_LEADS watchers=% leases=%', n_w, n_l; end if;
+end $$;
+```
+
+`<SCRATCH>/pre-sync.sql` — 2.10 "설계만" 잔재(claimed ∧ heartbeat `wait_review`)의 수와 id8 목록을 오류 문장에 실어 낸다(늘 오류로 끝난다):
+
+```sql
+do $$
+declare n int; ids text;
+begin
+  select count(*), coalesce(string_agg(left(id::text, 8), ',' order by id), '-') into n, ids
+    from public.agent_work_orders where status = 'claimed' and heartbeat_phase = 'wait_review';
+  raise exception 'PRE_SYNC wait_review=% list=%', n, ids;
+end $$;
 ```
 
 ```bash
 mkdir -p "<SCRATCH>"
-npm run db:apply -- <SCRATCH>/pre-sync.sql --target staging
+npm run db:apply -- <SCRATCH>/live-leads.sql --target staging
+npm run db:apply -- <SCRATCH>/pre-sync.sql --target staging > <SCRATCH>/pre-sync.log 2>&1; echo "exit=$?"
+grep -m1 '^대상:' <SCRATCH>/pre-sync.log
+grep -oE 'PRE_SYNC wait_review=[0-9]+ list=[0-9a-f,-]+' <SCRATCH>/pre-sync.log | head -n 1
 ```
 
-Expected: 네 줄의 값. `live_watchers`·`live_leases` 가 0 이 아니면 스테이징에서 누가 팀장을 돌리는 중이다 — **멈추고 사용자에게 목록을 보여 준 뒤 지시를 받는다.** `wait_review_list` 는 2.10 "설계만" 잔재다. 다음 단계의 sync 가 지우므로(운영에는 2.10 이 없다) 목록만 보고에 남긴다.
+Expected:
+- `live-leads.sql`: `대상:` 줄의 ref 가 `abtyahghvvkcriawffty`(스테이징)이고, 마지막 줄이 `✓ staging 적용 완료 …` 다. 오류 문장에
+  `LIVE_LEADS watchers=<n> leases=<n>` 이 보이면 스테이징에서 누가 팀장을 돌리는 중이다 — **멈추고 사용자에게 두 숫자를 보여 준 뒤 지시를 받는다.**
+- `pre-sync.sql`: **이 단계의 `exit=1` 은 기대한 것이다**(값을 오류 문장으로만 낼 수 있어 늘 `raise exception` 으로 끝난다). `대상:` 줄의 ref 가
+  스테이징이고, 값 줄 `PRE_SYNC wait_review=<n> list=<id8,…>` 가 하나 나온다(잔재가 없으면 `list=-`). `list` 는 2.10 "설계만" 잔재다. 다음 단계의
+  sync 가 지우므로(운영에는 2.10 이 없다) 이 줄만 보고에 남긴다. 값 줄이 없으면 SQL 이 값을 내기 전에 실패한 것이다 — 로그의 오류 문장을 그대로 보고하고
+  멈춘다.
 
 - [ ] **Step 2: 사용자 확인을 받고 staging:sync 를 한다**
 
@@ -2649,25 +2705,39 @@ Expected: 확인 프롬프트에 답하면 복제가 끝난다. 활성 접속 �
 
 - [ ] **Step 3: 적용 전 건수를 센다**
 
-`<SCRATCH>/counts.sql`:
+`<SCRATCH>/counts.sql` — 다섯 건수를 오류 문장에 실어 낸다(늘 오류로 끝난다). `a`·`b` 는 0108 ⑥-1 과 같은 조건(리프만)으로 센다. 그래야 Step 6 의
+대조(`a` = A, `b` = B)가 맞는다:
 
 ```sql
-select 'a_claimed_ds_wait_review' k, count(*) v from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
-  where o.status = 'claimed' and i.stage = 'ds' and o.heartbeat_phase = 'wait_review'
-union all select 'b_claimed_ds_wait_pred', count(*) from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
-  where o.status = 'claimed' and i.stage = 'ds' and o.heartbeat_phase = 'wait_pred'
-union all select 'c_claimed', count(*) from public.agent_work_orders where status = 'claimed'
-union all select 'd_ready_on_progressed', count(*) from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
-  where o.status = 'ready' and (i.stage in ('ip','im','xx') or coalesce(i.actual_pct, 0) >= 100
-    or exists (select 1 from public.agent_work_orders a where a.wbs_item_id = i.id and a.status = 'approved'))
-union all select 'e_stage_dd', count(*) from public.wbs_items where stage = 'dd';
+do $$
+declare n_a int; n_b int; n_c int; n_d int; n_e int;
+begin
+  select count(*) into n_a from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+   where o.status = 'claimed' and i.stage = 'ds' and o.heartbeat_phase = 'wait_review'
+     and not exists (select 1 from public.wbs_items ch where ch.parent_id = i.id and ch.stub_for is null);
+  select count(*) into n_b from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+   where o.status = 'claimed' and i.stage = 'ds' and o.heartbeat_phase = 'wait_pred'
+     and not exists (select 1 from public.wbs_items ch where ch.parent_id = i.id and ch.stub_for is null);
+  select count(*) into n_c from public.agent_work_orders where status = 'claimed';
+  select count(*) into n_d from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+   where o.status = 'ready' and (i.stage in ('ip','im','xx') or coalesce(i.actual_pct, 0) >= 100
+     or exists (select 1 from public.agent_work_orders ap where ap.wbs_item_id = i.id and ap.status = 'approved'));
+  select count(*) into n_e from public.wbs_items where stage = 'dd';
+  raise exception 'COUNTS_PRE a_claimed_ds_wait_review=% b_claimed_ds_wait_pred=% c_claimed=% d_ready_on_progressed=% e_stage_dd=%',
+    n_a, n_b, n_c, n_d, n_e;
+end $$;
 ```
 
 ```bash
-npm run db:apply -- <SCRATCH>/counts.sql --target staging
+npm run db:apply -- <SCRATCH>/counts.sql --target staging > <SCRATCH>/counts.log 2>&1; echo "exit=$?"
+grep -m1 '^대상:' <SCRATCH>/counts.log
+grep -oE 'COUNTS_PRE( [a-z0-9_]+=[0-9]+)+' <SCRATCH>/counts.log | head -n 1 | tee <SCRATCH>/counts-pre.txt
 ```
 
-Expected: 다섯 줄. 이 숫자를 기록해 둔다(Step 6 과 사용자 보고에 쓴다). 이 단계는 0108 전이라 `e_stage_dd` 는 CHECK 때문에 0 이다.
+Expected: **이 단계의 `exit=1` 은 기대한 것이다**(값을 오류 문장으로만 낼 수 있다). `대상:` 줄의 ref 가 스테이징이고, 값 줄
+`COUNTS_PRE a_claimed_ds_wait_review=<A> b_claimed_ds_wait_pred=<B> c_claimed=<C> d_ready_on_progressed=<D> e_stage_dd=0` 이
+`<SCRATCH>/counts-pre.txt` 에 남는다(Step 6 과 사용자 보고에 쓴다). 이 단계는 0108 전이라 `e_stage_dd` 는 CHECK 때문에 0 이다. 값 줄이 없으면 SQL 이 값을
+내기 전에 실패한 것이다 — 로그의 오류 문장을 그대로 보고하고 멈춘다.
 
 - [ ] **Step 4: 0108 을 스테이징에 적용한다**
 
@@ -2675,7 +2745,7 @@ Expected: 다섯 줄. 이 숫자를 기록해 둔다(Step 6 과 사용자 보고
 npm run db:apply -- supabase/migrations/0108_design_state.sql --target staging
 ```
 
-Expected: 성공. 실패하면 오류 문장을 그대로 기록하고, SQL 을 고쳐 Task 4 Step 5 대조 테스트부터 다시 돈 뒤 이 Step 을 반복한다(스테이징은 트랜잭션이라 실패하면 아무것도 남지 않는다).
+Expected: `대상:` 줄의 ref 가 `abtyahghvvkcriawffty`(스테이징)이고 마지막 줄이 `✓ staging 적용 완료 …` 다. 이 줄은 SQL 이 오류 없이 끝났다는 뜻일 뿐이며, 바뀐 내용은 Step 5·6 이 확인한다. exit 1 로 끝나면 실패다. 오류 문장을 그대로 기록하고, SQL 을 고쳐 Task 4 Step 5 대조 테스트부터 다시 돈 뒤 이 Step 을 반복한다(스테이징은 트랜잭션이라 실패하면 아무것도 남지 않는다).
 
 - [ ] **Step 5: RPC 를 한 트랜잭션에서 돌려 보고 되돌린다**
 
@@ -2755,31 +2825,43 @@ end $$;
 npm run db:apply -- <SCRATCH>/verify.sql --target staging
 ```
 
-Expected: 명령은 오류로 끝나고, 오류 문장에 `VERIFY_OK 8/8` 이 보인다(의도한 되돌림). `VERIFY_FAIL` 이면 그 줄의 값을 기록하고 Task 4 로 돌아가 SQL 을 고친다 — 스테이징에는 되돌리기 파일(`0108_design_state_rollback.sql`)을 먼저 적용한 뒤 다시 적용한다. `VERIFY_SKIP` 이면 후보가 없는 것이다 — 사용자에게 알리고, 검증은 Task 27 의 API E2E 로 넘긴다.
+Expected: 명령은 exit 1 로 끝나고(이 단계의 exit 1 은 기대한 것이다), 오류 문장에 `VERIFY_OK 8/8` 이 보인다(의도한 되돌림). `VERIFY_FAIL` 이면 그 줄의 값을 기록하고 Task 4 로 돌아가 SQL 을 고친다 — 스테이징에는 되돌리기 파일(`0108_design_state_rollback.sql`)을 먼저 적용한 뒤 다시 적용한다. `VERIFY_SKIP` 이면 후보가 없는 것이다 — 사용자에게 알리고, 검증은 Task 27 의 API E2E 로 넘긴다.
 
 - [ ] **Step 6: 적용 뒤 건수를 다시 세고 표로 남긴다**
 
-`<SCRATCH>/post.sql`:
+`<SCRATCH>/post.sql` — 일곱 건수를 오류 문장에 실어 낸다(늘 오류로 끝난다):
 
 ```sql
-select 'a_review_design_dd' k, count(*) v from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
-  where o.status = 'claimed' and o.design_state = 'review' and o.claim_scope = 'design' and i.stage = 'dd'
-union all select 'b_claimed_dd_wait_pred', count(*) from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
-  where o.status = 'claimed' and i.stage = 'dd' and o.heartbeat_phase = 'wait_pred'
-union all select 'c_claimed_without_scope', count(*) from public.agent_work_orders where status = 'claimed' and claim_scope is null
-union all select 'c_claimed_without_runner', count(*) from public.agent_work_orders where status = 'claimed' and design_state is null and runner is null
-union all select 'd_ready_on_progressed', count(*) from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
-  where o.status = 'ready' and (i.stage in ('ip','im','xx') or coalesce(i.actual_pct, 0) >= 100
-    or exists (select 1 from public.agent_work_orders a where a.wbs_item_id = i.id and a.status = 'approved'))
-union all select 'd_cancelled_by_0108', count(*) from public.change_logs where new_value = 'cancelled(0108 D26)'
-union all select 'f_design_mode_default', count(*) from public.wbs_items where design_mode <> 'auto';
+do $$
+declare n_a int; n_b int; n_cs int; n_cr int; n_d int; n_dx int; n_f int;
+begin
+  select count(*) into n_a from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+   where o.status = 'claimed' and o.design_state = 'review' and o.claim_scope = 'design' and i.stage = 'dd';
+  select count(*) into n_b from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+   where o.status = 'claimed' and i.stage = 'dd' and o.heartbeat_phase = 'wait_pred';
+  select count(*) into n_cs from public.agent_work_orders where status = 'claimed' and claim_scope is null;
+  select count(*) into n_cr from public.agent_work_orders where status = 'claimed' and design_state is null and runner is null;
+  select count(*) into n_d from public.agent_work_orders o join public.wbs_items i on i.id = o.wbs_item_id
+   where o.status = 'ready' and (i.stage in ('ip','im','xx') or coalesce(i.actual_pct, 0) >= 100
+     or exists (select 1 from public.agent_work_orders ap where ap.wbs_item_id = i.id and ap.status = 'approved'));
+  select count(*) into n_dx from public.change_logs where new_value = 'cancelled(0108 D26)';
+  select count(*) into n_f from public.wbs_items where design_mode <> 'auto';
+  raise exception 'COUNTS_POST a_review_design_dd=% b_claimed_dd_wait_pred=% c_claimed_without_scope=% c_claimed_without_runner=% d_ready_on_progressed=% d_cancelled_by_0108=% f_design_mode_default=%',
+    n_a, n_b, n_cs, n_cr, n_d, n_dx, n_f;
+end $$;
 ```
 
 ```bash
-npm run db:apply -- <SCRATCH>/post.sql --target staging
+npm run db:apply -- <SCRATCH>/post.sql --target staging > <SCRATCH>/post.log 2>&1; echo "exit=$?"
+grep -m1 '^대상:' <SCRATCH>/post.log
+grep -oE 'COUNTS_POST( [a-z0-9_]+=[0-9]+)+' <SCRATCH>/post.log | head -n 1 | tee <SCRATCH>/counts-post.txt
+cat <SCRATCH>/counts-pre.txt
 ```
 
-Expected(Step 3 값을 A·B·C·D 라 하면): `a_review_design_dd` = A, `b_claimed_dd_wait_pred` = B, `c_claimed_without_scope` = 0, `c_claimed_without_runner` = 0, `d_ready_on_progressed` = 0, `d_cancelled_by_0108` = D, `f_design_mode_default` = 0. 다르면 멈추고 사용자에게 두 표를 보여 준다.
+Expected: **이 단계의 `exit=1` 은 기대한 것이다**(값을 오류 문장으로만 낼 수 있다). `대상:` 줄의 ref 가 스테이징이다. 마지막 줄(Step 3 의 값 줄)의
+`a_claimed_ds_wait_review`·`b_claimed_ds_wait_pred`·`d_ready_on_progressed` 를 A·B·D 라 하면, `COUNTS_POST` 줄은 `a_review_design_dd` = A,
+`b_claimed_dd_wait_pred` = B, `c_claimed_without_scope` = 0, `c_claimed_without_runner` = 0, `d_ready_on_progressed` = 0, `d_cancelled_by_0108` = D,
+`f_design_mode_default` = 0 이다. 다르거나 값 줄이 없으면 멈추고 사용자에게 두 값 줄(값 줄이 없으면 로그의 오류 문장)을 보여 준다.
 
 - [ ] **Step 7: 마이그레이션 커밋에 트레일러를 단다**
 
@@ -2794,7 +2876,7 @@ git commit --allow-empty -m "0108 스테이징 리허설" --trailer "Staging-ver
 
 - [ ] **Step 8: 사용자에게 건수 표를 보고한다**
 
-Step 1·3·6 의 숫자를 한 표로 보고한다(스테이징 = 운영 복제이므로 운영에 적용될 때의 예상 건수다). 보고 문장은 완전한 한국어로 쓴다. 예: "운영 복제 기준으로 설계 선행 대기 주문 2건이 설계 완료(dd)로 옮겨지고, 작업 중 주문 5건에 도는 PC 가 채워지며, 이미 진행된 항목의 대기 주문 1건이 취소됩니다."
+Step 1·3·6 에서 오류 문장으로 받은 값 줄(`PRE_SYNC …` 줄, `<SCRATCH>/counts-pre.txt`·`<SCRATCH>/counts-post.txt`)을 한 표로 보고한다(스테이징 = 운영 복제이므로 운영에 적용될 때의 예상 건수다). 보고 문장은 완전한 한국어로 쓴다. 예: "운영 복제 기준으로 설계 선행 대기 주문 2건이 설계 완료(dd)로 옮겨지고, 작업 중 주문 5건에 도는 PC 가 채워지며, 이미 진행된 항목의 대기 주문 1건이 취소됩니다."
 
 ---
 ## Task 6: 전이 RPC 입구 — 새 사건·인자·사유
@@ -6968,24 +7050,25 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `.claude/skills/dflow-team/scripts/lead-state.sh`(머리 주석 19·24행, `excl()` 90행, `LOST` 줄 114행 뒤)
-- Modify: `.claude/skills/dflow-team/scripts/wake.sh`(머리 주석 13행, watch 요약 jq 56~60행)
-- Modify: `.claude/skills/dflow-team/scripts/tick.sh`(`may_skip_now` 167행)
-- Test: `tests/skills/dflow-team-lead-state.test.ts`·`tests/skills/dflow-team-tick.test.ts`(각각 끝에 describe 하나)
+- Modify: `.claude/skills/dflow-team/scripts/wake.sh`(머리 주석 3·7·13행, `usage`·옵션 25~39행, watch 호출 54행, watch 요약 jq 56~60행)
+- Modify: `.claude/skills/dflow-team/scripts/tick.sh`(머리 주석 3·28·32행, `usage`·옵션 35~43행, `may_skip_now` 162·167행)
+- Test: `tests/skills/dflow-team-lead-state.test.ts`·`tests/skills/dflow-team-tick.test.ts`(각각 끝에 describe 하나. tick 은 한가한 팀 테스트의 watch 줄 단언도 고친다)
 
 **Interfaces:**
-- Consumes: Task 16 watch 응답의 `resume_requests[].mine`·`.design_state`, `build_ready`(없음 = 옛 서버, `null` = 조회 실패), Task 21 워커 결과 줄(`skipped fetch 실패`·`skipped push 실패`·`design_review`·`design_reopened`)
+- Consumes: Task 16 watch 응답의 `resume_requests[].mine`·`.design_state`, `build_ready`(없음 = 옛 서버, `null` = 조회 실패)와 watch 본문 `require_tag`·`wp`, Task 18 `dflow.sh watch --require-tag·--wp`, Task 21 워커 결과 줄(`skipped fetch 실패`·`skipped push 실패`·`design_review`·`design_reopened`)
 - Produces(Task 22b 팀장 문서가 쓴다):
   - `lead-state.sh`: `design_review`·`design_reopened` 는 제외 없음. 새 줄 `RETRY_DUE <id8> reason=<fetch|push> n=<연속 수>`(마지막이 fetch·push 실패 skipped 이고 30분 지남, 연속 3회 미만), `WARN_RETRY <id8> reason=<fetch|push> n=<연속 수>`(연속 3회 이상)
-  - `wake.sh` 요약 JSON: 계약 2.11 서버면 `reqs[]` 원소에 `mine`·`design_state`, 끝에 `build`(`[{id8,code,status}]` 또는 조회 실패 `"NULL"`)와 `build_err`. 옛 서버면 종전과 글자 그대로 같다
-  - `tick.sh`: `build` 가 `"NULL"` 이거나 claimed 원소가 있으면 TICK 을 건너뛰지 않는다(D22 — 승인은 poll 이 깨우지 않는다)
+  - `wake.sh`: 새 선택 인자 `--wp <WP 범위>`(`-` 는 전체). watch 에 늘 `--require-tag agent` 를 싣고, WP 범위가 있으면 `--wp` 도 싣는다. 요약 JSON: 계약 2.11 서버면 `reqs[]` 원소에 `mine`·`design_state`, 끝에 `build`(`[{id8,code,status}]` 또는 조회 실패 `"NULL"`)와 `build_err`. 옛 서버면 요약은 종전과 글자 그대로 같다
+  - `tick.sh`: 새 선택 인자 `--wp <WP 범위>`(`wake.sh` 에 그대로 넘긴다). `build` 가 `"NULL"` 이거나, claimed 원소에서 슬롯의 id 와 `lead-state.sh` 의 `EXCLUDE_PERM`·`EXCLUDE_TEMP` id 를 뺀 나머지가 있으면 TICK 을 건너뛰지 않는다(D22 — 승인은 poll 이 깨우지 않는다)
 
 **정한 것:**
-- `build_ready` 는 서버가 watch 의 `--holder`(팀장 lease 프로젝트)로 이미 좁힌다. 그래서 `wake.sh` 는 거르기 인자를 더 넘기지 않는다. 팀장의 WP 범위는 새 배정에만 쓰고 재개는 범위와 무관하다(SKILL.md 「1. 시작」 4번의 종전 규칙).
-- ready 인 구현자동 확정 주문은 poll(`action=build`)이 팀장을 깨운다. `build` 로 TICK 을 붙잡는 것은 claimed 원소(「설계 승인」 된 작업 — poll 에 나오지 않는다)뿐이다.
+- `wake.sh` 는 팀장 poll 과 같은 거르기(태그 `agent`, WP 범위)를 watch 에 넘긴다(설계 상태 스펙 D22·Y9). 서버의 `build_ready` 가 목록의 `mine`(`lead=1`)과 같은 거르기를 써야 두 가지를 막는다. 하나는 팀장이 결국 띄우지 않을 WP 밖 주문 때문에 깨는 것이고, 다른 하나는 WP 밖의 승인 주문을 재개하는 것이다. `--holder`(팀장 lease 프로젝트)는 프로젝트만 좁힌다. 태그는 poll 처럼 늘 `agent` 이고, WP 범위는 팀장이 `RUN` 의 `wp` 를 `wake.sh`·`tick.sh` 에 `--wp` 로 넘긴다(`-` 는 전체, Task 22b). 옛 서버는 두 칸을 무시한다. `wake.sh` 테스트는 가짜 `dflow.sh` 를 쓰므로, `dflow.sh watch` 가 두 옵션을 받는지는 Task 18 테스트가 고정한다.
+- ready 인 구현자동 확정 주문은 poll(`action=build`)이 팀장을 깨운다. `build` 로 TICK 을 붙잡는 것은 claimed 원소(「설계 승인」 된 작업 — poll 에 나오지 않는다)뿐이다. 그 원소에서 슬롯의 id 와 팀장이 제외·멈춤으로 기록한 id(`lead-state.sh` 의 `EXCLUDE_PERM` — 진행 중·failed·`LOST`(`PARKED` 포함) — 와 `EXCLUDE_TEMP` — skipped·`WARN_RETRY`)를 뺀 나머지가 있을 때만 붙잡는다(D22). 빼지 않으면 「멈춤」 에 든 승인 주문 하나가 건너뛰기를 영구히 끈다(스펙 10절 4차 C8). 제외 목록을 읽지 못하면 깨운다.
+- 두 가지는 뺄 수 없다. 하나는 이벤트로 남지 않는 「멈춤」(`references/resume.md` 3항의 `브랜치 갈라짐`)이고, 다른 하나는 마지막 `team.start` 이전 실행에서 기록한 제외·멈춤이다(`lead-state.sh` 는 마지막 `team.start` 뒤만 읽는다). 그런 승인 주문은 풀릴 때까지 TICK 마다 팀장을 깨운다. 비용만 늘고 두 보증에는 영향이 없으므로 경고 대응(D28)으로 둔다.
 - 조회 실패(`null`)를 빈 목록으로 읽지 않는다(에러 3원칙). 옛 서버는 칸이 없으므로 `has("build_ready")` 로 가른다.
 - fetch·push 실패는 잡은 작업(claimed)에서만 난다(Task 21). poll 은 claimed 를 돌려주지 않으므로 30분 뒤 재시도는 팀장이 `RETRY_DUE` 로 한다(스펙 12절 Y11). 끝에서부터 연속한 수만 세고, 다른 결과가 끼면 다시 센다.
 
-**계획 단계 검증**: 아래 문구를 Task 21 을 적용한 리포 사본에 적용해 두 파일 41건이 통과했다. 스크립트를 고치기 전에는 새 테스트 다섯 건이 실패했다.
+**계획 단계 검증**: 아래 문구를 Task 21 을 적용한 리포 사본에 적용해 두 파일 43건이 통과했다(`shell-syntax.test.ts` 를 더하면 52건). 스크립트를 고치기 전에는 새 테스트 일곱 건과 고친 기존 단언 한 건(한가한 팀의 watch 줄)이 실패했다. 제외 id 를 빼지 않고 거르기를 넘기지 않던 이전 수정안에서도 그중 세 건(제외 id 테스트·거르기 테스트·고친 단언)이 실패한다.
 
 - [ ] **Step 1: 실패하는 테스트**
 
@@ -7029,15 +7112,55 @@ describe('lead-state.sh — 설계 상태(계약 2.11)', () => {
 
 ```ts
 describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, () => {
+  // 제외 목록은 lead-state.sh 가 events.jsonl 에서 읽는다. 실제 ~/.dflow/events.jsonl 을 읽지 않게 가짜 경로를 준다
+  const noEvents = () => ({ DFLOW_EVENTS: join(tmp, 'no-events.jsonl') })
   it('build_ready 조회 실패(null)이거나 claimed 승인 주문이 있으면 건너뛰지 않는다. 비었거나 ready 뿐이면 건너뛴다(D22)', async () => {
     writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: null, build_ready_error: 'db' }))
     expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'])).out.trim()).toBe('TICK')
     lockOwner()
     writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: [{ order_id: 'o3', id8: 'cccc0003', code: '1.1', name: 'x', status: 'claimed' }] }))
-    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'])).out.trim()).toBe('TICK')
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'], { env: noEvents() })).out.trim()).toBe('TICK')
     lockOwner()
     writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: [{ order_id: 'o4', id8: 'dddd0004', code: '1.2', name: 'y', status: 'ready' }] }))
     expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'])).out.trim().split('\n')[0]).toMatch(/^TICK_SKIPPED at=\d+ next=\d+$/)
+  })
+  it('build 의 claimed 원소에서 슬롯에 있거나 팀장이 제외·멈춤으로 기록한 id 를 빼고, 남는 것이 있을 때만 건너뛰지 않는다(D22, 4차 C8)', async () => {
+    let n = 0
+    const ev = (e: Record<string, string>) => JSON.stringify({ ts: `2026-09-27T00:00:${String(n++).padStart(2, '0')}Z`, host: 'mbp', repo, tsk: '-', order: '-', phase: 'team', agent: OWNER, ...e })
+    const ended = (id8: string, status: string, reason: string) =>
+      [ev({ event: 'team.spawn', slot: '1', id8, spawn_kind: 'new' }), ev({ event: 'team.result', slot: '1', id8, status, reason, hash: `h-${id8}` })]
+    writeFileSync(join(tmp, 'events.jsonl'), [
+      ev({ event: 'team.start', backend: 'tmux', slots: '3', until: '18:00', wp: '-' }),
+      ...ended('cccc0003', 'failed gate', '-'), // 영구 제외(「멈춤」 표)
+      ...ended('dddd0004', 'skipped', '설계 관문(design_gate)'), // 일시 제외
+      ev({ event: 'team.spawn', slot: '2', id8: 'eeee0005', spawn_kind: 'resume' }),
+      ev({ event: 'team.lost', slot: '2', id8: 'eeee0005', cause: 'no-response', next: 'park', restart_at: '-' }), // PARKED(「멈춤」 표)
+    ].join('\n') + '\n')
+    const env = { DFLOW_EVENTS: join(tmp, 'events.jsonl') }
+    const line = `TSK-01-01 ${ID8} agent/x 1a2b - blocked 질문?`
+    writeFileSync(result, line + '\n') // 슬롯 — 답을 기다리는 blocked 라 생존 증거는 재지 않는다
+    const claimed = (...ids: string[]) =>
+      JSON.stringify({ resume_requests: [], build_ready: ids.map((id8) => ({ order_id: `o-${id8}`, id8, code: '1', name: 'x', status: 'claimed' })) })
+    writeFileSync(join(fake, 'watch.json'), claimed('cccc0003', 'dddd0004', 'eeee0005', ID8))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--', entry(cksum(line))], { env })).out.trim().split('\n')[0]).toMatch(/^TICK_SKIPPED /)
+    lockOwner()
+    writeFileSync(join(fake, 'watch.json'), claimed('cccc0003', 'ffff0006'))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--', entry(cksum(line))], { env })).out.trim()).toBe('TICK')
+  })
+  it('wake.sh 는 watch 에 poll 과 같은 거르기(태그 agent·--wp)를 싣고, --wp 가 없거나 - 면 WP 는 싣지 않는다. tick.sh 는 --wp 를 wake.sh 에 넘긴다(D22·Y9)', async () => {
+    const lastWatch = () => readFileSync(join(fake, 'calls'), 'utf8').trim().split('\n').filter((l) => l.startsWith('watch ')).at(-1)
+    const wakeWith = (...extra: string[]) =>
+      spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events', ...extra], { cwd: repo, encoding: 'utf8', env: envFor() })
+    const base = 'watch --agent hong/mbp/lead --slots 4 --busy 2 --until 09-21 06:00 --json --holder h1 --require-tag agent'
+    wakeWith('--wp', 'WP-02,dict/WP-3')
+    expect(lastWatch()).toBe(`${base} --wp WP-02,dict/WP-3`)
+    wakeWith('--wp', '-')
+    expect(lastWatch()).toBe(base)
+    wakeWith()
+    expect(lastWatch()).toBe(base)
+    const r = await tick(['--new-tick', '--may-skip', '--wp', 'WP-02', ...baseArgs(), '--'])
+    expect(r.out.trim().split('\n')[0]).toMatch(/^TICK_SKIPPED /)
+    expect(lastWatch()).toBe('watch --agent hong/mbp/lead --slots 3 --busy 0 --until 18:00 --json --holder h1 --require-tag agent --wp WP-02')
   })
   it('wake.sh 요약: 새 서버면 reqs 에 mine·design_state, 끝에 build·build_err. 옛 서버(build_ready 없음)면 붙이지 않는다', () => {
     writeFileSync(join(fake, 'watch.json'), JSON.stringify({
@@ -7056,10 +7179,24 @@ describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, 
 })
 ```
 
+`tests/skills/dflow-team-tick.test.ts` 의 기존 단언 한 줄도 고친다. watch 에 거르기가 붙기 때문이다.
+
+**X3** — 아래 원문을 바꾼다.
+
+```text
+    expect(calls).toMatch(/^watch --agent hong\/mbp\/lead --slots 3 --busy 0 --until 18:00 --json --holder h1$/m)
+```
+
+바꿀 문구:
+
+```text
+    expect(calls).toMatch(/^watch --agent hong\/mbp\/lead --slots 3 --busy 0 --until 18:00 --json --holder h1 --require-tag agent$/m)
+```
+
 - [ ] **Step 2: 실패 확인**
 
 Run: `npx vitest run tests/skills/dflow-team-lead-state.test.ts tests/skills/dflow-team-tick.test.ts`
-Expected: FAIL 5건(새 describe 두 개의 다섯 it — 「다른 사유의 skipped …」 는 줄이 아예 없어 지금도 통과한다)
+Expected: FAIL 8건(새 describe 두 개의 일곱 it 과 고친 기존 단언 하나 — 「다른 사유의 skipped …」 는 줄이 아예 없어 지금도 통과한다)
 
 - [ ] **Step 3: `lead-state.sh`**
 
@@ -7125,7 +7262,7 @@ Expected: FAIL 5건(새 describe 두 개의 다섯 it — 「다른 사유의 sk
 
 - [ ] **Step 4: `wake.sh`·`tick.sh`**
 
-K 는 `wake.sh`, T1 은 `tick.sh` 다.
+K 는 `wake.sh`, T 는 `tick.sh` 다.
 
 **K1** — 아래 원문을 바꾼다.
 
@@ -7165,6 +7302,84 @@ K 는 `wake.sh`, T1 은 `tick.sh` 다.
                                            build_err: (.build_ready_error // "-")} else {} end)' \
 ```
 
+**K3** — 아래 원문을 바꾼다.
+
+```text
+# 사용: wake.sh --owner '<신원>/<host>/lead' --slots <N> --busy <M> --until-label '<UNTIL_LABEL>' [--pid <LEAD_PID>] [--no-events]
+```
+
+바꿀 문구:
+
+```text
+# 사용: wake.sh --owner '<신원>/<host>/lead' --slots <N> --busy <M> --until-label '<UNTIL_LABEL>' [--wp '<WP 범위>'] [--pid <LEAD_PID>] [--no-events]
+```
+
+**K4** — 아래 줄 바로 뒤에 더한다.
+
+```text
+#   2. 소유가 맞으면 lease holder 를 구해 좌석표 watch(STANDBY 신호)를 보내고 resume_requests 를 이 리포 바인딩으로 거른다.
+```
+
+더할 문구:
+
+```text
+#      watch 에는 팀장 poll 과 같은 거르기(태그 agent 와 --wp 의 WP 범위)를 실어, 계약 2.11 서버가 build_ready 를 목록의
+#      mine(lead=1)과 같은 기준으로 계산하게 한다(설계 상태 스펙 D22·Y9 — WP 밖의 승인 주문으로 깨우거나 재개하지 않는다).
+#      --wp 가 비었거나 - 면 WP 는 싣지 않는다(전체 범위). 옛 서버는 두 칸을 무시한다.
+```
+
+**K5** — 아래 원문을 바꾼다.
+
+```text
+usage() { echo "사용: wake.sh --owner <신원>/<host>/lead --slots <N> --busy <M> --until-label <표시> [--pid <PID>] [--no-events]" >&2; exit 2; }
+
+OWNER=''; SLOTS=''; BUSY=''; LABEL=''; PID_ARG=''; EVENTS=1
+```
+
+바꿀 문구:
+
+```text
+usage() { echo "사용: wake.sh --owner <신원>/<host>/lead --slots <N> --busy <M> --until-label <표시> [--wp <WP 범위>] [--pid <PID>] [--no-events]" >&2; exit 2; }
+
+OWNER=''; SLOTS=''; BUSY=''; LABEL=''; PID_ARG=''; EVENTS=1; WP=''
+```
+
+**K6** — 아래 줄 바로 뒤에 더한다.
+
+```text
+    --until-label) LABEL="${2:-}"; shift 2 ;;
+```
+
+더할 문구:
+
+```text
+    --wp) WP="${2:-}"; shift 2 ;;
+```
+
+**K7** — 아래 줄 바로 뒤에 더한다.
+
+```text
+[ -n "$OWNER" ] && [ -n "$SLOTS" ] && [ -n "$BUSY" ] && [ -n "$LABEL" ] || usage
+```
+
+더할 문구:
+
+```text
+[ "$WP" != - ] || WP=''   # lead-state.sh 의 RUN wp=- 는 전체 범위다
+```
+
+**K8** — 아래 원문을 바꾼다.
+
+```text
+        --holder "$h") \
+```
+
+바꿀 문구:
+
+```text
+        --holder "$h" --require-tag agent ${WP:+--wp "$WP"}) \
+```
+
 **T1** — 아래 원문을 바꾼다.
 
 ```text
@@ -7174,15 +7389,100 @@ K 는 `wake.sh`, T1 은 `tick.sh` 다.
 바꿀 문구:
 
 ```text
-  # 승인된 설계(build_ready 의 claimed)는 poll 이 깨우지 않는다 — 있으면 건너뛰지 않는다(설계 상태 스펙 D22). 조회 실패("NULL")도 깨운다.
-  # build 칸이 없으면 옛 서버다(종전과 같다).
-  printf '%s' "$j" | jq -e '(.n != "NULL") and ((.reqs // []) | length == 0) and (.build != "NULL")
-    and (((.build // []) | if type == "array" then . else [] end) | map(select(.status == "claimed")) | length == 0)' >/dev/null 2>&1 || return 1
+  # 계약 2.11: build(「설계 승인」 된 작업) 조회 실패("NULL")도 깨운다. build 칸이 없으면 옛 서버다(종전과 같다).
+  printf '%s' "$j" | jq -e '(.n != "NULL") and ((.reqs // []) | length == 0) and (.build != "NULL")' >/dev/null 2>&1 || return 1
+  # build 의 claimed 원소(poll 에 나오지 않는다)는 슬롯에 있거나 팀장이 제외·멈춤으로 기록한 id(lead-state.sh 의 EXCLUDE_PERM —
+  # 진행 중·failed·LOST — 와 EXCLUDE_TEMP — skipped·WARN_RETRY)를 뺀 나머지가 있을 때만 깨운다(설계 상태 스펙 D22. 빼지 않으면
+  # 「멈춤」 에 든 승인 주문 하나가 건너뛰기를 영구히 끈다). 제외 목록을 읽지 못하면 깨운다.
+  cl=$(printf '%s' "$j" | jq -r '(.build // []) | if type == "array" then .[] | select(.status == "claimed") | .id8 else empty end' 2>/dev/null) || return 1
+  [ -n "$cl" ] || return 0
+  lst=$("$HERE/lead-state.sh" --agent "$OWNER" 2>/dev/null) || return 1
+  ign=",$(printf '%s\n' "$lst" | awk '$1 == "EXCLUDE_PERM" || $1 == "EXCLUDE_TEMP" { printf "%s,", $2 }')"
+  for s in "$@"; do ign="$ign$(slot_id8 "${s%%|*}"),"; done
+  for i in $cl; do case "$ign" in *",$i,"*) ;; *) return 1 ;; esac; done
+```
+
+**T2** — 아래 원문을 바꾼다.
+
+```text
+# 사용: tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] --tm '<TM 또는 빈 값>' \
+```
+
+바꿀 문구:
+
+```text
+# 사용: tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] [--wp '<WP 범위>'] --tm '<TM 또는 빈 값>' \
+```
+
+**T3** — 아래 줄 바로 뒤에 더한다.
+
+```text
+#     이 호출 덕이다.
+```
+
+더할 문구:
+
+```text
+#   - 계약 2.11 서버면 build(「설계 승인」 된 작업) 조회가 성공했고, 그 claimed 원소가 모두 슬롯에 있거나 팀장이 제외·멈춤으로
+#     기록한 id(lead-state.sh 의 EXCLUDE_PERM·EXCLUDE_TEMP)다(설계 상태 스펙 D22). --wp(팀장 poll 과 같은 WP 범위)는 wake.sh 에
+#     그대로 넘겨 build 를 poll 과 같은 거르기로 받는다.
+```
+
+**T4** — 아래 줄 바로 뒤에 더한다.
+
+```text
+# 시험용 환경변수: DFLOW_TICK_SEC(1800) · DFLOW_TICK_POLL(20) · DFLOW_SH(dflow.sh) · DFLOW_SWEEP_CHECK(sweep-check.sh)
+```
+
+더할 문구:
+
+```text
+#   · DFLOW_EVENTS(lead-state.sh 가 읽는 events.jsonl)
+```
+
+**T5** — 아래 원문을 바꾼다.
+
+```text
+usage() { echo "사용: tick.sh [--new-tick] [--may-skip] [--until <UNTIL>] --tm <TM> --owner <신원>/<host>/lead --slots <N> --until-label <표시> [--pid <PID>] -- [<경로|해시|pane> …]" >&2; exit 2; }
+
+NEW_TICK=0; MAY_SKIP=0; UNTIL=''; TM=''; TM_SET=0; OWNER=''; SLOTS=''; LABEL=''; PID_ARG=''; RETIRE=0
+```
+
+바꿀 문구:
+
+```text
+usage() { echo "사용: tick.sh [--new-tick] [--may-skip] [--until <UNTIL>] [--wp <WP 범위>] --tm <TM> --owner <신원>/<host>/lead --slots <N> --until-label <표시> [--pid <PID>] -- [<경로|해시|pane> …]" >&2; exit 2; }
+
+NEW_TICK=0; MAY_SKIP=0; UNTIL=''; WP=''; TM=''; TM_SET=0; OWNER=''; SLOTS=''; LABEL=''; PID_ARG=''; RETIRE=0
+```
+
+**T6** — 아래 줄 바로 뒤에 더한다.
+
+```text
+    --until) UNTIL="${2:-}"; shift 2 ;;
+```
+
+더할 문구:
+
+```text
+    --wp) WP="${2:-}"; shift 2 ;;
+```
+
+**T7** — 아래 원문을 바꾼다.
+
+```text
+  wk=$("$HERE/wake.sh" --owner "$OWNER" --slots "$SLOTS" --busy "$#" --until-label "$LABEL" --pid "$LEAD_PID" --no-events 2>/dev/null)
+```
+
+바꿀 문구:
+
+```text
+  wk=$("$HERE/wake.sh" --owner "$OWNER" --slots "$SLOTS" --busy "$#" --until-label "$LABEL" ${WP:+--wp "$WP"} --pid "$LEAD_PID" --no-events 2>/dev/null)
 ```
 
 - [ ] **Step 5: 통과 확인**
 
-Run: `bash -n .claude/skills/dflow-team/scripts/lead-state.sh && bash -n .claude/skills/dflow-team/scripts/wake.sh && bash -n .claude/skills/dflow-team/scripts/tick.sh && npx vitest run tests/skills/dflow-team-lead-state.test.ts tests/skills/dflow-team-tick.test.ts tests/skills/shell-syntax.test.ts`
+Run: `bash -n .claude/skills/dflow-team/scripts/lead-state.sh && bash -n .claude/skills/dflow-team/scripts/wake.sh && bash -n .claude/skills/dflow-team/scripts/tick.sh && npx vitest run tests/skills/dflow-team-lead-state.test.ts tests/skills/dflow-team-tick.test.ts tests/skills/shell-syntax.test.ts tests/skills/dflow-team-lease.test.ts tests/skills/dflow-team.test.ts`
 Expected: PASS
 
 - [ ] **Step 6: 커밋**
@@ -7193,7 +7493,8 @@ git add .claude/skills/dflow-team/scripts/lead-state.sh .claude/skills/dflow-tea
 git commit -m "feat(dflow-team): 설계 상태 결과의 제외 판정·fetch/push 실패 자동 재시도·build_ready 기상
 
 design_review 가 영구 제외로 떨어지던 결함을 고치고, 잡은 작업의 fetch·push 실패는 30분 뒤 RETRY_DUE 로 다시 띄운다(3회 연속이면 경고).
-build_ready 의 claimed 승인 주문이 있거나 조회가 실패하면 TICK 을 건너뛰지 않는다.
+build_ready 의 claimed 승인 주문에서 슬롯·제외·멈춤 id 를 뺀 나머지가 있거나 조회가 실패하면 TICK 을 건너뛰지 않는다.
+기상 블록은 poll 과 같은 거르기(태그 agent·WP 범위)를 watch 에 넘겨 build_ready 를 같은 범위로 받는다.
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -7203,24 +7504,26 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ## Task 22b: 팀장 문서 — 범위 인자 제거·서버 판단 확인·설계 사전 검사·결과 처리(`/dflow-team`)
 
 **Files:**
-- Modify: `.claude/skills/dflow-team/SKILL.md`(「참조」 표, 「인자」, 「팀장 상태」 보조·재구성 규칙·고아 스캔·「멈춤」 보고, 「1. 시작」 3·5번, 「2-1」 poll, 「2-3」 재개 요청·`build`·4번·poll exit 0·설계 사전 검사, 「3」 결과 표, 「5」 4번·끝, 「5-1」, 「금지」)
+- Modify: `.claude/skills/dflow-team/SKILL.md`(「참조」 표, 「인자」, 「팀장 상태」 보조(`RUN` 의 `wp`)·재구성 규칙·고아 스캔·「멈춤」 보고, 「1. 시작」 3·4·5번, 「2-1」 poll, 「2-2」 감시 루프 명령, 「2-3」 기상 블록 명령·재개 요청·`build`·4번·poll exit 0·설계 사전 검사, 「3」 결과 표, 「5」 4번·끝, 「5-1」, 「금지」)
 - Create: `.claude/skills/dflow-team/references/design-state.md`
 - Modify: `.claude/skills/dflow-team/references/resume.md`·`design-ahead.md`·`restart.md`·`events.md`·`help.md`
 - Delete: `.claude/skills/dflow-team/references/scope.md`
 - Test: `tests/skills/dflow-dev-scope.test.ts`(「다른 스킬」 의 팀장 단언), `tests/skills/dflow-team-merge-conflict.test.ts`·`dflow-team-restart-flow.test.ts`(재spawn 예외 여섯·살아 있는 팀원 목록), `tests/skills/dflow-team.test.ts`(poll 첫 줄)
 
 **Interfaces:**
-- Consumes: Task 19 `poll.sh --lead` 와 넷째 칸 `action`, Task 22a `wake.sh` 의 `build`·`reqs[].mine`·`.design_state`, `lead-state.sh` 의 `RETRY_DUE`·`WARN_RETRY`, Task 21 워커 결과 줄, Task 18 `dflow.sh design-reopen`·`design-done`
+- Consumes: Task 19 `poll.sh --lead` 와 넷째 칸 `action`, Task 22a `wake.sh` 의 `build`·`reqs[].mine`·`.design_state` 와 `wake.sh`·`tick.sh` 의 `--wp`, `lead-state.sh` 의 `RETRY_DUE`·`WARN_RETRY`, Task 21 워커 결과 줄, Task 18 `dflow.sh design-reopen`·`design-done`
 - Produces: 팀장 규칙(사람과 팀장 세션이 읽는다). 새 참조 문서 `references/design-state.md`(1. 설계 사전 검사, 2. `build`, 3. 결과 보충), `references/resume.md` 「서버 판단 확인 (계약 2.11)」 표
 
-**정한 것(스펙 6.1·6.2·6.6·6.7·9절, 12절 Y3·Y5·Y8·Y9·Y10·Y11·L5·L11):**
+**정한 것(스펙 6.1·6.2·6.6·6.7·9절, D22, 12절 Y3·Y5·Y8·Y9·Y10·Y11·L2·L5·L11):**
 - 팀장 인자 "설계만"·"구현부터" 는 없다(D27). `team.start` 의 `scope` 는 늘 `server` 이고(events.md 가드의 필수 칸이라 칸은 남긴다), 포인터 `SCOPE` 는 작업마다 서버 판단 `action` 이다.
 - 이어 갈지는 `resume.md` 「서버 판단 확인」 표 **한 곳**이 정한다. 5-1 재개·restart 재투입·고아 스캔·design-ahead 2·재개 요청·「1. 시작」 3번이 모두 이 표를 부른다. 표는 이미 있는 안전장치를 통과한 대상에만 쓰고 **막기만** 한다. 새로 여는 길은 「설계 승인」 된 claimed 주문(`build`)의 원격 재개 하나다(Y3).
 - **옛 서버(계약 < 2.11)** 는 종전 판정 그대로다. 고아 스캔·restart.md 의 `same_host` jq(`claude-<host>`·`<신원>/<host>/w<n>`)는 옛 서버의 대체 판정으로 남긴다 — 2.9 의 `mine` 은 "같은 사용자"만 뜻하기 때문이다. 2.11 에서도 show 의 `mine` 은 팀원 라벨을 보지 않으므로(Task 16, `lead:false`) 표의 `수동 세션 점유` 행이 Y9 를 막는다.
-- 재독 세트(압축 뒤 다시 읽는 「참조」~「인자」「팀장 상태」「2」「3」)는 5만 자 상한이 있다(`dflow-team.test.ts`). 그래서 긴 절차(설계 사전 검사·`build` 처리·결과 보충)는 새 `references/design-state.md` 에 두고 `SKILL.md` 는 가리키기만 한다(지운 `scope.md` 70줄을 이 문서가 대신한다). 이 Task 뒤 재독 세트는 49,646자다.
+- 재독 세트(압축 뒤 다시 읽는 「참조」~「인자」「팀장 상태」「2」「3」)는 5만 자 상한이 있다(`dflow-team.test.ts`). 그래서 긴 절차(설계 사전 검사·`build` 처리·결과 보충)는 새 `references/design-state.md` 에 두고 `SKILL.md` 는 가리키기만 한다(지운 `scope.md` 70줄을 이 문서가 대신한다). 이 Task 뒤 재독 세트는 49,803자다.
 - 설계 사전 검사의 5절 판정은 스크립트가 아니라 팀장이 `## ` 제목 줄을 읽어 한다. 실제 design.md 는 제목에 번호를 붙이고("## 1. 접근 방식") 형식이 조금씩 달라, 워커의 Design 게이트처럼 판단으로 가른다.
 - fetch·push 실패로 끝난 잡은 작업은 워크트리를 `parked` 로 남기고 `RETRY_DUE` 가 30분 뒤 고아 스캔으로 다시 띄운다. 3회 연속이면 `WARN_RETRY` 로 「멈춤」(Y11).
 - 결과 줄 없이 `wait_review` 로 끝났는데 서버에 설계 상태가 없으면(멈춤이 서버에 닿지 않음) 팀장은 push 하지 않는다. `parked` + 「멈춤」(`설계 멈춤 미완료`)으로 두고 `--resume` 한 워커의 「끝나지 않은 설계 멈춤 이어받기」 가 마저 한다(팀장이 워커 워크트리에서 git 을 쓰지 않는다는 규칙을 지킨다).
+- 팀장은 `RUN` 의 `wp` 를 poll 뿐 아니라 `wake.sh`·`tick.sh` 에도 `--wp` 로 넘긴다(D22·Y9, Task 22a). 그래서 「설계 승인」 된 작업의 구현도 WP 범위 안에서만 이어 가며, 시작 보고의 WP 안내(「1. 시작」 4번)를 그에 맞춘다.
+- 「멈춤」 사유는 마지막 완료 보고로 가른다(12절 L2 의 둘째 절). 서버 판단(`nextAgentAction`)은 마지막 검토를 입력으로 받지 않아 5.3 2행 사유가 한 문장이다. show 응답의 `reports[]` 에는 `kind`·`review_action` 이 이미 있고 「재작업」 요청도 `reject` 로 남으므로, 서버를 바꾸지 않고 `resume.md` 「서버 판단 확인」 이 그 칸을 읽는다.
 
 **계획 단계 검증**: Task 21·22a 를 적용한 리포 사본에 아래 문구를 적용해, 팀장 관련 테스트 8개 파일 220건이 통과했고 `tests/skills` 전체에서 기준선에 없던 실패가 없었다. 테스트만 먼저 바꾸면 7건이 실패했다.
 
@@ -7278,7 +7581,7 @@ import { existsSync, readFileSync } from 'node:fs'
     expect(read('.claude/skills/dflow-team/references/help.md')).not.toMatch(/설계만\|구현부터|개발자동/)
     expect(read('.claude/skills/dflow-team/scripts/lead-state.sh')).toContain('scope=\\($st.scope // "-")')
   })
-  it('팀장: 결과 표·설계 사전 검사·build 목록·금지 예외 — 긴 절차는 design-state.md(6.2·6.7·Y11·L11)', () => {
+  it('팀장: 결과 표·설계 사전 검사·build 목록·금지 예외 — 긴 절차는 design-state.md(6.2·6.3·6.7·D22·Y11·L11)', () => {
     const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
     expect(team).toContain('| `design_review`(설계 검토 대기로 멈춤) | 해제 | 없음 |')
     expect(team).toContain('| `design_reopened`(설계를 사람에게 되돌렸거나 주문이 바뀜, 계약 2.11) | 해제 | 없음 | 미커밋 변경이 있어도 지운다')
@@ -7287,7 +7590,19 @@ import { existsSync, readFileSync } from 'node:fs'
     expect(team).toContain('`RETRY_DUE`')
     expect(team).toContain('예외 넷:')
     expect(team).toContain('| `references/design-state.md` |')
+    expect(team).toContain('`design-done 미확인` 이면 `references/design-state.md` 「3」 먼저')
+    // D22·Y9 — 기상 블록·감시 루프도 poll 과 같은 WP 범위를 watch 에 넘긴다
+    expect(team).toContain("[--until '<UNTIL>'] [--wp <WP-02,dict/WP-03>] --tm")
+    expect(team).toContain("--until-label '<UNTIL_LABEL>' [--wp <WP-02,dict/WP-03>]")
+    expect(team).toContain('`wake.sh`·`tick.sh` 에도 같은 값을 `--wp` 로 넘긴다')
     const ds = flat(read('.claude/skills/dflow-team/references/design-state.md'))
+    expect(ds).toContain('poll 과 같은 거르기(태그 `agent`, `wake.sh` 의 `--wp`)로 좁혀 준')
+    // 6.2 — fetch 실패면 되돌리지도 띄우지도 않고 그 기상을 넘긴다
+    expect(ds).toContain("git -C '<MAIN>' fetch -q origin || echo FETCH_FAIL")
+    expect(ds).toContain('실패하면 이 기상에는 `action` 이 있는 후보를 하나도 띄우지 않는다(모르는 채 띄우지 않는다. 제외도 하지 않는다 — 다음 기상에 다시 본다)')
+    // 6.3 — design-done 미확인은 팀장이 마저 하고, 실패하면 워크트리를 남겨 「멈춤」 에 올린다
+    expect(ds).toContain('워크트리를 지우기 전에 `.claude/skills/dflow-work/scripts/dflow.sh design-done <id8>` 를 부른다(설계 멈춤 이어받기, 스펙 6.3)')
+    expect(ds).toContain('실패하면 워크트리를 지우지 않고 `parked` 로 두며 다음 기상에 다시 부르고, 「멈춤」 표에 사유 `설계 멈춤 미완료` 로 올린다')
     expect(ds).toContain('## 1. 설계 사전 검사')
     expect(ds).toContain('dflow.sh design-reopen <id8> --reason')
     expect(ds).toContain('`사람 설계 초안 있음 — 방식을 구현자동으로 바꾸거나 초안을 지우라`')
@@ -7295,7 +7610,8 @@ import { existsSync, readFileSync } from 'node:fs'
     expect(ds).toContain('`WARN_RETRY`')
     expect(ds).toContain('`git worktree remove --force <워크트리>`')
   })
-  it('팀장: 이어 가기는 resume.md 「서버 판단 확인」 한 곳이 막고, 원격 재개는 승인 대상뿐이다(Y3·Y5·Y8·Y9·Y10)', () => {
+  it('팀장: 이어 가기는 resume.md 「서버 판단 확인」 한 곳이 막고, 원격 재개는 승인 대상뿐이다(Y3·Y5·Y8·Y9·Y10·Y12·D16·L2)', () => {
+    const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
     const r = flat(read('.claude/skills/dflow-team/references/resume.md'))
     expect(r).toContain('## 서버 판단 확인 (계약 2.11)')
     expect(r).toContain('**띄우지 않게 막기만 한다**')
@@ -7303,6 +7619,22 @@ import { existsSync, readFileSync } from 'node:fs'
     expect(r).toContain('`수동 세션 점유`')
     expect(r).toContain('- **승인**(계약 2.11)')
     expect(r).toContain('`-B` 로 덮지 않고 로컬 브랜치로 만든다')
+    // Y5 — 재개 전에도 선행 반영 사전 검사를 하고, 미반영이면 다음 기상에 다시 본다
+    expect(r).toContain('`NOT_REFLECTED` 면 이번 기상에 띄우지 않는다(12절 Y5 — 다음 기상에 다시 본다)')
+    // Y10 — 좌석 「이어서 시작」 은 skip 이어도 띄우고, 숨김(거부)은 설계 검토 대기에만
+    expect(r).toContain('| 대상이 요청·지목 | 띄운다 — `action` 이 `skip`·`wait` 이어도(사람의 명시 요청, 12절 Y10·Y12.')
+    expect(r).toContain('| `design_state` 가 `review` | 띄우지 않는다. 「멈춤」 에 올리지 않는다')
+    expect(team).toContain('`design_state` 가 `review` 면 띄우지 않고 "「설계 승인」 뒤에 이어 갑니다" 를 한 줄 알린다. 그 밖에는 서버 판단이 `skip` 이어도 띄운다(12절 Y10).')
+    // Y12 — 사람의 지목은 action 이 아니라 mine 만 본다(mine 거짓 행 → 요청·지목 행 → action 행 순서)
+    const rowMine = r.indexOf('| `mine` 이 거짓 |'), rowAsk = r.indexOf('| 대상이 요청·지목 |'), rowWait = r.indexOf('| `action` 이 `wait` |')
+    expect(rowMine).toBeGreaterThan(-1)
+    expect(rowAsk).toBeGreaterThan(rowMine)
+    expect(rowWait).toBeGreaterThan(rowAsk)
+    expect(team).toContain('계약 2.11 서버에서는 서버 `mine` 이 거짓이면(다른 PC 가 30분 안에 돌렸거나 다른 신원이 잡았다) 띄우지 않는다')
+    // L2 — 「멈춤」 사유를 마지막 완료 보고로 가른다
+    expect(r).toContain('[.reports[]? | select(.kind == "completion")] | last | .review_action // "-"')
+    expect(r).toContain('`reject`(반려·재작업 요청)면 `runner` 가 없을 때 `재작업 대기 — 사람이 /dflow-dev 로 재작업을 돌린다`, 있을 때 `재작업 중(<runner>)` 이다')
+    expect(r).toContain('그 밖은 `워크트리 없음 — 구현 중`')
     const rs = flat(read('.claude/skills/dflow-team/references/restart.md'))
     expect(rs).toContain('| 4-2 | `local_phase=wait_review` |')
     expect(rs).toContain('`설계 멈춤 미완료')
@@ -7310,6 +7642,10 @@ import { existsSync, readFileSync } from 'node:fs'
     const da = flat(read('.claude/skills/dflow-team/references/design-ahead.md'))
     expect(da).toContain('서버가 claimed·`mine`·단계 `dd` 로 확인한 것만 센다')
     expect(da).toContain('`<id8> 선행 주문 없음: <ref>`')
+    // D16 — 설계만 하는 설계 검토 작업은 설계 선행 상한에 세지 않는다
+    expect(da).toContain('설계 검토(`review`) 작업의 설계 선행은 이 상한과 무관하다 — poll 이 `action=design` 으로 곧바로 준다')
+    expect(da).toContain('구현자동(`human`)은 서버가 선행이 풀릴 때까지 `wait` 로 둬 후보에 오지 않는다')
+    expect(team).toContain('`action` 이 `design` 이면 `deps_unmet` 이 있어도 선행 대기에 넣지 않는다(설계만 한다, 스펙 6.6)')
   })
 ```
 
@@ -7568,7 +7904,34 @@ Expected: FAIL 7건
 5. `team.start`(backend, slots, until, wp, scope)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. `scope` 는 늘 `server` 다(설계 방식은 작업마다 서버 판단 — 「인자」). 3번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
 ```
 
-- [ ] **Step 4: `SKILL.md` — 「2-1」·「2-3」**
+**M11a** — 아래 원문을 바꾼다.
+
+```text
+- `RUN` 의 `wp`(`team.start` 의 `wp`, 없는 옛 줄은 전체 `-`)가 WP 범위다. poll 을 다시 띄울 때 `--wp` 에 넘긴다.
+```
+
+바꿀 문구:
+
+```text
+- `RUN` 의 `wp`(`team.start` 의 `wp`, 없는 옛 줄은 전체 `-`)가 WP 범위다. poll 을 다시 띄울 때 `--wp` 에 넘기고, `wake.sh`·`tick.sh` 에도
+  같은 값을 `--wp` 로 넘긴다(`-` 도 된다. watch 가 「설계 승인」 된 작업(`build`)을 poll 과 같은 범위로 거른다).
+```
+
+**M11b** — 아래 원문을 바꾼다.
+
+```text
+   WP 범위가 있으면 "새 배정은 <WP 목록> 만 합니다. 재개·승인
+   스윕은 범위와 무관합니다." 를 한 줄 알린다.
+```
+
+바꿀 문구:
+
+```text
+   WP 범위가 있으면 "새 배정과 「설계 승인」 된 작업의 구현은 <WP 목록> 만 합니다. 그 밖의 재개와
+   승인 스윕은 범위와 무관합니다." 를 한 줄 알린다.
+```
+
+- [ ] **Step 4: `SKILL.md` — 「2-1」·「2-2」·「2-3」**
 
 **M12a** — 아래 원문을 바꾼다.
 
@@ -7665,6 +8028,30 @@ Expected: FAIL 7건
 ```text
 
 **설계 사전 검사**(계약 2.11): `action` 이 있는 후보는 띄우기 전에 `references/design-state.md` 「1」 을 한다.
+```
+
+**M17a** — 아래 원문을 바꾼다.
+
+```text
+.claude/skills/dflow-team/scripts/tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] --tm '<진짜 tmux 절대경로 또는 빈 값>' \
+```
+
+바꿀 문구:
+
+```text
+.claude/skills/dflow-team/scripts/tick.sh [--new-tick] [--may-skip] [--until '<UNTIL>'] [--wp <WP-02,dict/WP-03>] --tm '<진짜 tmux 절대경로 또는 빈 값>' \
+```
+
+**M17b** — 아래 원문을 바꾼다.
+
+```text
+.claude/skills/dflow-team/scripts/wake.sh --owner '<신원>/<host>/lead' --slots <N> --busy <M> --until-label '<UNTIL_LABEL>'
+```
+
+바꿀 문구:
+
+```text
+.claude/skills/dflow-team/scripts/wake.sh --owner '<신원>/<host>/lead' --slots <N> --busy <M> --until-label '<UNTIL_LABEL>' [--wp <WP-02,dict/WP-03>]
 ```
 
 - [ ] **Step 5: `SKILL.md` — 「3」 결과 표·「5」·「5-1」·「금지」**
@@ -7799,7 +8186,7 @@ Expected: FAIL 7건
 sed -n '/^\*\*참조\*\*/,/^## 두 번째 팀장/p;/^## 2\. 기상과 감시/,/^## 4\. 승인 스윕/p' .claude/skills/dflow-team/SKILL.md | wc -m
 ```
 
-Expected: `49646` 안팎(5만 미만이면 통과).
+Expected: `49803` 안팎(5만 미만이면 통과).
 
 - [ ] **Step 6: `references/design-state.md`(새)·`resume.md`**
 
@@ -7835,8 +8222,8 @@ git -C '<MAIN>' show "origin/<개발브랜치>:<TASK_DIR>/design.md" 2>/dev/null
 
 ## 2. 「설계 승인」 된 작업(`build`)
 
-기상 블록 요약 끝의 `build` 칸이다(옛 서버면 칸이 없다). 서버가 팀장 lease 의 프로젝트로 이미 좁혀 준 "이 신원·이 PC 가 띄울 build 주문"
-이다.
+기상 블록 요약 끝의 `build` 칸이다(옛 서버면 칸이 없다). 서버가 팀장 lease 의 프로젝트와 poll 과 같은 거르기(태그 `agent`, `wake.sh` 의
+`--wp`)로 좁혀 준 "이 신원·이 PC 가 띄울 build 주문" 이다(설계 상태 스펙 D22·Y9 — WP 밖의 승인 주문은 오지 않는다).
 - `"NULL"` 이면 조회 실패다. 그 기상에는 처리하지 않고 `build_err` 를 한 줄 보고한다(빈 목록과 뭉개지 않는다).
 - 배열이면 `status` 가 `claimed` 인 원소(「설계 승인」 된 설계 검토 작업 — poll 에 나오지 않는다) 중 슬롯·영구 제외에 없는 것을 재개 대상에
   더한다(SKILL.md 「2-3」 4번의 순서, 「5-1」 의 **승인** 대상). 이 PC 에 워크트리가 있으면 그것을, 없으면 `references/resume.md` 3항이 원격
@@ -7902,10 +8289,12 @@ U 는 `references/resume.md` 다.
 있는 안전장치(살아 있는 슬롯·최종 결과·제외·재시도 상한·`PARKED`·선행 반영 검사)를 통과한 대상에만 쓰고, **띄우지 않게 막기만 한다**.
 새로 여는 길은 **승인** 대상의 원격 재개 하나다(설계 상태 스펙 6.2·12절 Y3). 「1. 시작」 3번의 멈춤 사유도 이 표로 적는다.
 ```bash
-(.claude/skills/dflow-work/scripts/dflow.sh show '<id8>') | jq -r '.order | [.status, (.mine | tostring), (.action // "-"), (.action_reason // "-"),
-  (.design_state // "-"), (.runner // "-"), (.item.stage // "-"), (.claimed_by // "-")] | @tsv' || echo SHOW_FAILED
+(.claude/skills/dflow-work/scripts/dflow.sh show '<id8>') | jq -r '([.reports[]? | select(.kind == "completion")] | last | .review_action // "-") as $rv
+  | .order | [.status, (.mine | tostring), (.action // "-"), (.action_reason // "-"),
+  (.design_state // "-"), (.runner // "-"), (.item.stage // "-"), (.claimed_by // "-"), $rv] | @tsv' || echo SHOW_FAILED
 ```
-위에서부터 보고 처음 맞는 줄에서 멈춘다. `워크트리` 는 이 PC 에 그 id8 의 팀원 워크트리가 있는지다(`parked` 포함).
+위에서부터 보고 처음 맞는 줄에서 멈춘다. `워크트리` 는 이 PC 에 그 id8 의 팀원 워크트리가 있는지다(`parked` 포함). 끝 칸은 마지막 완료 보고의
+검토 결과다(`approve`·`reject`·`-`. 「재작업」 요청도 `reject` 로 남는다).
 
 | 조건 | 처리 |
 |---|---|
@@ -7917,7 +8306,7 @@ U 는 `references/resume.md` 다.
 | `action` 이 `wait` | 띄우지 않는다. 「멈춤」 에 올리지 않는다(선행 대기 — 설계 완료 대기는 `references/design-ahead.md` 2번이 선행이 풀린 뒤 본다) |
 | 대상이 자동·재시작·승인이고 점유 라벨이 팀원 라벨(`<신원>/<host>/w<n>`)이 아님 | 띄우지 않는다. 「멈춤」 사유 `수동 세션 점유`(사람이 손으로 잡은 작업은 팀장이 이어받지 않는다, 12절 Y9) |
 | `action` 이 `skip` 이고 워크트리 있음, 대상이 재시작·자동 | 띄운다(결과 없이 죽은 이 PC 의 팀원만 — 종전 재시작 규칙) |
-| `action` 이 `skip` 이고 워크트리 없음, 단계가 `ip` 이상 | 띄우지 않는다. 「멈춤」 사유 `워크트리 없음 — 구현 중`(다른 PC 의 워크트리에 push 하지 않은 구현이 있을 수 있다) |
+| `action` 이 `skip` 이고 워크트리 없음, 단계가 `ip` 이상 | 띄우지 않는다. 「멈춤」 사유는 끝 칸(마지막 완료 보고)으로 가른다(12절 L2). `reject`(반려·재작업 요청)면 `runner` 가 없을 때 `재작업 대기 — 사람이 /dflow-dev 로 재작업을 돌린다`, 있을 때 `재작업 중(<runner>)` 이다(완료 보고가 `runner` 를 비우고 재작업의 build-start 가 다시 적는다). 그 밖은 `워크트리 없음 — 구현 중`(다른 PC 의 워크트리에 push 하지 않은 구현이 있을 수 있다) |
 | `action` 이 `skip`(그 밖) | 띄우지 않는다. 「멈춤」 사유는 `<action_reason>` |
 | `action` 이 `full`·`design` 이고 워크트리 없음 | 띄우지 않는다. 「멈춤」 사유 `워크트리 없음`(종전 — 사람이 `--resume` 으로 지목하면 띄운다) |
 | 그 밖(`full`·`design`·`build`) | 띄운다. 포인터 `SCOPE` 는 그 `action` 이다. `action` 이 `full`·`build` 이고 선행 중 `reached` 인데 `head_sha` 가 없는 것이 있으면 SKILL.md 「2-3」 「선행 반영 사전 검사」 를 먼저 하고, `NOT_REFLECTED` 면 이번 기상에 띄우지 않는다(12절 Y5 — 다음 기상에 다시 본다) |
