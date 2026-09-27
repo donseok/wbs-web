@@ -5756,3 +5756,966 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
+
+## Task 21: 워커 문서 — 서버 판단·범위·설계 받기·design-done(`/dflow-dev`·워커 프롬프트)
+
+**Files:**
+- Modify: `.claude/skills/dflow-dev/SKILL.md`(상태 모델의 `wait_review` 두 줄, exit 10 문단 끝, 「실행 범위 (--scope)」 본문)
+- Modify: `.claude/skills/dflow-dev/references/orch/start.md`(「서버 판단」·「끝나지 않은 설계 멈춤 이어받기」 추가, 「설계 검토 대기」·「구현부터」 교체, 다음 단계)
+- Modify: `.claude/skills/dflow-dev/references/orch/claim.md`·`design.md`·`design-first.md`·`rework.md`·`close.md`
+- Modify: `.claude/skills/dflow-dev/references/worker-mode.md`(인자 파싱, 설계 선행, 새 「설계 상태의 결과 줄」)
+- Modify: `.claude/skills/dflow-team/references/worker-prompt.md`(`{SCOPE_FLAG}` 행, 「5」, 「7」 표)
+- Test: `tests/skills/dflow-dev-scope.test.ts`(다시 씀), `tests/skills/dflow-dev-worker.test.ts`(표지 블록 앵커 둘), `tests/skills/dflow-no-docker.test.ts`(주석 한 줄)
+
+**Interfaces:**
+- Consumes: Task 16 상세 응답 `.order` 의 `action`·`action_reason`·`mine`·`design_mode`·`design_state`·`claim_scope`·`runner`·`runner_seen_at`·`item.stage`(`mine` 은 Task 18 의 `show` 가 보내는 라벨로 계산), Task 18 의 `claim --scope`·`CLAIM_SCOPE` 줄·`build-start --scope`·`design-done`·`design-reopen`·exit 11(`DESIGN_GATE <code>[ <reason>]`)·exit 12(`RUNNER_ACTIVE <runner>`), Task 20 훅의 runner_active 멈춤
+- Produces(Task 22 팀장이 처리한다): 워커 결과 줄 — 정본은 worker-mode.md 「설계 상태의 결과 줄」 표
+  - `skipped`: `<action_reason>`·`계약 2.11 서버 필요`·`다른 PC 도는 중(<runner>)`·`fetch 실패`·`push 실패`·`사람 설계 초안 있음`·`설계 관문(<code>)`
+  - `design_review`: `-`·`design-done 미확인`·빠진 절·`선행 계약 바뀜: <파일…>`
+  - `design_reopened`(새): 빠진 절·`선행 계약 바뀜: <파일…>`·`주문이 바뀜`
+  - `design_waiting`: 종전 사유 + `design-done 미확인`
+  - `failed`: `방식 확인 필요`·`브랜치 갈라짐 <로컬 sha> <origin sha>`·`design-done 거부(<code>)`·`설계 게이트 불통(구현 중)`·`설계 변경 필요 — <이유>`·`원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume`·`완료 보고 거부(<code>)`
+
+**지키는 문서 불변식**(문서 테스트가 검사한다 — 어기면 다른 테스트가 깨진다):
+- `SKILL.md` 는 9,000자를 넘지 않는다(`dflow-dev-split` 마지막 it). 지금 8,933자이고 이 Task 뒤 8,870자다. 그래서 규칙은 단계 파일에 두고 `SKILL.md` 는 가리키기만 한다.
+- 분할 전 원문(`tests/skills/fixtures/dflow-dev.SKILL.presplit.md`)의 줄은 같은 순서로 남아야 한다. 이 Task 는 원문 줄을 고치지 않고 **더하기만** 한다. 교체하는 곳(start 「설계 검토 대기」·「구현부터」, claim 15~16·58행, design 11~12행·「설계만 멈춤」, rework·start 의 「다음 단계」, `SKILL.md` 의 `wait_review`·「실행 범위」)은 모두 분할 뒤 2.10 작업이 더한 줄이라 `CHANGED_SPLIT` 을 고칠 일이 없다.
+- 워커 표지 블록은 11개 그대로다(`dflow-no-docker`). 새 워커 결과는 새 블록을 만들지 않고 worker-mode.md 「그 밖의 워커 규칙」 아래 표 하나에 모은다(워커는 시작 때 `sections.sh … '그 밖의 워커 규칙'` 으로 하위 절까지 읽는다). 기존 블록 둘(start 「구현자동 착수」 끝, design 「설계만 멈춤」 끝)은 그 표를 가리키게 바꾼다.
+
+**옛 서버 처리**(Global Constraints): 모든 새 동작은 `dflow.sh contract-ge 2.11` 이 참일 때만이다. 옛 서버에서는 종전대로 돌되 범위 `design`·`build` 는 막는다(`"{TSK} 범위 design·build 는 계약 2.11 서버가 필요합니다"`). 2.10 의 로컬 전용 흐름(`wait_review` 를 `--scope build` 로 이어 가기, claim 전 사람 설계 확인)은 킷(dflow-kit)에 실린 적이 없고 스테이징에서만 시험됐으므로 대체한다.
+
+**계획 단계 검증**: 이 Task 의 수정안(아래 문구 그대로)을 scratchpad 의 리포 사본에 적용해 `dflow-dev-scope`·`dflow-dev-worker`·`dflow-dev-split`·`dflow-no-docker` 네 파일 84건이 통과했고, `tests/skills` 전체에서 기준선에 없던 실패가 없었다(기준선 실패는 사본 환경의 시간 초과뿐).
+
+**문구 옮기는 법**: 각 수정은 "찾을 원문"과 "바꿀·더할 문구"로 적었다. 원문은 그 파일에 정확히 한 번 있다. 코드 블록 안의 빈 줄과 줄바꿈 위치도 그대로 옮긴다(표지 블록 앵커가 줄 단위로 검사된다).
+
+- [ ] **Step 1: 실패하는 테스트 — 문서 테스트를 새 규칙으로 바꾼다**
+
+`tests/skills/dflow-dev-scope.test.ts` 를 통째로 아래로 바꾼다. 팀장 쪽 단언(`다른 스킬` 의 둘째·셋째 it)은 Task 22 가 팀장 문서와 함께 바꾸므로 지금 문구 그대로 둔다.
+
+```ts
+// tests/skills/dflow-dev-scope.test.ts — /dflow-dev 실행 범위(--scope)와 설계 상태(계약 2.11)의 워커 문서.
+// 설계: docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md 6절·12절(2.10 의 router 설계 §14 를 대신한다)
+import { describe, expect, it } from 'vitest'
+import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { devOrch, devRouter } from './_dflow-dev'
+import { stripWorkerBlocks, workerBlocks } from './_preserve'
+
+const flat = (s: string) => s.replace(/\s+/g, ' ')
+const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
+const WORKER_MODE = '.claude/skills/dflow-dev/references/worker-mode.md'
+
+describe('안내 본문(SKILL.md)', () => {
+  const router = flat(devRouter())
+  it('범위는 가리키기만 하고, 정하는 규칙은 start 「서버 판단」 에 있다', () => {
+    expect(router).toContain('[--scope design|build|full]')
+    expect(router).toContain('`--only` 와 함께 오면 사용법을 알리고 멈춘다')
+    expect(router).toContain('범위를 정하는 규칙(서버 판단·`claim_scope`·옛 서버)은 `orch/start.md` 「서버 판단」')
+  })
+  it('wait_review 는 서버 설계 상태가 이어 갈지 정하고, exit 12 는 state.json 을 바꾸지 않고 멈춘다', () => {
+    expect(router).toContain('사람의 「설계 승인」을 기다리며 멈춘 상태다')
+    expect(router).toContain('이어 갈지는 서버 설계 상태가 정한다')
+    expect(router).toContain('exit 12(다른 PC 가 이어받음)도 그 자리에서 멈추되 state.json 은 바꾸지 않는다')
+  })
+  it('팀장 인자·2.10 결과 값이 워커 문서에 남지 않는다(D27)', () => {
+    for (const t of [devRouter(), ...['start', 'claim', 'design', 'design-first', 'rework', 'close'].map(devOrch), read(WORKER_MODE)])
+      expect(t).not.toMatch(/개발자동|구현부터|design_missing|design_invalid|failed diverged/)
+  })
+})
+
+describe('착수 — 서버 판단(start.md)', () => {
+  const s = flat(devOrch('start'))
+  it('계약 2.11 이면 show 의 서버 판단으로 먼저 가르고, 옛 서버는 design·build 범위를 막는다', () => {
+    expect(s).toContain('**서버 판단(계약 2.11)** — `dflow.sh contract-ge 2.11` 이 exit 0 이면')
+    expect(s).toContain('`"{TSK} 범위 design·build 는 계약 2.11 서버가 필요합니다"`')
+  })
+  it('ready 는 --scope 또는 action 으로 범위를 정하고, wait·skip 이면 착수하지 않는다', () => {
+    expect(s).toContain('`action` 이 `wait`·`skip` 이면 착수하지 않고 `"{TSK} 지금은 할 일이 없다 — <action_reason>"`')
+  })
+  it('claimed 는 mine 을 보고, 설계 검토 대기면 멈추며, claim_scope 가 수동 --scope 를 이긴다(Y1·D21)', () => {
+    expect(s).toContain('`mine` 이 거짓이면 이어 가지 않는다')
+    expect(s).toContain('"원래 PC 의 세션이 살아 있으면 먼저 끄세요"')
+    expect(s).toContain('`"{TSK} 설계 검토 대기 — 「설계 승인」을 누르면 이어 간다"`')
+    expect(s).toContain('claimed 의 범위는 서버 `claim_scope` 로 정한다')
+    expect(s).toContain('수동 `--scope` 는 무시하고 그 사실을 한 줄 남긴다')
+  })
+  it('구현 중 재개는 build-start 로 도는 PC 를 넘겨받는다(P7)', () => {
+    expect(s).toContain('그 단계로 가기 전에 `dflow.sh build-start <ref> --scope <범위>` 를 먼저 부른다')
+  })
+  it('끝나지 않은 설계 멈춤은 push 를 맞춘 뒤 design-done 을 마저 한다(6.3 W3·L4·Y6)', () => {
+    expect(s).toContain('**끝나지 않은 설계 멈춤 이어받기(계약 2.11)**')
+    expect(s).toContain('`wait_pred` 이고 서버 단계(`.order.item.stage`)가 `ds` 면')
+    expect(s).toContain('로컬이 앞서 있으면 `git push origin <agent 브랜치>` 한다')
+    expect(s).toContain('서버에 설계 검토 대기가 없습니다')
+  })
+  it('승인된 설계는 설계 받기로 이어 가고, 구현자동 착수는 claim 뒤 설계를 받는다', () => {
+    expect(s).toContain('**승인된 설계 이어 가기(계약 2.11)**')
+    expect(s).toContain('「3」 0 의 switch 뒤, 1 전에 `orch/design.md` 「설계 받기」 를 한다')
+    expect(s).toContain('`## 선행 기준` 절이 있을 때만 한다')
+    expect(s).toContain('### 구현자동 착수 (ready, 범위 `build`)')
+  })
+  it('워커는 알림 대신 결과 줄 표를 쓴다(표지 블록 안)', () => {
+    const b = workerBlocks(devOrch('start')).map((x) => x.body).join('\n')
+    expect(b).toContain('worker-mode.md 「설계 상태의 결과 줄」')
+    expect(stripWorkerBlocks(devOrch('start'))).not.toContain('「설계 상태의 결과 줄」')
+  })
+})
+
+describe('claim(claim.md)', () => {
+  const c = flat(devOrch('claim'))
+  it('범위 design·full 은 개발 브랜치의 사람 설계 초안을 확인한다(6.3·L5)', () => {
+    expect(c).toContain('**사람 설계 초안 확인(계약 2.11, 범위 `design`·`full`)**')
+    expect(c).toContain('`git cat-file -e origin/<기본브랜치>:<TASKS>/<TSK>/design.md`')
+  })
+  it('계약 2.11 이면 --scope 를 붙이고, CLAIM_SCOPE 를 state.json 에 적으며, exit 11 은 재시도하지 않는다', () => {
+    expect(c).toContain('위 명령 끝에 `--scope <범위>`')
+    expect(c).toContain('출력의 `CLAIM_SCOPE <범위>` 줄이 서버가 저장한 범위다')
+    expect(c).toContain('설계 관문 거부다 — 아래 재시도를 하지 않고 원래 위치로 돌아가')
+    expect(c).toContain('같은 쓰기에서 `scope` 를 적는다 — claim 출력의 `CLAIM_SCOPE` 값이고')
+  })
+  it('범위 build 의 설계 폴더는 격리하지 않는다', () => {
+    expect(c).toContain('**범위 `build`(구현자동)의 설계 폴더도 예외다**')
+  })
+})
+
+describe('Design(design.md)', () => {
+  const d = flat(devOrch('design'))
+  it('범위 build 는 설계를 받아 곧바로 게이트를 돌고, 불통이면 design-reopen 으로 되돌린다(6.4)', () => {
+    expect(d).toContain('### 설계 받기 (범위 `build`, 계약 2.11)')
+    expect(d).toContain('`git merge --ff-only origin/<그 브랜치>`')
+    expect(d).toContain('`git show origin/<기본브랜치>:<TASKS>/<TSK>/design.md` 로 받아 워크트리의 같은 파일에 덮어쓰고')
+    expect(d).toContain('`dflow.sh design-reopen <ref> --reason "<빠진 절>"`')
+    expect(d).toContain('빠진 절을 스스로 채우지 않는다')
+  })
+  it('build-start 에 범위를 붙이고, exit 11·12 행이 있다(Y7)', () => {
+    expect(d).toContain('위 호출은 `dflow.sh build-start <ref> --scope <범위>` 다')
+    expect(d).toContain('반려 재작업(`orch/rework.md`)이면 방식과 무관하게 `rework` 다')
+    expect(d).toContain('| exit 11 + stderr 끝줄 `DESIGN_GATE design_gate order_changed` |')
+    expect(d).toContain('| 그 밖의 exit 11(`DESIGN_GATE <code>`) |')
+    expect(d).toContain('| exit 12(`RUNNER_ACTIVE <runner>`) |')
+  })
+  it('설계만 멈춤은 push 뒤 design-done 으로 끝난다(순서 고정)', () => {
+    const sec = d.split('### 설계만 멈춤')[1]?.split('### 승인된 설계 고정')[0] ?? ''
+    expect(sec).toContain('`build-start` 를 **부르지 않는다**')
+    const order = ['design.md 커밋을 확인한다', 'state.json `phase` 를 `wait_review` 로 쓰고', '`progress 25 "설계 완료(검토 대기)"`',
+      '`git push origin <agent 브랜치>`', '`dflow.sh design-done <ref>` 를 부른다', '「설계 승인」을 누르면 팀장이 이어 간다']
+    const idx = order.map((o) => sec.indexOf(o))
+    idx.forEach((i, k) => expect(i, order[k]).toBeGreaterThan(-1))
+    expect([...idx].sort((a, b) => a - b)).toEqual(idx)
+    expect(sec).toContain('그 밖의 이유로 실패하면 4 를 하지 않고')
+    expect(sec).toContain('`wait_pred` 를 쓰지 않는 이유')
+    expect(sec).not.toContain('--phase wait_review')
+  })
+  it('승인된 설계는 ip 이상에서 고정이다(D24·L3)', () => {
+    expect(d).toContain('### 승인된 설계 고정 (D24, 계약 2.11)')
+    expect(d).toContain('`## 도커 금지로 생략한 검증`')
+    expect(d).toContain('Design 으로 후퇴하려 하면 후퇴하지 않고')
+  })
+  it('워커는 알림 대신 결과 줄 표를 쓴다(표지 블록 안)', () => {
+    const b = workerBlocks(devOrch('design')).map((x) => x.body).join('\n')
+    expect(b).toContain('worker-mode.md 「설계 상태의 결과 줄」')
+  })
+})
+
+describe('설계 선행·재작업·마감', () => {
+  const f = flat(devOrch('design-first'))
+  it('설계 선행 멈춤은 계약 2.11 에서 design-done 을 부른다(옛 서버는 heartbeat wait_pred)', () => {
+    expect(f).toContain('`dflow.sh heartbeat <ref> --phase wait_pred`')
+    expect(f).toContain('계약 2.11(`dflow.sh contract-ge 2.11` 이 exit 0)이면 heartbeat 대신 `dflow.sh design-done <ref>` 를 부른다')
+    expect(f).toContain('그 밖의 이유로 실패하면 4·5 를 하지 않고')
+  })
+  it('선행 계약 출처에 개발 브랜치의 사람 설계, 계약이 바뀌면 방식별로 되돌린다(6.4)', () => {
+    expect(f).toContain('`git cat-file -e origin/<기본브랜치>:<TASKS>/<선행TSK>/design.md`')
+    expect(f).toContain('`dflow.sh design-reopen <ref> --reason "선행 계약 바뀜: <파일…>"`')
+    expect(f).toContain('`human` 은 design.md 를 고치지 않고')
+  })
+  it('재작업은 claim_scope build 면 Design 없이 승인된 설계로, build-start 는 rework(6.5)', () => {
+    const r = flat(devOrch('rework'))
+    expect(r).toContain('서버 `claim_scope` 가 `build` 면')
+    expect(r).toContain('`"{TSK} 설계 변경 필요 — <이유>"`')
+    expect(r).toContain('재작업의 `build-start` 는 방식과 무관하게 `--scope rework` 다')
+  })
+  it('마감은 사람 커밋 충돌(Y13)과 done 의 exit 11·12 를 가른다', () => {
+    const k = flat(devOrch('close'))
+    expect(k).toContain('`"{TSK} 원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume 하세요"`')
+    expect(k).toContain('done 이 exit 12(stderr 끝줄 `RUNNER_ACTIVE <runner>`)면')
+    expect(k).toContain('exit 11(`DESIGN_GATE <code>`)이면 서버가 완료 보고를 거부했다')
+  })
+})
+
+describe('워커 규칙(worker-mode.md·worker-prompt.md)', () => {
+  const w = flat(read(WORKER_MODE))
+  it('--scope 는 새 claim 의 범위이고, 잡힌 작업은 claim_scope 가 이긴다', () => {
+    expect(w).toContain('팀장이 넘긴 `--scope` 는 새 claim 의 범위이고, 이미 잡힌 작업은 서버 `claim_scope` 가 이긴다')
+  })
+  it('결과 줄 표가 「그 밖의 워커 규칙」 아래에 있어 워커가 시작 때 함께 읽는다', () => {
+    const r = spawnSync('bash', [join(process.cwd(), '.claude/skills/dflow-dev/scripts/sections.sh'), join(process.cwd(), WORKER_MODE), '그 밖의 워커 규칙'], { encoding: 'utf8' })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('### 설계 상태의 결과 줄(계약 2.11)')
+  })
+  it('결과 줄 표가 새 status·사유를 모두 싣는다', () => {
+    for (const t of ['`<action_reason>`', '`계약 2.11 서버 필요`', '`다른 PC 도는 중(<runner>)`', '`방식 확인 필요`', '`design-done 미확인`',
+      '`브랜치 갈라짐 <로컬 sha> <origin sha>`', '`fetch 실패`', '`push 실패`', '`사람 설계 초안 있음`', '`설계 관문(<code>)`',
+      '`design_reopened`', '`주문이 바뀜`', '`design-done 거부(<code>)`', '`설계 게이트 불통(구현 중)`', '`설계 변경 필요 — <이유>`',
+      '`원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume`', '`완료 보고 거부(<code>)`'])
+      expect(w, t).toContain(t)
+  })
+  it('worker-prompt: SCOPE 는 늘 --scope 로 넘기고, 서버 쓰기 범위와 결과 표에 새 동사·status 가 있다', () => {
+    const wp = flat(read('.claude/skills/dflow-team/references/worker-prompt.md'))
+    expect(wp).toContain('| `{SCOPE_FLAG}` | `SCOPE` | 값이 있으면 늘 `--scope <SCOPE>`')
+    expect(wp).toContain('`/dflow-dev {ID8} --worker {MODEL_FLAG} {SCOPE_FLAG}`')
+    expect(wp).toContain('`design-done {ID8}`·`design-reopen {ID8} --reason …` 은 이 범위 안이다')
+    expect(wp).toContain('| `design_reopened` |')
+    expect(wp).not.toContain('design_missing')
+  })
+})
+
+describe('다른 스킬', () => {
+  it('승인 스윕은 wait_review 브랜치를 후보로 잡지 않는다(문서와 스크립트가 같은 필터)', () => {
+    const f = 'select(.phase != "merged" and .phase != "wait_pred" and .phase != "wait_review")'
+    expect(read('.claude/skills/dflow-merge/SKILL.md')).toContain(f)
+    expect(read('.claude/skills/dflow-merge/scripts/sweep-check.sh')).toContain(f)
+  })
+  it('팀장: 인자로 범위를 정해 team.start·포인터로 넘기고, 워커가 --scope 로 바꾼다', () => {
+    const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
+    expect(team).toContain('"설계만"·"설계까지" → `design`, "구현부터"·"개발자동" → `build`, 없으면 `full`')
+    expect(team).toContain('`team.start`(backend, slots, until, wp, scope)')
+    expect(team).toContain('SCOPE=<full|design|build>')
+    expect(team).toContain('| `design_review`(설계만 멈춤, `<SCOPE>`=`design`) | 해제 | 없음 |')
+    expect(read('.claude/skills/dflow-team/scripts/lead-state.sh')).toContain('scope=\\($st.scope // "-")')
+  })
+  it('팀장: 범위 build 만 검토 대기 설계를 이어 가고, 좌석 「이어서 시작」 은 범위와 무관하게 build 로 띄운다', () => {
+    const sc = flat(read('.claude/skills/dflow-team/references/scope.md'))
+    expect(sc).toContain('select(.phase == "wait_review")')
+    expect(sc).toContain('`full`·`design` 에서는 1 을 하지 않는다')
+    expect(sc).toContain('요청 작업이 검토 대기면 포인터를 `SCOPE=build` 로 띄운다')
+    expect(sc).toContain('git -C \'<MAIN>\' cat-file -e "origin/<개발브랜치>:<TASK_DIR>/design.md"')
+    expect(flat(read('.claude/skills/dflow-team/references/restart.md'))).toContain('| 4-2 | `local_phase=wait_review` |')
+  })
+})
+```
+
+표지 블록 앵커와 주석을 고친다(`tests/skills/dflow-dev-worker.test.ts`, `tests/skills/dflow-no-docker.test.ts`):
+
+**T2a** — 아래 원문을 바꾼다.
+
+```text
+    { prev: '   Design 단계에서는 Design 서브에이전트를 띄우지 않고 곧바로 Design 게이트를 돈다(`orch/design.md`).', tag: '`skipped design_missing`' },
+```
+
+바꿀 문구:
+
+```text
+    { prev: '작업이면 서버가 claim 을 거부한다(exit 11 — `orch/claim.md`).', tag: 'worker-mode.md 「설계 상태의 결과 줄」' },
+```
+
+**T2b** — 아래 원문을 바꾼다.
+
+```text
+    { prev: '재개한다 — 사람이 검토하기 전에 구현이 시작되면 안 된다.', tag: '- design_review` 를 쓰고 끝낸다' },
+```
+
+바꿀 문구:
+
+```text
+    { prev: '재개한다 — 사람이 검토하기 전에 구현이 시작되면 안 된다.', tag: 'worker-mode.md 「설계 상태의 결과 줄」' },
+```
+
+**T3** — 아래 원문을 바꾼다.
+
+```text
+    expect(workerBlocks(DEV)).toHaveLength(11) // 2026-09-26 분할: 「압축 뒤」 한 블록, 실행 범위(start 「구현부터」·design 「설계만 멈춤」) 두 블록
+```
+
+바꿀 문구:
+
+```text
+    expect(workerBlocks(DEV)).toHaveLength(11) // 2026-09-26 분할: 「압축 뒤」 한 블록, 실행 범위(start 「구현자동 착수」·design 「설계만 멈춤」) 두 블록
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/skills/dflow-dev-scope.test.ts tests/skills/dflow-dev-worker.test.ts`
+Expected: FAIL(새 문구가 아직 없다. 표지 블록 앵커가 옛 줄과 다르다)
+
+- [ ] **Step 3: `SKILL.md` — 상태 모델과 「실행 범위」**
+
+**S1** — 아래 원문을 바꾼다.
+
+```text
+  `wait_review` 는 설계만(`--scope design`)으로 설계를 마치고 사람의 설계 검토를 기다리며 멈춘 상태다. 진행 중 phase 가 아니며
+  heartbeat 훅도 보내지 않는다 — `--scope build` 로만 이어 간다(「실행 범위」). 선행 대기(`wait_pred`)와 달리 저절로 재개되지 않는다.
+```
+
+바꿀 문구:
+
+```text
+  `wait_review` 는 설계만(`--scope design`)으로 설계를 마치고 사람의 「설계 승인」을 기다리며 멈춘 상태다. 진행 중 phase 가 아니며
+  heartbeat 훅도 보내지 않는다 — 이어 갈지는 서버 설계 상태가 정한다(`orch/start.md` 「서버 판단」). 저절로 재개되지 않는다.
+```
+
+**S2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+  지운다. `cancelled` 는 진행 중 phase 가 아니다 — 스윕·재개 판정은 건너뛴다.
+```
+
+더할 문구:
+
+```text
+  exit 12(다른 PC 가 이어받음)도 그 자리에서 멈추되 state.json 은 바꾸지 않는다(`orch/start.md` 「서버 판단」).
+```
+
+**S3** — 아래 원문을 바꾼다.
+
+```text
+`--scope design|build|full`(없으면 state.json `scope`, 그것도 없으면 `full`)은 정식 실행의 시작점과 멈춤점만 바꾼다. 다른 값이거나
+`--only` 와 함께 오면 사용법을 알리고 멈춘다. `design` 은 Design 게이트 뒤 `build-start` 없이 `wait_review` 로 멈추고(`orch/design.md`
+「설계만 멈춤」), `build` 는 사람이 쓴 설계나 `wait_review` 의 설계에서 시작한다(`orch/start.md` 「구현부터」). `full` 이 아니면
+state.json `prepare` 를 쓸 때 `scope` 를 함께 적는다(`orch/claim.md`).
+```
+
+바꿀 문구:
+
+```text
+`--scope design|build|full` 은 정식 실행의 시작점과 멈춤점만 바꾼다. 다른 값이거나 `--only` 와 함께 오면 사용법을 알리고 멈춘다.
+범위를 정하는 규칙(서버 판단·`claim_scope`·옛 서버)은 `orch/start.md` 「서버 판단」, `design` 의 멈춤은 `orch/design.md` 「설계만 멈춤」,
+`build` 의 시작은 같은 파일의 「설계 받기」 다.
+```
+
+글자 수를 확인한다:
+
+```bash
+node -e 'const s=require("fs").readFileSync(".claude/skills/dflow-dev/SKILL.md","utf8"); console.log([...s].length)'
+```
+
+Expected: `8870`(9,000 이하면 통과. 다르면 옮긴 문구를 다시 대조한다).
+
+- [ ] **Step 4: `orch/start.md` — 서버 판단·이어받기·승인된 설계·구현자동 착수**
+
+**A1** — 아래 줄 바로 뒤에 더한다.
+
+```text
+   이 머지도 `/dflow-merge` SKILL.md 4번 절차다 — Phase 01-가 가 `SWEEP_NONE` 으로 건너뛰어 아직 읽지 않았으면 먼저 읽는다.
+```
+
+더할 문구:
+
+```text
+
+   **서버 판단(계약 2.11)** — `dflow.sh contract-ge 2.11` 이 exit 0 이면 show 응답 `.order` 의 서버 판단으로 먼저 가른다. 칸은
+   `action`(`full`·`design`·`build`·`wait`·`skip`)·`action_reason`·`mine`·`design_mode`·`design_state`(`review`·`accepted`·없음)·
+   `claim_scope`·`runner`·`runner_seen_at` 이다. claimed 주문의 `mine` 은 "같은 신원이고 이 PC 가 돌려도 된다" 는 뜻이다(`dflow.sh show`
+   가 이 세션의 라벨을 보낸다). 계약 2.11 이 아니면(옛 서버) 이 문단을 건너뛰고 종전대로 하되, 범위 `design`·`build` 는 쓸 수 없다 —
+   `"{TSK} 범위 design·build 는 계약 2.11 서버가 필요합니다"` 로 알리고 끝낸다.
+   - ready: 범위는 `--scope` 가 있으면 그 값이다(팀장은 늘 넘긴다). 없으면 `action` 이 `full`·`design`·`build` 일 때 그 값이다.
+     `action` 이 `wait`·`skip` 이면 착수하지 않고 `"{TSK} 지금은 할 일이 없다 — <action_reason>"` 으로 알리고 끝낸다. 범위가 작업과
+     맞는지는 서버가 claim 때 다시 본다(exit 11 — `orch/claim.md`).
+   - claimed: `mine` 이 거짓이면 이어 가지 않는다 — `"{TSK} 다른 PC 도는 중 — <runner>, 마지막 신호 <runner_seen_at>"` 으로 알리고
+     끝낸다. 그 PC 가 30분 넘게 조용하면 `mine` 이 참이 되어 이어받을 수 있다. `mine` 이 참인데 `runner` 가 이 세션 라벨과 다른 PC 면
+     "원래 PC 의 세션이 살아 있으면 먼저 끄세요" 를 한 줄 알리고 이어 간다. `design_state` 가 `review` 면 이어 가지 않는다 —
+     `"{TSK} 설계 검토 대기 — 「설계 승인」을 누르면 이어 간다"` 로 알리고 끝낸다.
+   - claimed 의 범위는 서버 `claim_scope` 로 정한다: `design` → `design`, `build` → `build`, 그 밖(`full`·`legacy`·없음) → `full`.
+     수동 `--scope` 는 무시하고 그 사실을 한 줄 남긴다. state.json `scope` 가 다르면 이 값으로 고쳐 쓴다(다음 커밋에 실린다).
+   - 재개하는 state.json `phase` 가 `build`·`verify`·`refactor` 면 그 단계로 가기 전에 `dflow.sh build-start <ref> --scope <범위>` 를 먼저
+     부른다. 이미 구현 중이라 단계는 그대로이고, 도는 PC(`runner`)를 이 PC 로 넘겨받는다. 결과는 `orch/design.md` 「Design 게이트」 의
+     표대로 가르고, exit 0 이면 그 단계로 이어 간다.
+```
+
+**A2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+   반려면 `orch/rework.md` 를 읽고 그대로 한다.
+```
+
+더할 문구:
+
+```text
+
+   **끝나지 않은 설계 멈춤 이어받기(계약 2.11)** — 서버 `status=claimed`·`mine=true` 인데 이 작업의 agent 브랜치(아래 「설계 선행 재개」
+   와 같은 곳) tip 의 state.json 이 `wait_review` 이고 서버 `design_state` 가 없거나, `wait_pred` 이고 서버 단계(`.order.item.stage`)가
+   `ds` 면 멈춤이 서버에 닿지 않은 것이다(push 뒤 `design-done` 전에 끊겼다). claim·격리를 하지 않고 멈춤의 남은 두 걸음을 마저 한다.
+   1. `git fetch origin` 뒤 로컬 agent 브랜치를 origin 과 견준다(로컬에 없으면 `orch/design-first.md` 「3」 0 처럼 origin 에서 만든다).
+      로컬이 앞서 있으면 `git push origin <agent 브랜치>` 한다. origin 이 앞서거나 같으면 push 하지 않는다. 갈라졌으면 이어 가지 않고
+      두 끝의 sha 를 적어 알리고 끝낸다. fetch·push 가 실패하면 그 사실을 알리고 끝낸다(다시 돌리면 여기부터 이어 간다).
+   2. `dflow.sh design-done <ref>` 를 부른다. 실패하면(exit 6) 그 사실을 알리고 끝낸다(다시 돌리면 이어 간다). `wait_review` 였으면
+      출력의 설계 상태가 `review` 일 때 위 「서버 판단」 의 설계 검토 대기처럼 알리고 끝낸다. `review` 가 아니면(2.10 설계만 잔재가
+      완전자동 작업에 남았다) `"{TSK} 설계만으로 멈춘 작업인데 서버에 설계 검토 대기가 없습니다 — 작업의 설계 방식을 확인하세요"` 로
+      알리고 끝낸다. `wait_pred` 였으면 아래 「설계 선행 재개」 로 간다.
+```
+
+**A3** — 아래 원문을 바꾼다.
+
+```text
+   **설계 검토 대기** — 위와 같은 조건에서 그 브랜치 tip 의 state.json 이 `phase=wait_review`(설계만으로 멈춤)면 claim·격리를 하지 않는다.
+   범위가 `build` 가 아니면 이어 가지 않는다 — supervised 는 `"{TSK} 설계 검토 대기 — design.md 를 검토한 뒤 /dflow-dev {TSK} --scope build
+   로 이어 간다"` 로 알리고 끝낸다. 범위가 `build` 면 `orch/design-first.md` 「3」 재개를 그대로 타되 다섯이 다르다:
+   - 「3」 0 의 switch 대신 **사람이 고친 설계를 받아 온다.** 사람은 검토하며 design.md 를 고쳐 origin 에 올린다. `git fetch origin` 뒤
+     로컬 `agent/<주문id8>-*` 가 없으면 「3」 0 그대로 origin 에서 만든다. 있으면 그 브랜치로 switch 하고, 로컬이 origin 의 조상이면
+     `git merge --ff-only origin/<그 브랜치>` 로 맞추고, origin 이 로컬의 조상이면 그대로 둔다. 둘 다 아니면(갈라짐) 이어 가지 않고
+     두 끝의 sha 를 적어 보고하고 멈춘다(`phase` 는 `wait_review` 그대로).
+   - 받아 온 **바로 뒤, 아무것도 커밋하기 전에 Design 게이트를 다시 돈다** — 사람이 검토하며 design.md 를 고쳤을 수 있다. 통과하지
+     못하면 빠진 절을 적어 보고하고 멈춘다(`phase` 는 `wait_review` 그대로, 커밋 없음).
+   - state.json `scope` 를 `build` 로 바꾼다(다음 커밋에 실린다). `design` 이 남으면 인자 없이 다시 돌리거나 검토 모드로 Design 을 다시
+     띄울 때 또 설계만 하고 멈춘다.
+   - 「3」 5(선행 계약 재확인)는 design.md 에 `## 선행 기준` 절이 있을 때만 한다. 설계만으로 만든 설계는 선행이 충족된 채 설계했으면 이
+     절이 없고, 그때는 바뀐 파일이 없는 것으로 본다.
+   - 3 의 1 에서 선행이 미충족이라 다시 멈추면, 멈춤 절차 4·5 전에 state.json `phase` 를 `wait_pred` 로 바꿔 파일명을 명시해 커밋하고
+     push 한다. 검토는 끝났고 이제 선행만 기다리므로 선행이 풀리면 팀장이 자동으로 이어 가는 것이 맞다.
+```
+
+바꿀 문구:
+
+```text
+   **승인된 설계 이어 가기(계약 2.11)** — 서버 `claim_scope=build`(「설계 승인」 된 설계 검토 작업)이고 agent 브랜치 tip 의 state.json 이
+   `wait_review` 면 claim·격리를 하지 않고 `orch/design-first.md` 「3」 재개를 그대로 타되 셋이 다르다. tip 이 `wait_pred` 인 승인된
+   설계(구현을 시작할 때 선행이 되돌아가 멈춘 작업)는 위 「설계 선행 재개」 로 가되 아래 첫째를 같게 한다.
+   - 「3」 0 의 switch 뒤, 1 전에 `orch/design.md` 「설계 받기」 를 한다 — 사람이 검토하며 고쳐 push 한 설계를 받아 오고 Design 게이트를
+     다시 돈다. 게이트가 불통이면 그 절대로 끝난다.
+   - state.json `scope` 를 `build` 로 바꾼다(다음 커밋에 실린다).
+   - 「3」 5(선행 계약 재확인)는 design.md 에 `## 선행 기준` 절이 있을 때만 한다. 선행이 충족된 채 설계했으면 이 절이 없고, 그때는 바뀐
+     파일이 없는 것으로 본다.
+```
+
+**A4** — 아래 원문을 바꾼다.
+
+```text
+### 구현부터 (`--scope build`)
+
+ready 갈래에서 범위가 `build` 면 **claim 전에** 사람이 쓴 설계를 확인한다(개발자동 — 설계는 사람, 구현은 에이전트).
+1. `git fetch origin` 뒤 `git show origin/<기본브랜치>:<TASKS>/<TSK>/design.md` 로 읽는다(`<TASKS>/<TSK>` 는 `dflow.sh taskdir <ref>`). 없으면
+   착수하지 않고 "설계 문서 없음" 으로 보고한다.
+2. SKILL.md 「게이트 집행 원칙」 의 Design 게이트 최소 구조 5절이 모두 있는지 본다. 빠진 절이 있으면 착수하지 않고 빠진 절을 적어
+   보고한다. **빠진 절을 스스로 채우지 않는다** — 이 범위의 전제는 사람이 설계한다는 것이다.
+3. 통과하면 종전대로 `orch/base.md` → `orch/claim.md` 로 간다. design.md 가 든 그 폴더는 재claim 격리 대상이 아니다(`orch/claim.md`).
+   Design 단계에서는 Design 서브에이전트를 띄우지 않고 곧바로 Design 게이트를 돈다(`orch/design.md`).
+<!-- worker:begin -->
+`--worker` 면 보고 대신 `.result` 를 쓰고 끝낸다: 1 은 `skipped design_missing`, 2 는 `skipped design_invalid <빠진 절>`, 「설계 검토
+대기」 에서 범위가 `build` 가 아니면 `design_review`, 갈라짐이면 `failed diverged <로컬 sha> <origin sha>`(형식 정본은 worker-prompt.md).
+<!-- worker:end -->
+```
+
+바꿀 문구:
+
+```text
+### 구현자동 착수 (ready, 범위 `build`)
+
+ready 갈래에서 범위가 `build` 면 사람이 「설계 확정」 한 구현자동 작업이다(서버 `design_state=accepted`, 단계 `dd`). 착수 가능 판정과
+claim 은 종전대로 `orch/base.md` → `orch/claim.md` 로 한다(claim 은 `--scope build`). agent 브랜치에 올라선 뒤 Design 단계에서는 Design
+서브에이전트를 띄우지 않고 `orch/design.md` 「설계 받기」 로 개발 브랜치의 사람 설계를 받아 곧바로 Design 게이트를 돈다. 확정되지 않은
+작업이면 서버가 claim 을 거부한다(exit 11 — `orch/claim.md`).
+<!-- worker:begin -->
+`--worker` 면 이 파일에서 알리고 끝나는 자리(「서버 판단」·「끝나지 않은 설계 멈춤 이어받기」·「승인된 설계 이어 가기」)마다 알림 대신
+worker-mode.md 「설계 상태의 결과 줄」 의 줄을 `.result` 에 쓰고 끝낸다(형식 정본은 worker-prompt.md).
+<!-- worker:end -->
+```
+
+**A5** — 아래 원문을 바꾼다.
+
+```text
+**다음 단계**: ready 는 `orch/base.md` → `orch/claim.md`, 반려는 `orch/rework.md`, 설계 선행 재개는 `orch/design-first.md` 「3」, 그 밖의 재개는 state.json `phase` 의 단계 지도 행.
+```
+
+바꿀 문구:
+
+```text
+**다음 단계**: ready 는 `orch/base.md` → `orch/claim.md`, 반려는 `orch/rework.md`, 설계 선행 재개·승인된 설계 이어 가기는 `orch/design-first.md` 「3」(범위 `build` 는 그 0 뒤 `orch/design.md` 「설계 받기」), 그 밖의 재개는 state.json `phase` 의 단계 지도 행(구현 중이면 먼저 `build-start` — 「서버 판단」).
+```
+
+- [ ] **Step 5: `orch/claim.md` — 사람 설계 초안 확인·범위·scope 기록**
+
+**C1** — 아래 원문을 바꾼다.
+
+```text
+  **구현부터(`--scope build`)의 설계 폴더도 예외다** — 위 scaffold 예외의 「`state.json` 하나만」 조건과 무관하다. 사람이 쓴 design.md 가 든 폴더는 입력이다. 옮기지 않고, state.json 이 있으면
+  `order`·`api_base` 를 이번 claim 값으로 덮어쓴다(없으면 `prepare` 쓰기에서 만든다).
+```
+
+바꿀 문구:
+
+```text
+  **범위 `build`(구현자동)의 설계 폴더도 예외다** — 위 scaffold 예외의 「`state.json` 하나만」 조건과 무관하다. 사람이 「설계 확정」 한
+  design.md 가 든 폴더는 입력이다. 옮기지 않고, state.json 이 있으면 `order`·`api_base` 를 이번 claim 값으로 덮어쓴다(없으면 `prepare`
+  쓰기에서 만든다).
+```
+
+**C2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+     워커는 `.result` 에 `failed project <메시지>` 를 쓴다.
+```
+
+더할 문구:
+
+```text
+   - **사람 설계 초안 확인(계약 2.11, 범위 `design`·`full`)**: 기점 이동에서 받은 origin 으로
+     `git cat-file -e origin/<기본브랜치>:<TASKS>/<TSK>/design.md` 를 본다(`<TASKS>/<TSK>` 는 `dflow.sh taskdir <ref>`). exit 0 이면 개발
+     브랜치에 사람이 쓴 설계 초안이 있다 — claim 하지 않고 원래 위치로 돌아가 `"{TSK} 사람 설계 초안 있음 — 방식을 구현자동으로 바꾸거나
+     초안을 지우세요"` 로 알린다(에이전트 설계가 초안을 옮기거나 덮지 않게). 범위 `build` 는 이 확인을 하지 않는다 — 그 design.md 가 입력이다.
+```
+
+**C3** — 아래 줄 바로 뒤에 더한다.
+
+```text
+     착수하기 전에는 다시 해도 같다) — 원래 위치로 돌아가 "선행 <ref:stage…> 이 구현 전이라 설계 선행 불가" 로 보고한다.
+```
+
+더할 문구:
+
+```text
+   - **범위(계약 2.11)**: `dflow.sh contract-ge 2.11` 이 exit 0 이면 위 명령 끝에 `--scope <범위>`(`orch/start.md` 「서버 판단」)를
+     붙인다. 출력의 `CLAIM_SCOPE <범위>` 줄이 서버가 저장한 범위다 — 아래 3번의 `prepare` 쓰기에서 state.json `scope` 로 적는다. exit 11
+     (stderr 끝줄 `DESIGN_GATE <code>`)이면 설계 관문 거부다 — 아래 재시도를 하지 않고 원래 위치로 돌아가
+     `"{TSK} 설계 관문 거부(<code>) — 작업의 설계 방식·상태를 확인하세요"` 로 알린다.
+```
+
+**C4** — 아래 원문을 바꾼다.
+
+```text
+   - 범위가 `full` 이 아니면(SKILL.md 「실행 범위」) 같은 쓰기에서 `scope`(`design`|`build`)를 함께 적는다.
+```
+
+바꿀 문구:
+
+```text
+   - 같은 쓰기에서 `scope` 를 적는다 — claim 출력의 `CLAIM_SCOPE` 값이고, 그 줄이 없으면(옛 서버) 범위(`orch/start.md` 「서버 판단」)다.
+```
+
+- [ ] **Step 6: `orch/design.md` — 설계 받기·범위·결과 표·설계만 멈춤·설계 고정**
+
+**D1** — 아래 줄 바로 앞에 더한다.
+
+```text
+### Design 게이트
+```
+
+더할 문구:
+
+```text
+### 설계 받기 (범위 `build`, 계약 2.11)
+
+범위가 `build` 면 Design 게이트 전에 승인·확정된 설계를 받아 온다. 먼저 `git fetch origin` 한다 — 실패하면 되돌리지 않고 그 사실을
+알리고 끝낸다(다시 돌리면 이어 간다). 그다음 서버 `design_mode`(show 의 `.order.design_mode`)로 가른다.
+- `review`(「설계 승인」): 사람이 검토하며 고친 설계는 원격 agent 브랜치에 있다. 로컬 agent 브랜치가 origin 의 조상이면
+  `git merge --ff-only origin/<그 브랜치>` 로 맞추고, origin 이 로컬의 조상이면 그대로 둔다. 둘 다 아니면(갈라짐) 이어 가지 않고 두 끝의
+  sha 를 적어 알리고 끝낸다. 원격 agent 브랜치가 없으면(승인 뒤 머지·정리됐다) 아래 `human` 처럼 개발 브랜치의 design.md 를 받는다.
+- `human`(「설계 확정」): 설계 원본은 개발 브랜치다. `git show origin/<기본브랜치>:<TASKS>/<TSK>/design.md` 로 받아 워크트리의 같은 파일에
+  덮어쓰고, 바뀌었으면 그 파일만 파일명을 명시해 커밋한다(`DFlow-Order` 트레일러). 같은 주문의 옛 agent 브랜치에 남은 옛 사본으로 게이트가
+  되풀이해 실패하지 않게 한다. 개발 브랜치에 그 파일이 없으면 아래 게이트 불통과 같게 다룬다(빠진 것은 `design.md 없음`).
+
+받아 온 바로 뒤, 다른 것을 커밋하기 전에 아래 Design 게이트를 돈다. 불통이면 빠진 절을 적어
+`dflow.sh design-reopen <ref> --reason "<빠진 절>"` 을 부르고 알린 뒤 끝낸다 — 서버가 review 는 설계 검토 대기로, human 은 사람 설계
+대기로 되돌리고 사유를 화면에 보인다. 빠진 절을 스스로 채우지 않는다(설계는 사람이 고친다).
+
+```
+
+**D2** — 아래 원문을 바꾼다.
+
+```text
+범위가 `build` 면(`orch/start.md` 「구현부터」·「설계 검토 대기」) Design 서브에이전트를 띄우지 않는다 — 이미 있는 design.md 로 곧바로
+Design 게이트를 돈다. 게이트가 통과하면 design.md 를 새로 커밋할 것은 없다(개발 브랜치나 agent 브랜치에 이미 있다).
+```
+
+바꿀 문구:
+
+```text
+범위가 `build` 면(`orch/start.md` 「구현자동 착수」·「승인된 설계 이어 가기」, `orch/rework.md`) Design 서브에이전트를 띄우지 않는다 — 위
+「설계 받기」 로 승인·확정된 설계를 받아 곧바로 Design 게이트를 돈다. 게이트가 통과하면 design.md 를 새로 커밋할 것은 없다(human 의
+덮어쓰기 커밋은 「설계 받기」 가 이미 했다).
+```
+
+**D3** — 아래 줄 바로 뒤에 더한다.
+
+```text
+     멈춤 절차는 「설계 선행」 2.
+```
+
+더할 문구:
+
+```text
+   - **범위를 붙인다(계약 2.11)**: `dflow.sh contract-ge 2.11` 이 exit 0 이면 위 호출은 `dflow.sh build-start <ref> --scope <범위>` 다.
+     범위는 state.json `scope`(`full`·`build`)이고, 반려 재작업(`orch/rework.md`)이면 방식과 무관하게 `rework` 다. 범위 `design` 은
+     build-start 를 부르지 않는다(아래 「설계만 멈춤」).
+```
+
+**D4** — 아래 줄 바로 앞에 더한다.
+
+```text
+   | 그 밖 | Build 로 가지 않고 중단·보고한다. `phase` 는 `design` 그대로라 재실행하면 Design 게이트 뒤에서 다시 부른다. 워커는 `failed build-start <exit>` |
+```
+
+더할 문구:
+
+```text
+   | exit 11 + stderr 끝줄 `DESIGN_GATE design_gate order_changed` | 그 사이 사람이 설계를 되돌렸거나 주문이 바뀌었다. Build 로 가지 않고 `"{TSK} 주문이 바뀌어 구현을 시작하지 않았습니다 — 다시 확정되면 새로 시작합니다"` 로 알리고 끝낸다 |
+   | 그 밖의 exit 11(`DESIGN_GATE <code>`) | 설계 관문 거부다. Build 로 가지 않고 `"{TSK} 설계 관문 거부(<code>)"` 로 알리고 끝낸다(`phase` 는 그대로) |
+   | exit 12(`RUNNER_ACTIVE <runner>`) | 다른 PC 가 이 작업을 돌리는 중이다. state.json 을 바꾸지 않고 push·done 없이 `"{TSK} 다른 PC 도는 중 — <runner>"` 로 알리고 끝낸다 |
+```
+
+**D5** — 아래 원문을 바꾼다.
+
+```text
+### 설계만 멈춤 (`--scope design`)
+
+범위가 `design` 이면 Design 게이트가 통과한 뒤 `build-start` 를 **부르지 않는다**(부르면 서버 단계가 `ip` 로 넘어간다). 모듈 기준선도
+재지 않는다. 대신 이 순서로 멈춘다.
+1. design.md 커밋을 확인한다(없으면 파일명 명시 커밋).
+2. state.json `phase` 를 `wait_review` 로 쓰고 파일명을 명시해 커밋한다(`DFlow-Order` 트레일러). 그 다음 `progress 25 "설계 완료(검토 대기)"`
+   를 보낸다.
+3. `git push origin <agent 브랜치>` 로 설계를 원격에 남긴다(사람의 검토와 다른 PC·새 워크트리의 재개가 그 브랜치를 쓴다). 훅에 거부되면
+   우회하지 않고 보고한다.
+4. `dflow.sh heartbeat <ref> --phase wait_review` 를 부른다. 실패해도(계약 2.10 전 서버는 400) 멈춤을 계속한다 — 좌석 이름표만 틀리고,
+   이어 갈지는 로컬 state.json 으로 판정한다.
+5. supervised 는 `"{TSK} 설계 완료·검토 대기 — design.md 를 검토·수정한 뒤 /dflow-dev {TSK} --scope build 로 이어 간다"` 로 알리고 끝낸다.
+
+design.md 의 `## 담당자 확인 필요 결정` 절은 이 멈춤에서 서버로 넘기지 않는다 — 사람이 검토하며 design.md 에서 바로 답하고, `--scope build`
+로 이어 가 마감(`orch/close.md`)에서 `decisions.json` 으로 넘긴다. 미충족 선행이 있어도 같다(claim 이 설계 선행 모드였으면 `design_first.unmet` 이 이미 적혀 있다). 선행 판정은 `--scope build` 로 이어 갈
+때 `orch/design-first.md` 「3」 이 한다. `wait_pred` 를 쓰지 않는 이유: 팀장은 선행이 풀린 `wait_pred` 워크트리를 자동으로 Build 로
+재개한다 — 사람이 검토하기 전에 구현이 시작되면 안 된다.
+<!-- worker:begin -->
+`--worker` 면 5 대신 `.result` 에 `{TSK} {ID8} <branch> <head_sha> - design_review` 를 쓰고 끝낸다(형식 정본은 worker-prompt.md).
+<!-- worker:end -->
+```
+
+바꿀 문구:
+
+```text
+### 설계만 멈춤 (`--scope design`)
+
+범위가 `design` 이면 Design 게이트가 통과한 뒤 `build-start` 를 **부르지 않는다**(부르면 서버 단계가 `ip` 로 넘어간다). 모듈 기준선도
+재지 않는다. 대신 이 순서로 멈춘다(범위 `design` 은 계약 2.11 서버에서만 온다 — `orch/start.md` 「서버 판단」).
+1. design.md 커밋을 확인한다(없으면 파일명 명시 커밋).
+2. state.json `phase` 를 `wait_review` 로 쓰고 파일명을 명시해 커밋한다(`DFlow-Order` 트레일러). 그 다음 `progress 25 "설계 완료(검토 대기)"`
+   를 보낸다.
+3. `git push origin <agent 브랜치>` 로 설계를 원격에 남긴다(사람의 검토와 이어받기가 그 브랜치를 쓴다). 훅에 거부되면 우회하지 않고
+   보고한다. 그 밖의 이유로 실패하면 4 를 하지 않고 그 사실을 알리고 끝낸다 — 다시 돌리면 `orch/start.md` 「끝나지 않은 설계 멈춤
+   이어받기」 가 마저 한다.
+4. `dflow.sh design-done <ref>` 를 부른다. 서버가 단계를 `dd`, 설계 상태를 `review` 로 두고 도는 PC 를 비운다(좌석은 「설계 검토 대기」).
+   exit 6(네트워크)이면 멈춤을 계속한다(다시 돌리면 이어받기가 마저 한다). exit 11 이면 서버가 거부한 것이다 — 그 코드를 적어 보고하고
+   끝낸다.
+5. supervised 는 `"{TSK} 설계 완료·검토 대기 — agent 브랜치의 design.md 를 검토·수정해 push 한 뒤 「설계 승인」을 누르면 팀장이 이어 간다
+   (팀장이 없으면 /dflow-dev {TSK})"` 로 알리고 끝낸다.
+
+design.md 의 `## 담당자 확인 필요 결정` 절은 이 멈춤에서 서버로 넘기지 않는다 — 사람이 검토하며 design.md 에서 바로 답하고, 승인 뒤
+구현을 마치는 마감(`orch/close.md`)에서 `decisions.json` 으로 넘긴다. 미충족 선행이 있어도 같다(claim 이 설계 선행 모드였으면
+`design_first.unmet` 이 이미 적혀 있다). 선행 판정은 승인 뒤 이어 갈 때 `orch/design-first.md` 「3」 이 한다. `wait_pred` 를 쓰지 않는
+이유: 팀장은 선행이 풀린 `wait_pred` 워크트리를 자동으로 Build 로
+재개한다 — 사람이 검토하기 전에 구현이 시작되면 안 된다.
+<!-- worker:begin -->
+`--worker` 면 이 파일에서 알리고 끝나는 자리(「설계 받기」·「Design 게이트」 표의 exit 11·12·「설계만 멈춤」 3~5·「승인된 설계 고정」)마다
+알림 대신 worker-mode.md 「설계 상태의 결과 줄」 의 줄을 `.result` 에 쓰고 끝낸다(형식 정본은 worker-prompt.md).
+<!-- worker:end -->
+```
+
+**D6** — 아래 줄 바로 앞에 더한다.
+
+```text
+**다음 단계**: 범위 `design` 이면 여기서 끝난다. 아니면 `build-start` exit 0 이면 `orch/build.md`, exit 4 면 `orch/design-first.md` 「2」.
+```
+
+더할 문구:
+
+```text
+### 승인된 설계 고정 (D24, 계약 2.11)
+
+서버 `design_state=accepted`(「설계 승인」·「설계 확정」)이고 단계가 `ip` 이상이면 설계는 고정이다. design.md 의 설계 내용을 고치지
+않는다. 게이트가 적는 기록 절(`## 담당자 확인 필요 결정`·`## 도커 금지로 생략한 검증`)만 예외다. 재개 판정(SKILL.md 상태 모델의 산출물
+교차 확인)이 design.md 가 없거나 5절이 모자라 Design 으로 후퇴하려 하면 후퇴하지 않고 `"{TSK} 설계 게이트 불통(구현 중) — 사람이 설계를
+고친 뒤 --resume 하세요"` 로 알리고 끝낸다. 완전자동(설계 상태 없음)은 반려 재작업에서도 종전대로 설계부터 다시 판단한다.
+
+```
+
+- [ ] **Step 7: `orch/design-first.md`·`orch/rework.md`·`orch/close.md`**
+
+F 는 `design-first.md`, R 은 `rework.md`, K 는 `close.md` 다.
+
+**F1** — 아래 줄 바로 뒤에 더한다.
+
+```text
+        `git ls-tree --name-only <브랜치> <TASKS>/<선행TSK>/` 가 비지 않는 것의 이름과 tip sha 를 적는다.
+```
+
+더할 문구:
+
+```text
+        원격 agent 브랜치에 없으면 개발 브랜치를 본다 — `git cat-file -e origin/<기본브랜치>:<TASKS>/<선행TSK>/design.md` 가 exit 0 이면
+        그 경로와 `origin/<기본브랜치>` tip sha 를 적는다(선행이 구현자동이면 사람 설계가 개발 브랜치에 있다).
+```
+
+**F2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+   3. `git push origin <agent 브랜치>` 로 설계를 원격에 남긴다(다른 PC·새 워크트리가 이어받는다). 훅에 거부되면 우회하지 않고 보고한다.
+```
+
+더할 문구:
+
+```text
+      그 밖의 이유로 실패하면 4·5 를 하지 않고 그 사실을 알리고 끝낸다 — 다시 돌리면 이어 간다(계약 2.11 은 `orch/start.md` 「끝나지 않은
+      설계 멈춤 이어받기」 가 마저 한다).
+```
+
+**F3** — 아래 줄 바로 뒤에 더한다.
+
+```text
+      보내지 않으므로 이 한 번이 좌석을 「선행 대기」 로 바꾼다. 2번 뒤에 부른다 — 앞이면 훅의 다음 신호가 `design` 으로 덮는다.
+```
+
+더할 문구:
+
+```text
+      계약 2.11(`dflow.sh contract-ge 2.11` 이 exit 0)이면 heartbeat 대신 `dflow.sh design-done <ref>` 를 부른다. 서버가 단계를 `dd`(설계
+      완료)로 두고 좌석을 「선행 대기」 로 바꾼다(승인된 설계는 그대로다). exit 6(네트워크)이면 멈춤을 계속한다(다시 돌리면 이어받기가 마저
+      한다). exit 11 이면 서버가 거부한 것이다 — 그 코드를 적어 보고하고 끝낸다.
+```
+
+**F4** — 아래 줄 바로 뒤에 더한다.
+
+```text
+      `## 선행 기준`·바뀐 파일의 `git diff <적힌 sha>..<새 기점> -- <파일>` 요지). 어긋난 절만 고치고 Design 게이트를 다시 돈다.
+```
+
+더할 문구:
+
+```text
+      계약 2.11 에서 서버 `design_state` 가 `accepted`(승인·확정된 설계)면 방식에 따라 다르다. `design_mode=review` 는 위처럼 고친 뒤 게이트를
+      돌고 design.md 를 커밋·push 한 다음 Build 로 가지 않고 `dflow.sh design-reopen <ref> --reason "선행 계약 바뀜: <파일…>"` 을 부르고
+      끝낸다 — 사람이 다시 검토해 「설계 승인」 한다. `human` 은 design.md 를 고치지 않고 같은 사유로 design-reopen 을 부른 뒤 끝낸다 —
+      사람이 개발 브랜치의 설계를 고쳐 다시 「설계 확정」 한다. 완전자동(설계 상태 없음)만 위처럼 고친 뒤 이어 간다.
+```
+
+**R1** — 아래 줄 바로 뒤에 더한다.
+
+```text
+   - 재작업 완료 후 마감은 Phase 06 그대로(`done --auto-links`) — state 는 다시 `reported`.
+```
+
+더할 문구:
+
+```text
+   - **범위(계약 2.11)**: 서버 `claim_scope` 가 `build` 면(설계 검토·구현자동 — `orch/start.md` 「서버 판단」) Design 단계를 돌지 않고
+     승인된 설계로 구현만 고친다. 설계는 `orch/design.md` 「설계 받기」 로 받는다(review 의 원격 agent 브랜치가 이미 머지·정리됐으면 개발
+     브랜치의 design.md). 반려 사유가 설계를 바꿔야 풀리면 설계를 고치지 않고 `"{TSK} 설계 변경 필요 — <이유>"` 로 알리고 끝낸다(사람이
+     설계를 고친 뒤 다시 돌린다 — review 는 agent 브랜치에 push, human 은 개발 브랜치). 완전자동은 위처럼 설계부터 다시 판단한다.
+   - **구현 전환(계약 2.11)**: 재작업의 `build-start` 는 방식과 무관하게 `--scope rework` 다(`orch/design.md` 「Design 게이트」). 완료 보고가
+     도는 PC 를 비워 두었으므로 어느 PC 에서 돌려도 이 PC 가 넘겨받는다.
+```
+
+**R2** — 아래 원문을 바꾼다.
+
+```text
+**다음 단계**: `orch/phase-common.md` → `orch/design.md`(설계부터 다시 판단한다). 새 `agent/` 브랜치를 따야 하면 `orch/claim.md` 3번 규칙대로 딴다.
+```
+
+바꿀 문구:
+
+```text
+**다음 단계**: `orch/phase-common.md` → `orch/design.md`(완전자동은 설계부터 다시 판단하고, 범위 `build` 는 「설계 받기」 와 게이트 뒤 Build 로 간다). 새 `agent/` 브랜치를 따야 하면 `orch/claim.md` 3번 규칙대로 딴다.
+```
+
+**K1** — 아래 줄 바로 뒤에 더한다.
+
+```text
+   push 가 훅(G1~G4)에 거부되면 SKIP_GUARD 금지 — 중단하고 사람에게 보고.
+```
+
+더할 문구:
+
+```text
+   push 가 non-fast-forward 로 거부되면(원격 agent 브랜치에 사람 커밋이 있다 — 화면이 구현 중 push 를 말린다) 받아 합치지 않고
+   `"{TSK} 원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume 하세요"` 로 알리고 끝낸다. 네트워크로 실패하면 그 사실을 알리고 끝낸다(다시
+   돌리면 이어 간다).
+```
+
+**K2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+   접미사와 목록 건수가 어긋남)과 `서버가 결정 목록을 모릅니다(계약 < 2.6)`(옛 서버라 요약 접미사로만 전달)는 보고는 된 것이다.
+```
+
+더할 문구:
+
+```text
+   done 이 exit 12(stderr 끝줄 `RUNNER_ACTIVE <runner>`)면 다른 PC 가 이 작업을 넘겨받았다 — state.json 을 바꾸지 않고
+   `"{TSK} 다른 PC 도는 중 — <runner>"` 로 알리고 끝낸다. exit 11(`DESIGN_GATE <code>`)이면 서버가 완료 보고를 거부했다(설계 검토 대기이거나
+   단계가 작업 중이 아님) — 그 코드를 적어 보고하고 끝낸다.
+```
+
+- [ ] **Step 8: `worker-mode.md`·`worker-prompt.md` — 결과 줄 표와 서버 쓰기 범위**
+
+W 는 `.claude/skills/dflow-dev/references/worker-mode.md`(W3 은 파일 끝에 더한다), P 는 `.claude/skills/dflow-team/references/worker-prompt.md` 다. P5 는 한 행을 두 행으로 바꾼다.
+
+**W1** — 아래 원문을 바꾼다.
+
+```text
+- 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다. `--scope` 는 팀장이 넘긴 그대로 따른다(SKILL.md
+  「실행 범위」). 범위 때문에 끝나면 `.result` 는 `design_review`(설계만 멈춤)·`skipped design_missing`·`skipped design_invalid <빠진 절>`
+  (구현부터인데 사람 설계가 없거나 모자람)이다.
+```
+
+바꿀 문구:
+
+```text
+- 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다. 팀장이 넘긴 `--scope` 는 새 claim 의 범위이고, 이미
+  잡힌 작업은 서버 `claim_scope` 가 이긴다(`orch/start.md` 「서버 판단」). 범위·설계 상태 때문에 끝나면 아래 「설계 상태의 결과 줄」 을 쓴다.
+```
+
+**W2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+  PAT 사용자로 점유자를 가르므로 `build-start` 가 통한다.
+```
+
+더할 문구:
+
+```text
+  계약 2.11 의 도는 PC(`runner`)도 라벨의 PC 칸(`<신원>/<host>/w<n>` 의 `<host>`)으로 가르므로 같은 PC 의 다른 좌석은 막히지 않는다.
+```
+
+**W3** — 아래 줄 바로 뒤에 더한다.
+
+```text
+  무인 모드 규칙을 따르는 것이다.
+```
+
+더할 문구:
+
+```text
+
+### 설계 상태의 결과 줄(계약 2.11)
+
+단계 파일에서 알리고 끝나는 자리마다 워커는 알림 대신 이 표의 줄을 `.result` 에 쓰고 끝낸다. 형식은
+`{TSK} {ID8} <branch|-> <head_sha|-> <done_exit|-> <status> <사유>` 이고 정본은 worker-prompt.md 「7」 이다. `<head_sha>` 는 push 한
+agent 브랜치 tip 이고, push 전에 끝났으면 로컬 tip, 브랜치가 없으면 `-` 다.
+
+| 자리(단계 파일 「절」) | status | 사유 |
+|---|---|---|
+| start 「서버 판단」: ready 인데 `action` 이 `wait`·`skip` | `skipped` | `<action_reason>` |
+| start 「서버 판단」: 옛 서버(계약 < 2.11)인데 범위가 `design`·`build` | `skipped` | `계약 2.11 서버 필요` |
+| start 「서버 판단」 의 `mine` 거짓, design 「Design 게이트」 표·close 의 exit 12 | `skipped` | `다른 PC 도는 중(<runner>)` |
+| start 「서버 판단」: 설계 상태 `review` | `design_review` | `-` |
+| start 「끝나지 않은 설계 멈춤 이어받기」 2: 설계 상태 `review` | `design_review` | `-` |
+| 같은 절 2: `wait_review` 인데 설계 상태가 `review` 가 아님 | `failed` | `방식 확인 필요` |
+| 같은 절 2: design-done exit 6 | `design_review`(`wait_pred` 였으면 `design_waiting`) | `design-done 미확인` |
+| 같은 절 1·design 「설계 받기」: 브랜치 갈라짐 | `failed` | `브랜치 갈라짐 <로컬 sha> <origin sha>` |
+| fetch 실패(이어받기·「설계 받기」·rework) | `skipped` | `fetch 실패` |
+| 훅 거부가 아닌 push 실패(이어받기·「설계만 멈춤」 3·design-first 멈춤 3·close) | `skipped` | `push 실패` |
+| claim 「사람 설계 초안 확인」 | `skipped` | `사람 설계 초안 있음` |
+| claim 「범위」 의 exit 11, design 표의 그 밖의 exit 11 | `skipped` | `설계 관문(<code>)` |
+| design 「설계 받기」 게이트 불통(review), design-first 「3」 5 선행 계약 바뀜(review) | `design_review` | `<빠진 절>` 또는 `선행 계약 바뀜: <파일…>` |
+| design 「설계 받기」 게이트 불통(human), design-first 「3」 5 선행 계약 바뀜(human) | `design_reopened` | 같은 사유 |
+| design 표의 exit 11 + `order_changed` | `design_reopened` | `주문이 바뀜` |
+| design 「설계만 멈춤」 5 | `design_review` | `-` |
+| design 「설계만 멈춤」 4 의 exit 6 | `design_review` | `design-done 미확인` |
+| design 「설계만 멈춤」 4·design-first 멈춤 4 의 exit 11 | `failed` | `design-done 거부(<code>)` |
+| design-first 멈춤 4 의 exit 6(계약 2.11) | `design_waiting` | `design-done 미확인` |
+| design 「승인된 설계 고정」 | `failed` | `설계 게이트 불통(구현 중)` |
+| rework 「범위」: 설계 변경 필요 | `failed` | `설계 변경 필요 — <이유>` |
+| close: push 가 non-fast-forward 로 거부 | `failed` | `원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume` |
+| close: done 의 exit 11 | `failed` | `완료 보고 거부(<code>)` |
+
+exit 12 로 끝날 때는 state.json 을 바꾸지 않는다(다른 PC 가 이어 간다). `design_reopened` 는 주문이 사람 설계 대기로 돌아갔거나(구현자동)
+주문이 바뀐 것이다 — 팀장이 워크트리를 지운다(설계 원본은 개발 브랜치이거나 이미 push 돼 있다).
+```
+
+**P1** — 아래 원문을 바꾼다.
+
+```text
+| `{SCOPE_FLAG}` | `SCOPE` | `design` 이면 `--scope design`, `build` 면 `--scope build`, `full`·키 없음이면 빈 값(`/dflow-dev` SKILL.md 「실행 범위」) |
+```
+
+바꿀 문구:
+
+```text
+| `{SCOPE_FLAG}` | `SCOPE` | 값이 있으면 늘 `--scope <SCOPE>`(`full`·`design`·`build` — 팀장이 서버 판단 `action` 으로 정한다), 키가 없으면(옛 팀장) 빈 값. 이미 잡힌 작업은 서버 `claim_scope` 가 이긴다(`/dflow-dev` `orch/start.md` 「서버 판단」) |
+```
+
+**P2** — 아래 원문을 바꾼다.
+
+```text
+설계 선행(계약 2.9)의 `claim {ID8} --design-first`·`build-start {ID8}`·`heartbeat {ID8} --phase wait_pred` 와 설계만 멈춤(계약 2.10)의
+`heartbeat {ID8} --phase wait_review` 는 이 범위 안이다.
+```
+
+바꿀 문구:
+
+```text
+설계 선행(계약 2.9)의 `claim {ID8} --design-first`·`build-start {ID8}`·`heartbeat {ID8} --phase wait_pred`, 설계만 멈춤(계약 2.10)의
+`heartbeat {ID8} --phase wait_review`, 설계 상태(계약 2.11)의 `claim {ID8} … --scope <범위>`·`build-start {ID8} --scope <범위>`·
+`design-done {ID8}`·`design-reopen {ID8} --reason …` 은 이 범위 안이다.
+```
+
+**P3** — 아래 원문을 바꾼다.
+
+```text
+| `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재`, `design_missing`, `design_invalid <빠진 절>`(구현부터인데 사람 설계가 없거나 모자람) 중 하나. 설계 선행 claim 이 `DESIGN_FIRST_TOO_EARLY` 로 거부되면 `선행 미충족(설계 선행 불가: <ref…>)`(`<ref…>` 는 거부 본문 `unmet` 의 `external_ref` 를 공백으로 이은 것) |
+```
+
+바꿀 문구:
+
+```text
+| `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재` 중 하나. 설계 선행 claim 이 `DESIGN_FIRST_TOO_EARLY` 로 거부되면 `선행 미충족(설계 선행 불가: <ref…>)`(`<ref…>` 는 거부 본문 `unmet` 의 `external_ref` 를 공백으로 이은 것). 설계 상태(계약 2.11)의 사유 — `설계 관문(<code>)`·`다른 PC 도는 중(<runner>)`·`사람 설계 초안 있음`·`fetch 실패`·`push 실패`·`계약 2.11 서버 필요`·서버 판단의 `<action_reason>` — 은 `/dflow-dev` worker-mode.md 「설계 상태의 결과 줄」 이 정한다 |
+```
+
+**P4** — 아래 원문을 바꾼다.
+
+```text
+| `design_waiting` | 설계를 마치고 선행을 기다리며 멈춤(`/dflow-dev` 「설계 선행」 멈춤 절차 — design.md 커밋·state.json `wait_pred`·push·heartbeat `wait_pred` 뒤). 팀장은 실패로 보지 않고 워크트리를 남긴 채 좌석만 비운다 | 미충족 선행 ref 를 공백으로 이은 것. 재개했는데 기점을 정하지 못했으면 그 판정(예 `선행 승인 대기 <ref>`) |
+```
+
+바꿀 문구:
+
+```text
+| `design_waiting` | 설계를 마치고 선행을 기다리며 멈춤(`/dflow-dev` 「설계 선행」 멈춤 절차 — design.md 커밋·state.json `wait_pred`·push·heartbeat `wait_pred`(계약 2.11 은 design-done) 뒤). 팀장은 실패로 보지 않고 워크트리를 남긴 채 좌석만 비운다 | 미충족 선행 ref 를 공백으로 이은 것. 재개했는데 기점을 정하지 못했으면 그 판정(예 `선행 승인 대기 <ref>`). design-done 이 네트워크로 실패했으면 `design-done 미확인` |
+```
+
+**P5** — 아래 원문을 바꾼다.
+
+```text
+| `design_review` | 설계만(`--scope design`)으로 설계를 마치고 사람의 검토를 기다리며 멈춤(`/dflow-dev` `orch/design.md` 「설계만 멈춤」 — design.md 커밋·state.json `wait_review`·push·heartbeat `wait_review` 뒤). 또는 검토 대기 설계를 `build` 가 아닌 범위로 받았을 때 | 비운다(`-`) |
+```
+
+바꿀 문구:
+
+```text
+| `design_review` | 설계만(`--scope design`)으로 설계를 마치고 사람의 「설계 승인」을 기다리며 멈춤(`/dflow-dev` `orch/design.md` 「설계만 멈춤」 — design.md 커밋·state.json `wait_review`·push·design-done 뒤). 또는 설계 검토 대기 작업을 받았거나, 승인된 설계가 게이트·선행 계약 검사를 통과하지 못해 설계 검토 대기로 되돌렸을 때 | 비운다(`-`). design-done 이 네트워크로 실패했으면 `design-done 미확인`, 되돌렸으면 빠진 절이나 `선행 계약 바뀜: <파일…>` |
+| `design_reopened` | 구현자동 작업의 사람 설계가 게이트·선행 계약 검사를 통과하지 못해 사람 설계 대기로 되돌렸거나(design-reopen), 구현을 시작할 때 주문이 바뀌었다(build-start `order_changed`). 팀장은 실패로 보지 않고 슬롯을 풀며 워크트리를 지운다 | 빠진 절, `선행 계약 바뀜: <파일…>`, `주문이 바뀜` |
+```
+
+**P6** — 아래 원문을 바꾼다.
+
+```text
+| `failed` | 그 밖의 중단(push 훅 거부, 게이트 실패, Build 게이트·Verify 재시도 소진, 부트스트랩 실패, 권한 거부) | 자유 문구. 팀장이 구분하는 값은 첫 낱말로 쓴다: `rate-limit`(사용량 한도·rate limit 오류로 멈춤, 재시도 가능), `not-isolated`(격리 실패, 파일로는 쓰지 않는다), `no-worker-flag`(옛 `/dflow-dev`), `deps`(의존성 설치 실패), `permission`(권한 거부, 뒤에 거부된 명령의 첫 낱말들), `project`(claim 이 `PROJECT_MISMATCH` 로 거부됨. 주문이 이 리포에 바인딩된 D'Flow 프로젝트 밖이다), `not-assignee`(claim 이 `not_assignee` 로 거부됨. 다른 멤버에게 배정된 작업이다) |
+```
+
+바꿀 문구:
+
+```text
+| `failed` | 그 밖의 중단(push 훅 거부, 게이트 실패, Build 게이트·Verify 재시도 소진, 부트스트랩 실패, 권한 거부) | 자유 문구. 팀장이 구분하는 값은 첫 낱말로 쓴다: `rate-limit`(사용량 한도·rate limit 오류로 멈춤, 재시도 가능), `not-isolated`(격리 실패, 파일로는 쓰지 않는다), `no-worker-flag`(옛 `/dflow-dev`), `deps`(의존성 설치 실패), `permission`(권한 거부, 뒤에 거부된 명령의 첫 낱말들), `project`(claim 이 `PROJECT_MISMATCH` 로 거부됨. 주문이 이 리포에 바인딩된 D'Flow 프로젝트 밖이다), `not-assignee`(claim 이 `not_assignee` 로 거부됨. 다른 멤버에게 배정된 작업이다). 설계 상태(계약 2.11)의 실패 — `브랜치 갈라짐 …`·`방식 확인 필요`·`design-done 거부(<code>)`·`설계 게이트 불통(구현 중)`·`설계 변경 필요 — <이유>`·`원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume`·`완료 보고 거부(<code>)` — 는 사람이 할 일이 사유에 있다(worker-mode.md 「설계 상태의 결과 줄」) |
+```
+
+- [ ] **Step 9: 통과 확인**
+
+Run: `npx vitest run tests/skills/dflow-dev-scope.test.ts tests/skills/dflow-dev-worker.test.ts tests/skills/dflow-dev-split.test.ts tests/skills/dflow-no-docker.test.ts`
+Expected: PASS(84건)
+
+Run: `npx vitest run tests/skills`
+Expected: Task 0 기준선에 없던 실패가 없다. 전체 실행 때 흔들리는 넷(Global Constraints)이 실패하면 단독으로 다시 돌려 판정한다.
+
+- [ ] **Step 10: 커밋**
+
+```bash
+git add .claude/skills/dflow-dev/SKILL.md .claude/skills/dflow-dev/references/orch/start.md .claude/skills/dflow-dev/references/orch/claim.md \
+  .claude/skills/dflow-dev/references/orch/design.md .claude/skills/dflow-dev/references/orch/design-first.md \
+  .claude/skills/dflow-dev/references/orch/rework.md .claude/skills/dflow-dev/references/orch/close.md \
+  .claude/skills/dflow-dev/references/worker-mode.md .claude/skills/dflow-team/references/worker-prompt.md \
+  tests/skills/dflow-dev-scope.test.ts tests/skills/dflow-dev-worker.test.ts tests/skills/dflow-no-docker.test.ts
+git commit -m "feat(dflow-dev): 워커가 서버 판단(action·mine·claim_scope)을 따르고 설계를 받아 구현한다(계약 2.11)
+
+설계만 멈춤은 design-done 으로 서버에 닿고, 승인·확정된 설계는 설계 받기와 게이트 뒤 구현한다.
+끝나지 않은 멈춤은 이어받아 마저 하고, 새 결과 줄은 worker-mode.md 표 하나에 모은다. 옛 서버는 종전대로 돌되 design·build 범위를 막는다.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
