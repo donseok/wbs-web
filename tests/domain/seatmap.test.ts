@@ -614,6 +614,16 @@ describe('assembleSeatmap — 설계 문구(설계 상태 스펙 3절 화면 판
     expect(later.counters).toMatchObject({ idle: 0, offline: 1 })
     expect(later.floors[0].zones[0].summary).toMatchObject({ wait: 0, ready: 1 })
   })
+  it('runner 가 있어도 heartbeat 가 죽었으면(prepare 중 죽어 build-start 전) 3행 문구에 「도는 중」을 붙이지 않는다 — 좌석은 끊김(OFFLINE)인데 문구만 "돈다"고 말하면 안 된다(리뷰 수정 1회차 I-1)', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ design_state: 'accepted', runner: 'kim/pc2/w1', heartbeat_phase: 'prepare', last_heartbeat_at: ago(OFFLINE_MS + 1), updated_at: ago(OFFLINE_MS + 1) })],
+      items: [item()],
+    }), NOW)
+    const s = seatOf(m)
+    expect(s.state).toBe('OFFLINE')
+    expect(s.design?.label).toBe('구현 대기(설계 승인됨)')
+    expect(s.design?.label).not.toContain('도는 중')
+  })
   it('선행이 설계 완료·작업 중뿐이면 승인된 설계는 2행, 확정된 사람 설계는 「설계 확정됨」', () => {
     const base = { predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'ip', order_approved: false }] }
     const review = assembleSeatmap(rows({ ...base,

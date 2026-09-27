@@ -336,9 +336,13 @@ describe('designScreen — 3절 판정표(12절 L2·L14, P8)', () => {
     const r = row({ stage: 'dd', mode: 'review' }, { status: 'claimed', designState: 'review', designNote: '절 누락' })
     expect(r).toMatchObject({ note: '절 누락', buttons: ['accept'] })
   })
-  it('3행은 다른 PC 가 돌면 라벨을 붙인다', () => {
-    expect(row({ stage: 'dd', mode: 'review' }, { status: 'claimed', designState: 'accepted', runner: 'kim/pc2/w1' })?.label)
+  it('3행은 다른 PC 가 살아서 돌면 라벨을 붙인다(workerAlive)', () => {
+    expect(row({ stage: 'dd', mode: 'review' }, { status: 'claimed', designState: 'accepted', runner: 'kim/pc2/w1', lastHeartbeatAt: ago(1), heartbeatPhase: 'build' })?.label)
       .toBe('구현 대기(설계 승인됨) · kim/pc2/w1 가 도는 중')
+  })
+  it('3행은 runner 가 있어도 heartbeat 가 죽었으면(prepare 중 죽어 build-start 전) 꼬리를 붙이지 않는다 — 확인 필요 띠(끊김)·허브(무응답)와 반대로 말하지 않는다', () => {
+    expect(row({ stage: 'dd', mode: 'review' }, { status: 'claimed', designState: 'accepted', runner: 'kim/pc2/w1', lastHeartbeatAt: ago(10), heartbeatPhase: 'prepare' })?.label)
+      .toBe('구현 대기(설계 승인됨)')
   })
   it('5행 재작업 대기는 살아 있는 heartbeat 가 없을 때만(L2)', () => {
     expect(row({ stage: 'ip' }, { status: 'claimed' }, 'reject')?.row).toBe(5)

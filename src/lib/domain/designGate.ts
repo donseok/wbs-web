@@ -323,11 +323,13 @@ export function designScreen(p: {
     return r(1, '설계 검토 대기', 'agent 브랜치의 <TASKS>/<TSK>/design.md 를 검토하고, 고쳤으면 push 한 뒤 「설계 승인」을 누르세요.', active.designNote)
   }
   if (ds === 'accepted' && item.stage === 'dd' && item.preds !== 'met') return r(2, `선행 대기(설계 ${which}됨)`, null)
+  const alive = active !== null && workerAlive(active, p.nowMs)
   if (ds === 'accepted' && item.stage === 'dd') {
-    const who = active?.runner ? ` · ${active.runner} 가 도는 중` : ''
+    // 죽은 구현 워커(runner 는 남았지만 heartbeat 가 끊김)까지 "도는 중"이라 하면 확인 필요 띠(끊김)·허브(무응답)와
+    // 반대로 말한다 — 살아 있을 때만(workerAlive) 꼬리를 붙인다(스펙 3절 row 3 "다른 PC 가 도는 중이면").
+    const who = active?.runner && alive ? ` · ${active.runner} 가 도는 중` : ''
     return r(3, `구현 대기(설계 ${which}됨)${who}`, '팀장이 떠 있으면 다음 TICK(기본 30분) 안에 구현을 시작합니다.')
   }
-  const alive = active !== null && workerAlive(active, p.nowMs)
   if (active?.status === 'claimed' && ds === null && item.stage === 'dd') {
     return r(4, item.preds !== 'met' ? '설계 완료·선행 대기' : '설계 완료·구현 대기', null)
   }

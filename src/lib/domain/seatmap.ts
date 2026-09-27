@@ -95,8 +95,8 @@ export interface Seat {
   resumeRequestedAt: string | null
   /** 그 요청을 이어받아야 하는 PC. 그 워크트리가 있는 PC 만 실제로 복구할 수 있다. */
   resumeRequestedHost: string | null
-  /** READY(빈자리)와 설계 완료·선행 대기(claimed ∧ wait_pred)·검토 대기(claimed ∧ wait_review) 좌석만 값 — 왜 아직
-   *  안 집어갔는지·왜 멈췄는지(스펙 2026-09-14 착수 대기 사유 §1, 2026-09-26 §6.4, §14.5). 나머지 상태는 null. */
+  /** READY(빈자리)와 설계 완료·선행 대기(claimed ∧ wait_pred)·검토 대기(claimed ∧ 설계 상태 review) 좌석만 값 — 왜 아직
+   *  안 집어갔는지·왜 멈췄는지(스펙 2026-09-14 착수 대기 사유 §1, 2026-09-26 §6.4, 설계 상태 스펙 3절 1행). 나머지 상태는 null. */
   waitReason: WaitReason | null
   /** 관리자이거나 이 항목의 서브트리 관리자 — 승인·중단 어포던스. 서버 가드
    *  requireSubtreeManagerOrAdmin(agent/subtreeManager.ts)과 같은 축이다. 재료가 없으면 false(fail-closed). */

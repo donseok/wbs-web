@@ -18,7 +18,7 @@ export const STATE_LABEL: Record<HubOrderState, string> = {
 /** 설계 완료·선행 대기(claimed ∧ heartbeat wait_pred, 스펙 2026-09-26 §6.4) — 좌석 상태는 WAIT 지만 승인 대기가 아니다. */
 export const DESIGN_WAIT_LABEL = '선행 대기'
 export const DESIGN_WAIT_TONE = 'bg-pending-weak text-pending'
-/** 설계 완료·검토 대기(claimed ∧ heartbeat wait_review, 스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5) —
+/** 설계 검토 대기(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행) —
  *  DESIGN_WAIT 과 같은 축(WAIT 이지만 승인 대기가 아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). */
 export const REVIEW_WAIT_LABEL = '설계 검토 대기'
 export const REVIEW_WAIT_TONE = 'bg-pending-weak text-pending'
