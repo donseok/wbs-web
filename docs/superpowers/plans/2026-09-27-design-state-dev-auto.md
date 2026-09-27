@@ -4848,7 +4848,7 @@ async function loadBuildReady(
 }
 ```
 
-4. 응답 조립에서 부른다(재개 요청 뒤):
+4. 응답 조립을 바꾼다 — 기존 `const resume = await loadResumeRequests(admin, principal.userId, projectId, holder)` 줄과 그 뒤 `return NextResponse.json({…})` 를 아래로 바꾼다:
 
 ```ts
     const leased = await leasedProjectIds(admin, principal.userId, holder)
