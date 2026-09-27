@@ -3,7 +3,7 @@ import { treeMaxDepth, validateLevelSettings } from '@/lib/domain/levelSettings'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { emitNotification } from '@/lib/notify/emit'
-import { STAGE_CODES } from '@/lib/domain/stageLabels'
+import { HUMAN_STAGE_CODES } from '@/lib/domain/stageLabels'
 
 /**
  * WBS 업로드(export JSON → upsert) 변환·후처리 — 계약 v2.0 §2.6.
@@ -89,7 +89,7 @@ export function validateLevels(raw: unknown): { levels: LevelDecl[] } | { error:
   if (!hasInput) return { error: 'levels 에 progress:input 층이 최소 1개 필요합니다.' }
   return { levels }
 }
-const STAGES: ReadonlySet<string> = new Set(STAGE_CODES)
+const STAGES: ReadonlySet<string> = new Set(HUMAN_STAGE_CODES)
 const PRIORITY_LABELS = new Set(['critical', 'high', 'medium', 'low'])
 const SCHEDULE_RE = /^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/
 const SCHEDULE_END_ONLY_RE = /^~\s*(\d{4}-\d{2}-\d{2})$/ // v2.2: nlevel wbs.md 의 ~종료일 토큰(시작일 없음)

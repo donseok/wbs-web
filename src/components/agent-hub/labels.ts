@@ -76,7 +76,7 @@ export const NEEDS_DELEGATION = '위임 필요'
 export const TOGGLE_DENIED_TITLE = '담당자 본인 또는 관리자만'
 
 /** 단계 select 의 순서와 문구(§11) — 정본은 src/lib/domain/stageLabels.ts(스펙 2026-09-15 §3.2, fp 제거). */
-export { STAGE_CODES } from '@/lib/domain/stageLabels'
+export { STAGE_CODES, HUMAN_STAGE_CODES } from '@/lib/domain/stageLabels'
 export const STAGE_NONE_LABEL = STAGE_NONE_LABEL_KO
 
 /** 조정 버튼 문구·설명(§11). 문구는 WBS 상세 패널(wbs.agentOrder*)과 같게 둔다 — 같은 행위에 다른 이름을 주지 않는다. */

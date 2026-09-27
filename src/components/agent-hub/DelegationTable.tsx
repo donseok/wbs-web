@@ -22,7 +22,7 @@ import { PendingSaveChip } from '@/components/wbs/PendingSaveChip'
 import { usePendingDelegations } from './usePendingDelegations'
 import {
   DELEGATE_OFF_TITLE, DELEGATE_ON_TITLE, NEEDS_DELEGATION, NEEDS_DELEGATION_TONE, NO_ORDER, NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE,
-  REASON_TONE, STAGE_CODES, STAGE_NONE_LABEL, TOGGLE_DENIED_TITLE, hubStateLabel, hubStateTone, isHubApprovalWait,
+  HUMAN_STAGE_CODES, REASON_TONE, STAGE_NONE_LABEL, TOGGLE_DENIED_TITLE, hubStateLabel, hubStateTone, isHubApprovalWait,
 } from './labels'
 import s from './delegationTable.module.css'
 import { stubBadgeText } from '@/lib/domain/forceProgress'
@@ -455,7 +455,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                               : '단계 직접 조정 — 실적은 그 단계의 크레딧으로 지정됩니다'}
                             onChange={e => changeStage(r, e.target.value)} className="app-input h-6 min-w-0 shrink py-0 text-[11px]">
                             <option value="">{STAGE_NONE_LABEL}</option>
-                            {STAGE_CODES.map(c => <option key={c} value={c}>{stageLabelKo(c)}</option>)}
+                            {HUMAN_STAGE_CODES.map(c => <option key={c} value={c}>{stageLabelKo(c)}</option>)}
                           </select>
                         : r.isLeaf && !r.milestone
                           ? <span data-hub-stage-text className="shrink-0 text-[11px] text-ink-muted">{stageLabelKo(r.stage)}</span>

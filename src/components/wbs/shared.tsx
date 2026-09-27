@@ -145,6 +145,8 @@ const STAGE_META: Record<string, { key: DictKey; cls: string }> = {
   as: { key: 'wbs.stageAs', cls: 'bg-pending-weak text-pending' },
   // ds(설계 중, 0107) — 할당됨과 작업 중 사이. 두 칩 어느 쪽과도 헷갈리지 않게 보조 강조색을 쓴다.
   ds: { key: 'wbs.stageDs', cls: 'bg-accent-secondary/15 text-accent-secondary' },
+  // dd(설계 완료, 0108) — 설계 중과 같은 계열을 진하게. 끝남·대기 단계라 작업 중(ip)과 구별된다.
+  dd: { key: 'wbs.stageDd', cls: 'bg-accent-secondary/30 text-accent-secondary' },
   ip: { key: 'wbs.stageIp', cls: 'bg-progress-weak text-progress' },
   im: { key: 'wbs.stageIm', cls: 'bg-brand-weak text-brand' },
   xx: { key: 'wbs.stageXx', cls: 'bg-done-weak text-done' },

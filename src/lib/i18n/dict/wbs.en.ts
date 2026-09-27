@@ -219,6 +219,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.stageNoneOption': 'Not started',
   'wbs.stageAs': 'Assigned',
   'wbs.stageDs': 'Designing',
+  'wbs.stageDd': 'Design done',
   'wbs.stageIp': 'In progress',
   'wbs.stageIm': 'Awaiting review',
   'wbs.stageXx': 'Done',

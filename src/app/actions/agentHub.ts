@@ -17,7 +17,7 @@ import { after } from 'next/server'
 import { approveAgentCompletion, rejectAgentCompletion, requestAgentRework, unapproveAgentCompletion } from '@/app/actions/agentWork'
 import { setWbsStage } from '@/app/actions/wbsAssign'
 import type { AgentHub } from '@/lib/domain/agentHub'
-import { STAGE_CODES as DOMAIN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
+import { HUMAN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
 
 const ERR_BAD = '잘못된 요청입니다.'
 const BULK_MAX = 200
@@ -123,9 +123,9 @@ export async function applyHubDelegations(projectId: string, changes: HubDelegat
 // (4) 실행 뒤 허브 재조회를 한 응답에 싣는 것을 맡는다 — 화면은 요청 1건으로 끝난다(§10 과 같은 원칙).
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** 허브 단계 조정이 받는 코드 — 정본은 stageLabels(fp 는 0096 에서 제거). */
+/** 허브 단계 조정이 받는 코드 — 정본은 stageLabels(fp 는 0096 에서 제거). dd 는 사람이 고르지 못한다(스펙 7절). */
 export type WbsStageCode = StageCode
-const STAGE_CODES: ReadonlySet<string> = new Set(DOMAIN_STAGE_CODES)
+const STAGE_CODES: ReadonlySet<string> = new Set(HUMAN_STAGE_CODES)
 
 export type HubProcessOp =
   | { kind: 'approve'; orderId: string }

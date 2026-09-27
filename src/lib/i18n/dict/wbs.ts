@@ -235,6 +235,7 @@ export const wbsKo = {
   'wbs.stageNoneOption': '미착수',
   'wbs.stageAs': '할당됨',
   'wbs.stageDs': '설계 중',
+  'wbs.stageDd': '설계 완료',
   'wbs.stageIp': '작업 중',
   'wbs.stageIm': '검수 대기',
   'wbs.stageXx': '완료',

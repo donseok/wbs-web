@@ -15,7 +15,7 @@ import { AssigneeComboBox } from './AssigneeComboBox'
 import { useDebouncedSave } from './useDebouncedSave'
 import { PendingSaveChip } from './PendingSaveChip'
 import type { DictKey } from '@/lib/i18n/dict'
-import { STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
+import { HUMAN_STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
 
 type Stage = StageCode
 /** 서버 확정 값이자 debounce 저장 필드 — getWbsAssigneeStage 의 반환 형태 그대로다. */
@@ -32,9 +32,9 @@ type AssigneeStageResult = {
   skippedDelegated?: number
 }
 const STAGE_KEYS: Record<Stage, DictKey> = {
-  as: 'wbs.stageAs', ds: 'wbs.stageDs', ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
+  as: 'wbs.stageAs', ds: 'wbs.stageDs', dd: 'wbs.stageDd', ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
 }
-const STAGES: readonly Stage[] = STAGE_CODES
+const STAGES: readonly Stage[] = HUMAN_STAGE_CODES
 
 /**
  * 선택된 WBS 항목의 담당자(로스터 축)·단계 편집 — §2.5.
