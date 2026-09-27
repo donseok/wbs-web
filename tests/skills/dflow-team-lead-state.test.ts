@@ -263,6 +263,13 @@ describe('lead-state.sh — 설계 상태(계약 2.11)', () => {
     expect(get(out3, 'RETRY_DUE')).toEqual(['RETRY_DUE aaaa0001 reason=push n=1'])
     expect(get(out3, 'BUILD_RETRY_DUE')).toEqual([])
   })
+  it('design-reopen 미확인 skipped 도 30분이 지나면 BUILD_RETRY_DUE 다(승인된 dd 주문이 EXCLUDE_TEMP 에 갇히지 않게)', () => {
+    const out = run([start(),
+      spawnE('1', 'aaaa0001'), result('1', 'aaaa0001', 'skipped', { reason: 'design-reopen 미확인' }),
+      spawnE('2', 'bbbb0002'), result('2', 'bbbb0002', 'skipped', { reason: 'design-reopen 미확인', ts: nowTs() })])
+    expect(get(out, 'BUILD_RETRY_DUE')).toEqual(['BUILD_RETRY_DUE aaaa0001 reason=reopen'])
+    expect(get(out, 'WARN_RETRY')).toEqual([])
+  })
   it('team.result 의 ts 가 없거나 빈 문자열이면 오래된 것으로 보고 즉시 RETRY_DUE 를 낸다(리뷰 1회차 — strptime 없이 문자열 비교)', () => {
     const missingTs = JSON.parse(result('1', 'aaaa0001', 'skipped', { reason: 'push 실패' }))
     delete missingTs.ts

@@ -179,7 +179,7 @@ may_skip_now() {
   lst=$("$HERE/lead-state.sh" --agent "$OWNER" 2>/dev/null) || return 1
   ign=",$(printf '%s\n' "$lst" | awk '$1 == "EXCLUDE_PERM" || $1 == "EXCLUDE_TEMP" { printf "%s,", $2 }')"
   for s in "$@"; do ign="$ign$(slot_id8 "${s%%|*}"),"; done
-  # 재시도 기한이 된 id(RETRY_DUE — fetch·push 실패, BUILD_RETRY_DUE — 설계 관문·주문이 바뀜·다른 PC 도는 중)는 EXCLUDE_TEMP(skipped)
+  # 재시도 기한이 된 id(RETRY_DUE — fetch·push 실패, BUILD_RETRY_DUE — 설계 관문·주문이 바뀜·다른 PC 도는 중·design-reopen 미확인)는 EXCLUDE_TEMP(skipped)
   # 에도 걸려 있다 — 그대로 두면 재시도가 다음 TICK 까지(최대 30~90분) 미뤄진다(리뷰 1회차). BUILD_RETRY_DUE 는 빼지 않으면 건너뛰기가
   # 되풀이되며 사실상 영구히 갇힌다(최종 리뷰 Important 1). ign 에서 빼 아래 loop 가 깨우게 한다.
   for rd in $(printf '%s\n' "$lst" | awk '$1 == "RETRY_DUE" || $1 == "BUILD_RETRY_DUE" { print $2 }'); do ign=$(printf '%s' "$ign" | sed "s/,$rd,/,/g"); done
