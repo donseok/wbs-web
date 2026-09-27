@@ -106,6 +106,24 @@ describe('design-done', () => {
     useAdmin({ agent_work_orders: [{ data: CL }], ...member(), rpc: [{ data: { ok: false, reason: 'design_gate' } }] })
     expect((await call()).status).toBe(409)
   })
+  it('점유자가 아니면 403 not_claim_owner(레거시) — RPC 를 부르지 않는다', async () => {
+    const admin = useAdmin({ agent_work_orders: [{ data: CL }], ...member() })
+    const res = await doneRoute(post('design-done', { user_email: USER.email, agent: 'other-agent' }), ctx)
+    expect(res.status).toBe(403)
+    expect((await res.json()).code).toBe('not_claim_owner')
+    expect(admin.rpc).not.toHaveBeenCalled()
+  })
+  it('RPC 가 conflict 를 주면 409 reason order_changed, error 를 주면 500', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    useAdmin({ agent_work_orders: [{ data: CL }], ...member(), rpc: [{ data: { ok: false, conflict: true, order_status: 'claimed' } }] })
+    const r1 = await call()
+    expect(r1.status).toBe(409)
+    expect(await r1.json()).toMatchObject({ code: 'design_gate', reason: 'order_changed' })
+    useAdmin({ agent_work_orders: [{ data: CL }], ...member(), rpc: [{ error: { message: 'db down' } }] })
+    const r2 = await call()
+    expect(r2.status).toBe(500)
+    errSpy.mockRestore()
+  })
 })
 
 describe('design-reopen', () => {
@@ -138,5 +156,38 @@ describe('design-reopen', () => {
     const res = await call({ reason: 'design.md 없음' }, PAT.token)
     expect(res.status).toBe(200)
     expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_event: 'design_reopen' }))
+  })
+  it('ready 주문 — 담당자가 호출자의 멤버 행이면 통과, 사유가 p_note 로 실린다', async () => {
+    const admin = useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: { ...CL, status: 'ready', claimed_by: null } }], ...member(),
+      wbs_items: [{ data: { assignee_member_id: 'm-1' } }],
+      project_members: [{ data: [{ id: 'm-1', user_id: 'u-1', email: USER.email }] }],
+    })
+    const res = await call({ reason: '담당자 본인 확인' }, PAT.token)
+    expect(res.status).toBe(200)
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_event: 'design_reopen', p_note: '담당자 본인 확인' }))
+  })
+  it('ready 주문 — 담당자가 다른 사람이면 403 not_assignee', async () => {
+    const admin = useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: { ...CL, status: 'ready', claimed_by: null } }], ...member(),
+      wbs_items: [{ data: { assignee_member_id: 'm-2' } }],
+      project_members: [{ data: [{ id: 'm-2', user_id: 'u-9', email: 'other@example.com' }] }],
+    })
+    const res = await call({ reason: '담당자 아님' }, PAT.token)
+    expect(res.status).toBe(403)
+    expect((await res.json()).code).toBe('not_assignee')
+    expect(admin.rpc).not.toHaveBeenCalled()
+  })
+  it('claimed 이고 점유자가 아니면 403 not_claim_owner(PAT) — RPC 를 부르지 않는다', async () => {
+    const admin = useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: { ...CL, claimed_by_user_id: 'u-9' } }], ...member(),
+    })
+    const res = await call(undefined, PAT.token)
+    expect(res.status).toBe(403)
+    expect((await res.json()).code).toBe('not_claim_owner')
+    expect(admin.rpc).not.toHaveBeenCalled()
   })
 })
