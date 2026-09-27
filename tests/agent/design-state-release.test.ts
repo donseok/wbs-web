@@ -23,6 +23,7 @@ vi.mock('next/server', async (orig) => {
 })
 
 import { POST as releasePOST } from '@/app/api/v1/agent/work/[id]/release/route'
+import { RELEASE_DESIGN_ONLY_MESSAGE } from '@/lib/domain/designGate'
 
 const SECRET = 'test-agent-secret'
 const P1 = '11111111-1111-4111-8111-111111111111'
@@ -88,9 +89,18 @@ describe('release — D13', () => {
     expect(await res.json()).toMatchObject({ code: 'design_gate' })
     expect(admin.rpc).not.toHaveBeenCalled()
   })
+  it('A3(최종 수정) — claimed 가 아닌 주문(reported + 설계 accepted)은 409 conflict — 「중단」을 권하지 않는다', async () => {
+    const admin = useAdmin({ agent_work_orders: [{ data: { ...base, status: 'reported', design_state: 'accepted' } }], ...member() })
+    const res = await rel()
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body).toMatchObject({ code: 'conflict' })
+    expect(body.error).not.toContain('중단')
+    expect(admin.rpc).not.toHaveBeenCalled()
+  })
   it('RPC 가 design_gate(설계만 하던 주문이 ds·dd)를 주면 409 design_gate', async () => {
     useAdmin({ agent_work_orders: [{ data: { ...base, claim_scope: 'design' } }], ...member(), rpc: [{ data: { ok: false, reason: 'design_gate', order_status: 'claimed' } }] })
-    expect(await (await rel()).json()).toMatchObject({ code: 'design_gate' })
+    expect(await (await rel()).json()).toMatchObject({ code: 'design_gate', error: RELEASE_DESIGN_ONLY_MESSAGE })
   })
   it('설계 상태가 없는 full 주문은 종전처럼 반납한다', async () => {
     const admin = useAdmin({ agent_work_orders: [{ data: { ...base, claim_scope: 'full' } }], ...member() })

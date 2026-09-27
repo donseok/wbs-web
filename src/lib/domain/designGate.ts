@@ -163,7 +163,8 @@ export function isMine(
 }
 
 export type GateCode = 'design_gate' | 'design_not_accepted' | 'runner_active' | 'dependency_not_met'
-export type GateRefusal = { status: 403 | 409; code: GateCode; message: string; reason?: string }
+/** blocker — runner_active 를 일으킨 라벨(막는 PC·세션). 라우트가 거부 본문의 runner 칸에 싣는다. */
+export type GateRefusal = { status: 403 | 409; code: GateCode; message: string; reason?: string; blocker?: string }
 const refuse = (status: 403 | 409, code: GateCode, message: string, reason?: string): GateRefusal =>
   ({ status, code, message, ...(reason ? { reason } : {}) })
 
@@ -243,19 +244,26 @@ export function canReportCompletion(
     return refuse(409, 'design_gate', `완료 보고는 작업 중(ip) 단계에서만 받습니다(현재: ${item.stage ?? '없음'}).`)
   }
   if (order.runner !== null && pcOfLabel(order.runner) !== pcOfLabel(callerLabel)) {
-    return refuse(409, 'runner_active', `이 작업은 다른 PC(${order.runner})가 돌리고 있습니다 — 완료 보고는 도는 PC 에서만 받습니다.`)
+    return { ...refuse(409, 'runner_active', `이 작업은 다른 PC(${order.runner})가 돌리고 있습니다 — 완료 보고는 도는 PC 에서만 받습니다.`), blocker: order.runner }
   }
+  // P16 — 막는 것은 도는 PC(runner, 호출자 자신일 수 있다)가 아니라 살아 있는 다른 세션이다. blocker 도 그 세션 라벨이다.
   if (order.heartbeatAgent !== null && order.heartbeatAgent !== callerLabel && workerAlive(order, nowMs)) {
-    return refuse(409, 'runner_active', `다른 세션(${order.heartbeatAgent})이 이 작업을 돌리고 있습니다 — 그 세션이 끝난 뒤 보고하세요.`)
+    return { ...refuse(409, 'runner_active', `다른 세션(${order.heartbeatAgent})이 이 작업을 돌리고 있습니다 — 그 세션이 끝난 뒤 보고하세요.`), blocker: order.heartbeatAgent }
   }
   return null
 }
 
-/** D13 — 설계 상태가 있거나, 설계만 하던 주문(claim_scope design)이 ds·dd 에 있으면 반납하지 않는다(웹의 「중단」을 쓴다). */
+/** 설계만 하던 주문의 반납 거부 문구 — 로컬 관문(canRelease)과 RPC 의 design_gate 응답(release 라우트)이 같이 쓴다. */
+export const RELEASE_DESIGN_ONLY_MESSAGE = '설계만 하던 작업은 반납하지 않습니다 — 웹에서 「중단」을 쓰세요.'
+
+/**
+ * D13 — 설계 상태가 있거나, 설계만 하던 주문(claim_scope design)이 ds·dd 에 있으면 반납하지 않는다(웹의 「중단」을 쓴다).
+ * claimed 주문에만 부른다 — 「중단」은 ready·claimed 만 받으므로, 그 밖의 상태는 라우트가 먼저 409 conflict 로 답한다.
+ */
 export function canRelease(item: { stage: string | null } | null, order: Pick<OrderFacts, 'designState' | 'claimScope'>): GateRefusal | null {
   if (order.designState !== null) return refuse(409, 'design_gate', '설계 상태가 있는 작업은 반납하지 않습니다 — 웹에서 「중단」을 쓰세요.')
   if (order.claimScope === 'design' && item !== null && (item.stage === 'ds' || item.stage === 'dd')) {
-    return refuse(409, 'design_gate', '설계만 하던 작업은 반납하지 않습니다 — 웹에서 「중단」을 쓰세요.')
+    return refuse(409, 'design_gate', RELEASE_DESIGN_ONLY_MESSAGE)
   }
   return null
 }

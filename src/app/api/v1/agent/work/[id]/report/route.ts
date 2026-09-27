@@ -100,7 +100,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (kind === 'completion') {
       const refusal = canReportCompletion(null, facts, actor.agentLabel, Date.now())
       if (refusal) {
-        return NextResponse.json({ error: refusal.message, code: refusal.code, ...(refusal.code === 'runner_active' ? { runner: facts.runner } : {}) }, { status: refusal.status })
+        // runner 칸은 막는 PC·세션 라벨이다(blocker) — P16 갈래에서 facts.runner 는 호출자 자신일 수 있다.
+        return NextResponse.json({ error: refusal.message, code: refusal.code, ...(refusal.code === 'runner_active' ? { runner: refusal.blocker ?? null } : {}) }, { status: refusal.status })
       }
     }
 

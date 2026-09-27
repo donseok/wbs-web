@@ -254,11 +254,48 @@ describe('POST /agent/watch — 계약 2.11', () => {
     useAdmin({
       ...runnerQueues(),
       agent_lead_leases: [{ data: [{ project_id: P1 }, { project_id: P2 }] }],
+      agent_projects: [{ data: [{ project_id: P1 }, { project_id: P2 }] }], // 둘 다 켜져 있음(A1)
     }, calls)
     await post({ agent: 'hong/mbp/lead', project_id: P1, holder: H })
     const projectIdCalls = (calls['agent_work_orders:in'] as Array<[string, unknown]> | undefined ?? [])
       .filter(([col]) => col === 'project_id')
     expect(projectIdCalls.at(-1)).toEqual(['project_id', [P1]])
+  })
+  it('A1(최종 수정) — holder 있음: lease 는 enabled 를 보지 않고 발급되므로 build 목록은 켜진(enabled) 프로젝트와 교집합한다', async () => {
+    const H = '0123abcd-0000-4000-8000-00000000abcd:99999'
+    const calls: Record<string, unknown[]> = {}
+    useAdmin({
+      ...runnerQueues(),
+      agent_lead_leases: [{ data: [{ project_id: P1 }, { project_id: P2 }] }],
+      agent_projects: [{ data: [{ project_id: P1 }] }], // P2 는 중지됨
+    }, calls)
+    await post({ agent: 'hong/mbp/lead', holder: H })
+    expect(calls['agent_projects:in']).toContainEqual(['project_id', [P1, P2]])
+    const projectIdCalls = (calls['agent_work_orders:in'] as Array<[string, unknown]> | undefined ?? [])
+      .filter(([col]) => col === 'project_id')
+    expect(projectIdCalls.at(-1)).toEqual(['project_id', [P1]])
+  })
+  it('A1(최종 수정) — holder 있음: 켜진 프로젝트 조회가 실패하면 build_ready:null + 사유(위장 금지)', async () => {
+    const H = '0123abcd-0000-4000-8000-00000000abcd:99999'
+    useAdmin({
+      ...runnerQueues(),
+      agent_lead_leases: [{ data: [{ project_id: P1 }] }],
+      agent_work_orders: [{ data: [] }], // 재개 요청 없음
+      agent_projects: [{ data: null, error: { message: 'boom' } }],
+    })
+    const body = await (await post({ agent: 'hong/mbp/lead', holder: H })).json()
+    expect(body.build_ready).toBeNull()
+    expect(body.build_ready_error).toBe('구현 대기 목록 조회에 실패했습니다.')
+  })
+  it('D23(최종 수정) — holder 없음: 접근 가능 프로젝트 조회(accessibleProjectIds)가 throw 하면 build_ready:null + 사유', async () => {
+    useAdmin({
+      ...runnerQueues(),
+      agent_work_orders: [{ data: [] }], // 재개 요청 없음
+      agent_projects: [{ data: null, error: { message: 'boom' } }],
+    })
+    const body = await (await post({ agent: 'hong/mbp/lead' })).json()
+    expect(body.build_ready).toBeNull()
+    expect(body.build_ready_error).toBe('구현 대기 목록 조회에 실패했습니다.')
   })
   it('build 목록 조회 실패 → build_ready:null + 사유(에러 3원칙, M-2)', async () => {
     useAdmin({

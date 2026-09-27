@@ -232,13 +232,13 @@ describe('canReportCompletion(Y1·Y2·W23·P16)', () => {
     expect(canReportCompletion(null, claimed(), 'hong/mbp/w1', NOW)).toBeNull()
   })
   it('runner 가 다른 PC 면 30분이 지나도 409 runner_active(Y1) — 넘겨받기는 heartbeat·build-start 몫', () => {
-    expect(canReportCompletion(leaf('ip'), claimed({ runnerSeenAt: ago(90) }), 'kim/pc2/w1', NOW)).toMatchObject({ code: 'runner_active' })
+    expect(canReportCompletion(leaf('ip'), claimed({ runnerSeenAt: ago(90) }), 'kim/pc2/w1', NOW)).toMatchObject({ code: 'runner_active', blocker: 'hong/mbp/w1' })
     expect(canReportCompletion(leaf('ip'), claimed({ runner: null }), 'kim/pc2/w1', NOW)).toBeNull()
     expect(canReportCompletion(leaf('ip'), claimed(), 'claude-mbp', NOW)).toBeNull()
   })
   it('다른 세션이 살아 있으면 409 runner_active(P16)', () => {
     const o = claimed({ heartbeatAgent: 'hong/mbp/w1', lastHeartbeatAt: ago(1), heartbeatPhase: 'build' })
-    expect(canReportCompletion(leaf('ip'), o, 'claude-mbp', NOW)).toMatchObject({ code: 'runner_active' })
+    expect(canReportCompletion(leaf('ip'), { ...o, runner: 'claude-mbp' }, 'claude-mbp', NOW)).toMatchObject({ code: 'runner_active', blocker: 'hong/mbp/w1' })
     expect(canReportCompletion(leaf('ip'), o, 'hong/mbp/w1', NOW)).toBeNull()
     expect(canReportCompletion(leaf('ip'), { ...o, lastHeartbeatAt: ago(6) }, 'claude-mbp', NOW)).toBeNull()
   })

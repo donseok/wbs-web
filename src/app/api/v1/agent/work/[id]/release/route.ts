@@ -6,7 +6,7 @@ import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
 import { orderFactsOf } from '@/lib/agent/designFacts'
-import { canRelease } from '@/lib/domain/designGate'
+import { RELEASE_DESIGN_ONLY_MESSAGE, canRelease } from '@/lib/domain/designGate'
 import { applyWorkflowEvent } from '@/lib/agent/workflowEvent'
 import { emitNotification } from '@/lib/notify/emit'
 import type { AdminClient } from '@/lib/minutes/externalApi'
@@ -77,6 +77,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     // D13(설계 상태 스펙) — 설계 상태가 있거나 설계만 하던 주문이 ds·dd 면 반납하지 않는다. 반납은 ready+review 같은
     // 빠져나올 수 없는 상태를 만들거나, 다음 claim 이 검토 안 된 설계로 구현하게 한다. 단계 조건은 RPC 가 본다.
+    // 반납은 claimed 만 받는다(RPC 도 status 를 먼저 본다) — 그 밖은 설계 관문보다 먼저 409 conflict 로 답한다. 관문이 먼저면
+    // reported·approved + 설계 accepted 주문에 「중단」을 권하는데, 「중단」은 ready·claimed 만 받아 막힌 길이다.
+    if (order.status !== 'claimed') return apiFail(409, 'conflict', '반납 가능한 상태가 아닙니다.')
     const facts = orderFactsOf(order)
     const blocked = canRelease(null, facts)
     if (blocked) return apiFail(409, 'design_gate', blocked.message)
@@ -90,7 +93,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       cas: { design_state: facts.designState, claim_scope: order.claim_scope ?? null },
     })
     if (!transition.ok) {
-      if (transition.reason === 'design_gate') return apiFail(409, 'design_gate', '설계만 하던 작업은 반납하지 않습니다 — 웹에서 「중단」을 쓰세요.')
+      if (transition.reason === 'design_gate') return apiFail(409, 'design_gate', RELEASE_DESIGN_ONLY_MESSAGE)
       if (transition.conflict) return apiFail(409, 'conflict', '반납 가능한 상태가 아닙니다.')
       console.error('[agent-api] release 전이 실패:', transition.error)
       return apiInternalError()

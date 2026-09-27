@@ -113,8 +113,8 @@ async function leasedProjectIds(
 }
 
 /**
- * build_ready 가 볼 프로젝트 집합(I-1 보안 수정, 리뷰 1회차) — holder 가 있으면 그 lease 의 프로젝트(이미 lease
- * 발급 때 접근이 검증된 것으로 본다), 없으면 이 PAT 가 접근 가능한 프로젝트(`accessibleProjectIds`, `/work/mine`
+ * build_ready 가 볼 프로젝트 집합(I-1 보안 수정, 리뷰 1회차) — holder 가 있으면 그 lease 의 프로젝트 중 켜진(enabled) 것(접근은
+ * lease 발급 때 검증된 것으로 본다), 없으면 이 PAT 가 접근 가능한 프로젝트(`accessibleProjectIds`, `/work/mine`
  * 과 같은 기준 — enabled agent_projects ∩ 멤버)로 좁힌다. 그 위에 body `project_id`(또는 PAT 한정 프로젝트)가
  * 있으면 교집합한다 — 집합 밖이면 빈 배열이지 400 이 아니다(기존 watch 의 다른 칸 동작은 그대로 둔다).
  * 접근 가능 프로젝트 조회 실패는 undefined(위장 금지 — 호출자가 build_ready:null + 사유로 답한다).
@@ -125,7 +125,16 @@ async function buildReadyProjectIds(
 ): Promise<string[] | undefined> {
   let base: string[]
   if (leased !== null) {
-    base = leased
+    // lease 발급은 agent_projects.enabled 를 보지 않는다 — 중지된 프로젝트의 주문을 실으면 build-start 가 404 로 거부해도
+    // 팀장이 TICK 마다 워커를 헛되이 띄운다. 켜진 프로젝트와 교집합한다(최종 수정 A1). 조회 실패는 undefined(위장 금지).
+    if (leased.length === 0) return []
+    const { data, error } = await admin.from('agent_projects').select('project_id').eq('enabled', true).in('project_id', leased)
+    if (error) {
+      console.error('[agent-api] build 목록 켜진 프로젝트 조회 실패:', error.message)
+      return undefined
+    }
+    const enabled = new Set(((data ?? []) as Array<{ project_id: string }>).map(r => r.project_id))
+    base = leased.filter(p => enabled.has(p))
   } else {
     try {
       base = await accessibleProjectIds(admin, principal)

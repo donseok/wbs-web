@@ -93,6 +93,13 @@ describe('completion — 설계 상태 관문(12절 Y1·Y2·W23, 계획 P16)', (
       last_heartbeat_at: new Date().toISOString(), heartbeat_phase: 'build' } }], ...member() })
     expect((await done('claude-mbp')).status).toBe(409)
   })
+  it('A2(최종 수정) — P16 거부 본문의 runner 칸은 막는 세션(heartbeat_agent)이다, 도는 PC 칸(runner)이 아니다', async () => {
+    useAdmin({ agent_work_orders: [{ data: { ...base, claimed_by: 'claude-mbp', runner: 'claude-mbp', heartbeat_agent: 'hong/mbp/w2',
+      last_heartbeat_at: new Date().toISOString(), heartbeat_phase: 'build' } }], ...member() })
+    const res = await done('claude-mbp')
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'runner_active', runner: 'hong/mbp/w2' })
+  })
   it('설계 검토 대기면 409 design_gate(W23)', async () => {
     useAdmin({ agent_work_orders: [{ data: { ...base, design_state: 'review' } }], ...member() })
     expect(await (await done()).json()).toMatchObject({ code: 'design_gate' })

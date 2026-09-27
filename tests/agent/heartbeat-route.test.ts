@@ -204,6 +204,18 @@ describe('POST /agent/work/[id]/heartbeat', () => {
     expect((await post({ agent: 'hong/mbp/w1', phase: 'build' })).status).toBe(200)
     expect(calls['agent_work_orders:eq']).toContainEqual(['runner', 'hong/pc2/w1'])
   })
+  it('Minor 7(최종 수정) — runner 판정·기록은 검증된 라벨(actor.agentLabel)을 쓴다: 형식 밖 라벨은 claim 과 같은 pat-<runner> 로 본다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    const fresh = new Date(Date.now() - 60_000).toISOString()
+    // claim 이 형식 밖 라벨을 pat-r-1 로 적어 둔 주문 — 같은 워커의 heartbeat 가 runner_active 로 멈추면 안 된다.
+    useAdmin(okQueues({ ...ORDER, runner: 'pat-r-1', runner_seen_at: fresh } as typeof ORDER), calls)
+    const res = await post({ agent: 'my worker #1', phase: 'build' })
+    expect(res.status).toBe(200)
+    const upd = calls.agent_work_orders?.[0] as Record<string, unknown>
+    expect(upd.runner).toBe('pat-r-1')
+    expect(upd.heartbeat_agent).toBe('pat-r-1') // 완료 보고 관문(P16)이 actor.agentLabel 과 비교한다
+    expect(calls['agent_work_orders:eq']).toContainEqual(['runner', 'pat-r-1'])
+  })
   it('같은 PC 의 다른 슬롯·수동 세션은 넘겨받는다', async () => {
     const fresh = new Date(Date.now() - 60_000).toISOString()
     useAdmin(okQueues({ ...ORDER, runner: 'hong/mbp/w2', runner_seen_at: fresh } as typeof ORDER))
