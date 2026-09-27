@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # sections.sh — 마크다운 파일에서 제목으로 절만 출력한다. /dflow-dev 오케스트레이터가 dev-discipline.md·phase-prompt.md 를
-# 통째로 읽지 않고 그 단계에 필요한 절만 읽게 한다(설계 docs/superpowers/specs/2026-09-26-dflow-dev-skill-router-design.md §5).
+# 통째로 읽지 않고 그 단계에 필요한 절만 읽게 한다(설계 wbs-web docs/superpowers/specs/2026-09-26-dflow-dev-skill-router-design.md §5).
 #
 # 사용: sections.sh <파일> <제목>...
 #   <제목> 은 '#' 을 뺀 제목 문구의 앞부분이다(예: '기준선 캐시', '도커 사용 규칙'). 앞부분이 같은 제목이 여럿이면 모두 낸다.
