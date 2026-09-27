@@ -33,7 +33,7 @@ esac
 function poll(args: string[], rows: string[]) {
   const r = spawnSync('sh', [POLL_SH, '--interval', '0', '--until', 'none', ...args], {
     cwd: cfg, encoding: 'utf8', timeout: 20000,
-    env: { ...ENV, DFLOW_SH: stub(rows), DFLOW_WATCH: '0', DFLOW_CONFIG_DIR: cfg } as NodeJS.ProcessEnv,
+    env: { ...ENV, DFLOW_SH: stub(rows), DFLOW_WATCH: '0', DFLOW_CONFIG_DIR: cfg } as unknown as NodeJS.ProcessEnv,
   })
   return { code: r.status, out: (r.stdout ?? '').trim(), err: r.stderr ?? '' }
 }
