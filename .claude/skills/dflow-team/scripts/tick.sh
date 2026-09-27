@@ -27,8 +27,8 @@
 #     WATCH_FAILED·HOLDER_FAILED·LEASE_KEEP_DEAD·LOCK_LOST 가 없다. 건너뛸 때도 잠금 beat 와 STANDBY 가 끊기지 않는 것은
 #     이 호출 덕이다.
 #   - 계약 2.11 서버면 build(「설계 승인」 된 작업) 조회가 성공했고, 그 claimed 원소가 모두 슬롯에 있거나 팀장이 제외·멈춤으로
-#     기록한 id(lead-state.sh 의 EXCLUDE_PERM·EXCLUDE_TEMP)다(설계 상태 스펙 D22). --wp(팀장 poll 과 같은 WP 범위)는 wake.sh 에
-#     그대로 넘겨 build 를 poll 과 같은 거르기로 받는다.
+#     기록한 id(lead-state.sh 의 EXCLUDE_PERM·EXCLUDE_TEMP)다(설계 상태 스펙 D22). 단 재시도 기한이 된 id(RETRY_DUE·BUILD_RETRY_DUE)는
+#     제외로 치지 않는다. --wp(팀장 poll 과 같은 WP 범위)는 wake.sh 에 그대로 넘겨 build 를 poll 과 같은 거르기로 받는다.
 # 증거 공식은 references/restart.md 「rate-limit 대기」 의 evidence 와 같은 재료다(HEAD 커밋 시각, show 의 최신 보고·
 # last_heartbeat_at·heartbeat_phase, git status --porcelain 의 cksum).
 #
@@ -172,16 +172,17 @@ may_skip_now() {
   # 계약 2.11: build(「설계 승인」 된 작업) 조회 실패("NULL")도 깨운다. build 칸이 없으면 옛 서버다(종전과 같다).
   printf '%s' "$j" | jq -e '(.n != "NULL") and ((.reqs // []) | length == 0) and (.build != "NULL")' >/dev/null 2>&1 || return 1
   # build 의 claimed 원소(poll 에 나오지 않는다)는 슬롯에 있거나 팀장이 제외·멈춤으로 기록한 id(lead-state.sh 의 EXCLUDE_PERM —
-  # 진행 중·failed·LOST — 와 EXCLUDE_TEMP — skipped·WARN_RETRY)를 뺀 나머지가 있을 때만 깨운다(설계 상태 스펙 D22. 빼지 않으면
+  # 진행 중·failed·LOST — 와 EXCLUDE_TEMP — skipped·WARN_RETRY. 재시도 기한이 된 것은 아래에서 다시 뺀다)를 뺀 나머지가 있을 때만 깨운다(설계 상태 스펙 D22. 빼지 않으면
   # 「멈춤」 에 든 승인 주문 하나가 건너뛰기를 영구히 끈다). 제외 목록을 읽지 못하면 깨운다.
   cl=$(printf '%s' "$j" | jq -r '(.build // []) | if type == "array" then .[] | select(.status == "claimed") | .id8 else empty end' 2>/dev/null) || return 1
   [ -n "$cl" ] || return 0
   lst=$("$HERE/lead-state.sh" --agent "$OWNER" 2>/dev/null) || return 1
   ign=",$(printf '%s\n' "$lst" | awk '$1 == "EXCLUDE_PERM" || $1 == "EXCLUDE_TEMP" { printf "%s,", $2 }')"
   for s in "$@"; do ign="$ign$(slot_id8 "${s%%|*}"),"; done
-  # 재시도 기한이 된 id(RETRY_DUE)는 EXCLUDE_TEMP(skipped)에도 걸려 있을 수 있다 — 그대로 두면 재시도가 다음
-  # TICK 까지(최대 30~90분) 미뤄진다(리뷰 1회차). ign 에서 빼 아래 loop 가 깨우게 한다.
-  for rd in $(printf '%s\n' "$lst" | awk '$1 == "RETRY_DUE" { print $2 }'); do ign=$(printf '%s' "$ign" | sed "s/,$rd,/,/g"); done
+  # 재시도 기한이 된 id(RETRY_DUE — fetch·push 실패, BUILD_RETRY_DUE — 설계 관문·주문이 바뀜·다른 PC 도는 중)는 EXCLUDE_TEMP(skipped)
+  # 에도 걸려 있다 — 그대로 두면 재시도가 다음 TICK 까지(최대 30~90분) 미뤄진다(리뷰 1회차). BUILD_RETRY_DUE 는 빼지 않으면 건너뛰기가
+  # 되풀이되며 사실상 영구히 갇힌다(최종 리뷰 Important 1). ign 에서 빼 아래 loop 가 깨우게 한다.
+  for rd in $(printf '%s\n' "$lst" | awk '$1 == "RETRY_DUE" || $1 == "BUILD_RETRY_DUE" { print $2 }'); do ign=$(printf '%s' "$ign" | sed "s/,$rd,/,/g"); done
   for i in $cl; do case "$ign" in *",$i,"*) ;; *) return 1 ;; esac; done
   return 0
 }

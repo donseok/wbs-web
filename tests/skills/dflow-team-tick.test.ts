@@ -320,12 +320,13 @@ describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, 
   it('build 의 claimed 원소에서 슬롯에 있거나 팀장이 제외·멈춤으로 기록한 id 를 빼고, 남는 것이 있을 때만 건너뛰지 않는다(D22, 4차 C8)', async () => {
     let n = 0
     const ev = (e: Record<string, string>) => JSON.stringify({ ts: `2026-09-27T00:00:${String(n++).padStart(2, '0')}Z`, host: 'mbp', repo, tsk: '-', order: '-', phase: 'team', agent: OWNER, ...e })
-    const ended = (id8: string, status: string, reason: string) =>
-      [ev({ event: 'team.spawn', slot: '1', id8, spawn_kind: 'new' }), ev({ event: 'team.result', slot: '1', id8, status, reason, hash: `h-${id8}` })]
+    const ended = (id8: string, status: string, reason: string, e: Record<string, string> = {}) =>
+      [ev({ event: 'team.spawn', slot: '1', id8, spawn_kind: 'new' }), ev({ event: 'team.result', slot: '1', id8, status, reason, hash: `h-${id8}`, ...e })]
+    const nowTs = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
     writeFileSync(join(tmp, 'events.jsonl'), [
       ev({ event: 'team.start', backend: 'tmux', slots: '3', until: '18:00', wp: '-' }),
       ...ended('cccc0003', 'failed gate', '-'), // 영구 제외(「멈춤」 표)
-      ...ended('dddd0004', 'skipped', '설계 관문(design_gate)'), // 일시 제외
+      ...ended('dddd0004', 'skipped', '설계 관문(design_gate)', { ts: nowTs }), // 일시 제외 — 아직 30분 전이라 BUILD_RETRY_DUE 가 아니다
       ev({ event: 'team.spawn', slot: '2', id8: 'eeee0005', spawn_kind: 'resume' }),
       ev({ event: 'team.lost', slot: '2', id8: 'eeee0005', cause: 'no-response', next: 'park', restart_at: '-' }), // PARKED(「멈춤」 표)
     ].join('\n') + '\n')
@@ -378,6 +379,22 @@ describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, 
       expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'], { env: { DFLOW_EVENTS: badEv } })).out.trim()).toBe('TICK')
     } finally {
       chmodSync(badEv, 0o644)
+    }
+  })
+  it('BUILD_RETRY_DUE(설계 관문·주문이 바뀜·다른 PC 도는 중 skipped 뒤 30분)인 claimed 원소도 ign 에서 빼 TICK 을 건너뛰지 않는다(최종 리뷰 Important 1)', async () => {
+    for (const reason of ['설계 관문(design_not_accepted)', '주문이 바뀜', '다른 PC 도는 중(hong/other/w1)']) {
+      let n = 0
+      const oldEv = (e: Record<string, string>) =>
+        JSON.stringify({ ts: `2026-01-01T00:00:${String(n++).padStart(2, '0')}Z`, host: 'mbp', repo, tsk: '-', order: '-', phase: 'team', agent: OWNER, ...e })
+      writeFileSync(join(tmp, 'build-retry-events.jsonl'), [
+        oldEv({ event: 'team.start', backend: 'tmux', slots: '3', until: '18:00', wp: '-' }),
+        oldEv({ event: 'team.spawn', slot: '1', id8: 'aaaa0009', spawn_kind: 'new' }),
+        oldEv({ event: 'team.result', slot: '1', id8: 'aaaa0009', status: 'skipped', reason, hash: 'h-aaaa0009' }),
+      ].join('\n') + '\n')
+      const env = { DFLOW_EVENTS: join(tmp, 'build-retry-events.jsonl') }
+      lockOwner()
+      writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: [{ order_id: 'o-aaaa0009', id8: 'aaaa0009', code: '1', name: 'x', status: 'claimed' }] }))
+      expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'], { env })).out.trim(), reason).toBe('TICK')
     }
   })
   it('RETRY_DUE 인 id 는 EXCLUDE_TEMP(skipped)에도 걸려 있지만 ign 에서 빼 TICK 을 건너뛰지 않는다(리뷰 1회차 — 재시도 지연 방지)', async () => {

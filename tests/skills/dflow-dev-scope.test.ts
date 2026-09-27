@@ -272,6 +272,11 @@ describe('다른 스킬', () => {
     expect(ds).toContain('`WARN_RETRY` 면 재개 대상에 넣지 않고 「멈춤」(사유 `fetch·push 3회 연속 실패`)으로')
     expect(ds).toContain('`RETRY_DUE` 면 재개 대상에 더한다(고아 스캔과 같은 30분 신호)')
     expect(ds).toContain('재시작 뒤 build 목록 주문은 영구 제외가 비어')
+    // 최종 리뷰 Important 1 — 설계 관문·주문이 바뀜·다른 PC 도는 중 skip 도 30분 뒤 다시 띄운다(3회 멈춤은 fetch·push 에만)
+    expect(ds).toContain('`BUILD_RETRY_DUE` 도 재개 대상에 더한다')
+    expect(ds).toContain('`RETRY_DUE`·`BUILD_RETRY_DUE` 인 것은 치므로 재시도 기한이 되면 그 TICK 은 건너뛰지 않는다')
+    expect(ds).not.toContain('다른 사유의 skip 은 서버 상태가 바뀌어 이 목록을 벗어난다')
+    expect(ds).not.toContain('옛 서버만 build-start exit 12 를 받아')
   })
   it('팀장: 이어 가기는 resume.md 「서버 판단 확인」 한 곳이 막고, 원격 재개는 승인 대상뿐이다(Y3·Y5·Y8·Y9·Y10·Y12·D16·L2)', () => {
     const team = flat(read('.claude/skills/dflow-team/SKILL.md'))

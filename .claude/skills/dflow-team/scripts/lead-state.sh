@@ -25,6 +25,9 @@
 #   RETRY_DUE <id8> reason=<fetch|push> n=<연속 수>   마지막이 사유 「fetch 실패」·「push 실패」 인 skipped 이고 처리한 지 30분이 지났다
 #       (설계 상태 스펙 12절 Y11 — 잡은 작업이라 poll 이 다시 찾지 않으므로 팀장이 「5-1」 로 다시 띄운다). 연속 3회부터는 내지 않는다
 #   WARN_RETRY <id8> reason=<fetch|push> n=<연속 수>  같은 계열 사유가 끝에서부터 연속 3회 이상 — 자동 재시도를 멈추고 「멈춤」 표에 경고한다
+#   BUILD_RETRY_DUE <id8> reason=<gate|changed|runner>   마지막이 사유 「설계 관문(」·「주문이 바뀜」·「다른 PC 도는 중(」 인 skipped 이고
+#       처리한 지 30분이 지났다. build 목록(design-state.md 「2」)과 tick.sh 만 쓴다 — 서버가 다시 「설계 승인」 된 claimed 로 돌려주면
+#       EXCLUDE_TEMP(만료 없음)에 영구히 갇히지 않게 한다(최종 리뷰 Important 1). 고아 스캔은 쓰지 않고, 연속 수·3회 멈춤이 없다
 #   SLOT <slot> <id8> tsk=<…> order=<…> kind=<new|resume|resolve|readopt/<원래 종류>> state=<spawn|blocked> resolve=<0|1> worktree=<…> handle=<…>
 #       id8 의 마지막 team.spawn·team.blocked·team.result·team.lost 가 spawn·blocked 인 것(진행 중). 값은 그 id8 의 마지막 team.spawn
 #       resolve=1 은 해소 워커다(워크트리 이름 접미사 -resolve, 또는 spawn_kind·orig_kind 가 resolve)
@@ -129,6 +132,14 @@ jq -R -c --arg a "$AGENT" --arg r "$REPO" 'select(test("\\S")) | (try fromjson c
       # (kit/dflow-team/SKILL.md·design-ahead.md 의 todate 선례와 같은 방식). 빈 ts 는 "오래됨"(참)으로 본다.
       elif ((($e.ts // "") <= (now - 1800 | todate))) then "RETRY_DUE \($e.id8) reason=\($why) n=\($n)"
       else empty end ),
+  # build 목록의 재시도(최종 리뷰 Important 1): 사유에 괄호가 있어 정규식 대신 startswith 로 가린다. 시각 비교는 위 RETRY_DUE 와 같다
+  ( $last | to_entries[] | .value
+    | select(.event == "team.result" and (.status // "") == "skipped")
+    | . as $e | ($e.reason // "") as $rs
+    | (if ($rs | startswith("설계 관문(")) then "gate" elif ($rs | startswith("주문이 바뀜")) then "changed"
+       elif ($rs | startswith("다른 PC 도는 중(")) then "runner" else "" end) as $why
+    | select($why != "" and (($e.ts // "") <= (now - 1800 | todate)))
+    | "BUILD_RETRY_DUE \($e.id8) reason=\($why)" ),
   ( $last | to_entries[] | .value | select(.event == "team.spawn" or .event == "team.blocked") | . as $e | ($sp[$e.id8] // $e) as $s
     | "SLOT \($s.slot // "-") \($e.id8) tsk=\($s.tsk // "-") order=\($s.order // "-") kind=\(kind($s)) state=\($e.event | ltrimstr("team.")) resolve=\(if ($res | index($e.id8)) then 1 else 0 end) worktree=\($s.worktree // "-") handle=\($s.handle // "-")" ),
   ( $hshow[] | "HASH \(.worktree) \(.tsk // "-") \(.hash) \(.status // "blocked") id8=\(.id8 // "-") slot=\(.slot // "-")" )

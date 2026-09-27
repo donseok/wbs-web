@@ -235,6 +235,34 @@ describe('lead-state.sh — 설계 상태(계약 2.11)', () => {
     expect(get(out, 'RETRY_DUE')).toEqual([])
     expect(get(out, 'WARN_RETRY')).toEqual([])
   })
+  it('build 목록 재시도 사유(설계 관문·주문이 바뀜·다른 PC 도는 중)의 skipped 는 30분이 지나면 BUILD_RETRY_DUE 다(최종 리뷰 Important 1)', () => {
+    const old = (slot: string, id8: string, reason: string) => result(slot, id8, 'skipped', { reason })
+    const fresh = (slot: string, id8: string, reason: string) => result(slot, id8, 'skipped', { reason, ts: nowTs() })
+    const out = run([start(),
+      spawnE('1', 'aaaa0001'), old('1', 'aaaa0001', '설계 관문(design_not_accepted)'),
+      spawnE('2', 'bbbb0002'), old('2', 'bbbb0002', '주문이 바뀜'),
+      spawnE('3', 'cccc0003'), old('3', 'cccc0003', '다른 PC 도는 중(hong/other/w1)'),
+      spawnE('1', 'dddd0004'), fresh('1', 'dddd0004', '설계 관문(design_gate)'), // 아직 30분 전
+      spawnE('2', 'eeee0005'), old('2', 'eeee0005', '주문이 바뀜'), spawnE('2', 'eeee0005', { spawn_kind: 'resume' }), // 그 뒤 다시 띄웠다
+      spawnE('3', 'ffff0006'), old('3', 'ffff0006', '사람 설계 초안 있음'), // 재시도 사유가 아니다
+    ])
+    expect(get(out, 'BUILD_RETRY_DUE')).toEqual([
+      'BUILD_RETRY_DUE aaaa0001 reason=gate', 'BUILD_RETRY_DUE bbbb0002 reason=changed', 'BUILD_RETRY_DUE cccc0003 reason=runner'])
+    // 3회 멈춤(WARN_RETRY)·RETRY_DUE 는 fetch·push 실패에만 — 이 사유들은 되풀이해도 경고하지 않는다
+    expect(get(out, 'RETRY_DUE')).toEqual([])
+    expect(get(out, 'WARN_RETRY')).toEqual([])
+    // 일시 제외에는 그대로 남는다(신호가 제외를 이긴다)
+    expect(get(out, 'EXCLUDE_TEMP')[0].split(' ')[1].split(',')).toEqual(expect.arrayContaining(['aaaa0001', 'bbbb0002', 'cccc0003', 'dddd0004', 'ffff0006']))
+    const again = () => spawnE('1', 'aaaa0001', { spawn_kind: 'resume' })
+    const gate = () => old('1', 'aaaa0001', '설계 관문(design_gate)')
+    const out2 = run([start(), spawnE('1', 'aaaa0001'), gate(), again(), gate(), again(), gate(), again(), gate()])
+    expect(get(out2, 'BUILD_RETRY_DUE')).toEqual(['BUILD_RETRY_DUE aaaa0001 reason=gate'])
+    expect(get(out2, 'WARN_RETRY')).toEqual([])
+    // fetch·push 실패는 종전대로 RETRY_DUE 만 낸다
+    const out3 = run([start(), spawnE('1', 'aaaa0001'), old('1', 'aaaa0001', 'push 실패')])
+    expect(get(out3, 'RETRY_DUE')).toEqual(['RETRY_DUE aaaa0001 reason=push n=1'])
+    expect(get(out3, 'BUILD_RETRY_DUE')).toEqual([])
+  })
   it('team.result 의 ts 가 없거나 빈 문자열이면 오래된 것으로 보고 즉시 RETRY_DUE 를 낸다(리뷰 1회차 — strptime 없이 문자열 비교)', () => {
     const missingTs = JSON.parse(result('1', 'aaaa0001', 'skipped', { reason: 'push 실패' }))
     delete missingTs.ts
