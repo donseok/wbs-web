@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 15 App Router(route handlers·server actions), Supabase Postgres 17(plpgsql RPC, Management API 로 적용), TypeScript, vitest, POSIX sh(`dflow.sh`·`poll.sh`·`tick.sh`·훅), jq.
 
-**Spec:** `docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md`(5판 본문 + 12절 예외 대응표, 2026-09-27 승인). **12절이 본문과 다르면 12절을 따른다.** 이 계획서는 둘을 합친 규칙을 적고, 스펙이 계획서로 넘긴 빈칸은 아래 「계획에서 새로 정한 것」(P1~P16)으로 정했다. 상태 공간 모델은 `docs/superpowers/specs/2026-09-26-design-state-model/model5.py`(Task 2 가 P16 스위치를 더한다).
+**Spec:** `docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md`(5판 본문 + 12절 예외 대응표, 2026-09-27 승인). **12절이 본문과 다르면 12절을 따른다.** 이 계획서는 둘을 합친 규칙을 적고, 스펙이 계획서로 넘긴 빈칸은 아래 「계획에서 새로 정한 것」(P1~P17)으로 정했다. P17 은 빈칸이 아니라 스펙 6.3 과 일부러 다르게 정한 것이다. 상태 공간 모델은 `docs/superpowers/specs/2026-09-26-design-state-model/model5.py`(Task 2 가 P16 스위치를 더한다).
 
 ---
 
@@ -32,11 +32,14 @@
 
 **반영 범위와 사람이 할 일.**
 - 반영은 **staging 까지**다. 운영 DB·main·킷은 이 계획에 없다.
-- 사람이 할 일은 넷이다.
+- 사람이 할 일은 일곱이다.
   1. 계획서를 승인하고 실행 방식을 고른다.
   2. `staging:sync` 직전에 확인한다(스테이징 데이터를 운영 복제로 덮는다, Task 5).
   3. 스테이징에서 버튼을 눈으로 확인한다.
   4. 킷을 배포할 때 PC마다 훅을 다시 설치한다(`kit/install.sh --hooks`). 킷 배포는 이 계획 밖이다.
+  5. 킷을 섞지 않는다. 한 신원이 설계 검토·구현자동 작업을 쓰기 전에 그 신원이 도는 모든 PC 의 킷을 2.11 판으로 올리고, 옛 킷 PC 에서 새 킷이 잡은 작업을 `--resume` 하지 않는다(스펙 8절 「킷 혼용 금지」·6.7 끝 — 옛 킷은 build-start 의 409 를 exit 4 로 받아 선행 대기로 잘못 빠진다).
+  6. Task 27 의 브라우저 E2E 가 ego-browser 의 `handOff` 로 넘기면 스테이징(dflow-staging.vercel.app)에 로그인한다.
+  7. 기존 PAT(`.dflow.local`)가 스테이징에서 통하지 않으면 Task 27 의 E2E 에 쓸 만료 1일짜리 스테이징 토큰을 발급한다.
 
 ---
 
@@ -49,7 +52,7 @@
 - **마이그레이션:** 다음 번호 `0108`. `_rollback.sql` 필수. 적용은 `npm run db:apply -- <파일> --target staging` 만(`supabase db push` 금지). 리허설 뒤 커밋 트레일러 `Staging-verified: YYYY-MM-DD db 리허설 통과`.
 - **계약 버전:** `2.10` → `2.11`. 정본은 두 곳뿐이다: `.claude/skills/dflow-work/scripts/dflow.sh` 의 `CONTRACT_VERSION`, `src/lib/agent/externalApi.ts` 의 `AGENT_CONTRACT_VERSION`.
 - **옛 서버 호환:** dmes 는 본 체크아웃 스킬로 **운영 API(계약 2.9)** 를 부른다. 스킬·CLI 의 모든 새 동작은 `dflow.sh contract-ge 2.11` 이 거짓이면 지금 동작으로 돌아가야 한다(D20, 8절).
-- **응답 호환:** 레거시(시크릿, 비-PAT) 응답은 v1 기준선이다 — 새 칸은 PAT 응답에만 싣는다. 새 요청 칸은 모두 선택이다.
+- **응답 호환:** 레거시(시크릿, 비-PAT) 응답은 v1 기준선이다 — 새 칸은 PAT 응답에만 싣는다. 새 요청 칸은 모두 선택이다. 예외는 하나다: build-start 응답의 `runner` 는 레거시 응답에도 싣는다(Task 11). 칸 하나를 더할 뿐이라 옛 클라이언트는 이 칸을 무시한다.
 - **에러 3원칙:** 조회 실패를 "없음"으로 위장하지 않는다. 쓰기 전 선행 조회가 실패하면 중단한다. 보안 가드는 fail-closed.
 - **UI 위험 파일:** `src/components/app/*`·`src/app/globals.css`·`src/app/layout.tsx`·`src/app/(app)/layout.tsx` 는 건드리지 않는다(설계 검토 대기 배지는 허브 카운터로 둔다).
 - **App Router:** `route.ts` 는 HTTP 메서드 외 export 금지 — 공용 로직은 `src/lib/agent/*` 로.
@@ -63,12 +66,12 @@
 
 | # | 무엇 | 정한 내용 | 대응 |
 | --- | --- | --- | --- |
-| P1 | RPC CAS 모양 | `p_cas jsonb` — 키가 있으면 그 값과 같아야 한다(`design_state`·`design_mode`·`runner`·`runner_seen_at`). JSON null 이 "없음"을 뜻한다 | 막기 |
+| P1 | RPC CAS 모양 | `p_cas jsonb` — 키가 있으면 그 값과 같아야 한다(`design_state`·`design_mode`·`claim_scope`·`runner`·`runner_seen_at`). JSON null 이 "없음"을 뜻한다 | 막기 |
 | P2 | RPC 시그니처 | 새 인자 `p_scope`·`p_cas`·`p_note`·`p_mode`·`p_runner`(모두 기본값 null). 옛 7인자 함수는 drop 뒤 새 12인자로 create(오버로드 모호성 방지). 2.9 앱의 이름 인자 호출은 기본값으로 그대로 돈다 | 호환 |
 | P3 | 새 사건 | `design_done`·`design_accept`·`design_reopen`·`cancel`(D14 공용 헬퍼)·`set_design_mode`. `cancel` 은 직전 주문 status 를 돌려준다. `set_design_mode` 는 주문 행을 먼저 잠그고 항목을 잠근다(claim 과 같은 순서 — 교착 없음) | 막기 |
 | P4 | build-start 검사 순서 | runner → 설계 → 선행. 주문이 claimed 가 아니면(취소는 409 `cancelled` 그대로) 409 `design_gate`(Y7) | 막기 |
 | P5 | PC 판정 | `pcOfLabel`: `a/b/c` 는 둘째 칸, `claude-<host>` 는 접두어를 뗀 값(L1), 그 밖은 라벨 전체, 소문자. SQL 에는 두지 않는다 — 판정은 라우트(TS), RPC·UPDATE 는 읽은 값 CAS | 막기 |
-| P6 | heartbeat 의 runner | 워커 갈래만. `runnerFree` 면 runner 를 호출 라벨로 넘겨받고 `runner_seen_at` 을 갱신(읽은 runner·runner_seen_at CAS), 아니면 409 `runner_active`(본문에 runner·runner_seen_at). 팀장 merge_conflict 갈래는 그대로 | 막기+경고 |
+| P6 | heartbeat 의 runner | 워커 갈래만. `runnerFree` 면 runner 를 호출 라벨로 넘겨받고 `runner_seen_at` 을 갱신(읽은 runner 를 CAS), 아니면 409 `runner_active`(본문에 runner·runner_seen_at). 팀장 merge_conflict 갈래는 그대로. `runner_seen_at` 을 CAS 에 넣지 않는 까닭: 도는 PC 자신의 heartbeat 가 이 값을 계속 갱신하므로, CAS 에 넣으면 같은 PC 의 heartbeat 끼리 부딪힌다. 판정과 쓰기 사이의 드문 경합으로 넘겨받기가 일어나도 옛 runner 는 다음 heartbeat 에서 409 `runner_active` 를 받아 멈추므로(Task 20) 대응이 정해져 있다(스펙 D28) | 막기+경고 |
 | P7 | 재개 때 runner | 재개·재시작한 워커는 단계가 `ip` 이상이면 먼저 `build-start`(멱등)를 불러 runner 를 넘겨받는다. 훅이 없는 PC 에서도 Y1 이 막힘으로만 끝나지 않게 한다 | 다시 시작 |
 | P8 | 「설계 확정」의 단계 | 단계 없음(null)도 `as` 처럼 받는다(담당자 없는 human 위임 항목). 화면 6·7행도 같다 | 막힘 해소 |
 | P9 | 훅의 runner_active | state.json 을 바꾸지 않고 멈춤 JSON 만 낸다. 절제 스탬프를 지워 다음 도구 호출에서 다시 묻고 다시 세운다(영속 표식 없음 — 나중에 이 PC 가 정당하게 넘겨받으면 풀린다) | 막기 |
@@ -79,16 +82,18 @@
 | P14 | 스테이징 리허설 | `staging:sync`(실행 직전 사용자 확인) → 2.10 잔재·살아 있는 팀장·영향 건수 조회(Y6) → db:apply → 검증 SQL(끝에 raise 로 되돌려 흔적 없음) → 건수 재조회 → 트레일러 | 경고 |
 | P15 | import 의 표식 제거 | import 가 위임 표식을 떼면(L7) 그 항목의 ready·claimed 주문을 `cancel` 로 취소하고 결과에 건수를 싣는다 | 막기+경고 |
 | P16 | 완료 보고와 살아 있는 다른 세션 | 완료 보고는 `heartbeat_agent` 가 호출 라벨과 다르고 그 세션이 살아 있으면(`workerAlive`) 409 `runner_active`. 계획 단계 모델 검사에서 "워커가 도는 중 사람이 `dflow.sh done` → 반려 → 두 구현자" 3,312 상태가 나왔고, 이 조건으로 0 이 됐다 | 막기 |
+| P17 | 결과 줄 없이 끝난 `wait_review`(스펙 6.3 과 다름) | 결과 줄 없이 `wait_review` 로 끝났는데 서버에 설계 상태가 없으면(멈춤이 서버에 닿지 않음), 팀장은 스펙 6.3(「끝나지 않은 멈춤 이어받기」 — 팀장의 결과 처리·재시작 복구도 마저 한다)과 달리 그 멈춤을 마저 하지 않는다. 워크트리를 `parked` 로 두고 「멈춤」(`설계 멈춤 미완료`)으로 알리며, `--resume` 한 워커의 「끝나지 않은 설계 멈춤 이어받기」가 push·design-done 을 마저 한다(Task 21 start.md, Task 22b 「정한 것」·restart.md 4-2). 까닭: 팀장은 워커 워크트리에서 git 을 쓰지 않는다. 멈춤 보고와 사람의 재개라는 대응이 있으므로 D28 을 만족한다 | 경고 |
+| P18 | `/dflow-poll` 의 건너뛰기 알림(스펙 7절과 다름) | `/dflow-poll` 은 `poll.sh --actions full` 로 기동하므로 서버 판단 `action` 이 `full` 인 작업만 받는다(12절 Y4). 그래서 7절의 "action 이 full 이 아니면 사유를 알리며 건너뛴다"는 정상 경로에서는 나가지 않는다. review·human 작업은 알림 없이 후보에서 빠지고, 알림은 `--actions full` 없이 기동한 poll 의 줄을 받았을 때만 나간다(Task 19·23). 까닭: 12절이 본문보다 우선하고, 서버가 먼저 걸러야 사람이 맡을 작업이 poll 후보를 채우지 않는다 | 경고 |
 
 ## Review Focus
 
 테스트가 직접 두드리지 않지만 사람이 가장 먼저 부딪힐 입력·조건이다. 줄마다 그 조건을 고정하는 테스트를 담당 Task 에 넣었다.
 
-1. **옛 서버(계약 2.9)에서 새 킷이 돈다** — dmes 가 운영 API 로 `poll.sh`·`dflow.sh`·워커 문서를 쓴다. 기대: action·mine 열이 없으면 poll 은 지금처럼 RD 를 돌려주고, `design-done` 404 는 `DESIGN_STATE_UNSUPPORTED` 로 끝나며, 설계 선행 멈춤은 옛 `heartbeat --phase wait_pred` 로 간다. (Task 18·19·21 의 가짜 curl 테스트)
+1. **옛 서버(계약 2.9)에서 새 킷이 돈다** — dmes 가 운영 API 로 `poll.sh`·`dflow.sh`·워커 문서를 쓴다. 기대: action·mine 열이 없으면 poll 은 지금처럼 RD 를 돌려주고, `design-done` 404 는 `DESIGN_STATE_UNSUPPORTED` 로 끝나며, 설계 선행 멈춤은 옛 `heartbeat --phase wait_pred` 로 간다. (Task 18 의 가짜 curl 테스트, Task 19 의 가짜 `dflow.sh` 테스트, Task 21 의 문서 단언)
 2. **0108 의 데이터 단계가 운영 행을 바꾼다** — claimed·ds·wait_pred → dd(L4), 모든 claimed 의 runner·claim_scope 채움, 진행된 항목의 ready 취소(D26). 기대: 리허설 전후 건수가 표로 남고 예상과 같다. (Task 4 의 SQL 대조 테스트, Task 5 의 건수 표)
-3. **두 PC 가 한 작업을 이어받는다** — 조용한 A PC 와 이어받은 B PC. 기대: 완료 보고는 runner PC 에서만(P7·P16 포함), heartbeat 는 넘겨받거나 409, 재개한 워커는 build-start 로 넘겨받는다. (Task 1·12·13 테스트, Task 2 모델 I5=0)
-4. **사람 설계가 없거나 절이 빠진 구현자동 작업** — 기대: 팀장이 띄우기 전에 `design-reopen` 으로 되돌리고 화면에 사유가 보인다. 워커도 claim 뒤 같은 검사를 한다. (Task 15·22 테스트, Task 25 화면 테스트)
-5. **수동 `--resume`·`/dflow-poll` 이 review·human 작업을 만난다** — 기대: claimed 주문은 서버 `claim_scope` 가 수동 `--scope` 를 이기고, `/dflow-poll` 은 action 이 full 이 아니면 사유를 알리고 건너뛴다. (Task 19·21·23 테스트)
+3. **두 PC 가 한 작업을 이어받는다** — 조용한 A PC 와 이어받은 B PC. 기대: 완료 보고는 runner PC 에서만(P7·P16 포함), heartbeat 는 넘겨받거나 409, 재개한 워커는 build-start 로 넘겨받는다. (Task 1·12·13 테스트, Task 21 의 문서 단언 — 재개한 워커의 build-start(P7), Task 2 모델 I5=0)
+4. **사람 설계가 없거나 절이 빠진 구현자동 작업** — 기대: 팀장이 띄우기 전에 `design-reopen` 으로 되돌리고 화면에 사유가 보인다. 워커도 claim 뒤 같은 검사를 한다. (Task 15 테스트, Task 21·22b 의 문서 단언 — 워커의 설계 받기 게이트와 팀장의 설계 사전 검사, Task 25 화면 테스트)
+5. **수동 `--resume`·`/dflow-poll` 이 review·human 작업을 만난다** — 기대: claimed 주문은 서버 `claim_scope` 가 수동 `--scope` 를 이긴다(Task 21 의 문서 단언). `/dflow-poll` 은 `poll.sh --actions full` 로 기동하므로 poll.sh 가 서버 판단 `action` 이 `full` 인 RD 만 돌려주고, review·human 작업은 알림 없이 후보에서 빠진다(Task 19 테스트). 넷째 칸이 `full` 이 아닌 줄은 `--actions full` 없이 기동한 poll(겹쳐 뜬 옛 poll 등)에서만 오고, 그때만 세션이 사유를 알리고 그 id8 을 제외한다(Task 23 의 문서 단언). 옛 서버는 넷째 칸이 없어 종전대로 모두 온다.
 
 ---
 
@@ -100,26 +105,34 @@
 | `tests/domain/design-gate.test.ts`(새) | 표 테스트 | 1 |
 | `tests/domain/design-gate-model.test.ts`(새) | 상태 공간 모델(BFS) — 실제 designGate 함수로 불변식 검사 | 2 |
 | `docs/superpowers/specs/2026-09-26-design-state-model/model5.py` | P16 스위치 | 2 |
-| `src/lib/domain/stageLabels.ts`·`agentWork.ts`·`stageCredits.ts`, i18n 사전 | 단계 `dd`·사람 단계 목록·크레딧 dd | 3 |
+| `src/lib/domain/stageLabels.ts`·`agentWork.ts`·`stageCredits.ts`, i18n 사전, `src/components/settings/StageCreditSlider.tsx` | 단계 `dd`·사람 단계 목록·크레딧 dd | 3 |
 | `supabase/migrations/0108_design_state.sql`(새)·`_rollback.sql`(새) | 칸·CHECK·RPC·데이터 이전 | 4 |
 | `tests/migrations/0108-design-state.test.ts`(새) | SQL ↔ 도메인 대조 | 4 |
 | `src/lib/agent/workflowEvent.ts` | 새 사건·인자·사유 | 6 |
 | `src/lib/agent/cancelOrder.ts`(새) | D14 공용 취소 | 7 |
-| `src/lib/agent/delegation.ts`·`src/app/actions/agentHub.ts`·`wbsAssign.ts`·`src/lib/agent/forceProgress.ts`·`wbsImport.ts` | 취소 경로 교체, L7 | 7 |
+| `src/lib/agent/delegation.ts` | 취소 경로 교체(7), 발행 차단 안내(8) | 7·8 |
+| `src/app/actions/agentHub.ts` | 사람 단계 목록에서 dd 제외(3), 취소 경로 교체(7), 설계 검토 대기의 재개 요청 거부(16). 버튼 액션은 Task 24 행 | 3·7·16 |
+| `src/app/actions/wbsAssign.ts`·`src/lib/agent/wbsImport.ts` | 사람 단계 목록에서 dd 제외(3), 취소 경로 교체·import 의 표식 제거 L7(7) | 3·7 |
+| `src/lib/agent/forceProgress.ts` | 취소 경로 교체 | 7 |
+| `src/app/api/v1/wbs/import/route.ts` | import 응답에 취소 건수(`delegation_cancelled`, P15) | 7 |
 | `src/lib/agent/ensureOrder.ts` | D26 발행 차단 | 8 |
 | `src/lib/agent/designFacts.ts`(새) | 판단 재료 일괄 로더 | 9 |
 | `src/lib/agent/routeShared.ts` | 주문 행 열 | 10 |
+| `src/lib/agent/depends.ts` | 설계 선행 판정 함수 삭제(규칙은 `designGate.predsState`) | 10 |
 | `src/app/api/v1/agent/work/[id]/{claim,build-start,heartbeat,report,release}/route.ts` | 관문 집행 | 10~14 |
 | `src/app/api/v1/agent/work/[id]/{design-done,design-reopen}/route.ts`(새) | 새 동사 | 15 |
 | `src/app/api/v1/agent/work/mine/route.ts`·`work/[id]/route.ts`·`watch/route.ts` | 판단 싣기, build_ready | 16 |
 | `src/lib/agent/externalApi.ts`·`.claude/skills/dflow-work/references/api-contract.md` | 계약 2.11 | 17 |
-| `.claude/skills/dflow-work/scripts/dflow.sh` | exit 11·12, 새 동사, scope, list 열 | 18 |
+| `.claude/skills/dflow-work/scripts/dflow.sh` | 계약 버전(17), exit 11·12·새 동사·scope·list 열(18) | 17·18 |
 | `.claude/skills/dflow-poll/scripts/poll.sh` | action·mine | 19 |
 | `kit/hooks/heartbeat.sh` | runner_active 멈춤 | 20 |
 | `.claude/skills/dflow-dev/**` | 워커 문서 | 21 |
-| `.claude/skills/dflow-team/**` | 팀장 문서·tick.sh | 22 |
+| `.claude/skills/dflow-team/**` | 워커 프롬프트(21), 팀장 스크립트 `lead-state.sh`·`wake.sh`·`tick.sh`(22a), 팀장 문서(22b) | 21·22a·22b |
+| `.claude/skills/dflow-team/references/design-state.md`(새) | 설계 사전 검사·`build` 처리·결과 보충(지운 `scope.md` 를 대신한다) | 22b |
+| `.claude/skills/dflow-team/references/scope.md`(삭제) | 팀장 실행 범위 인자 제거(D27) | 22b |
 | `.claude/skills/dflow-poll/SKILL.md`·`dflow-work/SKILL.md` | 문서 | 23 |
-| `src/app/actions/designActions.ts`(새)·`wbsSpec.ts`·`agentHub.ts`·`agentWork.ts` | 버튼·방식 서버 액션 | 24 |
+| `.claude/skills/dflow-work/references/troubleshooting.md` | exit 10·11·12 절 | 23 |
+| `src/lib/agent/designPanel.ts`(새)·`src/app/actions/designActions.ts`(새)·`wbsSpec.ts`·`agentHub.ts` | 패널 판정 재료·버튼·방식 서버 액션 | 24 |
 | `src/components/wbs/*` | 작업 패널 | 25 |
 | `src/lib/domain/seatState.ts`·`seatmap.ts`·`agentHub.ts`, `src/lib/data/agentSeatmap.ts`, `src/components/agents/*`·`agent-hub/*` | 좌석·허브 | 26 |
 
@@ -153,7 +166,7 @@ npm ci
 - [ ] **Step 3: 전체 테스트 기준선을 남긴다**
 
 ```bash
-npx vitest run 2>&1 | tail -40 > /tmp/design-state-baseline.txt; tail -15 /tmp/design-state-baseline.txt
+npx vitest run 2>&1 | tail -40 > <SCRATCH>/design-state-baseline.txt; tail -15 <SCRATCH>/design-state-baseline.txt
 ```
 
 Expected: 통과. 실패가 있으면 Global Constraints 의 흔들리는 4개인지 단독 실행으로 확인하고, 그 밖의 실패는 파일 이름을 기록해 둔다(이후 Task 가 새로 깬 것과 구별하는 재료).
@@ -692,7 +705,7 @@ export function nextAgentAction(item: ItemFacts, order: OrderFacts, nowMs: numbe
       if ((item.stage === 'dd' && item.preds !== 'met') || item.preds === 'blocked') return act('wait', '선행 대기')
       return act('full', '처음부터 끝까지(이어 감)', item.preds !== 'met')
     }
-    return act('skip', '구현부터 범위인데 설계가 승인되지 않음')
+    return act('skip', '구현(build) 범위인데 설계가 승인되지 않음')
   }
   if (item.mode === 'human') return act('skip', '사람 설계 대기')
   if (item.preds === 'blocked') return act('wait', '선행 대기')
@@ -1589,7 +1602,7 @@ const CORE_KEYS: readonly CreditKey[] = ['as', 'ip', 'rw', 'im', 'xx']
 
 /**
  * 사건 → 크레딧 키(§3.4). 승인은 xx(=100 고정), 반려·재작업은 rw(결과 단계는 ip).
- * claim 은 종전(플래그 없음) 값이다 — 설계 선행·설계 범위 claim 은 ds, 구현부터(build) claim 은 dd 를 쓴다(0107·0108).
+ * claim 은 종전(플래그 없음) 값이다 — 설계 선행·설계 범위 claim 은 ds, 구현 범위(build) claim 은 dd 를 쓴다(0107·0108).
  * build_start 는 ds·dd 일 때만 ip 로 옮긴다(이미 ip 이상이면 무변경). design_done·design_accept(확정)는 dd.
  */
 export type CreditEvent = 'assign' | 'claim' | 'build_start' | 'design_done' | 'design_accept' | 'report_completion' | 'approve' | 'unapprove' | 'reject' | 'rework' | 'release'
@@ -3346,16 +3359,17 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Test: `tests/agent/design-facts.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1 `toDesignMode`·`toDesignState`·`toClaimScope`·`predsState`·`nextAgentAction`·`ItemFacts`·`OrderFacts`·`ActionResult`, `predecessorReached`(`src/lib/domain/agentWork.ts`)
+- Consumes: Task 1 `toDesignMode`·`toDesignState`·`toClaimScope`·`predsState`·`nextAgentAction`·`isMine`·`ItemFacts`·`OrderFacts`·`ActionResult`·`MineRequest`, `predecessorReached`(`src/lib/domain/agentWork.ts`)
 - Produces:
   - `ORDER_FACT_COLUMNS = 'claimed_by, claimed_by_user_id, last_heartbeat_at, heartbeat_phase, heartbeat_agent, design_state, claim_scope, design_note, runner, runner_seen_at'` — `status` 는 넣지 않는다(호출부 select 가 이미 고른다. 같은 열을 두 번 고르지 않는다)
   - `ITEM_FACT_COLUMNS = 'id, project_id, external_ref, stage, actual_pct, tags, depends, depends_waived, design_mode'`
-  - `type FactOrderRow`, `type FactItemRow`
+  - `type FactOrderRow`(`status`·`claimed_by`·`claimed_by_user_id` 밖은 모두 선택 칸 — Task 10 의 `routeShared.OrderRow` 를 그대로 받는다), `type FactItemRow`
   - `orderFactsOf(row: FactOrderRow): OrderFacts`
   - `loadItemFacts(admin, items: FactItemRow[]): Promise<Map<string, { facts: ItemFacts; depsUnmet: Array<{ external_ref: string; stage: string | null }> }>>` — 쿼리 셋(항목의 approved 주문, 선행 항목, 선행의 approved 주문). 조회 실패는 throw(호출부 500).
   - `hasApprovedOrder(admin, itemId): Promise<boolean>` — throw on error
   - `decide(item: ItemFacts | null, order: OrderFacts, nowMs): ActionResult` — 항목이 없으면 `skip`(사유 `항목이 지워진 주문`)
-  - `designFieldsOf(row, action, mine)` — 응답에 실을 칸 `{ design_mode, design_state, design_note, claim_scope, runner, runner_seen_at, action, action_reason, deps_unmet, mine }`
+  - `responseMine(order, req: MineRequest, nowMs): boolean` — 응답의 `mine`(목록·상세 공통). ready·claimed 주문은 `isMine`(5.3 정의), 그 밖(reported·approved 등)은 종전 뜻(점유 사용자 일치, `claimedByUserId === req.userId`). 팀장의 머지 충돌 해소(`.claude/skills/dflow-team/references/merge-conflict.md`)가 reported 주문의 `mine` 에 기대기 때문이다
+  - `designFieldsOf(row, mode, a, mine)` — 응답에 실을 칸 `{ design_mode, design_state, design_note, claim_scope, runner, runner_seen_at, action, action_reason, deps_unmet, mine }`(목록·상세만 — watch 는 싣지 않는다)
 
 - [ ] **Step 1: 실패하는 테스트**
 
@@ -3364,7 +3378,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```ts
 // 판단 재료 일괄 로더 — 항목의 approved 주문·선행 도달을 배치로 구해 designGate 입력을 만든다.
 import { describe, expect, it, vi } from 'vitest'
-import { decide, designFieldsOf, hasApprovedOrder, loadItemFacts, orderFactsOf } from '@/lib/agent/designFacts'
+import { decide, designFieldsOf, hasApprovedOrder, loadItemFacts, orderFactsOf, responseMine } from '@/lib/agent/designFacts'
 
 type Resp = { data?: unknown; error?: { message: string } | null }
 function useAdmin(queues: Record<string, Resp[]>) {
@@ -3391,6 +3405,22 @@ describe('orderFactsOf', () => {
     expect(orderFactsOf({ status: 'claimed', claimed_by: 'a/b/w1', claimed_by_user_id: 'u', last_heartbeat_at: null, heartbeat_phase: null,
       heartbeat_agent: null, design_state: null, claim_scope: null, runner: 'a/b/w1', runner_seen_at: null }))
       .toMatchObject({ status: 'claimed', claimScope: 'legacy', designState: null, runner: 'a/b/w1' })
+  })
+})
+
+describe('responseMine — 응답의 mine(계약 2.11)', () => {
+  // last_heartbeat_at·heartbeat_phase 는 선택 칸이다(routeShared.OrderRow 처럼 열이 없는 행도 받는다).
+  const row = { status: 'reported', claimed_by: 'hong/mbp/w1', claimed_by_user_id: 'u', design_state: null, claim_scope: 'full',
+    runner: 'hong/pc2/w1', runner_seen_at: new Date(NOW - 60_000).toISOString() }
+  const req = { userId: 'u', label: 'hong/mbp/lead', lead: false, filtersPass: true }
+  it('reported·approved 는 종전 뜻(점유 사용자 일치) — 도는 PC 와 무관하다(merge-conflict.md 가 기댄다)', () => {
+    expect(responseMine(orderFactsOf(row), req, NOW)).toBe(true)
+    expect(responseMine(orderFactsOf({ ...row, status: 'approved' }), req, NOW)).toBe(true)
+    expect(responseMine(orderFactsOf(row), { ...req, userId: 'other' }, NOW)).toBe(false)
+  })
+  it('claimed 는 5.3 정의 — 다른 PC 가 30분 안에 신호를 냈으면 거짓, 같은 PC 면 참', () => {
+    expect(responseMine(orderFactsOf({ ...row, status: 'claimed' }), req, NOW)).toBe(false)
+    expect(responseMine(orderFactsOf({ ...row, status: 'claimed', runner: 'hong/mbp/w1' }), req, NOW)).toBe(true)
   })
 })
 
@@ -3458,8 +3488,8 @@ Expected: FAIL — 모듈 없음
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { predecessorReached } from '@/lib/domain/agentWork'
 import {
-  nextAgentAction, predsState, toClaimScope, toDesignMode, toDesignState,
-  type ActionResult, type DesignMode, type ItemFacts, type OrderFacts,
+  isMine, nextAgentAction, predsState, toClaimScope, toDesignMode, toDesignState,
+  type ActionResult, type DesignMode, type ItemFacts, type MineRequest, type OrderFacts,
 } from '@/lib/domain/designGate'
 import type { AgentOrderStatus } from '@/lib/domain/agentWork'
 
@@ -3471,7 +3501,7 @@ const IN_CHUNK = 200
 
 export type FactOrderRow = {
   status: string; claimed_by: string | null; claimed_by_user_id: string | null
-  last_heartbeat_at: string | null; heartbeat_phase: string | null; heartbeat_agent?: string | null
+  last_heartbeat_at?: string | null; heartbeat_phase?: string | null; heartbeat_agent?: string | null
   design_state?: string | null; claim_scope?: string | null; design_note?: string | null
   runner?: string | null; runner_seen_at?: string | null
 }
@@ -3570,7 +3600,19 @@ export function decide(item: ItemFacts | null, order: OrderFacts, nowMs: number)
   return nextAgentAction(item, order, nowMs)
 }
 
-/** 계약 2.11 응답 칸(목록·상세·watch 공통, PAT 응답에만). */
+/**
+ * 응답의 mine(계약 2.11, 목록·상세 공통). ready·claimed 주문은 5.3 정의(isMine — 같은 신원 ∧ 도는 PC, 팀장 요청이면 거르기·팀원 라벨까지)다.
+ * 그 밖(reported·approved 등)은 종전 뜻(점유 사용자 일치)을 그대로 둔다. isMine 은 claimed 가 아니면 늘 거짓인데, 팀장의 머지 충돌 해소
+ * (.claude/skills/dflow-team/references/merge-conflict.md)가 reported·approved 주문의 mine 으로 자기 주문을 가리기 때문이다.
+ */
+export function responseMine(
+  order: Pick<OrderFacts, 'status' | 'claimedBy' | 'claimedByUserId' | 'runner' | 'runnerSeenAt'>, req: MineRequest, nowMs: number,
+): boolean {
+  if (order.status === 'ready' || order.status === 'claimed') return isMine(order, req, nowMs)
+  return order.claimedByUserId === req.userId
+}
+
+/** 계약 2.11 응답 칸(목록·상세 공통, PAT 응답에만 — watch 는 싣지 않는다). */
 export function designFieldsOf(
   row: Pick<FactOrderRow, 'design_state' | 'claim_scope' | 'design_note' | 'runner' | 'runner_seen_at'>,
   mode: DesignMode | string | null, a: ActionResult, mine: boolean,
@@ -3614,7 +3656,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: 실패하는 테스트**
 
-`tests/agent/design-state-claim.test.ts` — `tests/agent/design-first.test.ts` 의 목·요청 헬퍼(`mocks`·`useAdmin`·`post`·`ITEM_ROW`·`member`·`ctx`)를 그대로 복사해 머리에 두고 아래 테스트를 쓴다(헬퍼를 import 로 나누지 않는다 — 테스트 파일끼리 의존하지 않는 것이 이 리포 관례다):
+`tests/agent/design-state-claim.test.ts` — `tests/agent/design-first.test.ts` 머리의 다음을 그대로 복사해 두고 아래 테스트를 쓴다(헬퍼를 import 로 나누지 않는다 — 테스트 파일끼리 의존하지 않는 것이 이 리포 관례다): vitest·`NextRequest` import, `mocks`(`vi.hoisted`)와 `vi.mock` 다섯(`@/lib/supabase/admin`·`@/lib/notify/emit`·`@/lib/data/snapshots`·`next/cache`·`next/server`), 라우트 import `import { POST as claimPOST } from '@/app/api/v1/agent/work/[id]/claim/route'`, 상수 `SECRET`·`P1`·`O1`·`W1`·`DEP_ID`·`DEP_REF`·`USER`·`RPC_OK`, `type Resp`, 헬퍼 `useAdmin`·`post`·`ctx`·`member`·`ITEM_ROW`·`dep`, `beforeEach` 블록.
 
 ```ts
 describe('claim — 범위와 설계 관문(설계 상태 스펙 5.2)', () => {
@@ -4639,16 +4681,17 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Test: `tests/agent/mine-route.test.ts`, `tests/agent/work-routes-pat.test.ts`, `tests/agent/watch-route.test.ts`, `tests/actions/agent-hub-actions.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1 `isMine`·`listFilterPass`·`parseWpList`, Task 9 `loadItemFacts`·`orderFactsOf`·`decide`·`designFieldsOf`·`ORDER_FACT_COLUMNS`·`ITEM_FACT_COLUMNS`·`hasApprovedOrder`
+- Consumes: Task 1 `isMine`(watch)·`listFilterPass`·`parseWpList`·`predsState`·`toDesignMode`, Task 9 `loadItemFacts`·`orderFactsOf`·`decide`·`designFieldsOf`·`responseMine`(목록·상세)·`ORDER_FACT_COLUMNS`·`ITEM_FACT_COLUMNS`·`hasApprovedOrder`
 - Produces:
   - `GET /work/mine` 새 쿼리: `agent`(요청 라벨), `require_tag`, `wp`(쉼표 목록, 형식 오류 400), `lead=1`. 각 주문에 `design_mode`·`design_state`·`design_note`·`claim_scope`·`runner`·`runner_seen_at`·`action`·`action_reason`·`deps_unmet`·`mine`·`claimed_by`
-  - `GET /work/{id}`(PAT) 새 쿼리 `agent` — `order` 에 같은 칸
-  - `POST /watch` 새 본문 `require_tag`·`wp` — 응답 `build_ready: Array<{ order_id, id8, code, name, status }> | null`(+ 실패면 `build_ready_error`), `resume_requests[]` 에 `mine`·`design_state`
+  - `mine` 의 뜻(목록·상세 공통, `responseMine`): ready·claimed 주문은 5.3 정의(같은 신원 ∧ 도는 PC, `lead=1` 이면 거르기·팀원 라벨까지), 그 밖(reported·approved 등)은 종전처럼 점유 사용자 일치다. 팀장의 머지 충돌 해소(`merge-conflict.md`)가 reported 주문의 `mine` 으로 자기 주문을 가린다
+  - `GET /work/{id}`(PAT) 새 쿼리 `agent` — `order` 에 같은 칸. 레거시 응답은 칸이 늘지 않는다
+  - `POST /watch` 새 본문 `require_tag`·`wp` — 응답 `build_ready: Array<{ order_id, id8, code, name, status }> | null`(+ 실패면 `build_ready_error`), `resume_requests[]` 에 `mine`(5.3 정의 — 사람의 명시 요청이라 거르기는 보지 않는다)·`design_state`. 주문마다의 판단 칸(`action` 등)은 싣지 않는다
   - `requestResumeOnOrder` 는 설계 상태 review 면 거부(Y10)
 
-- [ ] **Step 1: 실패하는 테스트 — 목록**
+- [ ] **Step 1: 실패하는 테스트 — 목록·watch·상세·재개 요청**
 
-`tests/agent/mine-route.test.ts` 에 더한다:
+`tests/agent/mine-route.test.ts` 의 `describe('GET /agent/work/mine', …)` 끝에 더한다:
 
 ```ts
   it('판단 칸(action·mine·설계 상태)을 싣는다 — 팀장 요청(lead=1)은 거르기와 팀원 라벨을 본다(계약 2.11)', async () => {
@@ -4678,9 +4721,10 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   })
 ```
 
-`tests/agent/watch-route.test.ts` 에 더한다:
+`tests/agent/watch-route.test.ts` 끝에 describe 하나를 더한다. 이 파일의 `post` 헬퍼가 이미 `POST` 를 부르므로 `post(…)` 를 그대로 기다린다. 목의 큐는 테이블마다 부르는 순서대로 소비된다 — `agent_work_orders` 는 재개 요청 조회 → build 목록 조회 → `loadItemFacts` 의 approved 조회 순이다.
 
 ```ts
+describe('POST /agent/watch — 계약 2.11', () => {
   it('build_ready — 승인·확정된 주문 중 action build ∧ mine 만 싣는다(D22)', async () => {
     useAdmin({
       agent_runners: [{ data: RUNNER }, { data: null }],
@@ -4695,18 +4739,110 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
       wbs_items: [{ data: [{ id: 'w-1', project_id: P1, code: '1.1', name: 'x', external_ref: 'M/TSK-01-01', stage: 'dd', actual_pct: 20,
         tags: ['agent'], depends: [], depends_waived: [], design_mode: 'human' }] }],
     })
-    const res = await POST(post({ agent: 'hong/mbp/lead', project_id: P1, require_tag: 'agent' }))
+    const res = await post({ agent: 'hong/mbp/lead', project_id: P1, require_tag: 'agent' })
     expect(res.status).toBe(200)
     expect((await res.json()).build_ready).toEqual([{ order_id: '22222222-2222-4222-8222-222222222222', id8: '22222222', code: '1.1', name: 'x', status: 'ready' }])
   })
+  it('재개 요청에 mine·design_state 를 싣는다 — 다른 PC 가 30분 안에 신호를 낸 주문은 mine 이 아니다(12절 Y10)', async () => {
+    const fresh = new Date(Date.now() - 60_000).toISOString()
+    const req = (id: string, over: Record<string, unknown>) => ({
+      id, project_id: P1, wbs_item_id: null, claimed_by: 'hong/mbp/w1', claimed_by_user_id: 'u-1',
+      runner: null, runner_seen_at: null, design_state: null,
+      resume_requested_at: '2026-09-27T00:00:00Z', resume_requested_host: 'mbp', ...over,
+    })
+    useAdmin({
+      ...runnerQueues(),
+      agent_work_orders: [{ data: [
+        req('55555555-5555-4555-8555-555555555555', { design_state: 'accepted' }),
+        req('66666666-6666-4666-8666-666666666666', { runner: 'hong/pc2/w1', runner_seen_at: fresh }),
+      ] }],
+    })
+    const body = await (await post({ agent: 'hong/mbp/lead' })).json()
+    expect(body.resume_requests.map((r: { id8: string; mine: boolean; design_state: string | null }) => [r.id8, r.mine, r.design_state]))
+      .toEqual([['55555555', true, 'accepted'], ['66666666', false, null]])
+  })
+})
 ```
 
-(watch 목의 큐 순서는 그 파일의 기존 테스트 머리 주석을 따른다 — 위 순서가 다르면 기존 큐 순서에 맞춘다.)
+같은 파일의 기존 테스트 둘을 새 응답에 맞춘다.
+- 「내 신원이 점유한 멈춤 작업의 요청을 TSK 코드와 함께 싣는다」: 그 describe 의 `ORDER` 에 `claimed_by_user_id: 'u-1'` 을 더하고(`claimed_by: 'claude-jji-mac',` 바로 뒤), `toEqual` 기대 원소의 `requested_at: ORDER.resume_requested_at,` 다음 줄에 `mine: true, design_state: null,` 을 더한다. runner 가 없고 같은 신원이므로 mine 이다.
+- 「lease 가 있으면 orders 조회에 project_id in 필터를 건다」: build 목록 조회도 `in` 을 부르므로 단언을 첫 호출로 좁힌다 — `expect(calls['agent_work_orders:in']).toEqual([['project_id', [P1]]])` 를 `expect(calls['agent_work_orders:in']?.[0]).toEqual(['project_id', [P1]])` 로 바꾸고, 그 위에 주석 `// 첫 in 호출이 재개 요청 조회다(뒤의 in 호출은 build 목록 조회 — 계약 2.11).` 을 둔다.
+- 「lease 가 하나도 없으면 orders 를 조회하지 않고 즉시 빈 배열이다」는 그대로 둔다. Step 5 의 `loadBuildReady` 가 lease 목록이 비면 조회하지 않으므로 계속 통과한다.
+
+`tests/agent/work-routes-pat.test.ts` 끝에 describe 하나를 더한다(상세의 판단 칸, reported 주문의 mine 은 종전 뜻, 레거시는 회귀 기준선):
+
+```ts
+// 계약 2.11(설계 상태 스펙 5.3·8절) — 상세(PAT)가 판단 칸을 싣는다. mine 은 ready·claimed 면 5.3 정의,
+// 그 밖(reported 등)은 종전 뜻(점유 사용자 일치)이다 — 팀장의 머지 충돌 해소(merge-conflict.md)가 reported 의 mine 에 기댄다.
+describe('GET /agent/work/[id] — 판단 칸(계약 2.11)', () => {
+  const W1 = '33333333-3333-4333-8333-333333333333'
+  const memberQ = () => ({
+    agent_projects: [{ data: { enabled: true } }],
+    memberships: [{ data: { is_superuser: false } }],
+    project_roles: [{ data: [{ role: 'member' }] }],
+    agent_work_reports: [{ data: [] }],
+  })
+  const detailAs = (agent: string) =>
+    detailGET(get(`http://l/api/v1/agent/work/${O1}?agent=${agent}`, PAT.token), { params: Promise.resolve({ id: O1 }) })
+  const fresh = () => new Date(Date.now() - 60_000).toISOString()
+
+  it('reported 주문의 mine 은 종전 뜻(점유 사용자 일치) — 다른 PC 의 runner 가 신선해도 참이다', async () => {
+    const row = { id: O1, project_id: P1, status: 'reported', priority: 0, instructions: '', claimed_by: 'hong/mbp/w1', claimed_at: null,
+      wbs_item_id: null, runner: 'hong/pc2/w1', runner_seen_at: fresh() }
+    useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }], agent_work_orders: [{ data: { ...row, claimed_by_user_id: 'u-1' } }], ...memberQ() })
+    expect((await (await detailAs('hong/mbp/lead')).json()).order).toMatchObject({ status: 'reported', mine: true, action: 'skip' })
+    useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }], agent_work_orders: [{ data: { ...row, claimed_by_user_id: 'u-2' } }], ...memberQ() })
+    expect((await (await detailAs('hong/mbp/lead')).json()).order.mine).toBe(false)
+  })
+
+  it('claimed 주문은 판단 칸과 5.3 mine 을 싣는다 — 다른 PC 가 30분 안에 신호를 냈으면 mine 이 아니다', async () => {
+    const order = { id: O1, project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_by: 'hong/mbp/w1', claimed_by_user_id: 'u-1',
+      claimed_at: null, wbs_item_id: W1, design_state: null, claim_scope: 'design', design_note: null, runner: 'hong/pc2/w1', runner_seen_at: fresh() }
+    const item = { id: W1, code: 'C1', name: '항목1', external_ref: 'MES/TSK-02-00', stage: 'ds', actual_pct: 10, tags: ['agent'],
+      depends: [], depends_waived: [], design_mode: 'review' }
+    const queues = (o: Record<string, unknown>) => ({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: o }, { data: null }], // 주문, 항목의 approved 주문 없음(hasApprovedOrder)
+      ...memberQ(), wbs_items: [{ data: [item] }],
+    })
+    useAdmin(queues(order))
+    expect((await (await detailAs('hong/mbp/lead')).json()).order).toMatchObject({
+      design_mode: 'review', design_state: null, claim_scope: 'design', runner: 'hong/pc2/w1',
+      action: 'design', action_reason: '설계만(이어 감)', deps_unmet: false, mine: false,
+    })
+    useAdmin(queues({ ...order, runner: 'hong/mbp/w1' }))
+    expect((await (await detailAs('hong/mbp/lead')).json()).order.mine).toBe(true) // 같은 PC
+  })
+
+  it('레거시 응답에는 판단 칸이 없다(v1 회귀 기준선)', async () => {
+    useAdmin({
+      agent_work_orders: [{ data: { id: O1, project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_by: 'x', claimed_at: null, wbs_item_id: null } }],
+      agent_projects: [{ data: { enabled: true } }], agent_work_reports: [{ data: [] }],
+    })
+    const legacy = (await (await detail('legacy-secret')).json()).order
+    for (const k of ['mine', 'action', 'action_reason', 'deps_unmet', 'design_mode', 'design_state', 'claim_scope', 'runner']) expect(legacy, k).not.toHaveProperty(k)
+  })
+})
+```
+
+`tests/actions/agent-hub-actions.test.ts` — `fakeAdmin` 의 `orders` 원소 타입에서 `claimed_by?: string | null` 다음에 `; design_state?: string | null` 을 더하고(지금 타입은 `{ project_id: string; status?: string; wbs_item_id?: string | null; claimed_by?: string | null }` 이다. 더하지 않으면 아래 테스트가 tsc 에서 막힌다), 「resume — 경합으로 한 행도 못 고치면 재시도 문구」 앞에 더한다:
+
+```ts
+  it('resume — 설계 검토 대기(review)는 거부하고 표식을 쓰지 않는다(설계 상태 스펙 12절 Y10)', async () => {
+    const { updates } = fakeAdmin({
+      orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: 'claude-mbp', design_state: 'review' } },
+      items: ITEMS,
+    })
+    expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) }))
+      .toEqual({ ok: false, error: '설계 검토 대기 중인 작업입니다 — 「설계 승인」을 누르면 팀장이 다음 TICK 에 이어 갑니다.' })
+    expect(updates).toHaveLength(0)
+  })
+```
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `npx vitest run tests/agent/mine-route.test.ts tests/agent/watch-route.test.ts`
-Expected: FAIL
+Run: `npx vitest run tests/agent/mine-route.test.ts tests/agent/watch-route.test.ts tests/agent/work-routes-pat.test.ts tests/actions/agent-hub-actions.test.ts`
+Expected: FAIL 8건 — 목록 2, watch 3(고친 기존 「내 신원이 점유한…」 포함), 상세 2, 재개 요청 거부 1. 상세의 레거시 테스트와 watch 의 첫 `in` 호출 단언은 구현 전에도 통과한다.
 
 - [ ] **Step 3: `/work/mine` 구현**
 
@@ -4716,8 +4852,8 @@ Expected: FAIL
 
 ```ts
 import { AGENT_NAME_RE } from '@/lib/domain/agentWork'
-import { isMine, listFilterPass, parseWpList } from '@/lib/domain/designGate'
-import { ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, decide, designFieldsOf, loadItemFacts, orderFactsOf, type FactItemRow, type FactOrderRow } from '@/lib/agent/designFacts'
+import { listFilterPass, parseWpList } from '@/lib/domain/designGate'
+import { ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, decide, designFieldsOf, loadItemFacts, orderFactsOf, responseMine, type FactItemRow, type FactOrderRow } from '@/lib/agent/designFacts'
 ```
 
 2. `limit` 검사 뒤에 새 쿼리를 읽는다:
@@ -4747,7 +4883,8 @@ import { ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, decide, designFieldsOf, loadItem
       const order = orderFactsOf(o as unknown as FactOrderRow)
       const action = decide(f?.facts ?? null, order, nowMs)
       const filtersPass = it ? listFilterPass({ tags: it.tags, externalRef: it.external_ref }, { requireTag, wp }) : false
-      const mine = isMine(order, { userId: principal.userId, label: agentParam, lead, filtersPass }, nowMs)
+      // ready·claimed 는 5.3 mine, 그 밖(reported 등)은 종전 뜻(점유 사용자 일치) — designFacts.responseMine.
+      const mine = responseMine(order, { userId: principal.userId, label: agentParam, lead, filtersPass }, nowMs)
       return { ...o, item: it, ...designFieldsOf(o as unknown as FactOrderRow, it?.design_mode ?? null, action, mine) }
     })
 ```
@@ -4772,17 +4909,35 @@ import { ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, decide, designFieldsOf, loadItem
       } : null
       const nowMs = Date.now()
       const action = decide(itemFacts, order, nowMs)
-      const mineNow = isMine(order, { userId: principal.userId, label: agentParam && AGENT_NAME_RE.test(agentParam) ? agentParam : null, lead: false, filtersPass: true }, nowMs)
-      extra = { ...extra, ...designFieldsOf(full as unknown as FactOrderRow, it?.design_mode ?? null, action, mineNow) }
+      // ready·claimed 는 5.3 mine, 그 밖(reported·approved 등)은 종전 뜻(점유 사용자 일치) — 팀장의 머지 충돌 해소가 기댄다.
+      const mine = responseMine(order, { userId: principal.userId, label: agentParam && AGENT_NAME_RE.test(agentParam) ? agentParam : null, lead: false, filtersPass: true }, nowMs)
+      extra = { ...extra, ...designFieldsOf(full as unknown as FactOrderRow, it?.design_mode ?? null, action, mine) }
 ```
 
-(`extra` 의 기존 `mine`(점유 사용자 일치)은 `designFieldsOf` 의 `mine`(5.3 정의)으로 덮인다 — 5.3 정의가 "같은 신원 ∧ 도는 PC" 라 종전 뜻을 포함한다. import 에 `AGENT_NAME_RE`·`isMine`·`predsState`·`toDesignMode`·`decide`·`designFieldsOf`·`hasApprovedOrder`·`orderFactsOf`·`type FactOrderRow` 를 더한다.)
+`extra` 의 기존 `mine`(점유 사용자 일치)은 `designFieldsOf` 의 `mine` 으로 덮이고, 그 값은 `responseMine` 이 정한다. ready·claimed 주문은 5.3 정의(`isMine` — 같은 신원 ∧ 도는 PC)이고, 그 밖(reported·approved 등)은 종전 식(`claimed_by_user_id === principal.userId`) 그대로다. `isMine` 은 claimed 가 아니면 늘 거짓이라 종전 뜻을 포함하지 않는다. 팀장의 머지 충돌 해소(`.claude/skills/dflow-team/references/merge-conflict.md` 「주문 확인」)가 reported·approved 주문의 `.order.mine` 이 참일 때만 해소 워커를 띄우므로 그 뜻을 남긴다.
+
+import 는 셋이다 — 기존 `agentWork` import 줄을 첫 줄로 바꾸고 둘을 더한다:
+
+```ts
+import { AGENT_NAME_RE, isUuidLike, isClaimStale } from '@/lib/domain/agentWork'
+import { predsState, toDesignMode } from '@/lib/domain/designGate'
+import { decide, designFieldsOf, hasApprovedOrder, orderFactsOf, responseMine, type FactOrderRow } from '@/lib/agent/designFacts'
+```
 
 - [ ] **Step 5: watch 구현**
 
 `src/app/api/v1/agent/watch/route.ts`:
 
-1. 본문에서 거르기를 읽는다(`holder` 검사 뒤):
+1. 파일 머리 import(`@/lib/agent/externalApi` 다음)에 둘을 더한다:
+
+```ts
+import { isMine, listFilterPass, parseWpList } from '@/lib/domain/designGate'
+import {
+  ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, decide, loadItemFacts, orderFactsOf, type FactItemRow, type FactOrderRow,
+} from '@/lib/agent/designFacts'
+```
+
+2. 본문에서 거르기를 읽는다(`holder` 검사 뒤):
 
 ```ts
   const requireTag = b.require_tag === undefined || b.require_tag === null ? null : b.require_tag
@@ -4793,19 +4948,98 @@ import { ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, decide, designFieldsOf, loadItem
   if (wp === 'invalid') return apiBadRequest('wp 형식 오류 — WP-02 또는 모듈/WP-02.')
 ```
 
-2. `loadResumeRequests` 가 고르는 열에 `claimed_by_user_id, runner, runner_seen_at, design_state` 를 더하고, 반환 항목에 `mine`·`design_state` 를 싣는다(함수에 `label: string` 인자를 더한다):
+3. `ResumeRequest` 인터페이스의 `requested_at: string` 다음 줄에 두 칸을 더한다(함수가 늘 싣는다):
 
 ```ts
-    const order = { status: 'claimed' as const, claimedBy: r.claimed_by, claimedByUserId: r.claimed_by_user_id, runner: r.runner ?? null, runnerSeenAt: r.runner_seen_at ?? null }
-    return {
-      ...기존 필드...,
-      // Y10 — 재개 요청 ∧ mine 이면 팀장은 5.3 2행 skip 이어도 재개한다(사람의 명시 요청이라 목록 거르기는 보지 않는다).
-      mine: isMine(order, { userId, label, lead: false, filtersPass: true }, Date.now()),
-      design_state: r.design_state ?? null,
-    }
+  /** 계약 2.11 — 5.3 mine(같은 신원 ∧ 도는 PC). 사람의 명시 요청이라 목록 거르기는 보지 않는다(12절 Y10). */
+  mine: boolean
+  /** 계약 2.11 — 설계 상태(null·review·accepted). */
+  design_state: string | null
 ```
 
-3. 새 함수 `loadBuildReady` 를 같은 파일에 둔다:
+4. `loadResumeRequests` 함수 전체(머리 주석은 그대로 두고 `async function loadResumeRequests(` 부터 그 닫는 `}` 까지)를 아래로 바꾼다. 바뀌는 점은 넷이다.
+   - lease 조회를 새 함수 `leasedProjectIds`(5번)로 옮긴다. 인자 `holder` 대신 그 결과 `leased: string[] | null | undefined` 를 받는다(null 은 holder 없음, undefined 는 lease 조회 실패).
+   - 요청 라벨 인자의 이름은 `agentLabel` 이다. `label` 로 하면 함수 끝의 `const label = …`(항목 코드·이름)과 겹친다.
+   - `leased` 가 `Set` 에서 배열로 바뀌므로 `.in('project_id', [...leased])` 는 `.in('project_id', leased)` 로, in-memory 필터의 `leased.has(r.project_id)` 는 `leased.includes(r.project_id)` 로 바뀐다.
+   - 고르는 열에 `claimed_by_user_id, runner, runner_seen_at, design_state` 를 더하고, 반환 원소에 `mine`·`design_state` 를 싣는다.
+
+```ts
+async function loadResumeRequests(
+  admin: ReturnType<typeof createAdminClient>, userId: string, projectId: string | null,
+  leased: string[] | null | undefined, agentLabel: string,
+): Promise<ResumeRequest[] | null> {
+  // 팀장이 holder 를 보내면 그 holder 로 쥔 lease 의 프로젝트만 돌려준다(스펙 §9) — leased 는 leasedProjectIds 가 읽은 값이다
+  // (null 은 holder 없음, undefined 는 lease 조회 실패). 신원+프로젝트마다 팀장이 하나이므로 hostname 이 겹치는 다른 PC 의
+  // 팀장이 남의 재개 요청을 가져가지 않는다.
+  if (leased === undefined) return null
+  // lease 가 하나도 없으면 이 신원은 어느 프로젝트에서도 팀장이 아니다 — orders 조회 자체를
+  // 건너뛴다. 건너뛰지 않으면 held 프로젝트가 없는 신원이라도 RESUME_MAX(50)를 다른(비-lease)
+  // 프로젝트의 오래된 요청이 다 채워, 뒤에 오는 held 프로젝트 요청이 잘릴 수 있다.
+  if (leased !== null && leased.length === 0) return []
+  let q = admin
+    .from('agent_work_orders')
+    .select('id, project_id, wbs_item_id, claimed_by, claimed_by_user_id, runner, runner_seen_at, design_state, resume_requested_at, resume_requested_host')
+    .eq('claimed_by_user_id', userId).eq('status', 'claimed')
+    .not('resume_requested_at', 'is', null)
+  if (projectId !== null) q = q.eq('project_id', projectId)
+  // leased 가 있으면 DB 단에서 먼저 그 프로젝트로 좁혀 limit(RESUME_MAX) 가 held 프로젝트를
+  // 밀어내지 않게 한다. 아래 in-memory 필터는 그대로 두어 이중 방어선을 유지한다.
+  if (leased !== null) q = q.in('project_id', leased)
+  const { data, error } = await q.order('resume_requested_at', { ascending: true }).limit(RESUME_MAX)
+  if (error) { console.error('[agent-api] 재개 요청 조회 실패:', error.message); return null }
+  const allRows = (data ?? []) as Array<{
+    id: string; project_id: string; wbs_item_id: string | null; claimed_by: string | null
+    claimed_by_user_id: string | null; runner: string | null; runner_seen_at: string | null; design_state: string | null
+    resume_requested_at: string; resume_requested_host: string | null
+  }>
+  const rows = leased === null ? allRows : allRows.filter(r => leased.includes(r.project_id))
+  if (rows.length === 0) return []
+  // 팀장이 표로 보고할 때 TSK 코드가 있어야 사람이 어느 작업인지 안다 — 행이 소수라 한 번 더 읽는다.
+  const itemIds = [...new Set(rows.map(r => r.wbs_item_id).filter((x): x is string => x !== null))]
+  const labels = new Map<string, { code: string; name: string }>()
+  if (itemIds.length > 0) {
+    const { data: items, error: itemErr } = await admin.from('wbs_items').select('id, code, name').in('id', itemIds)
+    if (itemErr) { console.error('[agent-api] 재개 요청 항목 조회 실패:', itemErr.message); return null }
+    for (const it of (items ?? []) as Array<{ id: string; code: string; name: string }>) {
+      labels.set(it.id, { code: it.code, name: it.name })
+    }
+  }
+  const nowMs = Date.now()
+  return rows.map(r => {
+    const label = r.wbs_item_id ? labels.get(r.wbs_item_id) : undefined
+    const order = {
+      status: 'claimed' as const, claimedBy: r.claimed_by, claimedByUserId: r.claimed_by_user_id ?? null,
+      runner: r.runner ?? null, runnerSeenAt: r.runner_seen_at ?? null,
+    }
+    return {
+      order_id: r.id, id8: r.id.slice(0, 8), project_id: r.project_id, wbs_item_id: r.wbs_item_id,
+      code: label?.code ?? null, name: label?.name ?? null,
+      host: r.resume_requested_host, claimed_by: r.claimed_by, requested_at: r.resume_requested_at,
+      // Y10 — 재개 요청 ∧ mine 이면 팀장은 5.3 2행 skip 이어도 재개한다(사람의 명시 요청이라 목록 거르기는 보지 않는다).
+      mine: isMine(order, { userId, label: agentLabel, lead: false, filtersPass: true }, nowMs),
+      design_state: r.design_state ?? null,
+    }
+  })
+}
+```
+
+5. 새 함수 `leasedProjectIds`·`loadBuildReady` 를 `loadResumeRequests` 바로 뒤에 둔다. `leasedProjectIds` 는 옛 `loadResumeRequests` 머리의 lease 조회를 그대로 빼낸 것이라 조회 수는 종전과 같은 한 번이다. `loadBuildReady` 는 lease 목록이 비면 조회하지 않는다 — 재개 요청과 같은 이유이고, 기존 테스트 「lease 가 하나도 없으면 orders 를 조회하지 않고 즉시 빈 배열이다」가 이것을 지킨다.
+
+```ts
+/** 이 holder 로 쥔 살아 있는 lease 의 프로젝트(스펙 §9). holder 가 없으면 null(거르지 않음), 조회 실패는 undefined. */
+async function leasedProjectIds(
+  admin: ReturnType<typeof createAdminClient>, userId: string, holder: string | null,
+): Promise<string[] | null | undefined> {
+  if (holder === null) return null
+  const { data, error } = await admin
+    .from('agent_lead_leases').select('project_id')
+    .eq('user_id', userId).eq('holder', holder).gt('expires_at', new Date().toISOString())
+  if (error) { console.error('[agent-api] lease 조회 실패:', error.message); return undefined }
+  return ((data ?? []) as Array<{ project_id: string }>).map(r => r.project_id)
+}
+```
+
+그 바로 뒤에 `loadBuildReady` 를 둔다:
 
 ```ts
 /**
@@ -4816,6 +5050,8 @@ async function loadBuildReady(
   admin: ReturnType<typeof createAdminClient>, userId: string, projectIds: string[] | null, label: string,
   filters: { requireTag: string | null; wp: string[] | null },
 ): Promise<Array<{ order_id: string; id8: string; code: string | null; name: string | null; status: string }> | null> {
+  // lease 가 하나도 없는 팀장은 어느 프로젝트에서도 띄울 것이 없다 — 재개 요청과 같은 이유로 조회하지 않는다.
+  if (projectIds !== null && projectIds.length === 0) return []
   let q = admin.from('agent_work_orders')
     .select(`id, project_id, wbs_item_id, status, ${ORDER_FACT_COLUMNS}`)
     .in('status', ['ready', 'claimed']).eq('design_state', 'accepted')
@@ -4848,7 +5084,7 @@ async function loadBuildReady(
 }
 ```
 
-4. 응답 조립을 바꾼다 — 기존 `const resume = await loadResumeRequests(admin, principal.userId, projectId, holder)` 줄과 그 뒤 `return NextResponse.json({…})` 를 아래로 바꾼다:
+6. 응답 조립을 바꾼다 — 기존 `const resume = await loadResumeRequests(admin, principal.userId, projectId, holder)` 줄과 그 뒤 `return NextResponse.json({…})` 를 아래로 바꾼다:
 
 ```ts
     const leased = await leasedProjectIds(admin, principal.userId, holder)
@@ -4858,6 +5094,7 @@ async function loadBuildReady(
     return NextResponse.json({
       ok: true,
       expires_at: new Date(now.getTime() + WATCHER_TTL_MS).toISOString(),
+      // 배열이면 그게 전부다. null 은 "조회에 실패했다"이며 "요청이 없다"가 아니다(에러 3원칙).
       resume_requests: resume,
       ...(resume === null ? { resume_requests_error: '재개 요청 조회에 실패했습니다.' } : {}),
       build_ready: buildReady,
@@ -4865,23 +5102,7 @@ async function loadBuildReady(
     })
 ```
 
-`leasedProjectIds` 는 `loadResumeRequests` 안의 lease 조회를 함수로 빼낸 것이다(조회 수는 종전과 같은 한 번):
-
-```ts
-/** 이 holder 로 쥔 살아 있는 lease 의 프로젝트(스펙 §9). holder 가 없으면 null(거르지 않음), 조회 실패는 undefined. */
-async function leasedProjectIds(
-  admin: ReturnType<typeof createAdminClient>, userId: string, holder: string | null,
-): Promise<string[] | null | undefined> {
-  if (holder === null) return null
-  const { data, error } = await admin
-    .from('agent_lead_leases').select('project_id')
-    .eq('user_id', userId).eq('holder', holder).gt('expires_at', new Date().toISOString())
-  if (error) { console.error('[agent-api] lease 조회 실패:', error.message); return undefined }
-  return ((data ?? []) as Array<{ project_id: string }>).map(r => r.project_id)
-}
-```
-
-`loadResumeRequests` 의 인자 `holder` 를 `leased: string[] | null | undefined` 로 바꾸고 함수 머리의 lease 조회 블록을 지운다 — `leased === undefined` 면 `return null`(조회 실패), `leased !== null && leased.length === 0` 이면 `return []`, 그 밖은 종전 본문 그대로(`leased` 가 배열이면 `.in('project_id', leased)` 와 in-memory 필터). 응답 조립은 `const leased = await leasedProjectIds(admin, principal.userId, holder)` 를 먼저 부르고 `loadResumeRequests(admin, principal.userId, projectId, leased, agent)` 로 넘긴다. `loadBuildReady` 에는 `leased === undefined` 면 `null`(실패) 을 그대로 쓰고, 아니면 `leased ?? (projectId !== null ? [projectId] : null)` 를 넘긴다(위 조립 코드의 `leasedIds` 두 줄을 이 규칙으로 쓴다). 파일 머리 import 에 `isMine`·`listFilterPass`·`parseWpList`(designGate)와 `ITEM_FACT_COLUMNS`·`ORDER_FACT_COLUMNS`·`decide`·`loadItemFacts`·`orderFactsOf`·`type FactItemRow`·`type FactOrderRow`(designFacts)를 더한다.
+lease 조회가 실패하면(`leased === undefined`) `resume_requests`·`build_ready` 가 둘 다 null 이고 각각 `_error` 사유가 붙는다. holder 가 없으면(`leased === null`) build 목록은 요청의 프로젝트(본문 `project_id` 또는 PAT 한정 프로젝트)로만 좁히고, 그것도 없으면 거르지 않는다.
 
 - [ ] **Step 6: 재개 요청은 설계 검토 대기면 거부(Y10)**
 
@@ -4897,18 +5118,19 @@ async function leasedProjectIds(
 - [ ] **Step 7: 통과 확인**
 
 Run: `npx vitest run tests/agent/mine-route.test.ts tests/agent/work-routes-pat.test.ts tests/agent/work-routes.test.ts tests/agent/watch-route.test.ts tests/actions/agent-hub-actions.test.ts && npx tsc --noEmit -p .`
-Expected: PASS. 기존 테스트의 `agent_work_orders`·`wbs_items` 큐 끝에 판단 재료 조회가 더 끼지만 큐가 비면 `{ data: null }` 이 돌아와 "없음"으로 처리된다(`loadItemFacts` 는 `data ?? []` 로 받는다). 레거시 상세 응답(`work-routes.test.ts`)은 칸이 늘지 않아야 한다 — 늘었으면 PAT 분기 밖으로 새어 나간 것이다.
+Expected: PASS. 기존 테스트의 `agent_work_orders`·`wbs_items` 큐 끝에 판단 재료 조회가 더 끼지만 큐가 비면 `{ data: null }` 이 돌아와 "없음"으로 처리된다(`loadItemFacts` 는 `data ?? []` 로 받는다). 새 응답 때문에 고칠 기존 테스트는 Step 1 에 적은 watch 둘뿐이다. 레거시 상세 응답(`work-routes.test.ts`, Step 1 의 레거시 테스트)은 칸이 늘지 않아야 한다 — 늘었으면 PAT 분기 밖으로 새어 나간 것이다. tsc 는 Task 0 기준선에 없던 오류가 없어야 한다.
 
 - [ ] **Step 8: 커밋**
 
 ```bash
 git add src/app/api/v1/agent/work/mine/route.ts src/app/api/v1/agent/work/\[id\]/route.ts src/app/api/v1/agent/watch/route.ts src/app/actions/agentHub.ts \
-  tests/agent/mine-route.test.ts tests/agent/watch-route.test.ts
-git add $(git diff --name-only -- tests)   # 고친 기존 테스트(파일명 확인 뒤)
+  tests/agent/mine-route.test.ts tests/agent/watch-route.test.ts tests/agent/work-routes-pat.test.ts tests/actions/agent-hub-actions.test.ts
 git commit -m "feat(design-state): 목록·상세·watch 가 서버 판단(action·mine)과 설계 상태를 싣는다
 
 팀장 요청(lead=1)은 claimed 주문에도 거르기와 팀원 라벨을 본다(Y9). watch 는 이 PC 가 띄울 build 목록을 싣고(D22),
 재개 요청에 mine 을 더한다(Y10). 설계 검토 대기는 좌석 재개 요청을 받지 않는다.
+목록·상세의 mine 은 ready·claimed 면 5.3 정의이고, reported·approved 는 종전 뜻(점유 사용자 일치)을 둔다 —
+팀장의 머지 충돌 해소가 reported 주문의 mine 으로 자기 주문을 가린다.
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
@@ -4970,18 +5192,22 @@ CONTRACT_VERSION=2.11
 - **설계 방식**(`wbs_items.design_mode`): `auto`(완전자동, 기본)·`review`(설계 검토 — 에이전트 설계를 사람이 「설계 승인」)·
   `human`(구현자동 — 사람 설계를 「설계 확정」). 수동은 위임 표식 없음.
 - **새 단계** `dd`(설계 완료, 실적 20). 사람의 단계 선택·import 는 `dd` 를 받지 않는다.
-- **목록·상세·watch 응답**(PAT): 주문마다 `design_mode`·`design_state`(null·`review`·`accepted`)·`design_note`·`claim_scope`·
+- **목록·상세 응답**(PAT): 주문마다 `design_mode`·`design_state`(null·`review`·`accepted`)·`design_note`·`claim_scope`·
   `runner`·`runner_seen_at`·`action`(`full`·`design`·`build`·`skip`·`wait`)·`action_reason`·`deps_unmet`·`mine`.
-  팀장·워커는 스스로 판정하지 않고 이 값을 따른다.
+  팀장·워커는 스스로 판정하지 않고 이 값을 따른다. `mine` 은 ready·claimed 주문이면 5.3 판단(같은 신원 ∧ 도는 PC, 목록의
+  `lead=1` 이면 거르기·팀원 라벨까지)이고, 그 밖(reported·approved 등)은 종전처럼 점유 사용자 일치다.
 - **목록 요청**(`GET /work/mine`): `agent=<라벨>`(PC 판정), `require_tag=<태그>`, `wp=<WP 목록>`, `lead=1`(claimed 의 mine 에
   거르기·팀원 라벨 `/w<n>` 을 요구). 상세(`GET /work/{id}`)는 `agent` 만.
-- **watch**: 본문 `require_tag`·`wp`. 응답 `build_ready`(이 신원·이 PC 가 띄울 build 주문, 실패면 null + `build_ready_error`),
-  `resume_requests[].mine`·`.design_state`.
-- **claim**: 본문 `scope`(`full`·`design`·`build`, 없으면 legacy). **build-start**: 본문 `scope`(`full`·`build`·`rework`).
+- **watch**: 본문 `require_tag`·`wp`. 응답에는 주문마다의 판단 칸을 싣지 않고 둘만 더한다 — `build_ready`(이 신원·이 PC 가
+  띄울 build 주문 `{order_id, id8, code, name, status}` 목록, 실패면 null + `build_ready_error`)와 `resume_requests[]` 의
+  `mine`(5.3 판단)·`design_state`.
+- **claim**: 본문 `scope`(`full`·`design`·`build`, 없으면 legacy). 성공 응답(PAT)에 `claim_scope`(서버가 저장한 범위 — `scope` 를
+  보내지 않았으면 `legacy`). **build-start**: 본문 `scope`(`full`·`build`·`rework`). 성공 응답에 `runner`(넘겨받은 호출 라벨).
 - **새 동사**: `POST /work/{id}/design-done`(설계 멈춤 — 점유자), `POST /work/{id}/design-reopen` 본문 `reason`(되돌리기 —
   claimed 면 점유자, ready 면 그 주문을 후보로 받는 PAT).
-- **새 409**: `design_gate`(설계 관문 — build-start 가 주문이 claimed 가 아니거나 CAS 가 어긋나면 `reason: order_changed`),
-  `design_not_accepted`(승인·확정된 설계 없음), `runner_active`(다른 PC 가 도는 중 — 본문 `runner`·`runner_seen_at`).
+- **새 409**: `design_gate`(설계 관문. 판정 뒤 주문이 바뀌었으면 `reason: order_changed` — build-start·design-done 은 주문이
+  claimed 가 아니거나 CAS 가 어긋날 때, design-reopen 은 CAS 가 어긋날 때), `design_not_accepted`(승인·확정된 설계 없음),
+  `runner_active`(다른 PC 가 도는 중 — 본문 `runner`·`runner_seen_at`).
   heartbeat 도 다른 PC 가 30분 안에 신호를 냈으면 `runner_active` 다. 완료 보고는 도는 PC 에서만, 살아 있는 다른 세션이
   없을 때만, 리프면 단계 `ip` 에서만 받는다. release 는 설계 상태가 있으면 `design_gate`(웹의 「중단」을 쓴다).
 - **dflow.sh**: `design_gate`·`design_not_accepted` → exit 11(stderr `DESIGN_GATE <code> [reason]`), `runner_active` → exit 12
@@ -4989,17 +5215,19 @@ CONTRACT_VERSION=2.11
   design-done·design-reopen 을 부르지 않는다(`DESIGN_STATE_UNSUPPORTED`).
 ```
 
-- 에러 코드 전수 표(`## 에러 코드` 절의 409 행들)에 세 행을 더한다:
+- `## 에러코드 전수` 절의 표(세 칸 `HTTP | code | 의미`)에서 마지막 행(`lead_lease_held`) 다음에 세 행을 더한다. exit 은 의미 칸 끝에 적는다:
 
 ```markdown
-| 409 | `design_gate` | 설계 관문 거부(방식·설계 상태·단계). build-start 의 `reason: order_changed` 는 설계가 되돌려졌거나 다른 PC 가 이어받은 것 | exit 11 |
-| 409 | `design_not_accepted` | 승인·확정된 설계가 없다 — 「설계 승인」·「설계 확정」을 먼저 | exit 11 |
-| 409 | `runner_active` | 다른 PC 가 이 작업을 돌리는 중(본문 `runner`) | exit 12 |
+| 409 | `design_gate` | 설계 관문 거부 — 방식·설계 상태·단계(v2.11). `reason: order_changed` 는 판정 뒤 주문이 바뀐 것이다(설계가 되돌려졌거나 다른 PC 가 이어받음 — build-start·design-done·design-reopen). dflow.sh exit 11 |
+| 409 | `design_not_accepted` | 승인·확정된 설계가 없다 — 「설계 승인」·「설계 확정」을 먼저(v2.11). dflow.sh exit 11 |
+| 409 | `runner_active` | 다른 PC 가 이 작업을 돌리는 중(v2.11, 본문 `runner`·`runner_seen_at`). dflow.sh exit 12 |
 ```
 
-(표의 칸 수가 다르면 그 표의 머리에 맞춘다.)
+- `## 로컬 클라이언트 계약` 절에서 `dflow.sh` exit code 로 시작하는 줄을 아래 문장으로 바꾼다. 0~10 의 설명은 지금 그대로이고, 끝에 11·12 만 더한 것이다:
 
-- 끝의 exit 문장을 `` - `dflow.sh` exit code: 0 성공 / 2 … / 10 중단됨(409 `code=cancelled`) / 11 설계 관문(409 `design_gate`·`design_not_accepted`) / 12 다른 PC 도는 중(409 `runner_active`). `` 로 바꾼다.
+```markdown
+- `dflow.sh` exit code: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증(401) / 4 상태 충돌(409)·선행 미반영 로컬 차단·선행 미충족(403 `code=dependency_not_met`) / 5 권한(403, 그 외) / 6 네트워크·서버(5xx)·로컬 환경 실패(파싱·파일 쓰기) / 7 기능 꺼짐(404) / 10 중단됨(409 `code=cancelled`) / 11 설계 관문(409 `code=design_gate`·`design_not_accepted`) / 12 다른 PC 도는 중(409 `code=runner_active`).
+```
 
 - [ ] **Step 4: 통과 확인**
 
@@ -5615,7 +5843,13 @@ usage 문자열 끝에 ` [--actions full,design,build] [--lead]` 를 더하고, 
 for _a in $(printf '%s' "$ACTIONS" | tr ',' ' '); do case "$_a" in full|design|build) ;; *) usage ;; esac; done
 ```
 
-210행의 list 호출을 바꾼다:
+list 호출 줄(찾을 원문 — 파일에 한 번 있다)
+
+```sh
+  out=$("$DFLOW" list --scope assigned 2>&1); rc=$?
+```
+
+을 아래로 바꾼다:
 
 ```sh
   set -- list --scope assigned
@@ -5625,7 +5859,14 @@ for _a in $(printf '%s' "$ACTIONS" | tr ',' ' '); do case "$_a" in full|design|b
   out=$("$DFLOW" "$@" 2>&1); rc=$?
 ```
 
-214~215행의 ready 선택을 바꾼다:
+ready 선택 두 줄(찾을 원문 — 파일에 한 번 있다)
+
+```sh
+      ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE,$EXCLUDE_TEMP,$EXCLUDE_WAIT," \
+        '$2=="RD" && index(ex, ","$4",")==0 {print $1"\t"$4"\t"$5}')
+```
+
+을 아래로 바꾼다:
 
 ```sh
       # 새 서버(계약 2.11)는 6열 action·7열 mine 을 준다 — action ∈ ACTIONS ∧ mine=1 인 RD 만(Y4). 서버가 태그·WP 거르기를 이미
@@ -5769,7 +6010,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: Task 16 상세 응답 `.order` 의 `action`·`action_reason`·`mine`·`design_mode`·`design_state`·`claim_scope`·`runner`·`runner_seen_at`·`item.stage`(`mine` 은 Task 18 의 `show` 가 보내는 라벨로 계산), Task 18 의 `claim --scope`·`CLAIM_SCOPE` 줄·`build-start --scope`·`design-done`·`design-reopen`·exit 11(`DESIGN_GATE <code>[ <reason>]`)·exit 12(`RUNNER_ACTIVE <runner>`), Task 20 훅의 runner_active 멈춤
-- Produces(Task 22 팀장이 처리한다): 워커 결과 줄 — 정본은 worker-mode.md 「설계 상태의 결과 줄」 표
+- Produces(팀장이 처리한다 — Task 22a 의 `lead-state.sh` 제외 판정, Task 22b 의 결과 처리 문서): 워커 결과 줄 — 정본은 worker-mode.md 「설계 상태의 결과 줄」 표
   - `skipped`: `<action_reason>`·`다른 PC 도는 중(<runner>)`·`fetch 실패`·`push 실패`·`사람 설계 초안 있음`·`설계 관문(<code>)`
   - `design_review`: `-`·`design-done 미확인`·빠진 절·`선행 계약 바뀜: <파일…>`
   - `design_reopened`(새): 빠진 절·`선행 계약 바뀜: <파일…>`·`주문이 바뀜`
@@ -5789,7 +6030,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: 실패하는 테스트 — 문서 테스트를 새 규칙으로 바꾼다**
 
-`tests/skills/dflow-dev-scope.test.ts` 를 통째로 아래로 바꾼다. 팀장 쪽 단언(`다른 스킬` 의 둘째·셋째 it)은 Task 22 가 팀장 문서와 함께 바꾸므로 지금 문구 그대로 둔다.
+`tests/skills/dflow-dev-scope.test.ts` 를 통째로 아래로 바꾼다. 팀장 쪽 단언(`다른 스킬` 의 둘째·셋째 it)은 Task 22b 가 팀장 문서와 함께 바꾸므로 지금 문구 그대로 둔다.
 
 ```ts
 // tests/skills/dflow-dev-scope.test.ts — /dflow-dev 실행 범위(--scope)와 설계 상태(계약 2.11)의 워커 문서.
@@ -6715,7 +6956,8 @@ git add .claude/skills/dflow-dev/SKILL.md .claude/skills/dflow-dev/references/or
 git commit -m "feat(dflow-dev): 워커가 서버 판단(action·mine·claim_scope)을 따르고 설계를 받아 구현한다(계약 2.11)
 
 설계만 멈춤은 design-done 으로 서버에 닿고, 승인·확정된 설계는 설계 받기와 게이트 뒤 구현한다.
-끝나지 않은 멈춤은 이어받아 마저 하고, 새 결과 줄은 worker-mode.md 표 하나에 모은다. 옛 서버는 종전대로 돌되 design·build 범위를 막는다.
+끝나지 않은 멈춤은 이어받아 마저 하고, 새 결과 줄은 worker-mode.md 표 하나에 모은다. 옛 서버(계약 < 2.11)에서는 모든 작업을
+완전자동으로 보고, 수동 --scope design·build 는 2.10 의 로컬 흐름을 그대로 남긴다.
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
