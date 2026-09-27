@@ -26,10 +26,14 @@
   claimed 가 아니거나 CAS 가 어긋날 때, design-reopen 은 CAS 가 어긋날 때), `design_not_accepted`(승인·확정된 설계 없음),
   `runner_active`(다른 PC 가 도는 중 — 본문 `runner`·`runner_seen_at`).
   heartbeat 도 다른 PC 가 30분 안에 신호를 냈으면 `runner_active` 다. 완료 보고는 도는 PC 에서만, 살아 있는 다른 세션이
-  없을 때만, 리프면 단계 `ip` 에서만 받는다. release 는 설계 상태가 있으면 `design_gate`(웹의 「중단」을 쓴다).
+  없을 때만, 리프면 단계 `ip` 에서만 받는다. release 는 설계 상태가 있으면 `design_gate`(웹의 「중단」을 쓴다) — 설계만 하던
+  주문(`claim_scope` `design`)이 단계 `ds`·`dd` 에 있으면 설계 상태가 없어도 마찬가지로 `design_gate` 다.
 - **dflow.sh**: `design_gate`·`design_not_accepted` → exit 11(stderr `DESIGN_GATE <code> [reason]`), `runner_active` → exit 12
   (stderr `RUNNER_ACTIVE <runner>`). 옛 서버(2.11 미만)는 모든 작업을 auto 로 본다 — 스킬은 `contract-ge 2.11` 이 거짓이면
-  design-done·design-reopen 을 부르지 않는다(`DESIGN_STATE_UNSUPPORTED`).
+  design-done·design-reopen 을 부르지 않는다(`DESIGN_STATE_UNSUPPORTED`). 옛 서버에서 실제로 벌어지는 일: `claim`·`build-start` 의
+  `--scope` 는 그대로 실려 가지만 서버가 모르는 필드라 조용히 무시된다(legacy 처럼 처리됨) — 응답에 `claim_scope` 가 없으므로
+  `claim` 은 `CLAIM_SCOPE` 줄도 내지 않는다. `list` 의 새 두 칸(`action`·`mine`)은 옛 서버 응답에 없어 빈 칸으로 나온다(앞 다섯 칸은
+  그대로라 옛 파서는 깨지지 않는다).
 
 ## v2.10 변경점 (2026-09-26)
 
@@ -194,16 +198,18 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
   `work:report` 는 폐지됐다(2026-08-25) — claim 할 수 있으면 그 결과도 적을 수 있어야 하고, claim 이 무제한이라 보고만 막는 건 방어선이 아니었다(본인 claim 건만 쓸 수 있다는 강제는 report 라우트가 한다). 신규 발급에는 없고, **옛 토큰의 `work:report` 는 `work:claim` 과 동등하게 수용**한다.
 - PAT는 `project_id` 지정 시 그 프로젝트만. 멤버십: PAT principal은 모든 조회·쓰기에서 `is_superuser` 또는 `project_roles` 보유 필요, 아니면 404.
 
-## 엔드포인트 (v1 5개 불변 + 신규 4개)
+## 엔드포인트 (v1 5개 불변 + 신규 7개)
 
 | 메서드·경로 | 신원 | 요지 |
 |---|---|---|
 | GET `/api/v1/agent/work?project_id=[&status=]` | legacy·pat | v1 계약 + `status` 필터(v2.2). PAT는 멤버십·스코프 강제 |
 | GET `/api/v1/agent/work/{id}` | legacy·pat | v1 + PAT 호출 시 `mine:boolean`·`claimed_by_user_email` 추가 |
-| POST `/api/v1/agent/work/{id}/claim` | legacy·pat | PAT: `claimed_by_user_id` 서버 유도 기록. 배정 항목은 담당자만(403 `not_assignee`) |
+| POST `/api/v1/agent/work/{id}/claim` | legacy·pat | PAT: `claimed_by_user_id` 서버 유도 기록. 배정 항목은 담당자만(403 `not_assignee`). 선택 본문 `scope`(`full`·`design`·`build`, 안 보내면 `legacy`, v2.11) |
 | POST `/api/v1/agent/work/{id}/release` | legacy·pat | 소유 판정: PAT=claimed_by_user_id, legacy=claimed_by 라벨. 교차 403 `not_claim_owner` |
 | POST `/api/v1/agent/work/{id}/report` | legacy·pat | 위와 같음 + PAT는 `evidence` 객체 허용 · PAT completion 은 `decisions` 배열 허용(v2.6) |
-| POST `/api/v1/agent/work/{id}/build-start` | legacy·pat | 설계 끝 → 구현(v2.9, `ds→ip`, 멱등). 소유 판정은 release·report 와 같다. 선행 미충족 403 `dependency_not_met` |
+| POST `/api/v1/agent/work/{id}/build-start` | legacy·pat | 설계 끝 → 구현(v2.9, `ds→ip`, 멱등). 소유 판정은 release·report 와 같다. 선행 미충족 403 `dependency_not_met`. 선택 본문 `scope`(`full`·`build`·`rework`, 안 보내면 `legacy`, v2.11) |
+| POST `/api/v1/agent/work/{id}/design-done` | legacy·pat | 설계 멈춤(v2.11, `ds→dd`) — 점유자 전용. 구현이 시작된(`ip` 이상) 작업은 409 `design_gate` |
+| POST `/api/v1/agent/work/{id}/design-reopen` | legacy·pat | 설계를 사람에게 되돌림(v2.11, 본문 `reason`) — claimed 면 점유자, ready 면 그 주문의 후보 PAT |
 | GET `/api/v1/agent/me` | **pat 전용** | legacy 호출 400 `identity_required` |
 | GET `/api/v1/agent/work/mine?scope=&limit=` | **pat 전용** | scope: `available`(기본)·`claimed`·`all`·`assigned` |
 | POST `/api/v1/wbs/import` | **pat 전용** | export JSON upsert. 스코프 `work:claim` 필요 |
@@ -362,6 +368,8 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ds`=설계
   - 로컬 파싱·파일 쓰기 실패를 4 로 내지 않는다 — 호출부가 "선행을 기다린다"로 읽고 영원히 재시도한다.
   - 409 도 body 의 `code` 로 갈라 읽는다: `cancelled`(사람이 중단)는 경합이 아니라 끝난 작업이라 호출부가 할 일이
     "다시 시도"가 아니라 "즉시 멈춤"이다. 그래서 4 와 섞지 않고 10 으로 낸다.
+  - `design-done`·`design-reopen` 의 exit 7 은 기능 꺼짐(404) 일반과 같은 코드다 — 옛 서버라 없는 동사인지는 exit 값이 아니라
+    stderr 끝줄의 `DESIGN_STATE_UNSUPPORTED` 표식으로 가른다(표식이 없는 404 는 다른 사유 — 프로젝트 미등록·API 꺼짐 등).
 - 신원 해석: 토큰별 `GET /agent/me` 1회 → `~/.cache/dflow/profiles.json` 캐시. 키 선택은 `--as <prefix|email>` →
   `.dflow.local` 의 `as`(prefix 만, 레거시 `.env` 의 `DFLOW_AS`) → 첫 토큰. prefix 일치는 `/me` 를 부르지 않는다. 목록은 `dflow.sh profiles`.
 - evidence 자동 조립: `git rev-parse HEAD`·`git remote get-url origin`·`git branch --show-current`·(`gh` 있으면) PR URL.
