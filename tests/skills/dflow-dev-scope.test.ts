@@ -101,6 +101,9 @@ describe('Design(design.md)', () => {
     expect(d).toContain('위 호출은 `dflow.sh build-start <ref> --scope <범위>` 다')
     expect(d).toContain('반려 재작업(`orch/rework.md`)이면 방식과 무관하게 `rework` 다')
     expect(d).toContain('| exit 11 + stderr 끝줄 `DESIGN_GATE design_gate order_changed` |')
+    // 최종 리뷰 Important 3 — 구현자동(범위 build ∧ human)만 "다시 확정되면" 을 약속하고 워크트리를 버린다
+    expect(d).toContain('범위가 `build` 이고 서버 `design_mode` 가 `human` 이면')
+    expect(d).toContain('그 밖(full·legacy·rework·review)이면')
     expect(d).toContain('| 그 밖의 exit 11(`DESIGN_GATE <code>`) |')
     expect(d).toContain('| exit 12(`RUNNER_ACTIVE <runner>`) |')
   })
@@ -204,8 +207,11 @@ describe('워커 규칙(worker-mode.md·worker-prompt.md)', () => {
     pair('`failed`', '`설계 변경 필요 — <이유>`')
     pair('`failed`', '`원격 agent 브랜치에 사람 커밋 — 받은 뒤 --resume`')
     pair('`failed`', '`완료 보고 거부(<code>)`')
-    // M-1: order_changed 는 이제 skipped 다 — design_reopened 와 짝짓지 않는다(회귀 방지)
-    expect(rows.some((r) => r.includes('`design_reopened`') && r.includes('`주문이 바뀜`'))).toBe(false)
+    // 최종 리뷰 Important 3(12절 Y7): build-start 의 order_changed 는 범위로 가른다 — 구현자동(범위 build ∧ human)은
+    // design_reopened 로 끝나 팀장이 워크트리를 지우고, full·legacy·rework·review 는 skipped 로 남는다
+    const changed = rows.filter((r) => r.includes('`order_changed`'))
+    expect(changed.some((r) => r.includes('`design_reopened`') && r.includes('`주문이 바뀜`') && r.includes('`human`'))).toBe(true)
+    expect(changed.some((r) => r.includes('`skipped`') && r.includes('`주문이 바뀜`') && !r.includes('방식과 무관'))).toBe(true)
   })
   it('worker-prompt: SCOPE 는 늘 --scope 로 넘기고, 서버 쓰기 범위와 결과 표에 새 동사·status 가 있다', () => {
     const wp = flat(read('.claude/skills/dflow-team/references/worker-prompt.md'))

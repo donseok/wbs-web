@@ -52,7 +52,7 @@ state.json 전진·`progress 25`)과 3번(회수)은 이 절을 마친 뒤 한�
    | exit 0 + stderr `BUILD_START_UNSUPPORTED` | 옛 서버다(404 이고 계약 < 2.9 — claim 이 이미 `ip` 로 보냈다). Build 로 간다 |
    | exit 4 | 설계 완료·선행 대기로 멈춘다(아래 멈춤 절차) |
    | exit 10 | 중단(상태 모델) |
-   | exit 11 + stderr 끝줄 `DESIGN_GATE design_gate order_changed` | 그 사이 사람이 설계를 되돌렸거나 주문이 바뀌었다. Build 로 가지 않고 `"{TSK} 주문이 바뀌어 구현을 시작하지 않았습니다 — 다시 확정되면 새로 시작합니다"` 로 알리고 끝낸다 |
+   | exit 11 + stderr 끝줄 `DESIGN_GATE design_gate order_changed` | 그 사이 사람이 설계를 되돌렸거나 주문이 바뀌었다. Build 로 가지 않는다. 범위가 `build` 이고 서버 `design_mode` 가 `human` 이면(「설계 받기」 가 본 값 — 구현자동, 사실상 「설계 되돌리기」) 설계 원본이 개발 브랜치라 이 워크트리에 잃을 것이 없다 — `"{TSK} 주문이 바뀌어 구현을 시작하지 않았습니다 — 다시 확정되면 새로 시작합니다"` 로 알리고 끝낸다(워커는 `design_reopened`, 12절 Y7). 그 밖(full·legacy·rework·review)이면 설계가 이 PC 의 로컬 agent 브랜치에 남아 있을 수 있다 — `"{TSK} 주문이 바뀌어 구현을 시작하지 않았습니다 — 다시 승인되면 이어 갑니다"` 로 알리고 끝낸다(워커는 `skipped`) |
    | 그 밖의 exit 11(`DESIGN_GATE <code>`) | 설계 관문 거부다. Build 로 가지 않고 `"{TSK} 는 설계 관문에서 거부됐습니다(<code>)."` 로 알리고 끝낸다(`phase` 는 그대로) |
    | exit 12(`RUNNER_ACTIVE <runner>`) | 다른 PC 가 이 작업을 돌리는 중이다. state.json 을 바꾸지 않고 push·done 없이 `"{TSK} 는 다른 PC(<runner>)가 돌리고 있어 멈춥니다."` 로 알리고 끝낸다 |
    | 그 밖 | Build 로 가지 않고 중단·보고한다. `phase` 는 `design` 그대로라 재실행하면 Design 게이트 뒤에서 다시 부른다. 워커는 `failed build-start <exit>` |
