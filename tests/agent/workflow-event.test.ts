@@ -16,7 +16,7 @@ describe('applyWorkflowEvent — RPC 인자 매핑·결과 파싱', () => {
     expect(rpc).toHaveBeenCalledWith('apply_workflow_event', {
       p_event: 'approve', p_actor: 'u1', p_item_id: null, p_order_id: O1, p_stage: null, p_agent: null, p_agent_user_id: null,
     })
-    expect(r).toEqual({ ok: true, orderStatus: 'approved', stage: 'xx', actualPct: 100, stageChanged: true, actualChanged: true, reachedFirst: true, skipped: null })
+    expect(r).toEqual({ ok: true, orderStatus: 'approved', stage: 'xx', actualPct: 100, stageChanged: true, actualChanged: true, reachedFirst: true, skipped: null, prevStatus: null, designState: null, designModeChanged: false })
   })
   it('numeric 실적이 문자열로 와도 숫자로 바꾼다', async () => {
     const { client } = admin({ data: { ok: true, order_status: null, stage: 'im', actual_pct: '80', stage_changed: true, actual_changed: true, reached_first: true, skipped: null } })
@@ -37,5 +37,32 @@ describe('applyWorkflowEvent — RPC 인자 매핑·결과 파싱', () => {
   it('RPC 오류는 rpc_error 로 그대로 드러낸다', async () => {
     const { client } = admin({ error: { message: 'boom' } })
     expect(await applyWorkflowEvent(client, { event: 'assign', actorUserId: 'u1', itemId: W1 })).toMatchObject({ ok: false, reason: 'rpc_error', error: '전이 실패: boom' })
+  })
+  it('새 인자는 값이 있을 때만 싣는다 — 옛 사건 호출은 7개 인자 그대로', async () => {
+    const { client, rpc } = admin({ data: { ok: true, order_status: 'claimed', prev_status: 'ready', design_state: null, stage: 'ds', actual_pct: 10, stage_changed: true, actual_changed: true, reached_first: false, skipped: null } })
+    await applyWorkflowEvent(client, {
+      event: 'claim', actorUserId: 'u1', orderId: O1, agent: 'a/b/w1', scope: 'design',
+      cas: { design_state: null, design_mode: 'review' }, runner: 'a/b/w1',
+    })
+    expect(rpc).toHaveBeenCalledWith('apply_workflow_event', {
+      p_event: 'claim', p_actor: 'u1', p_item_id: null, p_order_id: O1, p_stage: null, p_agent: 'a/b/w1', p_agent_user_id: null,
+      p_scope: 'design', p_cas: { design_state: null, design_mode: 'review' }, p_runner: 'a/b/w1',
+    })
+  })
+  it('prev_status·design_state·design_mode_changed 를 돌려준다', async () => {
+    const { client } = admin({ data: { ok: true, order_status: 'cancelled', prev_status: 'claimed', design_state: null, stage: 'as', actual_pct: 0, stage_changed: true, actual_changed: true, reached_first: false, skipped: null } })
+    expect(await applyWorkflowEvent(client, { event: 'cancel', actorUserId: 'u1', orderId: O1 }))
+      .toMatchObject({ ok: true, orderStatus: 'cancelled', prevStatus: 'claimed', designState: null, designModeChanged: false })
+    const { client: c2 } = admin({ data: { ok: true, design_mode: 'human', design_mode_changed: true } })
+    expect(await applyWorkflowEvent(c2, { event: 'set_design_mode', actorUserId: 'u1', itemId: W1, mode: 'human' }))
+      .toMatchObject({ ok: true, designModeChanged: true })
+  })
+  it('새 사유는 사람 문구로', async () => {
+    for (const reason of ['design_gate', 'design_mode_locked', 'bad_scope', 'bad_mode']) {
+      const { client } = admin({ data: { ok: false, reason } })
+      const r = await applyWorkflowEvent(client, { event: 'design_done', actorUserId: 'u1', orderId: O1 })
+      expect(r).toMatchObject({ ok: false, reason, error: REASON_TEXT[reason] })
+      expect(REASON_TEXT[reason]).toBeTruthy()
+    }
   })
 })
