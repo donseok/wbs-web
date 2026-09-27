@@ -73,6 +73,16 @@ describe('AgentHubView', () => {
     act(() => root.render(<AgentHubView initial={hub({ viewer: { isAdmin: true, memberIds: [] } })} wbs={wbs()} />))
     expect((host.querySelector('[data-hub-filter="all"]') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true')
   })
+  it('상태 줄에 「설계 검토 대기」 타일 — 결재 대기와 따로 세고, 0건이어도 그린다(옛 허브 = 0)', () => {
+    act(() => root.render(<AgentHubView initial={hub({ counters: { delegated: 2, ready: 0, working: 0, waiting: 1, stuck: 0, designReview: 2 } })} wbs={wbs()} />))
+    const tile = host.querySelector('[data-hub-design-review]') as HTMLElement
+    expect(tile.getAttribute('data-hub-design-review')).toBe('2')
+    expect(tile.textContent).toContain('설계 검토 대기')
+    expect(tile.textContent).toContain('2')
+    act(() => root.unmount()); root = createRoot(host)
+    act(() => root.render(<AgentHubView initial={hub()} wbs={wbs()} />))
+    expect(host.querySelector('[data-hub-design-review]')?.getAttribute('data-hub-design-review')).toBe('0')
+  })
   it('갱신 실패는 마지막 데이터를 유지하고 상단에 실패 시각·문구', async () => {
     refresh.mockResolvedValueOnce({ ok: false, error: '에이전트 현황 재조회에 실패했습니다.' })
     act(() => root.render(<AgentHubView initial={hub()} wbs={wbs()} />))

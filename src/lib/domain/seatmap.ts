@@ -1,6 +1,6 @@
 // 좌석표 조립 — IO 없음. 층=프로젝트, 구역=주문 항목의 부모 항목, 책상=주문(스펙 §5-1).
 import {
-  animFor, deriveSeatState, fnv1a32, inferPhase, isDesignWait, isRejected, isReviewWait, isWatcherAlive, lastSignalMs, pickCharacter,
+  animFor, deriveSeatState, fnv1a32, inferPhase, isBuildWait, isDesignWait, isRejected, isReviewWait, isWatcherAlive, lastSignalMs, pickCharacter,
   type AnimName, type CharacterName, type OrderStatus, type Phase, type SeatState,
 } from './seatState'
 import { deriveWaitReason, designWaitReason, reviewWaitReason, unmetDepends, type PredecessorLike, type WaitReason } from './waitReason'
@@ -9,6 +9,9 @@ import {
   type BlockedSuccessor, type BottleneckSettings, type StubPendingEntry,
 } from './forceProgress'
 import { heavyGauge, seatHeavyOf, type SeatHeavy } from './heavyWork'
+import {
+  designScreen, predsState, toDesignMode, toDesignState, workerAlive, type DesignScreenRow, type ItemFacts, type ScreenOrder,
+} from './designGate'
 
 export interface OrderRow {
   id: string; project_id: string; wbs_item_id: string | null; status: OrderStatus
@@ -23,6 +26,11 @@ export interface OrderRow {
   heartbeat_model?: string | null
   /** 무거운 작업(0106) — 팀장 lease 갱신이 적는다. 적은 팀장(by)의 lease 가 죽었으면 무효(seatHeavyOf). */
   heartbeat_heavy?: unknown
+  /** 설계 상태·되돌림 사유·도는 PC(0108). 옛 픽스처·0108 전 행은 비워 둔다(없음). */
+  design_state?: string | null
+  design_note?: string | null
+  runner?: string | null
+  runner_seen_at?: string | null
 }
 export interface ItemRow {
   id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null; tags: string[] | null
@@ -36,6 +44,8 @@ export interface ItemRow {
   planned_start?: string | null
   stage?: string | null
   external_ref?: string | null
+  /** 설계 방식(0108 design_mode) — 화면 판정 재료. 옛 픽스처는 비워 둔다(auto). */
+  design_mode?: string | null
 }
 /** 에이전트 위임 태그 — src/app/actions/wbsSpec.ts AGENT_TAG·dflow-poll 자동 착수 계약과 같은 값. 좌석표는 이 태그가 붙은 항목의 주문만 대상으로 한다. */
 export const AGENT_TAG = 'agent'
@@ -114,10 +124,18 @@ export interface Seat {
   /** 설계 완료·선행 대기(claimed ∧ heartbeat wait_pred, 스펙 2026-09-26 §6.4). state 는 WAIT 지만 승인 대기가 아니다 —
    *  레인·메타 줄·결재 버튼·사다리가 이 값으로 승인 대기와 가른다. 선택 필드(옛 픽스처 = false). */
   designWait?: boolean
-  /** 설계 완료·검토 대기(claimed ∧ heartbeat wait_review, 스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5).
-   *  designWait 과 같은 축(WAIT 이지만 승인 대기가 아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). 선택 필드(옛 픽스처 = false). */
+  /** 설계 검토 대기(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행). designWait 과 같은 축(WAIT 이지만 승인 대기가
+   *  아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). heartbeat wait_review 로 판정하지 않는다(스펙 8절). 선택 필드(옛 픽스처 = false). */
   reviewWait?: boolean
+  /** 구현 대기(claimed ∧ 설계 상태 accepted ∧ 단계 dd ∧ 도는 PC 없음, 설계 상태 스펙 3절 2·3행) — 승인·확정된 설계가 팀장을
+   *  기다린다. WAIT 이지만 승인 대기가 아니고, 검토 대기와 달리 「이어서 시작」이 있다(Y10). 선택 필드(옛 픽스처 = false). */
+  buildWait?: boolean
+  /** 설계 문구(설계 상태 스펙 3절 화면 판정) — 활성 주문이고 BLOCKED·살아 있는 워커가 아닐 때만 값. 맞는 행이 없으면 null 이고
+   *  화면은 지금 문구를 그대로 보인다. 선택 필드(옛 픽스처), 조립은 항상 채운다. */
+  design?: SeatDesign | null
 }
+/** 좌석의 설계 문구 — 버튼은 싣지 않는다(좌석에는 설계 버튼이 없다. WBS 작업 패널·허브가 누른다). */
+export type SeatDesign = Omit<DesignScreenRow, 'buttons'>
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher {
   agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null
@@ -194,6 +212,33 @@ export function isSubtreeManagerOf(
   return false
 }
 
+/**
+ * 좌석·허브의 화면 판정 재료(designGate ItemFacts) — 선행은 이미 읽은 행으로 판정한다(새 조회 없음). 읽지 않은 ref 는
+ * 미충족(단계 null → blocked)으로 본다: designFacts 로더·claim 게이트와 같은 fail-closed 다.
+ */
+export function screenItemFacts(
+  item: Pick<ItemRow, 'actual_pct' | 'tags' | 'depends' | 'depends_waived' | 'stage' | 'design_mode'>,
+  byRef: (ref: string) => PredecessorLike | undefined, hasApprovedOrder: boolean,
+): ItemFacts {
+  const unmet = unmetDepends(item.depends ?? null, byRef, item.depends_waived ?? [])
+  return {
+    mode: toDesignMode(item.design_mode), stage: item.stage ?? null, actualPct: item.actual_pct,
+    delegated: (item.tags ?? []).includes(AGENT_TAG), hasApprovedOrder,
+    preds: predsState(unmet.map(u => ({ stage: u.stage ?? null }))),
+  }
+}
+
+/** 주문 행 → designGate ScreenOrder. 0108 전 행·옛 픽스처(열 없음)는 설계 상태·도는 PC·되돌림 사유 없음으로 본다. */
+export function screenOrderOf(o: OrderRow, heartbeatPhase: string | null = o.heartbeat_phase): ScreenOrder {
+  return {
+    status: o.status, designState: toDesignState(o.design_state ?? null), runner: o.runner ?? null,
+    lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase, designNote: o.design_note ?? null,
+  }
+}
+
+/** 활성 주문(0077) — 설계 화면 판정은 이 셋만 본다. */
+const LIVE_STATUSES: ReadonlySet<OrderStatus> = new Set<OrderStatus>(['ready', 'claimed', 'reported'])
+
 const WORK_STATES: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED']
 const ATTENTION_ORDER: readonly SeatState[] = ['BLOCKED', 'STALE', 'OFFLINE', 'REJECTED']
 /** 확인 필요 띠 순서 — 머지 충돌은 BLOCKED 바로 뒤. WAIT·DONE 은 ATTENTION_ORDER 밖(-1)이라 따로 매긴다. */
@@ -243,6 +288,7 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
   const input = {
     status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: hbPhase,
     updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
+    designState: toDesignState(o.design_state ?? null), runner: o.runner ?? null, stage: item?.stage ?? null,
   }
   const state = deriveSeatState(input, nowMs)
   const phase = inferPhase(input)
@@ -275,6 +321,8 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     decisionCount: o.status === 'reported' ? (review?.decision_count ?? null) : null,
     designWait: isDesignWait(input),
     reviewWait: isReviewWait(input),
+    buildWait: isBuildWait(input),
+    design: null,
   }
 }
 
@@ -297,6 +345,9 @@ function attentionWhy(s: Seat, nowMs: number): string {
 
 export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?: MineFilter; viewer?: SeatmapViewer } = {}): Seatmap {
   const mine = opts.mine
+  // 설계 화면 판정의 approved 주문 유무(D26) — 좌석이 읽은 주문(승인은 7일 창)으로 본다. 활성 주문이 있는 항목에 승인 주문이
+  // 함께 있는 일은 발행 차단(D26)과 0108 이전이 막으므로, 활성 좌석만 판정하는 여기서는 창 밖을 따로 읽지 않는다.
+  const approvedItemIds = new Set(rows.orders.filter(o => o.status === 'approved' && o.wbs_item_id !== null).map(o => o.wbs_item_id as string))
   const itemById0 = new Map(rows.items.map(i => [i.id, i]))
   // 대상은 에이전트 위임(agent 태그) 항목의 주문뿐 — dev_workflow 리프마다 주문이 생기므로 사람이 하는 작업의 주문도 테이블엔 있다.
   // 항목이 지워진 주문은 태그를 알 수 없어 제외한다. 조립 앞에서 걸러 층·카운터·확인 필요가 모두 같은 범위를 본다.
@@ -373,10 +424,24 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       // 설계 완료·선행 대기(스펙 2026-09-26 §6.4) — 점유 중이지만 선행을 기다리며 멈췄다. READY 의 선행 대기와 같이 그린다.
       seat.waitReason = designWaitReason(item.depends ?? null, ref => predByKey.get(`${o.project_id}\u0000${ref}`), item.depends_waived ?? [])
       seat.anim = 'waiting'
-    } else if (item && isReviewWait({ status: o.status, heartbeatPhase: seat.heartbeatPhase })) {
-      // 설계 완료·검토 대기(§14.5) — 점유 중이지만 사람 검토를 기다리며 멈췄다. 선행 유무와 무관하다(designWaitReason 과 달리 unmet 을 묻지 않는다).
+    } else if (item && seat.reviewWait) {
+      // 설계 검토 대기(설계 상태 스펙 3절 1행) — 점유 중이지만 사람 검토를 기다리며 멈췄다. 선행 유무와 무관하다(designWaitReason 과 달리 unmet 을 묻지 않는다).
       seat.waitReason = reviewWaitReason()
       seat.anim = 'waiting'
+    } else if (seat.buildWait) {
+      // 구현 대기(설계 상태 스펙 3절 2·3행) — 승인·확정된 설계가 팀장을 기다린다. 올 사람이 정해져 있어 실루엣으로 그린다(사유는 설계 문구가 말한다).
+      seat.anim = 'waiting'
+    }
+    // 설계 문구(설계 상태 스펙 3절 화면 판정) — 활성 주문만 본다: 승인분(DONE)은 활성 주문이 없어야 걸리는 9·10행의 대상이
+    // 아니다. BLOCKED 와 살아 있는 워커(신선한 heartbeat, wait_* 제외 — workerAlive)를 먼저 본다. 좌석 상태(ACTIVE)로 가르지
+    // 않는 까닭: 「설계 승인」은 updated_at 만 새로 써 좌석이 잠시 ACTIVE 로 보이지만 도는 워커는 없다.
+    if (item && LIVE_STATUSES.has(o.status)) {
+      const active = screenOrderOf(o, seat.heartbeatPhase)
+      if (seat.state !== 'BLOCKED' && !workerAlive(active, nowMs)) {
+        const facts = screenItemFacts(item, ref => predByKey.get(`${o.project_id}\u0000${ref}`), approvedItemIds.has(item.id))
+        const row = designScreen({ item: facts, active, lastReview: reviewByOrder.get(o.id)?.review_action ?? null, nowMs })
+        seat.design = row && { row: row.row, label: row.label, note: row.note, hint: row.hint }
+      }
     }
     // DONE(최근 7일 승인분)도 구역에 남긴다 — 승인 취소·재작업 요청을 좌석에서 하려면 좌석이 있어야 한다(스튜디오 v7).
     // 평면도는 이 좌석을 그리지 않고 상태 레인의 "빈자리·완료" 레인만 그린다.
@@ -392,8 +457,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     zones.set(key, zone)
     zone.seats.push(seat)
     if (WORK_STATES.includes(seat.state)) zone.summary.work++
-    // wait 는 화면에서 「승인 대기」다 — 설계 완료·선행 대기·검토 대기는 WAIT 지만 레인처럼 빈자리(대기) 쪽에 센다.
-    else if (seat.state === 'WAIT' && !seat.designWait && !seat.reviewWait) zone.summary.wait++
+    // wait 는 화면에서 「승인 대기」다 — 설계 완료·선행 대기·검토 대기·구현 대기는 WAIT 지만 레인처럼 빈자리(대기) 쪽에 센다.
+    else if (seat.state === 'WAIT' && !seat.designWait && !seat.reviewWait && !seat.buildWait) zone.summary.wait++
     else if (seat.state === 'DONE') zone.summary.done++
     else zone.summary.ready++ // READY · OFFLINE(빈 의자)
   }
@@ -462,8 +527,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     }
     if (s.state === 'DONE') continue // 승인분은 doneCount 로 따로 센다 — 현황판 넷에 끼우지 않는다
     if (WORK_STATES.includes(s.state)) counters.active++
-    // idle 타일은 「승인 대기」다 — 설계 완료·선행 대기·검토 대기는 빈자리(대기)와 같이 센다(레인·구역 요약과 같은 규칙).
-    else if (s.state === 'WAIT' && !s.designWait && !s.reviewWait) counters.idle++
+    // idle 타일은 「승인 대기」다 — 설계 완료·선행 대기·검토 대기·구현 대기는 빈자리(대기)와 같이 센다(레인·구역 요약과 같은 규칙).
+    else if (s.state === 'WAIT' && !s.designWait && !s.reviewWait && !s.buildWait) counters.idle++
     else counters.offline++
     if (ATTENTION_ORDER.includes(s.state)) {
       attention.push({ orderId: s.orderId, id8: s.id8, floorName: f.name, code: s.code, name: s.name, state: s.state, why: attentionWhy(s, nowMs) })

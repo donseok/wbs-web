@@ -18,16 +18,22 @@ export const STATE_LABEL: Record<SeatState, string> = {
   WAIT: '승인 대기', READY: '빈자리', DONE: '머지 완료',
 }
 
-/** 좌석 상태 라벨 — 설계 완료·선행 대기(designWait)·검토 대기(reviewWait)는 WAIT 지만 승인 대기가 아니다(스펙 2026-09-26 §6.4, §14.5). */
+/** 좌석 상태 라벨 — 설계 문구(설계 상태 스펙 3절 화면 판정)가 있으면 그것이 먼저다. 설계 완료·선행 대기(designWait)·
+ *  검토 대기(reviewWait)·구현 대기(buildWait)는 WAIT 지만 승인 대기가 아니다(스펙 2026-09-26 §6.4, 설계 상태 스펙 3절 1~3행). */
 export const DESIGN_WAIT_LABEL = '선행 대기'
 export const REVIEW_WAIT_LABEL = '설계 검토 대기'
-export function seatStateLabel(seat: Pick<Seat, 'state' | 'designWait' | 'reviewWait'>): string {
+export const BUILD_WAIT_LABEL = '구현 대기'
+export function seatStateLabel(seat: Pick<Seat, 'state' | 'designWait' | 'reviewWait' | 'buildWait' | 'design'>): string {
+  if (seat.design) return seat.design.label
   if (seat.designWait) return DESIGN_WAIT_LABEL
   if (seat.reviewWait) return REVIEW_WAIT_LABEL
+  if (seat.buildWait) return BUILD_WAIT_LABEL
   return STATE_LABEL[seat.state]
 }
 
 export function seatMetaLine(seat: Seat, nowMs: number): string {
+  // 설계 문구가 있으면 그것 — 조립(assembleSeatmap)이 BLOCKED·살아 있는 워커 좌석에는 싣지 않으므로 지금 문구를 가리지 않는다.
+  if (seat.design) return seat.design.label
   const who = seat.agent ?? '—'
   switch (seat.state) {
     case 'ACTIVE': case 'REJECTED': return `${who} · ${ageLabel(seat.lastSignalAt, nowMs)}`
@@ -37,6 +43,7 @@ export function seatMetaLine(seat: Seat, nowMs: number): string {
     case 'WAIT':
       if (seat.designWait) return seat.waitReason?.label ?? DESIGN_WAIT_LABEL
       if (seat.reviewWait) return seat.waitReason?.label ?? REVIEW_WAIT_LABEL
+      if (seat.buildWait) return BUILD_WAIT_LABEL
       return '승인 대기'
     case 'READY': return seat.waitReason?.label ?? '미착수' // 짧은 라벨만 — 전문은 상세 패널(착수 대기 사유 스펙 §4)
     default: return '머지 완료'
@@ -49,13 +56,12 @@ const MARK: Partial<Record<SeatState, () => React.JSX.Element>> = {
 }
 const HAS_BAR: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED', 'OFFLINE']
 
-export function SeatMark({ state, anim, reviewWait }: { state: SeatState; anim?: AnimName; reviewWait?: boolean }) {
-  // 선행 대기·검토 대기는 상태가 READY(또는 designWait/reviewWait 인 WAIT)라 상태 표로는 못 가른다 —
-  // 좌석 그림(waiting)을 따라 표지를 달되, 검토 대기는 사유가 선행이 아니므로 말이 다르다(스펙 §14.5).
+export function SeatMark({ state, anim, reviewWait, buildWait }: { state: SeatState; anim?: AnimName; reviewWait?: boolean; buildWait?: boolean }) {
+  // 선행 대기·검토 대기·구현 대기는 상태가 READY(또는 designWait/reviewWait/buildWait 인 WAIT)라 상태 표로는 못 가른다 —
+  // 좌석 그림(waiting)을 따라 표지를 달되, 사유가 다르면 말도 다르다(설계 상태 스펙 3절 1~3행).
   if (anim === 'waiting') {
-    return reviewWait
-      ? <span className={css.mark} data-mark="waiting" data-mark-reason="design_review" title="설계 검토 대기"><IconDependency /></span>
-      : <span className={css.mark} data-mark="waiting" data-mark-reason="dependency" title="선행 대기"><IconDependency /></span>
+    const [reason, title] = reviewWait ? ['design_review', REVIEW_WAIT_LABEL] : buildWait ? ['build_wait', BUILD_WAIT_LABEL] : ['dependency', DESIGN_WAIT_LABEL]
+    return <span className={css.mark} data-mark="waiting" data-mark-reason={reason} title={title}><IconDependency /></span>
   }
   const Icon = MARK[state]
   if (!Icon) return null
@@ -94,7 +100,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
             <span data-desk-phase=""><PhaseBadge seat={seat} size="chip" /></span>
             {owner && <OwnerTag owner={owner} />}
             <DecisionChip count={seat.decisionCount} />
-            <SeatMark state={seat.state} anim={seat.anim} reviewWait={seat.reviewWait} />
+            <SeatMark state={seat.state} anim={seat.anim} reviewWait={seat.reviewWait} buildWait={seat.buildWait} />
             {(seat.stubPending ?? []).length > 0 && (
               <span className={css.stubBadge} data-stub-badge="" title={(seat.stubPending ?? []).map(s => s.label).join('\n')}>
                 {stubBadgeText((seat.stubPending ?? []).length)}
@@ -102,7 +108,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
             )}
           </span>
           <span className={css.deskName}>{seat.name}</span>
-          <span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span>
+          <span className={css.deskMeta} data-seat-design-label={seat.design ? String(seat.design.row) : undefined}>{seatMetaLine(seat, nowMs)}</span>
           {seat.state === 'BLOCKED' && seat.note && <span className={css.note}>{seat.note}</span>}
           {HAS_BAR.includes(seat.state) && <span className={css.bar}><i style={{ width: `${seat.progress}%` }} /></span>}
         </button>

@@ -271,7 +271,8 @@ function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg'
   const shadow = plan
     ? '0 8px 16px -10px #0d1014'
     : `${edge ? `0 0 0 1.5px ${edge}, ` : ''}${ring?.glow ? `0 0 ${ring.glow}px ${ring.edge}66, ` : ''}0 8px 16px -10px #0d1014`
-  const phase = desk.seat?.heartbeatPhase ? PHASE_KO[desk.seat.heartbeatPhase] : undefined
+  const reported = desk.seat ? reportedPhase(desk.seat) : null
+  const phase = reported ? PHASE_KO[reported] : undefined
   return (
     <span data-nameplate={b.vendor} data-tier={b.tier ?? undefined} data-model-source={plan ? 'plan' : 'run'}
       title={`${plan ? 'WBS 지정 모델(실행 보고 전)' : `실행 모델${phase ? ` · ${phase} 단계` : ''}`} · ${desk.seat?.model ?? ''}${b.tier ? ` · 등급 ${b.tier}/4 ${TIER_NAME[b.tier]}` : ''}`}
@@ -288,12 +289,19 @@ function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg'
 
 export const PHASE_KO: Record<string, string> = { prepare: '준비', design: '설계', build: '구현', verify: '검증', refactor: '리팩터', blocked: '결정 대기', rejected: '재작업', reported: '보고', merge_conflict: '머지 충돌', wait_pred: '선행 대기', wait_review: '설계 검토 대기' }
 
+/** 워커가 보고한 단계 — 설계 검토 대기(wait_review)는 서버 설계 상태가 review 일 때만 믿는다. 「설계 승인」 뒤에도 그 phase 가
+ *  남기 때문이다(설계 상태 스펙 8절: heartbeat wait_review 는 좌석 판정에 쓰지 않는다). */
+function reportedPhase(seat: Pick<Seat, 'heartbeatPhase' | 'reviewWait'>): string | null {
+  return seat.heartbeatPhase === 'wait_review' && !seat.reviewWait ? null : seat.heartbeatPhase
+}
+
 /**
  * 프로필 카드 「단계 …」 — 보고된 단계를 한국어로 읽는다. 단계 보고가 없는 착수 좌석(seat.phase=prepare)은 비우지 않고
  * 「준비」다(2026-09-24: 착수 직후가 구현으로 보이던 문제). 추정 단계만 있는 승인 대기·완료 좌석은 종전대로 비운다.
+ * 설계 검토 대기는 설계 상태가 review 일 때만 말한다 — 승인 뒤 남은 phase wait_review 는 보고가 없는 것과 같이 다룬다.
  */
-export function profilePhaseLabel(seat: Pick<Seat, 'heartbeatPhase' | 'phase'>): string | null {
-  const key = seat.heartbeatPhase ?? (seat.phase === 'prepare' ? 'prepare' : null)
+export function profilePhaseLabel(seat: Pick<Seat, 'heartbeatPhase' | 'phase' | 'reviewWait'>): string | null {
+  const key = reportedPhase(seat) ?? (seat.phase === 'prepare' ? 'prepare' : null)
   return key ? PHASE_KO[key] ?? key : null
 }
 

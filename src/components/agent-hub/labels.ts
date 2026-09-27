@@ -1,6 +1,7 @@
 // 에이전트 허브 — 표·큐가 공유하는 상태 라벨. 좌석표(Seat.tsx STATE_LABEL)와 뜻은 같되 관리 표에 맞춘 문구.
 import type { HubOrderState } from '@/lib/domain/agentHub'
 import type { WaitReasonKind } from '@/lib/domain/waitReason'
+import type { DesignButton } from '@/lib/domain/designGate'
 import { STAGE_NONE_LABEL_KO } from '@/lib/domain/stageLabels'
 
 export const STATE_LABEL: Record<HubOrderState, string> = {
@@ -21,19 +22,23 @@ export const DESIGN_WAIT_TONE = 'bg-pending-weak text-pending'
  *  DESIGN_WAIT 과 같은 축(WAIT 이지만 승인 대기가 아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). */
 export const REVIEW_WAIT_LABEL = '설계 검토 대기'
 export const REVIEW_WAIT_TONE = 'bg-pending-weak text-pending'
+/** 구현 대기(claimed ∧ 설계 상태 accepted ∧ 단계 dd ∧ 도는 PC 없음, 설계 상태 스펙 3절 2·3행) — 승인·확정된 설계가 팀장을
+ *  기다린다. 같은 축(WAIT 이지만 승인 대기가 아니다)이다. */
+export const BUILD_WAIT_LABEL = '구현 대기'
+export const BUILD_WAIT_TONE = 'bg-pending-weak text-pending'
 
 /** 승인 대기 = WAIT 중 보고된(reported) 주문만. 설계 완료·선행 대기·검토 대기도 WAIT 라 state 만 보면 섞인다. */
 export function isHubApprovalWait(order: { state: HubOrderState; status: string } | null): boolean {
   return order?.state === 'WAIT' && order.status === 'reported'
 }
-/** reviewWait 이 없으면(옛 픽스처·wait_pred) 선행 대기로 접는다 — 둘 다 표시 축은 같고 라벨만 다르다. */
-export function hubStateLabel(order: { state: HubOrderState; status: string; reviewWait?: boolean }): string {
+/** reviewWait·buildWait 이 없으면(옛 픽스처·wait_pred) 선행 대기로 접는다 — 셋 다 표시 축은 같고 라벨만 다르다. */
+export function hubStateLabel(order: { state: HubOrderState; status: string; reviewWait?: boolean; buildWait?: boolean }): string {
   if (order.state !== 'WAIT' || order.status === 'reported') return STATE_LABEL[order.state]
-  return order.reviewWait ? REVIEW_WAIT_LABEL : DESIGN_WAIT_LABEL
+  return order.reviewWait ? REVIEW_WAIT_LABEL : order.buildWait ? BUILD_WAIT_LABEL : DESIGN_WAIT_LABEL
 }
-export function hubStateTone(order: { state: HubOrderState; status: string; reviewWait?: boolean }): string {
+export function hubStateTone(order: { state: HubOrderState; status: string; reviewWait?: boolean; buildWait?: boolean }): string {
   if (order.state !== 'WAIT' || order.status === 'reported') return STATE_TONE[order.state]
-  return order.reviewWait ? REVIEW_WAIT_TONE : DESIGN_WAIT_TONE
+  return order.reviewWait ? REVIEW_WAIT_TONE : order.buildWait ? BUILD_WAIT_TONE : DESIGN_WAIT_TONE
 }
 
 /**
@@ -95,6 +100,20 @@ export const OP_TITLE = {
   stop: '에이전트 위임을 끄고 진행 중인 개발을 멈춥니다 — 단계는 착수 전(as)으로 돌아가고, 워커는 다음 신호(약 1분 안)에서 멈춥니다',
 } as const
 export const NOTE_PLACEHOLDER = { reject: '반려 사유 (필수)', rework: '재작업 사유 (필수)' } as const
+
+/** 설계 버튼(설계 상태 스펙 7절) — 완료 승인(OP_LABEL)과 다른 동작이다. 문구는 WBS 작업 패널의 설계 영역과 같게 둔다. */
+export const DESIGN_BTN_LABEL: Record<DesignButton, string> = { accept: '설계 승인', confirm: '설계 확정', reopen: '설계 되돌리기' }
+export const DESIGN_BTN_TITLE: Record<DesignButton, string> = {
+  accept: '에이전트가 쓴 설계를 승인합니다 — 팀장이 다음 확인 주기(기본 30분 안)에 같은 설계로 구현을 시작합니다',
+  confirm: '개발 브랜치의 사람 설계(design.md)를 확정합니다 — 팀장이 띄우기 전에 필수 5개 절을 확인합니다',
+  reopen: '승인·확정한 설계를 되돌립니다 — 설계 검토·완전자동은 설계 검토 대기로, 구현자동은 사람 설계 대기로 돌아갑니다',
+}
+export const DESIGN_REOPEN_PLACEHOLDER = '되돌리는 이유 (비우면 기본 문구)'
+/** 설계 문구 칩 색 — 사람이 움직여야 풀리는 행(검토·재작업·사람 설계·위임 보류)은 사람 차례 색, 그 밖(선행·구현 대기)은 기계 차례 색. */
+const DESIGN_HUMAN_ROWS: ReadonlySet<number> = new Set([1, 5, 6, 7, 8, 9, 10])
+export function designTone(row: number): string {
+  return DESIGN_HUMAN_ROWS.has(row) ? 'bg-delayed-weak text-delayed' : 'bg-pending-weak text-pending'
+}
 
 /** 위임 체크박스 안내(§11-2 개정). 취소는 체크를 끄는 것 하나로 통일 — 켜기/끄기 뜻을 툴팁으로 명시한다. */
 export const DELEGATE_ON_TITLE = '체크하면 이 작업을 에이전트에 위임합니다.'

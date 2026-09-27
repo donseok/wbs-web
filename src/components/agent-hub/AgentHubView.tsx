@@ -133,7 +133,7 @@ export function AgentHubView({ initial, wbs }: { initial: AgentHub; wbs: HubWbsB
   const tools = (
     <>
       <HubStatusBar projectId={hub.projectId} registered={hub.registered} enabled={hub.enabled}
-        watchers={hub.watchers} isAdmin={hub.viewer.isAdmin} onChanged={refresh} />
+        watchers={hub.watchers} isAdmin={hub.viewer.isAdmin} designReview={c.designReview ?? 0} onChanged={refresh} />
       <div className="ml-auto flex items-center gap-2 text-xs text-ink-muted">
         <span data-hub-stamp className={error ? 'text-accent-warning' : ''}>
           {error ? `갱신 실패 ${hhmmss(error.at)} · ${error.message}` : `갱신 ${hhmmss(hub.fetchedAt)}`}

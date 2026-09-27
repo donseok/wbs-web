@@ -14,8 +14,8 @@ export const DONE_WINDOW_MS = 7 * 24 * 3600_000
 /** 보고 말풍선 재료의 창 — 하루 넘은 보고는 말풍선으로 띄울 일이 없다. */
 const REPORT_WINDOW_MS = 24 * 3600_000
 
-const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note, heartbeat_model, heartbeat_heavy, resume_requested_at, resume_requested_host'
-const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_member_id, tags, depends, model, stub_for, depends_waived, planned_start, stage, external_ref'
+const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note, heartbeat_model, heartbeat_heavy, resume_requested_at, resume_requested_host, design_state, design_note, runner, runner_seen_at'
+const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_member_id, tags, depends, model, stub_for, depends_waived, planned_start, stage, external_ref, design_mode'
 
 function must<T>(what: string, r: { data: T | null; error: { message: string } | null }): T {
   if (r.error) throw new Error(`[seatmap] ${what} 조회 실패: ${r.error.message}`)
@@ -77,10 +77,14 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
       return lq.then(r => must<LeaseRow[]>('팀장 lease', r))
     })(),
   ])
-  // 선행 항목 — ready 주문 항목의 depends 만 모아 프로젝트 안 external_ref 로 1회, 그 id 의 reported·approved 주문 1회. ref 가 없으면 0회.
+  // 선행 항목 — ready 주문 항목과, claimed 주문이면서 단계가 설계 중·설계 완료(ds·dd)인 항목의 depends 를 모아 프로젝트 안
+  // external_ref 로 1회, 그 id 의 reported·approved 주문 1회. ref 가 없으면 0회. claimed·ds·dd 는 설계 화면 판정(설계 상태 스펙
+  // 3절 2·4·12행)이 선행을 본다 — 읽지 않은 ref 는 "프로젝트에 없음 = 미충족"으로 판정돼 멈춘 좌석이 거짓 선행 대기로 보인다.
   // 승인 주문은 위 주문 조회(7일 창)에 없을 수 있어 따로 본다 — 오래전 승인된 선행을 미충족으로 말하면 화면이 거짓말한다.
   const readyItemIds = new Set(orders.filter(o => o.status === 'ready').map(o => o.wbs_item_id))
-  const refs = [...new Set(items.filter(i => readyItemIds.has(i.id)).flatMap(i => i.depends ?? []))]
+  const claimedItemIds = new Set(orders.filter(o => o.status === 'claimed').map(o => o.wbs_item_id))
+  const predTargets = items.filter(i => readyItemIds.has(i.id) || (claimedItemIds.has(i.id) && (i.stage === 'ds' || i.stage === 'dd')))
+  const refs = [...new Set(predTargets.flatMap(i => i.depends ?? []))]
   let predecessors: PredecessorRow[] = []
   if (refs.length) {
     const found = must<Array<Omit<PredecessorRow, 'order_approved'>>>('선행 항목',

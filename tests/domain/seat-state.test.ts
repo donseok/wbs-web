@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   OFFLINE_MS, STALE_MS, WATCHER_TTL_MS, HEARTBEAT_PHASES, LEAD_PHASES, animFor, deriveSeatState, fnv1a32, inferPhase, isApprovalWait, isDesignWait, isRejected,
-  isReviewWait, isWatcherAlive, lastSignalMs, pickCharacter, type SeatInput,
+  isBuildWait, isReviewWait, isWatcherAlive, lastSignalMs, pickCharacter, type SeatInput,
 } from '@/lib/domain/seatState'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
@@ -111,26 +111,45 @@ describe('wait_pred — 설계 완료·선행 대기(스펙 2026-09-26 §6.4)', 
   })
 })
 
-describe('wait_review — 설계 완료·검토 대기(스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5)', () => {
-  it('워커 phase 목록에 있어 서버가 받는다', () => {
+describe('설계 검토 대기·구현 대기 — 주문의 설계 상태로 가른다(설계 상태 스펙 3절 1~3행·8절)', () => {
+  it('heartbeat phase wait_review 는 받아 두되(워커 phase 목록) 좌석 판정에는 쓰지 않는다', () => {
     expect(HEARTBEAT_PHASES).toContain('wait_review')
+    expect(isReviewWait(base({ heartbeatPhase: 'wait_review' }))).toBe(false)
+    // 「설계 승인」 뒤에도 phase 는 wait_review 로 남는다 — 검토 대기가 아니다. 도는 PC 가 생긴 뒤에는 평소대로 침묵으로 판정한다.
+    const taken = base({ heartbeatPhase: 'wait_review', designState: 'accepted', runner: 'hong/mbp/w2', stage: 'dd', lastHeartbeatAt: ago(OFFLINE_MS + 1), updatedAt: ago(OFFLINE_MS + 1) })
+    expect(isReviewWait(taken)).toBe(false)
+    expect(deriveSeatState(taken, NOW)).toBe('OFFLINE')
   })
-  it('claimed ∧ wait_review 는 침묵 시간과 무관하게 WAIT — STALE·OFFLINE 로 보이지 않는다', () => {
-    const w = (ms: number) => base({ heartbeatPhase: 'wait_review', lastHeartbeatAt: ago(ms), updatedAt: ago(ms) })
+  it('claimed ∧ 설계 상태 review 는 침묵 시간과 무관하게 WAIT — STALE·OFFLINE 로 보이지 않는다', () => {
+    const w = (ms: number) => base({ heartbeatPhase: 'wait_review', designState: 'review', lastHeartbeatAt: ago(ms), updatedAt: ago(ms) })
     expect(deriveSeatState(w(1000), NOW)).toBe('WAIT')
     expect(deriveSeatState(w(STALE_MS + 1), NOW)).toBe('WAIT')
     expect(deriveSeatState(w(OFFLINE_MS * 10), NOW)).toBe('WAIT')
     expect(inferPhase(w(1000))).toBe('wait_review')
   })
-  it('승인 대기 WAIT 와 구분한다 — isApprovalWait 은 reported 만, isReviewWait 은 claimed ∧ wait_review 만', () => {
-    expect(isApprovalWait(base({ heartbeatPhase: 'wait_review' }))).toBe(false)
-    expect(isReviewWait(base({ heartbeatPhase: 'wait_review' }))).toBe(true)
-    expect(isReviewWait(base({ status: 'reported', heartbeatPhase: 'wait_review' }))).toBe(false)
+  it('승인 대기 WAIT 와 구분한다 — isApprovalWait 은 reported 만, isReviewWait 은 claimed ∧ review 만', () => {
+    expect(isApprovalWait(base({ designState: 'review' }))).toBe(false)
+    expect(isReviewWait(base({ designState: 'review' }))).toBe(true)
+    expect(isReviewWait(base({ status: 'reported', designState: 'review' }))).toBe(false)
+    expect(isReviewWait(base({ designState: 'accepted' }))).toBe(false)
     expect(isReviewWait(base({}))).toBe(false)
   })
-  it('wait_pred 와 wait_review 는 서로 구분된다 — 둘 다 WAIT 지만 isDesignWait·isReviewWait 은 배타적이다', () => {
-    expect(isDesignWait(base({ heartbeatPhase: 'wait_review' }))).toBe(false)
+  it('선행 대기(wait_pred)와 배타적이다 — 둘 다 WAIT 지만 isDesignWait·isReviewWait 은 서로 겹치지 않는다', () => {
+    expect(isDesignWait(base({ heartbeatPhase: 'wait_review', designState: 'review' }))).toBe(false)
     expect(isReviewWait(base({ heartbeatPhase: 'wait_pred' }))).toBe(false)
+  })
+  it('구현 대기(claimed ∧ accepted ∧ 단계 dd ∧ 도는 PC 없음)는 팀장을 기다리는 정상 대기 — 승인 뒤 10분이 지난 heartbeat 로도 WAIT 다', () => {
+    const w = (ms: number, over: Partial<SeatInput> = {}) =>
+      base({ heartbeatPhase: 'wait_review', designState: 'accepted', runner: null, stage: 'dd', lastHeartbeatAt: ago(ms), updatedAt: ago(ms), ...over })
+    expect(isBuildWait(w(10 * 60_000))).toBe(true)
+    expect(deriveSeatState(w(10 * 60_000), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(OFFLINE_MS * 3), NOW)).toBe('WAIT')
+    expect(isApprovalWait(w(10 * 60_000))).toBe(false)
+    // 구현 워커가 heartbeat 로 도는 PC 를 넘겨받으면 평소 판정이다 — 그 워커가 죽으면 무응답·끊김으로 드러난다.
+    expect(deriveSeatState(w(10 * 60_000, { runner: 'hong/mbp/w2' }), NOW)).toBe('STALE')
+    // 반려 뒤 재작업(단계 ip)과 검토 대기는 구현 대기가 아니다 — 반려·끊김을 가리지 않는다.
+    expect(isBuildWait(w(1000, { stage: 'ip' }))).toBe(false)
+    expect(isBuildWait(w(1000, { designState: 'review' }))).toBe(false)
   })
 })
 

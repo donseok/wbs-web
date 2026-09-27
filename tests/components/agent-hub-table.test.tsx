@@ -587,3 +587,99 @@ describe('DelegationTable — 승인 대기만·착수 대기 사유 펼침(2026
     expect(host.querySelector('[data-hub-row-extra="d1"]')).toBeNull()
   })
 })
+
+describe('DelegationTable — 설계 문구·설계 버튼(설계 상태 스펙 3절·7절)', () => {
+  const HINT_REVIEW = 'agent 브랜치의 <TASKS>/<TSK>/design.md 를 검토하고, 고쳤으면 push 한 뒤 「설계 승인」을 누르세요.'
+  const DESIGN_ROWS: HubRow[] = [
+    row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
+    row({ itemId: 'rv', code: 'TSK-RV', name: '검토 대기', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, devWorkflow: true, stage: 'dd',
+      order: { id: 'orv', status: 'claimed', state: 'WAIT', agent: 'hong/mbp/w1', lastSignalAt: null, reviewWait: true, designState: 'review' },
+      design: { row: 1, label: '설계 검토 대기', note: '테스트 계획 보강', hint: HINT_REVIEW, buttons: ['accept'] } }),
+    row({ itemId: 'hm', code: 'TSK-HM', name: '사람 설계', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, devWorkflow: true, stage: 'as',
+      order: { id: 'ohm', status: 'ready', state: 'READY', agent: null, lastSignalAt: null },
+      waitReason: { kind: 'pickup', label: '착수 대기', text: '집어갈 수 있는 에이전트가 있습니다.' },
+      design: { row: 6, label: '사람 설계 대기', note: null, hint: '개발 브랜치의 <TASKS>/<TSK>/design.md 에 필수 5개 절을 모두 쓰고 push 한 뒤 「설계 확정」을 누르세요.', buttons: ['confirm'] } }),
+    row({ itemId: 'ac', code: 'TSK-AC', name: '승인됨', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, devWorkflow: true, stage: 'dd',
+      order: { id: 'oac', status: 'claimed', state: 'WAIT', agent: 'hong/mbp/w1', lastSignalAt: null, designState: 'accepted', buildWait: true },
+      design: { row: 3, label: '구현 대기(설계 승인됨)', note: null, hint: '팀장이 떠 있으면 다음 TICK(기본 30분) 안에 구현을 시작합니다.', buttons: ['reopen'] } }),
+    // 위임 권한이 없는 행(담당자 아님·관리자 아님) — 서버(requireDelegationRight)가 거부할 버튼은 그리지 않는다.
+    row({ itemId: 'ot', code: 'TSK-OT', name: '남의 것', depth: 1, parentId: 'root', canToggle: false, delegated: true, devWorkflow: true, stage: 'dd',
+      order: { id: 'oot', status: 'claimed', state: 'WAIT', agent: 'x', lastSignalAt: null, reviewWait: true, designState: 'review' },
+      design: { row: 1, label: '설계 검토 대기', note: null, hint: HINT_REVIEW, buttons: ['accept'] } }),
+  ]
+  const dbtn = (id: string, kind: string) => host.querySelector(`[data-hub-row="${id}"] [data-hub-design-btn="${kind}"]`) as HTMLButtonElement | null
+  const typeReason = (v: string) => act(async () => {
+    const ta = host.querySelector('[data-hub-design-reopen-reason]') as HTMLTextAreaElement
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(ta, v); ta.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+
+  it('설계 문구는 사유 칸의 칩이고, 누르면 되돌림 사유·안내가 펼쳐진다 — 설계 문구가 있으면 선행 대기가 아닌 빈자리 사유는 그리지 않는다', async () => {
+    render({ rows: DESIGN_ROWS })
+    const chip = host.querySelector('[data-hub-row="rv"] [data-hub-design-label="1"]') as HTMLButtonElement
+    expect(chip.textContent).toBe('설계 검토 대기')
+    await click(chip)
+    const txt = text('[data-hub-row-extra="rv"] [data-hub-design-text]')
+    expect(txt).toContain('되돌린 이유: 테스트 계획 보강')
+    expect(txt).toContain('「설계 승인」')
+    expect(text('[data-hub-row="hm"] [data-hub-design-label="6"]')).toBe('사람 설계 대기')
+    expect(host.querySelector('[data-hub-row="hm"] [data-wait-reason]')).toBeNull()
+  })
+  it('구현 대기 행의 상태 칩은 승인 대기도 선행 대기도 아니라 구현 대기다', () => {
+    render({ rows: DESIGN_ROWS })
+    const ac = host.querySelector('[data-hub-row="ac"]') as HTMLElement
+    expect([...ac.querySelectorAll('.chip')].map(c => c.textContent)).toContain('구현 대기')
+    expect(ac.textContent).not.toContain('승인 대기')
+    expect(ac.textContent).not.toContain('선행 대기')
+  })
+  it('설계 버튼은 design.buttons 에 있고 위임 권한(canToggle)이 있을 때만 그린다 — 문구는 설계 승인·설계 확정·설계 되돌리기', () => {
+    render({ rows: DESIGN_ROWS })
+    expect(dbtn('rv', 'accept')?.textContent).toBe('설계 승인')
+    expect(dbtn('hm', 'confirm')?.textContent).toBe('설계 확정')
+    expect(dbtn('ac', 'reopen')?.textContent).toBe('설계 되돌리기')
+    expect(host.querySelector('[data-hub-row="ot"] [data-hub-design-btn]')).toBeNull()
+  })
+  it('설계 승인·설계 확정 → runHubProcessOp(p1, {design_accept|design_confirm, itemId}) → 응답의 허브로 교체', async () => {
+    runHubProcessOp.mockResolvedValue({ ok: true, hub: HUB })
+    const { onHub } = render({ rows: DESIGN_ROWS })
+    await click(dbtn('rv', 'accept')!)
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'design_accept', itemId: 'rv' })
+    await click(dbtn('hm', 'confirm')!)
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'design_confirm', itemId: 'hm' })
+    expect(onHub).toHaveBeenCalledWith(HUB)
+  })
+  it('설계 되돌리기는 사유 입력 줄을 먼저 연다 — 비워도 보낼 수 있고(서버 기본 사유) 채우면 다듬어 보내며, 성공하면 닫힌다', async () => {
+    runHubProcessOp.mockResolvedValue({ ok: true, hub: HUB })
+    render({ rows: DESIGN_ROWS })
+    await click(dbtn('ac', 'reopen')!)
+    expect(runHubProcessOp).not.toHaveBeenCalled()
+    const submit = host.querySelector('[data-hub-row-extra="ac"] [data-hub-design-reopen-submit]') as HTMLButtonElement
+    expect(submit.disabled).toBe(false)
+    await click(submit)
+    expect(runHubProcessOp).toHaveBeenLastCalledWith('p1', { kind: 'design_reopen', itemId: 'ac', note: '' })
+    expect(host.querySelector('[data-hub-design-reopen-reason]')).toBeNull()
+    await click(dbtn('ac', 'reopen')!)
+    await typeReason('  선행 설계가 바뀜  ')
+    await click(host.querySelector('[data-hub-design-reopen-submit]') as HTMLButtonElement)
+    expect(runHubProcessOp).toHaveBeenLastCalledWith('p1', { kind: 'design_reopen', itemId: 'ac', note: '선행 설계가 바뀜' })
+  })
+  it('입력 줄의 사유 칸·제출·취소는 data-hub-design-reopen-reason·-submit·-cancel 이다(Task 27 E2E 가 누른다) — 취소는 보내지 않고 닫는다', async () => {
+    render({ rows: DESIGN_ROWS })
+    await click(dbtn('ac', 'reopen')!)
+    const box = host.querySelector('[data-hub-row-extra="ac"] [data-hub-design-reopen]') as HTMLElement
+    expect(box.querySelector('textarea[data-hub-design-reopen-reason]')).not.toBeNull()
+    expect(box.querySelector('button[data-hub-design-reopen-submit]')?.textContent).toBe('설계 되돌리기 확정')
+    const cancel = box.querySelector('button[data-hub-design-reopen-cancel]') as HTMLButtonElement
+    expect(cancel.textContent).toBe('취소')
+    await click(cancel)
+    expect(host.querySelector('[data-hub-design-reopen]')).toBeNull()
+    expect(runHubProcessOp).not.toHaveBeenCalled()
+  })
+  it('실패는 그 행 아래 오류로 보이고, 되돌리기 입력 줄은 닫지 않는다', async () => {
+    runHubProcessOp.mockResolvedValueOnce({ ok: false, error: '설계 상태가 바뀌었습니다. 새로 고친 뒤 다시 누르세요.' })
+    render({ rows: DESIGN_ROWS })
+    await click(dbtn('ac', 'reopen')!)
+    await click(host.querySelector('[data-hub-design-reopen-submit]') as HTMLButtonElement)
+    expect(text('[data-hub-row-extra="ac"] [data-hub-error]')).toContain('설계 상태가 바뀌었습니다')
+    expect(host.querySelector('[data-hub-design-reopen-reason]')).not.toBeNull()
+  })
+})

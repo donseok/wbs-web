@@ -5,6 +5,8 @@
 // 조정(승인·반려·승인 취소·재작업 요청·중단)과 단계 직접 조정은 관리자 또는 서브트리 관리자
 // (대상 리프의 strict 조상 중 담당자가 나, HubRow.canManage — 트랙 B, 2026-09-15), runHubProcessOp
 // 1건으로 끝나고 응답의 허브로 교체한다(스펙 §11). 페이지 전체 refresh 금지(스펙 §7).
+// 설계 버튼(설계 승인·설계 확정·설계 되돌리기, 설계 상태 스펙 7절)은 위임 권한(canToggle — requireDelegationRight 와 같은
+// 규칙)이 있을 때 HubRow.design.buttons 대로 그리고, 같은 runHubProcessOp 1건으로 보낸다. 되돌리기 사유는 인라인 입력이다.
 //
 // 표 서식(2026-09-17 개편, 계획서 docs/superpowers/plans/2026-09-17-agent-hub-table-redesign.md):
 // 열 10개를 7개 + 여유 열로 줄이고 table-layout: fixed + <colgroup> 으로 폭을 사용자가 끌어 바꾼다.
@@ -23,6 +25,7 @@ import { usePendingDelegations } from './usePendingDelegations'
 import {
   DELEGATE_OFF_TITLE, DELEGATE_ON_TITLE, NEEDS_DELEGATION, NEEDS_DELEGATION_TONE, NO_ORDER, NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE,
   HUMAN_STAGE_CODES, REASON_TONE, STAGE_NONE_LABEL, TOGGLE_DENIED_TITLE, hubStateLabel, hubStateTone, isHubApprovalWait,
+  DESIGN_BTN_LABEL, DESIGN_BTN_TITLE, DESIGN_REOPEN_PLACEHOLDER, designTone,
 } from './labels'
 import s from './delegationTable.module.css'
 import { stubBadgeText } from '@/lib/domain/forceProgress'
@@ -126,6 +129,9 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
   const [noteOp, setNoteOp] = useState<{ itemId: string; orderId: string; kind: NoteKind } | null>(null)
   const [confirmOp, setConfirmOp] = useState<{ itemId: string; orderId: string; kind: 'stop' } | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
+  // 「설계 되돌리기」 사유 입력 줄을 연 행(한 번에 하나). 사유는 비워도 된다 — 서버가 기본 사유를 쓴다.
+  const [reopenOp, setReopenOp] = useState<string | null>(null)
+  const [reopenDraft, setReopenDraft] = useState('')
   // 단계 select 의 낙관 표시 — 응답(성공·실패)이 오면 지운다. 실패면 서버값으로 돌아간다.
   const [stageOpt, setStageOpt] = useState<ReadonlyMap<string, string | null>>(() => new Map())
   // 착수 대기 사유 전문을 펼친 행. 칩을 누르면 열린다.
@@ -291,6 +297,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
       if (res.warning) setRowWarn(m => mapWith(m, r.itemId, res.warning ?? null))
       if (noteOp?.itemId === r.itemId) { setNoteOp(null); setNoteDraft('') }
       if (confirmOp?.itemId === r.itemId) setConfirmOp(null)
+      if (reopenOp === r.itemId) { setReopenOp(null); setReopenDraft('') }
       if (res.hub) onHub(res.hub)
       else { setNotice(res.hubError ?? null); await onChanged() }
     } catch (e) {
@@ -398,7 +405,12 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
               const stubs = r.stubPending ?? []
               const noteOpen = noteOp?.itemId === r.itemId ? noteOp : null
               const confirmOpen = confirmOp?.itemId === r.itemId ? confirmOp : null
-              const showReason = reasonOpen === r.itemId && r.waitReason !== null
+              const showReason = reasonOpen === r.itemId && (r.waitReason !== null || r.design != null)
+              // 설계 문구가 있으면 빈자리 사유는 선행 대기(dependency)일 때만 함께 보인다 — 착수 대기·에이전트 꺼짐은 설계 대기와 어긋난다.
+              const reason = r.waitReason && (!r.design || r.waitReason.kind === 'dependency') ? r.waitReason : null
+              // 설계 버튼은 서버 가드(requireDelegationRight — 관리자 또는 담당자 본인)와 같은 canToggle 일 때만 그린다.
+              const designBtns = r.canToggle ? (r.design?.buttons ?? []) : []
+              const reopenOpen = reopenOp === r.itemId
               const zebra = r.isLeaf && leafSeq++ % 2 === 1
               return [
                 <tr key={r.itemId} data-hub-row={r.itemId}
@@ -474,11 +486,17 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                   </td>
                   <td className={cls(colCls('reason'), s.clip)}>
                     {r.isLeaf && r.devWorkflow && !r.delegated && <span className={`chip ${NEEDS_DELEGATION_TONE}`}>{NEEDS_DELEGATION}</span>}
-                    {r.waitReason && (
-                      <button type="button" data-hub-depends data-wait-reason={r.waitReason.kind}
-                        aria-expanded={showReason} title={r.waitReason.text}
+                    {r.design && (
+                      <button type="button" data-hub-design-label={r.design.row} aria-expanded={showReason}
+                        title={[r.design.note ? `되돌린 이유: ${r.design.note}` : null, r.design.hint].filter(Boolean).join('\n') || r.design.label}
                         onClick={() => setReasonOpen(v => v === r.itemId ? null : r.itemId)}
-                        className={`chip whitespace-nowrap ${REASON_TONE[r.waitReason.kind]}`}>{r.waitReason.label}</button>
+                        className={`chip whitespace-nowrap ${designTone(r.design.row)}`}>{r.design.label}</button>
+                    )}
+                    {reason && (
+                      <button type="button" data-hub-depends data-wait-reason={reason.kind}
+                        aria-expanded={showReason} title={reason.text}
+                        onClick={() => setReasonOpen(v => v === r.itemId ? null : r.itemId)}
+                        className={`chip whitespace-nowrap ${REASON_TONE[reason.kind]}`}>{reason.label}</button>
                     )}
                   </td>
                   <td className={cls(colCls('agent'), s.clip)}>
@@ -486,8 +504,17 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                     <span className="block text-[10px] tabular-nums text-ink-subtle">{sig}</span>
                   </td>
                   <td className={cls(colCls('ops'), s.clip)}>
-                    {ops.length > 0 && (
+                    {(designBtns.length > 0 || ops.length > 0) && (
                       <span className="flex flex-nowrap gap-1">
+                        {designBtns.map(b => (
+                          <button key={b} type="button" data-hub-design-btn={b} disabled={isBusy} title={DESIGN_BTN_TITLE[b]}
+                            aria-expanded={b === 'reopen' ? reopenOpen : undefined}
+                            onClick={() => {
+                              if (b === 'reopen') { setReopenOp(reopenOpen ? null : r.itemId); setReopenDraft(''); setNoteOp(null); setConfirmOp(null); return }
+                              void runOp(r, { kind: b === 'accept' ? 'design_accept' : 'design_confirm', itemId: r.itemId })
+                            }}
+                            className={`btn h-6 shrink-0 whitespace-nowrap px-2 text-[11px] ${b === 'reopen' ? 'btn-ghost' : 'btn-primary'}`}>{DESIGN_BTN_LABEL[b]}</button>
+                        ))}
                         {ops.map(b => (
                           <button key={b.kind} type="button" data-hub-op={b.kind}
                             disabled={isBusy || (b.kind === 'approve' && stubs.length > 0)}
@@ -496,8 +523,8 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                             onClick={() => {
                               const orderId = r.order?.id
                               if (!orderId) return
-                              if (b.confirm && b.kind === 'stop') { setConfirmOp(confirmOpen ? null : { itemId: r.itemId, orderId, kind: b.kind }); setNoteOp(null); return }
-                              if (b.note) { setNoteOp(noteOpen?.kind === b.note ? null : { itemId: r.itemId, orderId, kind: b.note }); setNoteDraft(''); setConfirmOp(null); return }
+                              if (b.confirm && b.kind === 'stop') { setConfirmOp(confirmOpen ? null : { itemId: r.itemId, orderId, kind: b.kind }); setNoteOp(null); setReopenOp(null); return }
+                              if (b.note) { setNoteOp(noteOpen?.kind === b.note ? null : { itemId: r.itemId, orderId, kind: b.note }); setNoteDraft(''); setConfirmOp(null); setReopenOp(null); return }
                               void runOp(r, { kind: b.kind, orderId } as HubProcessOp)
                             }}
                             className={`btn h-6 shrink-0 whitespace-nowrap px-2 text-[11px] ${b.kind === 'approve' ? 'btn-primary' : 'btn-ghost'}`}>{OP_LABEL[b.kind]}</button>
@@ -507,11 +534,16 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                   </td>
                   <td />
                 </tr>,
-                (editing === r.itemId || noteOpen || confirmOpen || showReason || err || warn) ? (
+                (editing === r.itemId || noteOpen || confirmOpen || reopenOpen || showReason || err || warn) ? (
                   <tr key={`${r.itemId}-x`} data-hub-row-extra={r.itemId} className={s.extra}>
                     <td colSpan={9} className="pb-2 pl-8">
-                      {showReason && r.waitReason && (
-                        <p data-hub-reason-text className="mb-1 text-[11px] leading-relaxed text-ink-muted">{r.waitReason.text}</p>
+                      {showReason && r.design && (
+                        <p data-hub-design-text className="mb-1 text-[11px] leading-relaxed text-ink-muted">
+                          {r.design.note && <>되돌린 이유: {r.design.note} · </>}{r.design.hint ?? r.design.label}
+                        </p>
+                      )}
+                      {showReason && reason && (
+                        <p data-hub-reason-text className="mb-1 text-[11px] leading-relaxed text-ink-muted">{reason.text}</p>
                       )}
                       {editing === r.itemId && (
                         <div className="flex flex-col gap-1">
@@ -541,6 +573,19 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                               onClick={() => { void runOp(r, { kind: confirmOpen.kind, orderId: confirmOpen.orderId }) }}
                               className="btn btn-primary h-7 px-2 text-xs">{OP_LABEL[confirmOpen.kind]} 확정</button>
                             <button type="button" data-hub-confirm-cancel onClick={() => setConfirmOp(null)} className="btn btn-ghost h-7 px-2 text-xs">취소</button>
+                          </div>
+                        </div>
+                      )}
+                      {reopenOpen && (
+                        <div data-hub-design-reopen className="flex flex-col gap-1">
+                          <textarea data-hub-design-reopen-reason value={reopenDraft} onChange={e => setReopenDraft(e.target.value)} rows={2}
+                            className="app-input w-full text-xs" placeholder={DESIGN_REOPEN_PLACEHOLDER} />
+                          <div className="flex gap-2">
+                            <button type="button" data-hub-design-reopen-submit disabled={isBusy}
+                              onClick={() => { void runOp(r, { kind: 'design_reopen', itemId: r.itemId, note: reopenDraft.trim() }) }}
+                              className="btn btn-primary h-7 px-2 text-xs">{DESIGN_BTN_LABEL.reopen} 확정</button>
+                            <button type="button" data-hub-design-reopen-cancel onClick={() => { setReopenOp(null); setReopenDraft('') }}
+                              className="btn btn-ghost h-7 px-2 text-xs">취소</button>
                           </div>
                         </div>
                       )}
