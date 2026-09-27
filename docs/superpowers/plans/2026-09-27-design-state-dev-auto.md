@@ -6721,3 +6721,239 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
+
+## Task 22a: 팀장 스크립트 — 제외 판정·자동 재시도·build_ready(`lead-state.sh`·`wake.sh`·`tick.sh`)
+
+**Files:**
+- Modify: `.claude/skills/dflow-team/scripts/lead-state.sh`(머리 주석 19·24행, `excl()` 90행, `LOST` 줄 114행 뒤)
+- Modify: `.claude/skills/dflow-team/scripts/wake.sh`(머리 주석 13행, watch 요약 jq 56~60행)
+- Modify: `.claude/skills/dflow-team/scripts/tick.sh`(`may_skip_now` 167행)
+- Test: `tests/skills/dflow-team-lead-state.test.ts`·`tests/skills/dflow-team-tick.test.ts`(각각 끝에 describe 하나)
+
+**Interfaces:**
+- Consumes: Task 16 watch 응답의 `resume_requests[].mine`·`.design_state`, `build_ready`(없음 = 옛 서버, `null` = 조회 실패), Task 21 워커 결과 줄(`skipped fetch 실패`·`skipped push 실패`·`design_review`·`design_reopened`)
+- Produces(Task 22b 팀장 문서가 쓴다):
+  - `lead-state.sh`: `design_review`·`design_reopened` 는 제외 없음. 새 줄 `RETRY_DUE <id8> reason=<fetch|push> n=<연속 수>`(마지막이 fetch·push 실패 skipped 이고 30분 지남, 연속 3회 미만), `WARN_RETRY <id8> reason=<fetch|push> n=<연속 수>`(연속 3회 이상)
+  - `wake.sh` 요약 JSON: 계약 2.11 서버면 `reqs[]` 원소에 `mine`·`design_state`, 끝에 `build`(`[{id8,code,status}]` 또는 조회 실패 `"NULL"`)와 `build_err`. 옛 서버면 종전과 글자 그대로 같다
+  - `tick.sh`: `build` 가 `"NULL"` 이거나 claimed 원소가 있으면 TICK 을 건너뛰지 않는다(D22 — 승인은 poll 이 깨우지 않는다)
+
+**정한 것:**
+- `build_ready` 는 서버가 watch 의 `--holder`(팀장 lease 프로젝트)로 이미 좁힌다. 그래서 `wake.sh` 는 거르기 인자를 더 넘기지 않는다. 팀장의 WP 범위는 새 배정에만 쓰고 재개는 범위와 무관하다(SKILL.md 「1. 시작」 4번의 종전 규칙).
+- ready 인 구현자동 확정 주문은 poll(`action=build`)이 팀장을 깨운다. `build` 로 TICK 을 붙잡는 것은 claimed 원소(「설계 승인」 된 작업 — poll 에 나오지 않는다)뿐이다.
+- 조회 실패(`null`)를 빈 목록으로 읽지 않는다(에러 3원칙). 옛 서버는 칸이 없으므로 `has("build_ready")` 로 가른다.
+- fetch·push 실패는 잡은 작업(claimed)에서만 난다(Task 21). poll 은 claimed 를 돌려주지 않으므로 30분 뒤 재시도는 팀장이 `RETRY_DUE` 로 한다(스펙 12절 Y11). 끝에서부터 연속한 수만 세고, 다른 결과가 끼면 다시 센다.
+
+**계획 단계 검증**: 아래 문구를 Task 21 을 적용한 리포 사본에 적용해 두 파일 41건이 통과했다. 스크립트를 고치기 전에는 새 테스트 다섯 건이 실패했다.
+
+- [ ] **Step 1: 실패하는 테스트**
+
+**X1** — 파일 끝에 더한다.
+
+```ts
+describe('lead-state.sh — 설계 상태(계약 2.11)', () => {
+  const nowTs = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  it('design_review·design_reopened 는 제외하지 않는다(설계 검토 대기·사람 설계 대기로 돌아간 작업)', () => {
+    const out = run([start(), spawnE('1', 'aaaa0001'), result('1', 'aaaa0001', 'design_review', { reason: '-' }),
+      spawnE('2', 'bbbb0002'), result('2', 'bbbb0002', 'design_reopened', { reason: '주문이 바뀜' })])
+    expect(get(out, 'EXCLUDE_PERM')).toEqual(['EXCLUDE_PERM -'])
+    expect(get(out, 'EXCLUDE_TEMP')).toEqual(['EXCLUDE_TEMP -'])
+  })
+  it('fetch·push 실패 skipped 는 처리한 지 30분이 지나면 RETRY_DUE, 30분 전이면 아직 아니다(Y11)', () => {
+    const out = run([start(), spawnE('1', 'aaaa0001'), result('1', 'aaaa0001', 'skipped', { reason: 'push 실패' }),
+      spawnE('2', 'bbbb0002'),
+      line({ event: 'team.result', slot: '2', id8: 'bbbb0002', tsk: 'TSK-bbbb0002', worktree: WT('bbbb0002'), hash: 'h-b', status: 'skipped', reason: 'fetch 실패', ts: nowTs() })])
+    expect(get(out, 'RETRY_DUE')).toEqual(['RETRY_DUE aaaa0001 reason=push n=1'])
+    expect(get(out, 'WARN_RETRY')).toEqual([])
+  })
+  it('같은 계열 사유가 연속 3회면 RETRY_DUE 대신 WARN_RETRY — 다른 결과가 끼면 다시 센다', () => {
+    const push = () => result('1', 'aaaa0001', 'skipped', { reason: 'push 실패' })
+    const again = () => spawnE('1', 'aaaa0001', { spawn_kind: 'resume' })
+    const out = run([start(), spawnE('1', 'aaaa0001'), push(), again(), result('1', 'aaaa0001', 'skipped', { reason: 'fetch 실패' }), again(), push()])
+    expect(get(out, 'WARN_RETRY')).toEqual(['WARN_RETRY aaaa0001 reason=push n=3'])
+    expect(get(out, 'RETRY_DUE')).toEqual([])
+    const out2 = run([start(), spawnE('1', 'aaaa0001'), push(), again(), result('1', 'aaaa0001', 'skipped', { reason: '설계 관문(design_gate)' }), again(), push()])
+    expect(get(out2, 'RETRY_DUE')).toEqual(['RETRY_DUE aaaa0001 reason=push n=1'])
+  })
+  it('다른 사유의 skipped 이거나 그 뒤에 다시 띄웠으면 내지 않는다', () => {
+    const out = run([start(), spawnE('1', 'aaaa0001'), result('1', 'aaaa0001', 'skipped', { reason: '설계 관문(design_gate)' }),
+      spawnE('2', 'bbbb0002'), result('2', 'bbbb0002', 'skipped', { reason: 'push 실패' }), spawnE('2', 'bbbb0002', { spawn_kind: 'resume' })])
+    expect(get(out, 'RETRY_DUE')).toEqual([])
+    expect(get(out, 'WARN_RETRY')).toEqual([])
+  })
+})
+```
+
+**X2** — 파일 끝에 더한다.
+
+```ts
+describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, () => {
+  it('build_ready 조회 실패(null)이거나 claimed 승인 주문이 있으면 건너뛰지 않는다. 비었거나 ready 뿐이면 건너뛴다(D22)', async () => {
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: null, build_ready_error: 'db' }))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'])).out.trim()).toBe('TICK')
+    lockOwner()
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: [{ order_id: 'o3', id8: 'cccc0003', code: '1.1', name: 'x', status: 'claimed' }] }))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'])).out.trim()).toBe('TICK')
+    lockOwner()
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: [{ order_id: 'o4', id8: 'dddd0004', code: '1.2', name: 'y', status: 'ready' }] }))
+    expect((await tick(['--new-tick', '--may-skip', ...baseArgs(), '--'])).out.trim().split('\n')[0]).toMatch(/^TICK_SKIPPED at=\d+ next=\d+$/)
+  })
+  it('wake.sh 요약: 새 서버면 reqs 에 mine·design_state, 끝에 build·build_err. 옛 서버(build_ready 없음)면 붙이지 않는다', () => {
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({
+      resume_requests: [{ id8: 'aaaa0001', code: 'c', host: 'mbp', requested_at: 't', project_id: 'p1', mine: true, design_state: null }],
+      build_ready: [{ order_id: 'o3', id8: 'cccc0003', code: '1.1', name: 'x', status: 'claimed' }],
+    }))
+    const r = spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events'], { cwd: repo, encoding: 'utf8', env: envFor() })
+    expect(JSON.parse(r.stdout.split('\n')[1])).toEqual({
+      n: 1, err: '-', reqs: [{ id8: 'aaaa0001', code: 'c', host: 'mbp', requested_at: 't', mine: true, design_state: null }], other_project: [],
+      build: [{ id8: 'cccc0003', code: '1.1', status: 'claimed' }], build_err: '-',
+    })
+    writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: null, build_ready_error: 'db' }))
+    const r2 = spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events'], { cwd: repo, encoding: 'utf8', env: envFor() })
+    expect(JSON.parse(r2.stdout.split('\n')[1])).toMatchObject({ build: 'NULL', build_err: 'db' })
+  })
+})
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/skills/dflow-team-lead-state.test.ts tests/skills/dflow-team-tick.test.ts`
+Expected: FAIL 5건(새 describe 두 개의 다섯 it — 「다른 사유의 skipped …」 는 줄이 아예 없어 지금도 통과한다)
+
+- [ ] **Step 3: `lead-state.sh`**
+
+**L1** — 아래 원문을 바꾼다.
+
+```text
+#   EXCLUDE_PERM <id8,…|->                  영구 제외(진행 중·failed…·cancelled). failed rate-limit·design_waiting(설계 완료·선행 대기 — claimed 라 poll 에 안 나온다)은 넣지 않는다
+```
+
+바꿀 문구:
+
+```text
+#   EXCLUDE_PERM <id8,…|->                  영구 제외(진행 중·failed…·cancelled). failed rate-limit·design_waiting(설계 완료·선행 대기 — claimed 라 poll 에 안 나온다)·design_review(설계 검토 대기)·design_reopened(사람 설계 대기로 돌아감 — 다시 확정되면 poll 이 찾는다)은 넣지 않는다
+```
+
+**L2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+#   LOST <id8> cause=<…> next=<…>          마지막이 team.lost 인 id8(영구 제외. 대기 상태는 restart.md 「이벤트로 본 상태」)
+```
+
+더할 문구:
+
+```text
+#   RETRY_DUE <id8> reason=<fetch|push> n=<연속 수>   마지막이 사유 「fetch 실패」·「push 실패」 인 skipped 이고 처리한 지 30분이 지났다
+#       (설계 상태 스펙 12절 Y11 — 잡은 작업이라 poll 이 다시 찾지 않으므로 팀장이 「5-1」 로 다시 띄운다). 연속 3회부터는 내지 않는다
+#   WARN_RETRY <id8> reason=<fetch|push> n=<연속 수>  같은 계열 사유가 끝에서부터 연속 3회 이상 — 자동 재시도를 멈추고 「멈춤」 표에 경고한다
+```
+
+**L3** — 아래 원문을 바꾼다.
+
+```text
+        | if $s == "done" or $s == "needs-merge" or $s == "resolved" or $s == "failed rate-limit" or $s == "design_waiting" then "none"
+```
+
+바꿀 문구:
+
+```text
+        | if $s == "done" or $s == "needs-merge" or $s == "resolved" or $s == "failed rate-limit" or $s == "design_waiting" or $s == "design_review" or $s == "design_reopened" then "none"
+```
+
+**L4** — 아래 줄 바로 뒤에 더한다.
+
+```text
+  ( $last | to_entries[] | .value | select(.event == "team.lost") | "LOST \(.id8) cause=\(.cause // "-") next=\(.next // "-")" ),
+```
+
+더할 문구:
+
+```text
+  # fetch·push 실패 skipped 의 자동 재시도(Y11): 같은 id8 의 team.result 를 끝에서부터 세어 연속 수를 정한다
+  ( $last | to_entries[] | .value
+    | select(.event == "team.result" and (.status // "") == "skipped" and ((.reason // "") | test("^(fetch|push) 실패")))
+    | . as $e | (($e.reason // "") | capture("^(?<r>fetch|push) 실패").r) as $why
+    | ([$w[] | select(.event == "team.result" and (.id8 // "") == $e.id8)] | reverse
+       | reduce .[] as $r ({n: 0, stop: false};
+           if .stop then . elif (($r.status // "") == "skipped" and (($r.reason // "") | test("^(fetch|push) 실패"))) then .n += 1 else .stop = true end)
+       | .n) as $n
+    | if $n >= 3 then "WARN_RETRY \($e.id8) reason=\($why) n=\($n)"
+      elif ((($e.ts // "") | try fromdateiso8601 catch 0) <= (now - 1800)) then "RETRY_DUE \($e.id8) reason=\($why) n=\($n)"
+      else empty end ),
+```
+
+- [ ] **Step 4: `wake.sh`·`tick.sh`**
+
+K 는 `wake.sh`, T1 은 `tick.sh` 다.
+
+**K1** — 아래 원문을 바꾼다.
+
+```text
+#   {"n":…,"err":…,"reqs":[…],"other_project":[…]}   watch 응답의 재개 요청 요약(LOCK_OK 다음 줄)
+```
+
+바꿀 문구:
+
+```text
+#   {"n":…,"err":…,"reqs":[…],"other_project":[…]}   watch 응답의 재개 요청 요약(LOCK_OK 다음 줄). 계약 2.11 서버면 reqs 원소에
+#       mine·design_state 가 붙고, 끝에 "build":[{id8,code,status}…]|"NULL" 과 "build_err" 가 붙는다(build_ready 가 없는 옛 서버는 붙이지 않는다.
+#       null 은 조회 실패라 "NULL" 로 낸다 — 빈 배열과 뭉개지 않는다)
+```
+
+**K2** — 아래 원문을 바꾼다.
+
+```text
+        && printf '%s' "$wr" | jq -c --arg ps "$ps" '($ps | split("\n")) as $ok
+             | {n: (.resume_requests | if . == null then "NULL" else length end),
+             err: (.resume_requests_error // "-"),
+             reqs: [(.resume_requests // [])[] | select(.project_id as $p | $ok | index($p)) | {id8, code, host, requested_at}],
+             other_project: [(.resume_requests // [])[] | select(.project_id as $p | ($ok | index($p)) | not) | .id8]}' \
+```
+
+바꿀 문구:
+
+```text
+        && printf '%s' "$wr" | jq -c --arg ps "$ps" '($ps | split("\n")) as $ok
+             | {n: (.resume_requests | if . == null then "NULL" else length end),
+             err: (.resume_requests_error // "-"),
+             reqs: [(.resume_requests // [])[] | select(.project_id as $p | $ok | index($p))
+                    | {id8, code, host, requested_at} + (if has("mine") then {mine} else {} end)
+                      + (if has("design_state") then {design_state} else {} end)],
+             other_project: [(.resume_requests // [])[] | select(.project_id as $p | ($ok | index($p)) | not) | .id8]}
+             + (if has("build_ready") then {build: (if .build_ready == null then "NULL" else [.build_ready[] | {id8, code, status}] end),
+                                           build_err: (.build_ready_error // "-")} else {} end)' \
+```
+
+**T1** — 아래 원문을 바꾼다.
+
+```text
+  printf '%s' "$j" | jq -e '(.n != "NULL") and ((.reqs // []) | length == 0)' >/dev/null 2>&1 || return 1
+```
+
+바꿀 문구:
+
+```text
+  # 승인된 설계(build_ready 의 claimed)는 poll 이 깨우지 않는다 — 있으면 건너뛰지 않는다(설계 상태 스펙 D22). 조회 실패("NULL")도 깨운다.
+  # build 칸이 없으면 옛 서버다(종전과 같다).
+  printf '%s' "$j" | jq -e '(.n != "NULL") and ((.reqs // []) | length == 0) and (.build != "NULL")
+    and (((.build // []) | if type == "array" then . else [] end) | map(select(.status == "claimed")) | length == 0)' >/dev/null 2>&1 || return 1
+```
+
+- [ ] **Step 5: 통과 확인**
+
+Run: `bash -n .claude/skills/dflow-team/scripts/lead-state.sh && bash -n .claude/skills/dflow-team/scripts/wake.sh && bash -n .claude/skills/dflow-team/scripts/tick.sh && npx vitest run tests/skills/dflow-team-lead-state.test.ts tests/skills/dflow-team-tick.test.ts tests/skills/shell-syntax.test.ts`
+Expected: PASS
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add .claude/skills/dflow-team/scripts/lead-state.sh .claude/skills/dflow-team/scripts/wake.sh .claude/skills/dflow-team/scripts/tick.sh \
+  tests/skills/dflow-team-lead-state.test.ts tests/skills/dflow-team-tick.test.ts
+git commit -m "feat(dflow-team): 설계 상태 결과의 제외 판정·fetch/push 실패 자동 재시도·build_ready 기상
+
+design_review 가 영구 제외로 떨어지던 결함을 고치고, 잡은 작업의 fetch·push 실패는 30분 뒤 RETRY_DUE 로 다시 띄운다(3회 연속이면 경고).
+build_ready 의 claimed 승인 주문이 있거나 조회가 실패하면 TICK 을 건너뛰지 않는다.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
