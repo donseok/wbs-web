@@ -12,8 +12,9 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
   **scaffold 가 만든 폴더도 예외다.** 폴더 안에 `state.json` 하나만 있고 `phase=ready` 이면 잔재가 아니다(`dflow.sh scaffold`
   가 미리 만든 자리). 옮기지 않고 `order`·`api_base` 를 이번 claim 값으로 덮어쓴 뒤 진행한다(남이 만든 ready 파일도 같다).
   파일이 더 있거나 `phase` 가 `ready` 가 아니면 종전대로 격리한다.
-  **구현부터(`--scope build`)의 설계 폴더도 예외다** — 위 scaffold 예외의 「`state.json` 하나만」 조건과 무관하다. 사람이 쓴 design.md 가 든 폴더는 입력이다. 옮기지 않고, state.json 이 있으면
-  `order`·`api_base` 를 이번 claim 값으로 덮어쓴다(없으면 `prepare` 쓰기에서 만든다).
+  **범위 `build`(구현자동)의 설계 폴더도 예외다** — 위 scaffold 예외의 「`state.json` 하나만」 조건과 무관하다. 사람이 「설계 확정」 한
+  design.md 가 든 폴더는 입력이다. 옮기지 않고, state.json 이 있으면 `order`·`api_base` 를 이번 claim 값으로 덮어쓴다(없으면 `prepare`
+  쓰기에서 만든다).
 
 ### 기점 이동과 claim
 
@@ -31,10 +32,18 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
    - claim 이 `PROJECT_MISMATCH`(exit 2)로 거부되면 그 주문은 이 리포에 바인딩된 D'Flow 프로젝트 밖이거나 리포에
      바인딩(`.dflow` 의 `project_id`·`.dflow.local` 의 `project_map`)이 없다. 재시도하지 않고 원래 위치로 돌아가 중단·보고한다.
      워커는 `.result` 에 `failed project <메시지>` 를 쓴다.
+   - **사람 설계 초안 확인(계약 2.11, 범위 `design`·`full`)**: 기점 이동에서 받은 origin 으로
+     `git cat-file -e origin/<기본브랜치>:<TASKS>/<TSK>/design.md` 를 본다(`<TASKS>/<TSK>` 는 `dflow.sh taskdir <ref>`). exit 0 이면 개발
+     브랜치에 사람이 쓴 설계 초안이 있다 — claim 하지 않고 원래 위치로 돌아가 `"{TSK} 사람 설계 초안 있음 — 방식을 구현자동으로 바꾸거나
+     초안을 지우세요"` 로 알린다(에이전트 설계가 초안을 옮기거나 덮지 않게). 범위 `build` 는 이 확인을 하지 않는다 — 그 design.md 가 입력이다.
    - **claim 명령**: `dflow.sh contract-ge 2.9` 가 exit 0 이면 늘 `dflow.sh claim <ref> --design-first` 다(선행이 모두 충족돼도
      그렇다 — 단계 `ds` 가 "설계 중" 이라는 뜻을 늘 갖게 한다). 아니면 종전 `dflow.sh claim <ref>`. 출력에 `DESIGN_FIRST_UNMET` 줄이
      있으면 설계 선행 모드다(「설계 선행」 1). exit 4 에 stderr `DESIGN_FIRST_TOO_EARLY` 면 아래 재시도를 하지 않는다(선행이
      착수하기 전에는 다시 해도 같다) — 원래 위치로 돌아가 "선행 <ref:stage…> 이 구현 전이라 설계 선행 불가" 로 보고한다.
+   - **범위(계약 2.11)**: `dflow.sh contract-ge 2.11` 이 exit 0 이면 위 명령 끝에 `--scope <범위>`(`orch/start.md` 「서버 판단」)를
+     붙인다. 출력의 `CLAIM_SCOPE <범위>` 줄이 서버가 저장한 범위다 — 아래 3번의 `prepare` 쓰기에서 state.json `scope` 로 적는다. exit 11
+     (stderr 끝줄 `DESIGN_GATE <code>`)이면 설계 관문 거부다 — 아래 재시도를 하지 않고 원래 위치로 돌아가
+     `"{TSK} 설계 관문 거부(<code>) — 작업의 설계 방식·상태를 확인하세요"` 로 알린다.
    - claim 이 exit 4(선행·상태로 인한 진행 불가. 서버 403 `dependency_not_met` 재매핑 포함)면
      `git fetch origin` 뒤 기점을 다시 정해(다시 옮겨) 1회 재시도하고, 그래도 4 면 중단·보고한다. 우회
      금지. merge 는 하지 않는다(기본 브랜치를 사용자의 현재 브랜치에 섞는다).
@@ -55,7 +64,7 @@ SKILL.md 「단계 지도」 가 가리킬 때 읽는다. 다 읽기 전에 이 
      반려 재작업 경로(`phase=rejected`)에서는 쓰지 않는다.
    - 이 쓰기가 state.json 의 첫 기록이면 `order`(전체 UUID)와 `api_base`(상태 모델)를 함께 적는다. 커밋은 하지 않는다
      (다음 커밋에 실린다).
-   - 범위가 `full` 이 아니면(SKILL.md 「실행 범위」) 같은 쓰기에서 `scope`(`design`|`build`)를 함께 적는다.
+   - 같은 쓰기에서 `scope` 를 적는다 — claim 출력의 `CLAIM_SCOPE` 값이고, 그 줄이 없으면(옛 서버) 범위(`orch/start.md` 「서버 판단」)다.
    이미 해당 브랜치면 재개. **main·staging 위에서 사이클 진행 금지** — Phase 진입 전
    `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.
    <!-- worker:begin -->
