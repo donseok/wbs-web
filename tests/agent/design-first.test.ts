@@ -255,7 +255,7 @@ describe('POST /work/{id}/build-start', () => {
     const admin = useAdmin({
       agent_work_orders: [{ data: CLAIMED }, { data: null }],
       ...member(),
-      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [] } }, { data: [dep('im')] }],
+      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [], stage: 'ds' } }, { data: [dep('im')] }],
       rpc: [{ data: { ...RPC_OK, stage: 'ip', actual_pct: 30, stage_changed: true, actual_changed: true } }],
     })
     const res = await start()
@@ -276,7 +276,8 @@ describe('POST /work/{id}/build-start', () => {
     useAdmin({
       agent_work_orders: [{ data: CLAIMED }],
       ...member(),
-      wbs_items: [{ data: { depends: null, depends_waived: [] } }],
+      // 단계가 이미 ip(canBuildStart 의 ge 바이패스, P7) — 설계·선행 관문을 건너뛰고 RPC 의 멱등에 맡긴다.
+      wbs_items: [{ data: { depends: null, depends_waived: [], stage: 'ip' } }],
       rpc: [{ data: { ...RPC_OK, stage: 'ip', actual_pct: 30 } }],
     })
     const res = await start()
@@ -290,7 +291,7 @@ describe('POST /work/{id}/build-start', () => {
     const admin = useAdmin({
       agent_work_orders: [{ data: CLAIMED }, { data: null }],
       ...member(),
-      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [] } }, { data: [dep('ip')] }],
+      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [], stage: 'ds' } }, { data: [dep('ip')] }],
     })
     const res = await start()
     expect(res.status).toBe(403)
@@ -303,7 +304,7 @@ describe('POST /work/{id}/build-start', () => {
     const admin = useAdmin({
       agent_work_orders: [{ data: CLAIMED }, { data: null }],
       ...member(),
-      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [DEP_REF] } }, { data: [dep('as')] }],
+      wbs_items: [{ data: { depends: [DEP_REF], depends_waived: [DEP_REF], stage: 'ds' } }, { data: [dep('as')] }],
     })
     const res = await start()
     expect(res.status).toBe(200)
@@ -326,11 +327,11 @@ describe('POST /work/{id}/build-start', () => {
     expect(admin.rpc).not.toHaveBeenCalled()
   })
 
-  it('claimed 가 아니면 409 conflict, 중단된 주문이면 409 cancelled', async () => {
+  it('claimed 가 아니면 409 design_gate·order_changed(Y7), 중단된 주문이면 409 cancelled', async () => {
     useAdmin({ agent_work_orders: [{ data: { ...CLAIMED, status: 'reported' } }], ...member() })
     const r1 = await start()
     expect(r1.status).toBe(409)
-    expect((await r1.json()).code).toBe('conflict')
+    expect(await r1.json()).toMatchObject({ code: 'design_gate', reason: 'order_changed' })
     useAdmin({ agent_work_orders: [{ data: { ...CLAIMED, status: 'cancelled', claimed_by: null } }], ...member() })
     const r2 = await start()
     expect(r2.status).toBe(409)
@@ -339,15 +340,16 @@ describe('POST /work/{id}/build-start', () => {
 
   it('RPC 가 경합(conflict)이면 409, 오류면 500', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    useAdmin({
+    const admin1 = useAdmin({
       agent_work_orders: [{ data: CLAIMED }], ...member(),
-      wbs_items: [{ data: { depends: [], depends_waived: [] } }],
+      wbs_items: [{ data: { depends: [], depends_waived: [], stage: 'ds' } }],
       rpc: [{ data: { ok: false, conflict: true, order_status: 'reported' } }],
     })
     expect((await start()).status).toBe(409)
+    expect(admin1.rpc).toHaveBeenCalledTimes(1) // 관문이 아니라 RPC 경합으로 409 임을 확인
     useAdmin({
       agent_work_orders: [{ data: CLAIMED }], ...member(),
-      wbs_items: [{ data: { depends: [], depends_waived: [] } }],
+      wbs_items: [{ data: { depends: [], depends_waived: [], stage: 'ds' } }],
       rpc: [{ error: { message: 'db down' } }],
     })
     expect((await start()).status).toBe(500)
@@ -389,7 +391,7 @@ describe('PAT 경로(dflow.sh 가 쓰는 신원)', () => {
       agent_runners: [{ data: RUNNER }, { data: null }],
       agent_work_orders: [{ data: CLAIMED }],
       ...member(),
-      wbs_items: [{ data: { depends: [], depends_waived: [] } }],
+      wbs_items: [{ data: { depends: [], depends_waived: [], stage: 'ds' } }],
     })
     const res = await buildStartPOST(post('build-start', { agent: 'hong/mbp/w1' }, PAT.token), ctx)
     expect(res.status).toBe(200)
