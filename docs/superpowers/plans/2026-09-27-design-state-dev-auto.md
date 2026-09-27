@@ -3936,12 +3936,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!isUuidLike(id)) return apiBadRequest('경로 id 형식이 올바르지 않습니다.')
   let raw: unknown
   try { raw = await req.json() } catch { return apiBadRequest('잘못된 요청입니다.') }
+  // 범위(계약 2.11, D21) — 없으면 legacy(옛 킷). legacy 는 보내는 값이 아니라 "안 보냄"이다.
+  const requestScopes: readonly string[] = BUILD_SCOPES.filter(sc => sc !== 'legacy')
   const scopeRaw = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>).scope : undefined
-  if (scopeRaw !== undefined && (typeof scopeRaw !== 'string' || !(['full', 'build', 'rework'] as const as readonly string[]).includes(scopeRaw))) {
-    return apiBadRequest('scope 는 full|build|rework 중 하나여야 합니다.')
+  if (scopeRaw !== undefined && (typeof scopeRaw !== 'string' || !requestScopes.includes(scopeRaw))) {
+    return apiBadRequest(`scope 는 ${requestScopes.join('|')} 중 하나여야 합니다.`)
   }
   const scope: BuildScope = (scopeRaw as BuildScope | undefined) ?? 'legacy'
-  void BUILD_SCOPES
   try {
     const admin = createAdminClient()
     const actor = await resolveWriteActor(req, admin, raw, 'work:claim')
@@ -4039,7 +4040,6 @@ export const PATCH = apiNotFound
 export const OPTIONS = apiNotFound
 ```
 
-(`void BUILD_SCOPES` 줄은 쓰지 말고 import 에서 `BUILD_SCOPES` 를 빼도 된다 — 허용 목록을 `BUILD_SCOPES.filter(s => s !== 'legacy')` 로 만들면 import 를 살린다. 둘 중 lint 가 통과하는 쪽을 고른다.)
 
 - [ ] **Step 4: 기존 build-start 테스트를 맞춘다**
 
@@ -4184,7 +4184,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `src/app/api/v1/agent/work/[id]/report/route.ts:93-138`
-- Test: `tests/agent/report-route.test.ts`
+- Test: `tests/agent/design-state-report.test.ts`(새)
 
 **Interfaces:**
 - Consumes: Task 1 `canReportCompletion`, Task 9 `orderFactsOf`, Task 4 RPC 의 report_completion 전제(설계 검토 대기·리프 ip 아님 → `design_gate`)
@@ -4192,7 +4192,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: 실패하는 테스트**
 
-`tests/agent/report-route.test.ts` 에 더한다(파일의 기존 목·요청 헬퍼를 쓴다. 헬퍼 이름이 다르면 그 파일의 것으로 바꾼다):
+`tests/agent/design-state-report.test.ts` — `tests/agent/design-first.test.ts` 의 목·헬퍼(`mocks`·`vi.mock` 넷·`useAdmin`·`post`·`member`·`ctx`·상수)를 복사해 머리에 두고, 라우트를 `import { POST as reportPOST } from '@/app/api/v1/agent/work/[id]/report/route'` 로 불러 쓴다:
 
 ```ts
 describe('completion — 설계 상태 관문(12절 Y1·Y2·W23, 계획 P16)', () => {
@@ -4231,7 +4231,7 @@ describe('completion — 설계 상태 관문(12절 Y1·Y2·W23, 계획 P16)', (
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `npx vitest run tests/agent/report-route.test.ts`
+Run: `npx vitest run tests/agent/design-state-report.test.ts`
 Expected: FAIL
 
 - [ ] **Step 3: 구현**
@@ -4274,13 +4274,13 @@ completion 전이 호출에 CAS 를 싣고, 실패 분기에 design_gate 를 더
 
 - [ ] **Step 4: 통과 확인**
 
-Run: `npx vitest run tests/agent/report-route.test.ts tests/agent/report-decisions.test.ts tests/agent/write-routes-pat.test.ts tests/agent/stage-lifecycle.test.ts`
+Run: `npx vitest run tests/agent/design-state-report.test.ts tests/agent/report-route.test.ts tests/agent/report-decisions.test.ts tests/agent/write-routes-pat.test.ts tests/agent/stage-lifecycle.test.ts`
 Expected: PASS. 기존 completion 테스트의 주문 행에는 runner 가 없어(null) 통과한다.
 
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add src/app/api/v1/agent/work/\[id\]/report/route.ts tests/agent/report-route.test.ts
+git add src/app/api/v1/agent/work/\[id\]/report/route.ts tests/agent/design-state-report.test.ts
 git commit -m "feat(design-state): 완료 보고는 도는 PC 에서만, 살아 있는 다른 세션이 있으면 받지 않는다(Y1·P16·Y2)
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
@@ -4851,8 +4851,10 @@ async function loadBuildReady(
 4. 응답 조립에서 부른다(재개 요청 뒤):
 
 ```ts
-    const leasedIds = holder !== null ? await leasedProjectIds(admin, principal.userId, holder) : null
-    const buildReady = await loadBuildReady(admin, principal.userId, leasedIds ?? (projectId !== null ? [projectId] : null), agent, { requireTag: requireTag as string | null, wp })
+    const leased = await leasedProjectIds(admin, principal.userId, holder)
+    const resume = await loadResumeRequests(admin, principal.userId, projectId, leased, agent)
+    const buildReady = leased === undefined ? null
+      : await loadBuildReady(admin, principal.userId, leased ?? (projectId !== null ? [projectId] : null), agent, { requireTag: requireTag as string | null, wp })
     return NextResponse.json({
       ok: true,
       expires_at: new Date(now.getTime() + WATCHER_TTL_MS).toISOString(),
@@ -4863,7 +4865,23 @@ async function loadBuildReady(
     })
 ```
 
-`leasedProjectIds` 는 `loadResumeRequests` 안의 lease 조회(`agent_lead_leases`)를 함수로 빼낸 것이다 — 두 곳이 같은 조회를 쓰도록 `loadResumeRequests` 도 이 함수를 부르게 고친다(조회 실패는 null 을 돌려주고, 부르는 쪽은 `resume_requests: null`·`build_ready: null` 로 알린다). 파일 머리 import 에 `isMine`·`listFilterPass`·`parseWpList`(designGate)와 `ITEM_FACT_COLUMNS`·`ORDER_FACT_COLUMNS`·`decide`·`loadItemFacts`·`orderFactsOf`·`type FactItemRow`·`type FactOrderRow`(designFacts)를 더한다.
+`leasedProjectIds` 는 `loadResumeRequests` 안의 lease 조회를 함수로 빼낸 것이다(조회 수는 종전과 같은 한 번):
+
+```ts
+/** 이 holder 로 쥔 살아 있는 lease 의 프로젝트(스펙 §9). holder 가 없으면 null(거르지 않음), 조회 실패는 undefined. */
+async function leasedProjectIds(
+  admin: ReturnType<typeof createAdminClient>, userId: string, holder: string | null,
+): Promise<string[] | null | undefined> {
+  if (holder === null) return null
+  const { data, error } = await admin
+    .from('agent_lead_leases').select('project_id')
+    .eq('user_id', userId).eq('holder', holder).gt('expires_at', new Date().toISOString())
+  if (error) { console.error('[agent-api] lease 조회 실패:', error.message); return undefined }
+  return ((data ?? []) as Array<{ project_id: string }>).map(r => r.project_id)
+}
+```
+
+`loadResumeRequests` 의 인자 `holder` 를 `leased: string[] | null | undefined` 로 바꾸고 함수 머리의 lease 조회 블록을 지운다 — `leased === undefined` 면 `return null`(조회 실패), `leased !== null && leased.length === 0` 이면 `return []`, 그 밖은 종전 본문 그대로(`leased` 가 배열이면 `.in('project_id', leased)` 와 in-memory 필터). 응답 조립은 `const leased = await leasedProjectIds(admin, principal.userId, holder)` 를 먼저 부르고 `loadResumeRequests(admin, principal.userId, projectId, leased, agent)` 로 넘긴다. `loadBuildReady` 에는 `leased === undefined` 면 `null`(실패) 을 그대로 쓰고, 아니면 `leased ?? (projectId !== null ? [projectId] : null)` 를 넘긴다(위 조립 코드의 `leasedIds` 두 줄을 이 규칙으로 쓴다). 파일 머리 import 에 `isMine`·`listFilterPass`·`parseWpList`(designGate)와 `ITEM_FACT_COLUMNS`·`ORDER_FACT_COLUMNS`·`decide`·`loadItemFacts`·`orderFactsOf`·`type FactItemRow`·`type FactOrderRow`(designFacts)를 더한다.
 
 - [ ] **Step 6: 재개 요청은 설계 검토 대기면 거부(Y10)**
 
