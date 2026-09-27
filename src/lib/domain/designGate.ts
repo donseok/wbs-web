@@ -269,11 +269,17 @@ export function canDesignDone(item: { stage: string | null } | null, order: Pick
 
 /**
  * 4.1 설계 방식 변경 — 설계 상태가 없고 claimed·reported·approved 주문이 없을 때만. 막히면 사람이 할 일을 담은 사유를 낸다.
- * 검사 순서(잠금 조건의 합집합은 그대로다): reported·approved 를 가장 먼저 본다 — 검수 대기 중인 주문은 「설계
- * 되돌리기」(order status 가 ready·claimed 가 아니면 RPC 가 거부한다)도 「중단」(claimed 만 받는다)도 통하지 않으므로,
- * 그 진짜 이유를 designState 유무보다 앞에서 밝힌다. 그다음 설계 상태 유무 — 이 갈래에 닿았다는 것은 이미 reported·
- * approved 가 없다는 뜻이라 「설계 되돌리기」·「중단」이 실제로 남은 주문(ready·claimed)을 치울 수 있다. 마지막으로
- * claimed 단독(설계 상태 없이 구현 중인 경우) — 이때도 designState 가 없으므로 되돌리기는 의미가 없고 중단만 남는다.
+ * 검사 순서(잠금 조건의 합집합은 그대로다, 문구만 갈린다):
+ * ① reported·approved 를 가장 먼저 본다 — 사실만 말하고 고칠 길은 권하지 않는다. 위임 해제(setDelegationAndMode
+ *    delegated:false)는 ready·claimed 만 취소할 뿐 reported·approved 주문은 그대로 두고, 「설계 되돌리기」(RPC 가
+ *    ready·claimed 만 받는다, 0108:204)도 「중단」(claimed 만 받는다)도 이 상태에는 안 통하기 때문이다.
+ * ② 설계 상태가 있으면(=①이 아니었다는 뜻, 즉 reported·approved 는 없다) 위임 해제를 권한다 — 이 갈래에 남은 주문은
+ *    ready 나 claimed 뿐이라 위임 해제가 항상 치운다. 「설계 되돌리기」는 대신 권하지 않는다 — human·claimed 조합만
+ *    이 잠금을 실제로 풀고(order 가 ready 로, design_state 가 null 로), review·auto 는 design_state 를 review 로
+ *    옮길 뿐이라 잠금이 그대로 남기 때문이다(designButtons 의 reopen 이 이 두 갈래 모두에서 뜰 수 있어 버튼 자체는
+ *    안 가린다). 「중단」도 권하지 않는다 — 관리자·서브트리 관리자만 쓸 수 있는데, 이 문구는 담당자 본인도 본다.
+ * ③ claimed 단독(설계 상태 없이 구현 중)도 같은 이유로 위임 해제를 권한다 — 남은 주문이 claimed 뿐이라 역시
+ *    위임 해제가 항상 치운다.
  */
 export function designModeChangeBlock(p: { designState: DesignState | null; orderStatuses: readonly string[] }): string | null {
   if (p.orderStatuses.some(s => s === 'reported' || s === 'approved')) return '완료 보고·승인된 주문이 있어 방식을 바꿀 수 없습니다.'

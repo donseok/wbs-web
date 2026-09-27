@@ -39,7 +39,7 @@ export async function getDesignPanel(itemId: string): Promise<DesignPanelResult>
     const [target, right] = await Promise.all([loadDesignTarget(createAdminClient(), itemId), requireDelegationRight(itemId)])
     if (!target) return { ok: false, error: ERR_MISSING }
     // 담당자 본인이 아니라 거부되는 것은 정상 소음이라 남기지 않는다 — 그 밖의 실패(조회 오류 등)만 로그로 남긴다.
-    // canAct 은 그대로 boolean 이다 — 화면은 버튼을 숨길 뿐, 실패 사유를 canAct 하나로 뭉개지 않으려는 것뿐이다.
+    // canAct 는 그대로 boolean 이다 — 실패 사유는 화면에 싣지 않고 로그로만 남긴다(표시 대신 로깅으로 그친다).
     if (!right.ok && right.error !== ERR_NOT_ASSIGNEE) {
       console.error('[designActions] 위임 권한 판정 실패(canAct=false 로 열화):', right.error)
     }
