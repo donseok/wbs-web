@@ -5017,3 +5017,684 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
+## Task 18: dflow.sh — exit 11·12, claim·build-start 범위, design-done·design-reopen, list 의 action·mine
+
+**Files:**
+- Modify: `.claude/skills/dflow-work/scripts/dflow.sh`(머리 exit 줄 5행, usage 25~67행, `api_raw` 181~187행, `print_list` 218~226행, `cmd_list` 258~288행, `cmd_claim` 360~401행, `cmd_build_start` 408~428행, `cmd_watch` 572~607행, 디스패치 853~873행)
+- Test: `tests/skills/dflow-design-state-cli.test.ts`(새)
+
+**Interfaces:**
+- Consumes: Task 10~17 의 서버 요청·응답
+- Produces(스킬 문서·poll.sh·팀장이 쓴다):
+  - exit 11: 409 `design_gate`·`design_not_accepted` — stderr 끝줄 `DESIGN_GATE <code>[ <reason>]`(예: `DESIGN_GATE design_gate order_changed`)
+  - exit 12: 409 `runner_active` — stderr 끝줄 `RUNNER_ACTIVE <runner>`
+  - `claim <ref> [--design-first] [--scope full|design|build]` — 성공 출력에 서버가 저장한 범위 `CLAIM_SCOPE <scope>` 한 줄(새 서버·PAT)
+  - `build-start <ref> [--scope full|build|rework]`
+  - `design-done <ref>` → `design-done <id8> <review|accepted|none>`; 404 이고 서버 계약 < 2.11 이면 stderr `DESIGN_STATE_UNSUPPORTED …` 에 exit 7
+  - `design-reopen <ref> --reason "<이유>"` → `design-reopened <id8> <status> <design_state|none>`
+  - `list [...] [--require-tag t] [--wp W] [--lead]` — 요청에 `agent=<agent_id_default>`, 출력 TSV 끝에 `action`·`mine`(1·0) 두 열. 옛 서버면 두 열이 빈 값
+  - `watch [...] [--require-tag t] [--wp W]` — 본문에 `require_tag`·`wp`. `--json` 이면 응답 그대로(`build_ready` 포함)
+
+- [ ] **Step 1: 실패하는 테스트**
+
+`tests/skills/dflow-design-state-cli.test.ts`:
+
+```ts
+// tests/skills/dflow-design-state-cli.test.ts — 설계 상태(계약 2.11)의 CLI 계약. dflow.sh 를 가짜 curl 로 실제 실행한다
+// (dflow-design-first.test.ts 와 같은 방식). exit 11·12, 범위 인자, 새 동사, list 의 action·mine 열, 옛 서버 폴백을 고정한다.
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const ROOT = process.cwd()
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const TOKEN = `dflow_pat_AAAAAAAAAAAA_${'x'.repeat(24)}`
+const PID = '11111111-1111-4111-8111-111111111111'
+const WORK_ID = '99999999-9999-4999-8999-999999999999'
+
+// 가짜 curl — POST 본문은 BODY_FILE, 요청 URL 은 URL_FILE 에 한 줄씩 적는다. 응답은 FAKE_* 로 고른다.
+function fakeCurlScript() {
+  return `#!/bin/sh
+out=''; data=''; url=''
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -X|-H|-w) shift 2 ;;
+    --data) data="$2"; shift 2 ;;
+    -sS) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+[ -n "$data" ] && printf '%s\\n' "$data" >> "$BODY_FILE"
+printf '%s\\n' "$url" >> "$URL_FILE"
+case "$url" in
+  *"/agent/me") code=200; body="{\\"contract_version\\":\\"\${FAKE_ME:-2.11}\\"}" ;;
+  *"/agent/work/mine"*)
+    case "\${FAKE_LIST:-new}" in
+      new) code=200; body='{"claimed":[],"assigned":[],"available":[{"id":"${WORK_ID}","project_id":"${PID}","status":"ready","priority":1,"item":{"name":"t"},"action":"design","mine":true}]}' ;;
+      old) code=200; body='{"claimed":[],"assigned":[],"available":[{"id":"${WORK_ID}","project_id":"${PID}","status":"ready","priority":1,"item":{"name":"t"}}]}' ;;
+    esac ;;
+  *"/agent/work/${WORK_ID}/claim")
+    case "\${FAKE_CLAIM:-ok}" in
+      ok) code=200; body='{"ok":true,"status":"claimed","item":{},"depends_evidence":[],"claim_scope":"design"}' ;;
+      gate) code=409; body='{"error":"x","code":"design_gate"}' ;;
+      na) code=409; body='{"error":"x","code":"design_not_accepted"}' ;;
+    esac ;;
+  *"/agent/work/${WORK_ID}/build-start")
+    case "\${FAKE_BS:-ok}" in
+      ok) code=200; body='{"ok":true,"stage":"ip","runner":"hong/mbp/w1"}' ;;
+      changed) code=409; body='{"error":"x","code":"design_gate","reason":"order_changed"}' ;;
+      runner) code=409; body='{"error":"x","code":"runner_active","runner":"kim/pc2/w1"}' ;;
+      conflict) code=409; body='{"error":"x","code":"conflict"}' ;;
+    esac ;;
+  *"/agent/work/${WORK_ID}/design-done")
+    case "\${FAKE_DD:-ok}" in
+      ok) code=200; body='{"ok":true,"status":"claimed","stage":"dd","design_state":"review"}' ;;
+      auto) code=200; body='{"ok":true,"status":"claimed","stage":"dd","design_state":null}' ;;
+      old) code=404; body='<html>404</html>' ;;
+    esac ;;
+  *"/agent/work/${WORK_ID}/design-reopen") code=200; body='{"ok":true,"status":"ready","stage":"as","design_state":null}' ;;
+  *"/agent/work/${WORK_ID}/heartbeat") code=409; body='{"error":"x","code":"runner_active","runner":"kim/pc2/w1"}' ;;
+  *"/agent/work/${WORK_ID}"*) code=200; body='{"order":{"id":"${WORK_ID}","item":{}},"depends_evidence":[]}' ;;
+  *"/agent/watch") code=200; body='{"ok":true,"expires_at":"x","resume_requests":[],"build_ready":[]}' ;;
+  *) code=200; body='{}' ;;
+esac
+printf '%s' "$body" > "$out"; printf '%s' "$code"
+`
+}
+
+let tmp: string, repo: string, bodies: string, urls: string
+function run(args: string[], env: Record<string, string> = {}) {
+  return spawnSync('sh', [DFLOW, ...args], {
+    encoding: 'utf8', cwd: repo,
+    env: {
+      NODE_ENV: process.env.NODE_ENV, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
+      HOME: join(tmp, 'home'), XDG_CACHE_HOME: join(tmp, 'cache'),
+      DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
+      DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: TOKEN, DFLOW_PROJECT_ID: PID,
+      BODY_FILE: bodies, URL_FILE: urls, ...env,
+    },
+  })
+}
+const sent = () => (existsSync(bodies) ? readFileSync(bodies, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
+const urlsSent = () => (existsSync(urls) ? readFileSync(urls, 'utf8').trim().split('\n') : [])
+
+beforeEach(() => {
+  tmp = mkdtempSync(join(tmpdir(), 'dflow-ds-'))
+  mkdirSync(join(tmp, 'bin')); mkdirSync(join(tmp, 'home'))
+  writeFileSync(join(tmp, 'bin/curl'), fakeCurlScript(), { mode: 0o755 })
+  bodies = join(tmp, 'bodies.jsonl'); urls = join(tmp, 'urls.log')
+  repo = join(tmp, 'repo'); mkdirSync(repo)
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo })
+  writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w1\n')
+})
+afterEach(() => rmSync(tmp, { recursive: true, force: true }))
+
+describe('exit 11·12(계약 2.11)', () => {
+  it('claim 이 409 design_gate·design_not_accepted 면 exit 11, stderr 끝줄 DESIGN_GATE <code>', () => {
+    const a = run(['claim', WORK_ID, '--scope', 'full'], { FAKE_CLAIM: 'gate' })
+    expect(a.status).toBe(11)
+    expect(a.stderr.trim().split('\n').pop()).toBe('DESIGN_GATE design_gate')
+    const b = run(['claim', WORK_ID, '--scope', 'build'], { FAKE_CLAIM: 'na' })
+    expect(b.status).toBe(11)
+    expect(b.stderr).toContain('DESIGN_GATE design_not_accepted')
+  })
+  it('build-start 의 order_changed 는 reason 까지 싣는다(Y7)', () => {
+    const r = run(['build-start', WORK_ID, '--scope', 'build'], { FAKE_BS: 'changed' })
+    expect(r.status).toBe(11)
+    expect(r.stderr.trim().split('\n').pop()).toBe('DESIGN_GATE design_gate order_changed')
+  })
+  it('runner_active 는 exit 12, stderr 끝줄 RUNNER_ACTIVE <runner> — heartbeat 도 같다', () => {
+    const r = run(['build-start', WORK_ID, '--scope', 'full'], { FAKE_BS: 'runner' })
+    expect(r.status).toBe(12)
+    expect(r.stderr.trim().split('\n').pop()).toBe('RUNNER_ACTIVE kim/pc2/w1')
+    expect(run(['heartbeat', WORK_ID, '--phase', 'build']).status).toBe(12)
+  })
+  it('다른 409(conflict)는 종전대로 exit 4', () => {
+    expect(run(['build-start', WORK_ID], { FAKE_BS: 'conflict' }).status).toBe(4)
+  })
+  it('사용법·파일 머리의 exit 표에 11·12 가 있다', () => {
+    const r = spawnSync('sh', [DFLOW], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: join(tmp, 'home'), NODE_ENV: process.env.NODE_ENV, DFLOW_CONFIG_DIR: join(tmp, 'no-config') } })
+    expect(r.stderr).toMatch(/11 설계 관문/)
+    expect(r.stderr).toMatch(/12 다른 PC 도는 중/)
+    expect(readFileSync(DFLOW, 'utf8').split('\n')[4]).toContain('11 설계 관문')
+  })
+})
+
+describe('claim·build-start 범위(D21)', () => {
+  it('claim --scope design 은 본문에 scope, 성공 출력에 서버 범위 CLAIM_SCOPE', () => {
+    const r = run(['claim', WORK_ID, '--scope', 'design'])
+    expect(r.status).toBe(0)
+    expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1', scope: 'design' })
+    expect(r.stdout).toContain('CLAIM_SCOPE design')
+  })
+  it('claim 은 --design-first 와 --scope 를 순서와 무관하게 받는다', () => {
+    expect(run(['claim', WORK_ID, '--design-first', '--scope', 'full']).status).toBe(0)
+    expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1', scope: 'full', design_first: true })
+  })
+  it('모르는 범위는 사용법(exit 2)', () => {
+    expect(run(['claim', WORK_ID, '--scope', 'weird']).status).toBe(2)
+    expect(run(['build-start', WORK_ID, '--scope', 'design']).status).toBe(2)
+  })
+  it('build-start --scope rework 는 본문에 scope', () => {
+    expect(run(['build-start', WORK_ID, '--scope', 'rework']).status).toBe(0)
+    expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1', scope: 'rework' })
+  })
+})
+
+describe('design-done·design-reopen', () => {
+  it('design-done 은 설계 상태를 한 줄로 낸다', () => {
+    const r = run(['design-done', WORK_ID])
+    expect(r.status).toBe(0)
+    expect(r.stdout.trim()).toBe('design-done 99999999 review')
+    expect(run(['design-done', WORK_ID], { FAKE_DD: 'auto' }).stdout.trim()).toBe('design-done 99999999 none')
+  })
+  it('옛 서버(404, 계약 < 2.11)면 DESIGN_STATE_UNSUPPORTED 에 exit 7', () => {
+    const r = run(['design-done', WORK_ID], { FAKE_DD: 'old', FAKE_ME: '2.9' })
+    expect(r.status).toBe(7)
+    expect(r.stderr).toContain('DESIGN_STATE_UNSUPPORTED')
+  })
+  it('design-reopen 은 --reason 이 없으면 exit 2, 있으면 본문에 reason', () => {
+    expect(run(['design-reopen', WORK_ID]).status).toBe(2)
+    const r = run(['design-reopen', WORK_ID, '--reason', '테스트 계획 절 없음'])
+    expect(r.status).toBe(0)
+    expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1', reason: '테스트 계획 절 없음' })
+    expect(r.stdout.trim()).toBe('design-reopened 99999999 ready none')
+  })
+})
+
+describe('list·watch(Y4·D22)', () => {
+  it('list 는 agent·거르기 쿼리를 싣고, 끝에 action·mine 열을 낸다', () => {
+    const r = run(['list', '--scope', 'assigned', '--require-tag', 'agent', '--wp', 'WP-02', '--lead'])
+    expect(r.status).toBe(0)
+    const u = urlsSent().find(x => x.includes('/work/mine')) ?? ''
+    expect(u).toContain('agent=hong%2Fmbp%2Fw1')
+    expect(u).toContain('require_tag=agent')
+    expect(u).toContain('wp=WP-02')
+    expect(u).toContain('lead=1')
+    expect(r.stdout.trim().split('\t')).toEqual(['1', 'RD', '1', '99999999', 't', 'design', '1'])
+  })
+  it('옛 서버 목록은 두 열이 빈 값 — 열 번호는 그대로', () => {
+    const r = run(['list'], { FAKE_LIST: 'old' })
+    expect(r.stdout.replace(/\n$/, '').split('\t')).toEqual(['1', 'RD', '1', '99999999', 't', '', ''])
+  })
+  it('watch 는 거르기를 본문에 싣는다', () => {
+    expect(run(['watch', '--agent', 'hong/mbp/lead', '--require-tag', 'agent', '--wp', 'WP-02,dict/WP-3', '--json']).status).toBe(0)
+    expect(sent().at(-1)).toMatchObject({ agent: 'hong/mbp/lead', require_tag: 'agent', wp: 'WP-02,dict/WP-3' })
+  })
+})
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/skills/dflow-design-state-cli.test.ts`
+Expected: FAIL
+
+- [ ] **Step 3: exit 매핑과 사용법**
+
+`dflow.sh` 5행(머리 exit 줄)을 바꾼다:
+
+```sh
+# exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨(409 code=cancelled) / 11 설계 관문(409 design_gate·design_not_accepted) / 12 다른 PC 도는 중(409 runner_active)
+```
+
+`api_raw` 의 409 갈래를 바꾼다:
+
+```sh
+    409)
+      printf '%s\n' "$_body" >&2
+      _c=$(printf '%s' "$_body" | jq -r '.code // empty' 2>/dev/null)
+      case "$_c" in
+        # 사람이 중단한 주문(2026-09-19)은 경합·상태 불일치와 처방이 다르다 — 재시도가 아니라 즉시 멈춤이다.
+        cancelled) exit 10 ;;
+        # 설계 관문(계약 2.11) — 선행 대기(exit 4)와 처방이 다르다: 서버 판단(action)을 다시 보거나 사람이 버튼을 누른다.
+        design_gate|design_not_accepted)
+          _r=$(printf '%s' "$_body" | jq -r '.reason // empty' 2>/dev/null)
+          printf 'DESIGN_GATE %s%s\n' "$_c" "${_r:+ $_r}" >&2
+          exit 11 ;;
+        # 다른 PC 가 이 작업을 돌리는 중(설계 상태 스펙 D25) — 이 워커는 멈춘다.
+        runner_active)
+          printf 'RUNNER_ACTIVE %s\n' "$(printf '%s' "$_body" | jq -r '.runner // "-"' 2>/dev/null)" >&2
+          exit 12 ;;
+      esac
+      exit 4 ;;
+```
+
+`usage` 의 명령 목록을 고친다 — `claim`·`build-start` 두 항목을 바꾸고 `design-done`·`design-reopen` 을 `build-start` 다음에 더하며 `list`·`watch` 옵션과 끝의 exit 두 줄을 바꾼다:
+
+```text
+  list [--all] [--scope available|claimed|assigned|all] [--any-project] [--require-tag t] [--wp WP-02,…] [--lead]
+                         기본은 이 리포에 바인딩된 프로젝트의 주문만. 끝의 두 열은 서버 판단 action·mine(1/0) — 옛 서버면 빈 값(계약 2.11).
+                         --require-tag·--wp 는 서버가 mine 을 계산할 거르기, --lead 는 팀장 요청(claimed 의 mine 에 팀원 라벨 요구)
+  claim <ref> [--design-first] [--scope full|design|build]
+                         주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH).
+                         --scope(계약 2.11): 없으면 legacy. 서버가 저장한 범위를 CLAIM_SCOPE <scope> 한 줄로 낸다(새 서버).
+                         --design-first(계약 2.9): 선행이 구현 중이어도 설계부터 잡는다(단계 ds). 미충족 선행이 있으면
+                         DESIGN_FIRST_UNMET <JSON 배열> 한 줄을 더 낸다. 너무 이른 선행이면 exit 4 + stderr DESIGN_FIRST_TOO_EARLY
+  build-start <ref> [--scope full|build|rework]
+                         설계를 마치고 구현으로 넘긴다(ds·dd→ip). 선행 미충족이면 exit 4, 설계 관문이면 exit 11, 다른 PC 가 돌면 exit 12.
+                         404 는 서버 계약이 2.9 미만일 때만 stderr BUILD_START_UNSUPPORTED 에 exit 0, 2.9 이상이면 exit 7
+  design-done <ref>      설계를 마치고 멈춘다(계약 2.11) — 출력 design-done <id8> <review|accepted|none>. 옛 서버는 DESIGN_STATE_UNSUPPORTED·exit 7
+  design-reopen <ref> --reason "<이유>"
+                         설계를 사람에게 되돌린다(계약 2.11) — 출력 design-reopened <id8> <status> <design_state|none>
+  watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--holder h] [--require-tag t] [--wp W] [--json] [--stop]
+                         감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll. --json 이면 build_ready·resume_requests 를 그대로
+exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨 / 11 설계 관문 / 12 다른 PC 도는 중
+      10 = 사람이 D'Flow 에서 작업을 중단했다(409 code=cancelled). 더 진행하지 말고 멈춘다
+      11 = 설계 관문(409 design_gate·design_not_accepted). stderr 끝줄 DESIGN_GATE <code> [reason] — 서버 판단을 다시 보거나 사람이 버튼을 누른다
+      12 = 다른 PC 가 이 작업을 돌리는 중(409 runner_active). stderr 끝줄 RUNNER_ACTIVE <runner> — 이 워커는 멈춘다
+```
+
+- [ ] **Step 4: list·print_list**
+
+```sh
+# ---- 출력: compact 1행/건 (순번 상태 우선순위 id8 이름40 action mine) -----
+# action·mine 은 계약 2.11 서버 판단이다. 옛 서버는 두 칸이 빈 값이다 — 앞 다섯 칸의 번호는 그대로라 옛 파서가 깨지지 않는다.
+print_list() { # stdin = 주문 배열 JSON
+  jq -r 'to_entries[] | [
+    (.key+1),
+    ({ready:"RD",claimed:"CL",reported:"RP",approved:"AP",cancelled:"CX"}[.value.status] // "??"),
+    .value.priority,
+    (.value.id[0:8]),
+    ((.value.item.name // .value.instructions // "-") | .[0:40]),
+    (.value.action // ""),
+    (if .value.mine == true then "1" elif .value.mine == false then "0" else "" end)
+  ] | @tsv'
+}
+uri() { jq -rn --arg v "$1" '$v|@uri'; }
+```
+
+`cmd_list` 의 옵션 루프에 셋을 더하고, 두 `api_raw GET` 호출의 경로를 공통 쿼리로 바꾼다:
+
+```sh
+cmd_list() {
+  _scope='available'; _all=''; _anyp=''; _tag=''; _wp=''; _lead=''
+  while [ $# -gt 0 ]; do case "$1" in
+    --all) _all=1 ;;
+    --scope) _scope="$2"; shift ;;
+    --any-project) _anyp=1 ;;
+    --require-tag) _tag="${2:-}"; shift ;;
+    --wp) _wp="${2:-}"; shift ;;
+    --lead) _lead=1 ;;
+    *) die 2 "알 수 없는 옵션: $1" ;;
+  esac; shift; done
+  # 요청 라벨(PC 판정)과 거르기(계약 2.11) — 서버가 mine 을 계산한다. 옛 서버는 모르는 쿼리를 무시한다.
+  _q="scope=$_scope&limit=$MINE_LIMIT&agent=$(uri "$(agent_id_default)")"
+  [ -z "$_tag" ] || _q="$_q&require_tag=$(uri "$_tag")"
+  [ -z "$_wp" ] || _q="$_q&wp=$(uri "$_wp")"
+  [ -z "$_lead" ] || _q="$_q&lead=1"
+```
+
+그리고 두 곳의 `"/api/v1/agent/work/mine?scope=$_scope&limit=$MINE_LIMIT"` 를 `"/api/v1/agent/work/mine?$_q"` 로 바꾼다.
+
+(테스트의 `agent=hong%2Fmbp%2Fw1` 은 `@uri` 가 `/` 를 `%2F` 로 바꾸기 때문이다.)
+
+- [ ] **Step 5: claim·build-start·새 동사**
+
+`cmd_claim` 을 아래로 바꾼다(두 갈래로 나뉘던 요청을 하나로 합친다 — 출력은 종전과 같고 `CLAIM_SCOPE` 한 줄이 더해질 뿐이다):
+
+```sh
+cmd_claim() {
+  _ref="$1"; shift
+  _df=''; _scope=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --design-first) _df=1; shift ;;
+      --scope) case "${2:-}" in full|design|build) _scope="$2"; shift 2 ;; *) usage ;; esac ;;
+      *) usage ;;
+    esac
+  done
+  _id=$(resolve_ref "$_ref")
+  check_project "$_id"
+  # ① show 로 선행 evidence 를 먼저 받아 로컬 검사 — 통과 전에는 claim 자체를 하지 않는다(결정 C-②).
+  _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
+  check_depends_local "$(printf '%s' "$_detail" | jq -c '.depends_evidence // []')"
+  # 작업 폴더 이름도 claim 전에 검사한다 — 잡은 뒤에 거부하면 주문만 claimed 로 남는다.
+  _tsk_from_ref "$_detail" >/dev/null || exit $?
+  # 라벨 결정론(§3) — heartbeat(agent_id_default)와 신원을 맞춰야 좌석표가 claimed_by 와 heartbeat_agent 를 합친다.
+  _label=$(agent_id_default)
+  _json=$(jq -nc --arg a "$_label" --arg s "$_scope" --arg d "$_df" \
+    '{agent:$a} + (if $s != "" then {scope:$s} else {} end) + (if $d != "" then {design_first:true} else {} end)')
+  # 옛 서버는 scope·design_first 를 모르고 무시한다(계약 2.9 이전은 design_first 도 무시 — 선행 미충족이면 종전 403 → exit 4).
+  _err="$CACHE_DIR/dflow_claim_err.$$"; mkdir -p "$CACHE_DIR"
+  _resp=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/claim" "$_json" 2>"$_err"); _rc=$?
+  cat "$_err" >&2
+  if [ "$_rc" -ne 0 ]; then
+    if [ "$_rc" -eq 4 ] && [ "$(jq -r '.reason // empty' "$_err" 2>/dev/null | head -1)" = design_first_too_early ]; then
+      printf 'DESIGN_FIRST_TOO_EARLY %s\n' "$(jq -c '.unmet // []' "$_err" 2>/dev/null | head -1)" >&2
+    fi
+    rm -f "$_err"; exit "$_rc"
+  fi
+  rm -f "$_err"
+  write_spec_cache "$_resp"
+  printf 'claimed %s\n' "$(printf '%s' "$_id" | cut -c1-8)"
+  # 서버가 저장한 범위(계약 2.11, D21) — 워커는 이 값으로 state.json scope 를 적는다. 옛 서버·레거시 응답에는 없다.
+  _cs=$(printf '%s' "$_resp" | jq -r '.claim_scope // empty' 2>/dev/null)
+  [ -z "$_cs" ] || printf 'CLAIM_SCOPE %s\n' "$_cs"
+  # 미충족 선행이 있을 때만 알린다 — 없으면(선행 충족·옛 서버) 종전 claim 과 같은 출력이다.
+  _unmet=$(printf '%s' "$_resp" | jq -c 'if .design_first == true then (.unmet // []) else [] end' 2>/dev/null) || _unmet='[]'
+  [ "${_unmet:-[]}" = '[]' ] || printf 'DESIGN_FIRST_UNMET %s\n' "$_unmet"
+}
+```
+
+`cmd_build_start` 머리에 옵션을 읽고 본문에 싣는다(404 폴백은 그대로):
+
+```sh
+cmd_build_start() {
+  _ref="$1"; shift; _scope=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --scope) case "${2:-}" in full|build|rework) _scope="$2"; shift 2 ;; *) usage ;; esac ;;
+      *) usage ;;
+    esac
+  done
+  _id=$(resolve_ref "$_ref")
+  _err="$CACHE_DIR/dflow_bs_err.$$"; mkdir -p "$CACHE_DIR"
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/build-start" \
+    "$(jq -nc --arg a "$(agent_id_default)" --arg s "$_scope" '{agent:$a} + (if $s != "" then {scope:$s} else {} end)')" 2>"$_err"); _rc=$?
+```
+
+(그 아래 `if [ "$_rc" -eq 7 ]; then …` 부터 끝까지는 그대로.)
+
+`cmd_build_start` 다음에 두 동사를 더한다:
+
+```sh
+# 옛 서버(계약 < 2.11)에는 두 동사가 없다 — 404 면 계약 버전을 보고 표식을 남긴 뒤 exit 7(기능 꺼짐).
+# 스킬은 contract-ge 2.11 로 먼저 가르므로 여기 닿는 것은 판단이 어긋났을 때뿐이다(설계 상태 스펙 8절).
+design_state_404() {
+  _cv=$(server_contract_version); _vrc=$?
+  if [ "$_vrc" -eq 0 ] && ! version_ge "$_cv" 2.11; then
+    printf 'DESIGN_STATE_UNSUPPORTED 서버 계약 %s < 2.11 — 이 동사가 없다\n' "$_cv" >&2
+  fi
+  exit 7
+}
+
+# 설계를 마치고 멈춘다(계약 2.11, 설계 상태 스펙 6.3). 점유자 본인만. 서버가 단계 dd, 설계 상태(review 방식·design 범위면 review)를 둔다.
+cmd_design_done() {
+  _id=$(resolve_ref "$1")
+  _err="$CACHE_DIR/dflow_dd_err.$$"; mkdir -p "$CACHE_DIR"
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/design-done" \
+    "$(jq -nc --arg a "$(agent_id_default)" '{agent:$a}')" 2>"$_err"); _rc=$?
+  cat "$_err" >&2; rm -f "$_err"
+  [ "$_rc" -ne 7 ] || design_state_404
+  [ "$_rc" -eq 0 ] || exit "$_rc"
+  printf 'design-done %s %s\n' "$(printf '%s' "$_id" | cut -c1-8)" "$(printf '%s' "$_body" | jq -r '.design_state // "none"')"
+}
+
+# 설계를 사람에게 되돌린다(계약 2.11, 설계 상태 스펙 4.1 design_reopen). 사유는 화면에 보인다.
+cmd_design_reopen() {
+  _ref="$1"; shift; _reason=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reason) _reason="${2:-}"; shift 2 || usage ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$_reason" ] || die 2 "design-reopen 은 --reason \"<이유>\" 가 필요하다(화면에 보인다)"
+  _id=$(resolve_ref "$_ref")
+  _err="$CACHE_DIR/dflow_dr_err.$$"; mkdir -p "$CACHE_DIR"
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/design-reopen" \
+    "$(jq -nc --arg a "$(agent_id_default)" --arg r "$_reason" '{agent:$a, reason:$r}')" 2>"$_err"); _rc=$?
+  cat "$_err" >&2; rm -f "$_err"
+  [ "$_rc" -ne 7 ] || design_state_404
+  [ "$_rc" -eq 0 ] || exit "$_rc"
+  printf 'design-reopened %s %s %s\n' "$(printf '%s' "$_id" | cut -c1-8)" \
+    "$(printf '%s' "$_body" | jq -r '.status // "-"')" "$(printf '%s' "$_body" | jq -r '.design_state // "none"')"
+}
+```
+
+- [ ] **Step 6: watch 거르기와 디스패치**
+
+`cmd_watch` 의 옵션 루프에 두 줄을 더하고(`--holder` 다음), 본문 jq 에 두 칸을 더한다:
+
+```sh
+      --require-tag) _tag="${2:-}"; shift 2 || usage ;;
+      --wp)      _wp="${2:-}";      shift 2 || usage ;;
+```
+
+변수 초기화 줄에 `_tag=''; _wp=''` 를 더하고, 본문 jq 인자에 `--arg tg "$_tag" --arg wp "$_wp"` 를, 식 끝에 `+ (if $tg != "" then {require_tag:$tg} else {} end) + (if $wp != "" then {wp:$wp} else {} end)` 를 더한다.
+
+디스패치(`case "$CMD" in`)를 고친다:
+
+```sh
+       build-start) [ $# -ge 1 ] || usage; cmd_build_start "$@" ;;
+       design-done) [ $# -eq 1 ] || usage; cmd_design_done "$@" ;;
+       design-reopen) [ $# -ge 1 ] || usage; cmd_design_reopen "$@" ;;
+```
+
+- [ ] **Step 7: 통과 확인(옛 서버 폴백 포함)**
+
+Run: `npx vitest run tests/skills/dflow-design-state-cli.test.ts tests/skills/dflow-design-first.test.ts tests/skills/dflow-exit-cancelled.test.ts tests/skills/dflow-list-limit.test.ts tests/skills/dflow-claim-identity.test.ts tests/skills/dflow-key-select.test.ts tests/skills/shell-syntax.test.ts`
+Expected: PASS. `dflow-list-limit` 이 URL 을 글자 그대로 비교하면 `&agent=…` 가 붙은 새 URL 에 맞춘다. `shell-syntax` 는 dash·bash 로 문법을 검사한다.
+
+- [ ] **Step 8: 커밋**
+
+```bash
+git add .claude/skills/dflow-work/scripts/dflow.sh tests/skills/dflow-design-state-cli.test.ts
+git add $(git diff --name-only -- tests/skills)   # 고친 기존 테스트(파일명 확인 뒤)
+git commit -m "feat(dflow.sh): 설계 관문 exit 11·다른 PC exit 12, 범위 인자, design-done·design-reopen, list 의 action·mine
+
+옛 서버는 두 열이 빈 값이고 새 동사는 DESIGN_STATE_UNSUPPORTED·exit 7 로 끝나 계약 2.9 운영 API 에서도 그대로 돈다.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 19: poll.sh — action·mine 으로 고른다(Y4)
+
+**Files:**
+- Modify: `.claude/skills/dflow-poll/scripts/poll.sh`(옵션 13~54행, 후보 선정 210~247행, 머리 주석 2~10행)
+- Test: `tests/skills/dflow-poll-actions.test.ts`(새)
+
+**Interfaces:**
+- Consumes: Task 18 `dflow.sh list … --require-tag --wp --lead` 의 6·7열
+- Produces:
+  - 새 옵션 `--actions <목록>`(기본 `full,design,build`), `--lead`(list 에 넘김). `--require-tag`·`--wp` 는 list 에도 넘긴다.
+  - ready 출력 줄 `순번<TAB>id8<TAB>이름<TAB>action`(4번째 칸 새로 — 옛 서버면 빈 값). 새 서버 행은 `action ∈ --actions ∧ mine=1` 만. 옛 서버 행(6열이 빈 값)은 종전 규칙(show 로 태그·WP 거르기).
+
+- [ ] **Step 1: 실패하는 테스트**
+
+`tests/skills/dflow-poll-actions.test.ts` — `tests/skills/dflow-poll-exclude-wait.test.ts` 의 가짜 `dflow.sh`(DFLOW_SH 로 끼우는 스크립트)와 실행 헬퍼를 복사해 머리에 두고, 가짜 list 가 `LIST_ROWS` 환경변수의 줄을 그대로 내게 한 뒤:
+
+```ts
+const rowNew = (n: number, id8: string, action: string, mine: '1' | '0') => `${n}\tRD\tx\t${id8}\t작업${id8}\t${action}\t${mine}`
+const rowOld = (n: number, id8: string) => `${n}\tRD\tx\t${id8}\t작업${id8}\t\t`
+
+describe('poll.sh — 서버 판단으로 고른다(설계 상태 스펙 12절 Y4)', () => {
+  it('새 서버: action ∈ full·design·build ∧ mine=1 인 RD 만, 4번째 칸에 action', () => {
+    const r = poll(['--interval', '1', '--until', 'none'], { LIST_ROWS: [rowNew(1, 'aaaaaaaa', 'wait', '1'), rowNew(2, 'bbbbbbbb', 'design', '1'), rowNew(3, 'cccccccc', 'full', '0')].join('\n') })
+    expect(r.status).toBe(0)
+    expect(r.stdout.trim()).toBe('2\tbbbbbbbb\t작업bbbbbbbb\tdesign')
+  })
+  it('--actions full 이면 design·build 는 고르지 않는다(/dflow-poll 단독)', () => {
+    const r = poll(['--interval', '1', '--until', 'none', '--actions', 'full'], { LIST_ROWS: [rowNew(1, 'aaaaaaaa', 'design', '1'), rowNew(2, 'bbbbbbbb', 'full', '1')].join('\n') })
+    expect(r.stdout.trim()).toBe('2\tbbbbbbbb\t작업bbbbbbbb\tfull')
+  })
+  it('옛 서버(6열 빈 값)는 종전대로 RD 를 돌려준다', () => {
+    const r = poll(['--interval', '1', '--until', 'none'], { LIST_ROWS: rowOld(1, 'aaaaaaaa') })
+    expect(r.stdout.trim()).toBe('1\taaaaaaaa\t작업aaaaaaaa\t')
+  })
+  it('거르기와 --lead 를 list 에 넘긴다', () => {
+    poll(['--interval', '1', '--until', 'none', '--require-tag', 'agent', '--wp', 'WP-02', '--lead'], { LIST_ROWS: rowNew(1, 'aaaaaaaa', 'full', '1') })
+    expect(listArgs()).toContain('--require-tag agent')
+    expect(listArgs()).toContain('--wp WP-2')
+    expect(listArgs()).toContain('--lead')
+  })
+})
+```
+
+(`poll`·`listArgs` 는 복사한 헬퍼 이름이다 — 가짜 `dflow.sh` 가 `list` 로 불리면 받은 인자를 `ARGS_LOG` 에 적고 `LIST_ROWS` 를 출력하게 만든다. `--wp WP-02` 는 poll.sh 가 `WP-2` 로 정규화한 뒤 넘긴다.)
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/skills/dflow-poll-actions.test.ts`
+Expected: FAIL
+
+- [ ] **Step 3: 구현**
+
+머리 주석 3행을 `# ready 발견 시 stdout 에 "순번<TAB>id8<TAB>이름<TAB>action" 을 줄 단위로 내고 종료한다(action 은 계약 2.11 서버 판단 — 옛 서버면 빈 값).` 로 바꾼다.
+
+옵션 변수에 둘을 더한다(`WP=""` 블록 다음):
+
+```sh
+ACTIONS="full,design,build"  # 고를 서버 판단(계약 2.11). /dflow-poll 단독은 full 만 — review·human 은 팀장·사람 몫(설계 상태 스펙 7절).
+LEAD=""           # 1 이면 list 에 --lead(팀장 요청: claimed 의 mine 에 팀원 라벨 요구). 팀장 아래에서 켠다.
+```
+
+usage 문자열 끝에 ` [--actions full,design,build] [--lead]` 를 더하고, 옵션 파싱에 두 줄을 더한다:
+
+```sh
+    --actions)        ACTIONS="${2:-}"; shift 2 || usage ;;
+    --lead)           LEAD=1; shift ;;
+```
+
+`ACTIONS` 검사를 `case "$TAG_CACHE_CYCLES"` 줄 다음에 더한다:
+
+```sh
+for _a in $(printf '%s' "$ACTIONS" | tr ',' ' '); do case "$_a" in full|design|build) ;; *) usage ;; esac; done
+```
+
+210행의 list 호출을 바꾼다:
+
+```sh
+  set -- list --scope assigned
+  [ -z "$REQUIRE_TAG" ] || set -- "$@" --require-tag "$REQUIRE_TAG"
+  [ -z "$WP" ] || set -- "$@" --wp "$WP"
+  [ -z "$LEAD" ] || set -- "$@" --lead
+  out=$("$DFLOW" "$@" 2>&1); rc=$?
+```
+
+214~215행의 ready 선택을 바꾼다:
+
+```sh
+      # 새 서버(계약 2.11)는 6열 action·7열 mine 을 준다 — action ∈ ACTIONS ∧ mine=1 인 RD 만(Y4). 서버가 태그·WP 거르기를 이미
+      # 반영했으므로 아래 show 거르기는 건너뛴다. 옛 서버(6열 빈 값)는 종전 규칙(show 로 거르기)을 그대로 탄다.
+      ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE,$EXCLUDE_TEMP,$EXCLUDE_WAIT," -v acts=",$ACTIONS," \
+        '$2=="RD" && index(ex, ","$4",")==0 && ($6=="" || (index(acts, ","$6",") > 0 && $7=="1")) {print $1"\t"$4"\t"$5"\t"$6}')
+```
+
+그리고 show 거르기 루프 머리(`while IFS= read -r _line; do` 다음)에서 새 서버 행은 그대로 남긴다:
+
+```sh
+          # 새 서버 행(4번째 칸 action 이 있다)은 서버가 거르기를 반영했다 — show 없이 남긴다.
+          if [ -n "$(printf '%s' "$_line" | cut -f4)" ]; then _kept="${_kept}${_line}
+"; continue; fi
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `npx vitest run tests/skills/dflow-poll-actions.test.ts tests/skills/dflow-poll-exclude-wait.test.ts tests/skills/dflow-poll-tag-cache.test.ts tests/skills/dflow-poll-task-dirs.test.ts tests/skills/shell-syntax.test.ts`
+Expected: PASS. 기존 poll 테스트의 가짜 행은 5칸이라 6열이 비어 옛 서버 규칙을 탄다. 그 테스트가 출력 줄을 글자 그대로 비교하면 끝에 탭 하나(`\t`)가 붙은 새 줄에 맞춘다.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add .claude/skills/dflow-poll/scripts/poll.sh tests/skills/dflow-poll-actions.test.ts
+git add $(git diff --name-only -- tests/skills)   # 고친 기존 테스트(파일명 확인 뒤)
+git commit -m "feat(poll): 서버 판단(action·mine)으로 ready 를 고른다 — 기다리는 작업 때문에 팀장이 끝없이 깨지 않게(Y4)
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 20: heartbeat 훅 — 409 runner_active 면 워커를 멈춘다(Y1·P9)
+
+**Files:**
+- Modify: `kit/hooks/heartbeat.sh`(머리 주석 5~8행, 6번 전송 265~277행)
+- Test: `tests/skills/heartbeat-hook.test.ts`
+
+**Interfaces:**
+- Consumes: Task 12 의 409 `runner_active` 본문(`runner`)
+- Produces: 409 `runner_active` 면 `{continue:false, stopReason:"다른 PC(<runner>)가 이 작업을 이어받았습니다(<id8>)…"}` 를 내고, state.json 은 바꾸지 않으며, 절제 스탬프(`~/.dflow/hb/<order>`)를 지운다. 새 훅은 PC 마다 다시 설치해야 한다(`kit/install.sh --hooks`) — 이 계획의 반영(staging)과 별개로, 킷 배포 때 사람에게 알린다.
+
+- [ ] **Step 1: 실패하는 테스트**
+
+`tests/skills/heartbeat-hook.test.ts` 끝에 더한다:
+
+```ts
+describe('heartbeat.sh — 다른 PC 가 이어받음(409 runner_active, 설계 상태 스펙 12절 Y1·계획 P9)', () => {
+  const ORDER = '22222222-2222-4222-8222-222222222222'
+  const STATE = () => join(repo, 'docs/tasks/TSK-01/state.json')
+  const RA = { FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"error":"x","code":"runner_active","runner":"kim/pc2/w1"}' }
+  beforeEach(() => { writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n') })
+
+  it('continue:false 로 세우고 이유에 runner 를 적는다 — state.json·중단 표식은 건드리지 않는다', () => {
+    const j = JSON.parse(runOut(RA).trim())
+    expect(j.continue).toBe(false)
+    expect(j.stopReason).toContain('kim/pc2/w1')
+    expect(j.stopReason).toContain('22222222')
+    expect(JSON.parse(readFileSync(STATE(), 'utf8')).phase).toBe('build')
+    expect(existsSync(join(home, `.dflow/hb/${ORDER}.cancelled`))).toBe(false)
+  })
+  it('절제 스탬프를 지워 다음 도구 호출도 다시 묻고 다시 세운다', () => {
+    runOut(RA)
+    expect(existsSync(join(home, `.dflow/hb/${ORDER}`))).toBe(false)
+    expect(JSON.parse(runOut(RA).trim()).continue).toBe(false)
+  })
+  it('다음 heartbeat 가 200 이면 세우지 않는다(이 PC 가 정당하게 넘겨받음)', () => {
+    runOut(RA)
+    expect(runOut({ FAKE_HB_CODE: '200', FAKE_HB_BODY: '{"ok":true}' }).trim()).toBe('')
+  })
+  it('다른 409(conflict)는 종전대로 무시한다(fail-open)', () => {
+    expect(runOut({ FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"code":"conflict"}' }).trim()).toBe('')
+  })
+})
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/skills/heartbeat-hook.test.ts`
+Expected: FAIL(새 describe — runner_active 를 무시한다)
+
+- [ ] **Step 3: 구현**
+
+머리 주석 8행 다음에 줄을 더한다:
+
+```sh
+# 예외 둘(설계 상태 스펙 12절 Y1): 다른 PC 가 이 작업을 이어받았으면(서버 409 code=runner_active) state.json 은 그대로 두고 세운다.
+# 영속 표식을 남기지 않는 대신 절제 스탬프를 지워 다음 도구 호출이 다시 묻고 다시 세운다 — 나중에 이 PC 가 정당하게 넘겨받으면
+# (다른 PC 가 30분 넘게 조용) heartbeat 가 200 이 되어 저절로 풀린다.
+```
+
+6번 전송 뒤(`[ "$_code" = 409 ] || exit 0` 부터 파일 끝까지)를 바꾼다:
+
+```sh
+[ "$_code" = 409 ] || exit 0
+_resp=$(printf '%s\n' "$_out" | sed '$d')
+_code=$(printf '%s' "$_resp" | "$JQ" -r '.code // empty' 2>/dev/null || :)
+case "$_code" in
+  cancelled)
+    : > "$_hbdir/$_order.cancelled" 2>/dev/null || :
+    stop_now "$_state" "$_order" ;;
+  runner_active)
+    rm -f "$_stamp" 2>/dev/null || :
+    _rn=$(printf '%s' "$_resp" | "$JQ" -r '.runner // "-"' 2>/dev/null || :)
+    _id8=$(printf '%s' "$_order" | cut -c1-8)
+    "$JQ" -nc --arg r "다른 PC($_rn)가 이 작업을 이어받았습니다($_id8). 더 진행하지 말고 멈추세요. 결과는 skipped 다른 PC 도는 중으로 끝냅니다." \
+      '{continue:false, stopReason:$r}'
+    exit 0 ;;
+esac
+exit 0
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `npx vitest run tests/skills/heartbeat-hook.test.ts tests/skills/shell-syntax.test.ts`
+Expected: PASS(이 파일은 전체 실행 때 흔들리는 넷 중 하나다 — 단독 실행 결과로 판정한다)
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add kit/hooks/heartbeat.sh tests/skills/heartbeat-hook.test.ts
+git commit -m "feat(hook): 다른 PC 가 이어받은 워커를 heartbeat 409 runner_active 로 멈춘다(Y1)
+
+state.json 을 바꾸지 않고 절제 스탬프만 지워, 이 PC 가 정당하게 넘겨받으면 저절로 풀린다. PC 마다 훅 재설치가 필요하다.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
