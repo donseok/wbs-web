@@ -173,8 +173,10 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — T-A·T-B 모두 활성 주문 없음
+        { data: null }, // ensureOrder(T-A): approved 없음(D26)
         { data: null }, // ensureOrder(T-A): 활성 주문 없음
         { data: { id: 'order-1' } }, // ensureOrder(T-A): insert
+        { data: null }, // ensureOrder(T-B): approved 없음(D26)
         { data: null }, // ensureOrder(T-B): 활성 주문 없음
         { data: { id: 'order-2' } }, // ensureOrder(T-B): insert
       ],
@@ -255,6 +257,7 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — 활성 주문 없음
+        { data: null }, // ensureOrder: approved 없음(D26)
         { data: null }, // ensureOrder: 활성 주문 없음
         { data: { id: 'order-1' } }, // insert
       ],
@@ -364,6 +367,7 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — 활성 주문 없음(RPC 는 기존 행도 dev_workflow=true 로 갱신하는데 주문은 없던 상태)
+        { data: null }, // ensureOrder: approved 없음(D26)
         { data: null }, // ensureOrder: 활성 주문 없음
         { data: { id: 'order-new' } }, // insert
       ],
@@ -452,6 +456,7 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — 활성 주문 없음
+        { data: null }, // ensureOrder: approved 없음(D26)
         { data: null }, // ensureOrder: 활성 주문 없음
         { data: { id: 'order-1' } }, // insert
       ],
@@ -487,6 +492,7 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — T-A 만 대상(T-B 는 후보에서 이미 제외됐다)
+        { data: null }, // ensureOrder(T-A): approved 없음(D26)
         { data: null }, // ensureOrder(T-A): 활성 주문 없음
         { data: { id: 'order-1' } }, // insert
       ],
