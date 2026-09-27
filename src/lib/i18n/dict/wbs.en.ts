@@ -308,6 +308,33 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.specBodyPlaceholder': 'Write the spec in markdown…',
   'wbs.specSaveFail': 'Could not save the spec.',
   'wbs.specRefSaveFail': 'Could not save the reference fields.',
+  // Design mode and design section (design-state spec §3·§7, 0108). Screen labels, reopen reasons and hints are the
+  // server's designScreen strings shown as-is — only mode names, buttons and fixed guidance live here.
+  'wbs.designModeLabel': 'Design mode',
+  'wbs.designModeAuto': 'Full auto',
+  'wbs.designModeReview': 'Design review',
+  'wbs.designModeHuman': 'Build auto',
+  'wbs.designModeHint': 'Full auto = the agent designs and builds · Design review = a person approves the design the agent wrote before the build · Build auto = the agent builds once a person confirms the design they wrote',
+  'wbs.designSectionTitle': 'Design',
+  'wbs.designLoadFail': 'Could not load the design state',
+  'wbs.designNoteLabel': 'Reopen reason',
+  'wbs.designAccept': 'Approve design',
+  'wbs.designConfirm': 'Confirm design',
+  'wbs.designReopen': 'Reopen design',
+  'wbs.designReopenReason': 'Reason (optional — a default is used when empty)',
+  'wbs.designNoRight': 'Design buttons are shown only to people with delegation rights (admins and the assignee).',
+  'wbs.designExitTitle': 'Get out while keeping the design',
+  'wbs.designExitWhen': 'If a task with an approved or confirmed design gets stuck (for example, its runner disappeared), follow these steps to get out without losing the design.',
+  // Step 1 points to removing delegation, not the agent page's "Stop" — that button is admin/subtree-manager only
+  // and is blocked on ready orders and parent rows, so it is usually not available to the assignee viewing this panel.
+  // Removing delegation ends ready/claimed orders through the same shared cancel and needs the same right as the
+  // design buttons (D10), and sits in the very next field.
+  'wbs.designExitStep1': 'Turn off the delegation checkbox (right next to this). The order is cancelled, so the design mode can be changed.',
+  'wbs.designExitStep2': 'Delegate again and choose the “Build auto” design mode.',
+  'wbs.designExitStep3': 'Move design.md from the agent branch to <TASKS>/<TSK>/design.md on the development branch.',
+  'wbs.designExitStep4': 'Press “Confirm design”.',
+  'wbs.delegationOffConfirm': 'This task has a design state. If you remove the delegation, design edits made on the agent branch will not carry over to a new order.',
+  'wbs.delegationOffConfirmOk': 'Remove delegation',
   // Debounced save for detail-panel toggles/selects (2026-09-14) — pending chip and save-now button
   'wbs.pendingSaveIn': 'Saves in {n}s',
   'wbs.pendingSaveNow': 'Save now',
