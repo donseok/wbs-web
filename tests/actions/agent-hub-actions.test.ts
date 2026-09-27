@@ -59,7 +59,7 @@ function adminClient(items: { id: string; assignee_member_id?: string | null }[]
  * `.eq('id', v)` 로 잡힌 id 의 행을 돌려준다. update 뒤 `.select()` thenable 은 updateRows 개 행.
  */
 function fakeAdmin(cfg: {
-  orders?: Record<string, { project_id: string; status?: string; wbs_item_id?: string | null; claimed_by?: string | null }>
+  orders?: Record<string, { project_id: string; status?: string; wbs_item_id?: string | null; claimed_by?: string | null; design_state?: string | null }>
   items?: Record<string, { project_id: string; name?: string; assignee_member_id?: string | null }>
   updateRows?: number
   /** 전이 RPC 응답 — 기본은 전이 성공(실적 무변경이라 스냅샷 없음). */
@@ -332,6 +332,16 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       .toEqual({ ok: false, error: '점유 라벨에서 이어받을 PC 를 읽지 못했습니다 — 중단한 뒤 다시 위임하세요.' })
     expect(updates).toHaveLength(0)
   })
+  it('resume — 설계 검토 대기(review)는 거부하고 표식을 쓰지 않는다(설계 상태 스펙 12절 Y10)', async () => {
+    const { updates } = fakeAdmin({
+      orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: 'claude-mbp', design_state: 'review' } },
+      items: ITEMS,
+    })
+    expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) }))
+      .toEqual({ ok: false, error: '설계 검토 대기 중인 작업입니다 — 「설계 승인」을 누르면 팀장이 다음 TICK 에 이어 갑니다.' })
+    expect(updates).toHaveLength(0)
+  })
+
   it('resume — 경합으로 한 행도 못 고치면 재시도 문구', async () => {
     fakeAdmin({
       orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: 'claude-mbp' } },

@@ -215,6 +215,32 @@ describe('GET /agent/work/mine', () => {
     expect(body.available).toHaveLength(1)
     expect(body.available[0].id).toBe('o-1')
   })
+
+  it('판단 칸(action·mine·설계 상태)을 싣는다 — 팀장 요청(lead=1)은 거르기와 팀원 라벨을 본다(계약 2.11)', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_orders: [
+        { data: [
+          { id: 'o-r', project_id: P1, status: 'ready', priority: 0, instructions: '', claimed_at: null, wbs_item_id: 'w-r', created_at: '2026-08-01T00:00:00Z',
+            claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_state: null, claim_scope: null, design_note: null, runner: null, runner_seen_at: null },
+        ] },
+        { data: [] },   // loadItemFacts — 항목의 approved 주문 없음
+      ],
+      wbs_items: [{ data: [{ id: 'w-r', project_id: P1, code: '1', name: 'r', planned_start: null, planned_end: null, external_ref: 'M/TSK-02-01',
+        stage: 'as', actual_pct: 0, tags: ['agent'], depends: [], depends_waived: [], design_mode: 'review' }] }],
+    })
+    const res = await mineGET(get(`http://l/api/v1/agent/work/mine?agent=hong/mbp/lead&require_tag=agent&wp=WP-02&lead=1`, PAT.token))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.available[0]).toMatchObject({ design_mode: 'review', design_state: null, action: 'design', action_reason: '설계만', deps_unmet: false, mine: true })
+  })
+  it('wp 형식 오류는 400', async () => {
+    useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }] })
+    expect((await mineGET(get('http://l/api/v1/agent/work/mine?wp=WP-x', PAT.token))).status).toBe(400)
+  })
 })
 
 describe('accessibleProjectIds — 직접 단위 테스트', () => {

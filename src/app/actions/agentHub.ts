@@ -57,7 +57,7 @@ export type HubDelegationsResult =
  * (스테이징 실측 0.8~1.0초 잠김). 이 액션은 가드 1회 → 항목별 applyDelegation → 허브 재조회를 한 응답에 담고
  * revalidatePath 를 부르지 않는다. 허브·WBS 페이지는 둘 다 동적 렌더라 다음 방문 때 새로 읽는다.
  *
- * 자격은 항목마다 setAgentDelegation 과 같다(허브 스펙 §3): 관리자, 또는 그 항목의 담당자 본인(멤버).
+ * 자격은 항목마다 setDelegationAndMode(src/app/actions/designActions.ts)와 같다(허브 스펙 §3): 관리자, 또는 그 항목의 담당자 본인(멤버).
  * 멤버의 로스터 판정은 묶음당 1회만 하고, 자격 없는 항목은 그 항목만 failed 로 돌려보낸다.
  * 같은 항목이 여러 번 오면 마지막 값만 적용한다. 다른 프로젝트 항목이 섞이면 묶음 전체를 거부한다.
  */
@@ -249,11 +249,15 @@ async function requestResumeOnOrder(
   admin: AdminClient, orderId: string, actorUserId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const { data, error } = await admin
-    .from('agent_work_orders').select('id, status, claimed_by').eq('id', orderId).maybeSingle()
+    .from('agent_work_orders').select('id, status, claimed_by, design_state').eq('id', orderId).maybeSingle()
   if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
   const order = data as { id: string; status: string; claimed_by: string | null } | null
   if (!order) return { ok: false, error: '주문 없음' }
   if (order.status !== 'claimed') return { ok: false, error: `재개를 요청할 수 있는 상태가 아닙니다(${order.status}).` }
+  // Y10(설계 상태 스펙 12절) — 설계 검토 대기(review)는 사람이 「설계 승인」을 누를 때까지 이어 갈 것이 없다. 그 밖은 재개한다.
+  if ((order as { design_state?: string | null }).design_state === 'review') {
+    return { ok: false, error: '설계 검토 대기 중인 작업입니다 — 「설계 승인」을 누르면 팀장이 다음 TICK 에 이어 갑니다.' }
+  }
   // 호스트는 서버가 점유 라벨에서 파생한다 — 클라이언트가 보낸 값을 믿으면 엉뚱한 PC 가 집어 간다.
   const host = resumeHostFromClaimLabel(order.claimed_by)
   if (!host) {

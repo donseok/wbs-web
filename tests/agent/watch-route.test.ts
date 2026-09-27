@@ -104,7 +104,7 @@ describe('POST /agent/watch', () => {
 describe('POST /agent/watch — 재개 요청 전달(0099)', () => {
   const ORDER = {
     id: '44444444-4444-4444-8444-444444444441', project_id: P1, wbs_item_id: 'item-1',
-    claimed_by: 'claude-jji-mac', resume_requested_at: '2026-09-18T00:00:00.000Z', resume_requested_host: 'jji-mac',
+    claimed_by: 'claude-jji-mac', claimed_by_user_id: 'u-1', resume_requested_at: '2026-09-18T00:00:00.000Z', resume_requested_host: 'jji-mac',
   }
 
   it('내 신원이 점유한 멈춤 작업의 요청을 TSK 코드와 함께 싣는다', async () => {
@@ -120,6 +120,7 @@ describe('POST /agent/watch — 재개 요청 전달(0099)', () => {
       order_id: ORDER.id, id8: '44444444', project_id: P1, wbs_item_id: 'item-1',
       code: 'TSK-04-02', name: '주문 상세', host: 'jji-mac',
       claimed_by: 'claude-jji-mac', requested_at: ORDER.resume_requested_at,
+      mine: true, design_state: null,
     }])
     expect(body.resume_requests_error).toBeUndefined()
   })
@@ -171,7 +172,8 @@ describe('holder — lease 쥔 프로젝트의 재개 요청만', () => {
     const calls: Record<string, unknown[]> = {}
     useAdmin({ ...runnerQueues(), agent_lead_leases: [{ data: [{ project_id: P1 }] }], agent_work_orders: [{ data: [order(P1)] }] }, calls)
     await post({ agent: 'hong/mbp/lead', holder: H })
-    expect(calls['agent_work_orders:in']).toEqual([['project_id', [P1]]])
+    // 첫 in 호출이 재개 요청 조회다(뒤의 in 호출은 build 목록 조회 — 계약 2.11).
+    expect(calls['agent_work_orders:in']?.[0]).toEqual(['project_id', [P1]])
   })
   it('lease 가 하나도 없으면 orders 를 조회하지 않고 즉시 빈 배열이다', async () => {
     const admin = useAdmin({ ...runnerQueues(), agent_lead_leases: [{ data: [] }] })
@@ -179,5 +181,44 @@ describe('holder — lease 쥔 프로젝트의 재개 요청만', () => {
     const body = await res.json()
     expect(body.resume_requests).toEqual([])
     expect(admin.from.mock.calls.some((c: unknown[]) => c[0] === 'agent_work_orders')).toBe(false)
+  })
+})
+
+describe('POST /agent/watch — 계약 2.11', () => {
+  it('build_ready — 승인·확정된 주문 중 action build ∧ mine 만 싣는다(D22)', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_watchers: [{ data: null }, { data: null }],
+      agent_work_orders: [
+        { data: [] },   // 재개 요청 없음
+        { data: [{ id: '22222222-2222-4222-8222-222222222222', project_id: P1, wbs_item_id: 'w-1', status: 'ready',
+          claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null,
+          design_state: 'accepted', claim_scope: null, design_note: null, runner: null, runner_seen_at: null }] },
+        { data: [] },   // loadItemFacts approved
+      ],
+      wbs_items: [{ data: [{ id: 'w-1', project_id: P1, code: '1.1', name: 'x', external_ref: 'M/TSK-01-01', stage: 'dd', actual_pct: 20,
+        tags: ['agent'], depends: [], depends_waived: [], design_mode: 'human' }] }],
+    })
+    const res = await post({ agent: 'hong/mbp/lead', project_id: P1, require_tag: 'agent' })
+    expect(res.status).toBe(200)
+    expect((await res.json()).build_ready).toEqual([{ order_id: '22222222-2222-4222-8222-222222222222', id8: '22222222', code: '1.1', name: 'x', status: 'ready' }])
+  })
+  it('재개 요청에 mine·design_state 를 싣는다 — 다른 PC 가 30분 안에 신호를 낸 주문은 mine 이 아니다(12절 Y10)', async () => {
+    const fresh = new Date(Date.now() - 60_000).toISOString()
+    const req = (id: string, over: Record<string, unknown>) => ({
+      id, project_id: P1, wbs_item_id: null, claimed_by: 'hong/mbp/w1', claimed_by_user_id: 'u-1',
+      runner: null, runner_seen_at: null, design_state: null,
+      resume_requested_at: '2026-09-27T00:00:00Z', resume_requested_host: 'mbp', ...over,
+    })
+    useAdmin({
+      ...runnerQueues(),
+      agent_work_orders: [{ data: [
+        req('55555555-5555-4555-8555-555555555555', { design_state: 'accepted' }),
+        req('66666666-6666-4666-8666-666666666666', { runner: 'hong/pc2/w1', runner_seen_at: fresh }),
+      ] }],
+    })
+    const body = await (await post({ agent: 'hong/mbp/lead' })).json()
+    expect(body.resume_requests.map((r: { id8: string; mine: boolean; design_state: string | null }) => [r.id8, r.mine, r.design_state]))
+      .toEqual([['55555555', true, 'accepted'], ['66666666', false, null]])
   })
 })

@@ -5,6 +5,9 @@ import {
   requireScope, resolveAgentPrincipal,
 } from '@/lib/agent/externalApi'
 import { accessibleProjectIds, myMemberIdsAcrossProjects } from '@/lib/agent/mineShared'
+import { AGENT_NAME_RE } from '@/lib/domain/agentWork'
+import { listFilterPass, parseWpList } from '@/lib/domain/designGate'
+import { ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, decide, designFieldsOf, loadItemFacts, orderFactsOf, responseMine, type FactItemRow, type FactOrderRow } from '@/lib/agent/designFacts'
 
 /** GET /api/v1/agent/work/mine — 크로스 프로젝트 "내 작업". PAT 전용(계약 v2.0). */
 export const dynamic = 'force-dynamic'
@@ -18,6 +21,14 @@ export async function GET(req: NextRequest) {
   const limitRaw = req.nextUrl.searchParams.get('limit')
   const limit = limitRaw === null ? 20 : Number(limitRaw)
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return apiBadRequest('limit은 1~100 정수입니다.')
+  // 계약 2.11(설계 상태 스펙 5.3·Y4·Y9) — 요청 라벨(PC 판정)과 팀장 거르기. 모두 선택이다.
+  const agentParam = req.nextUrl.searchParams.get('agent')
+  if (agentParam !== null && !AGENT_NAME_RE.test(agentParam)) return apiBadRequest('agent 형식이 올바르지 않습니다.')
+  const requireTag = req.nextUrl.searchParams.get('require_tag')
+  if (requireTag !== null && (requireTag === '' || requireTag.length > 40)) return apiBadRequest('require_tag 는 1~40자여야 합니다.')
+  const wp = parseWpList(req.nextUrl.searchParams.get('wp'))
+  if (wp === 'invalid') return apiBadRequest('wp 형식 오류 — WP-02 또는 모듈/WP-02 를 쉼표로 잇는다.')
+  const lead = req.nextUrl.searchParams.get('lead') === '1'
   try {
     const admin = createAdminClient()
     const principal = await resolveAgentPrincipal(req, admin)
@@ -50,7 +61,7 @@ export async function GET(req: NextRequest) {
     if (wantClaimed) {
       const { data: claimed, error: claimedErr } = await admin
         .from('agent_work_orders')
-        .select('id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at')
+        .select(`id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at, ${ORDER_FACT_COLUMNS}`)
         .in('project_id', projectIds).eq('claimed_by_user_id', principal.userId).in('status', ['claimed', 'reported'])
         .order('priority', { ascending: false }).order('created_at', { ascending: true })
         .limit(limit)
@@ -76,7 +87,7 @@ export async function GET(req: NextRequest) {
         if (assignedItemIds.length > 0) {
           const { data: assigned, error: assignedErr } = await admin
             .from('agent_work_orders')
-            .select('id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at')
+            .select(`id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at, ${ORDER_FACT_COLUMNS}`)
             // project_id 방어 — wbs_item_id→project_id 를 잇는 DB 제약이 없다(0057, 복합 FK 아님).
             // 항목이 접근 가능해도 주문 project_id 는 별도로 다시 좁힌다(claimed·available 과 동일 관례).
             .in('project_id', projectIds).in('wbs_item_id', assignedItemIds).in('status', ['ready', 'claimed', 'reported'])
@@ -93,7 +104,7 @@ export async function GET(req: NextRequest) {
     if (wantAvailable) {
       const { data: orders, error } = await admin
         .from('agent_work_orders')
-        .select('id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at')
+        .select(`id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at, ${ORDER_FACT_COLUMNS}`)
         .in('project_id', projectIds).eq('status', 'ready')
         .order('priority', { ascending: false }).order('created_at', { ascending: true })
         .limit(limit)
@@ -109,15 +120,26 @@ export async function GET(req: NextRequest) {
     const itemById = new Map<string, unknown>()
     if (itemIds.length > 0) {
       const { data: items, error: itemErr } = await admin
-        .from('wbs_items').select('id, code, name, planned_start, planned_end, external_ref').in('id', itemIds)
+        .from('wbs_items').select(`code, name, planned_start, planned_end, ${ITEM_FACT_COLUMNS}`).in('id', itemIds)
       if (itemErr) {
         console.error('[agent-api] mine 항목 컨텍스트 조회 실패:', itemErr.message)
         return apiInternalError()
       }
       for (const it of (items ?? []) as Array<{ id: string }>) itemById.set(it.id, it)
     }
-    const withItem = (rows: Row[]) =>
-      rows.map(o => ({ ...o, item: o.wbs_item_id ? itemById.get(o.wbs_item_id) ?? null : null }))
+    // 판단(설계 상태 스펙 5.3) — 목록의 모든 주문에 action·mine 을 싣는다. 재료 조회 실패는 500(위장 금지).
+    const facts = await loadItemFacts(admin, [...itemById.values()] as FactItemRow[])
+    const nowMs = Date.now()
+    const withItem = (rows: Row[]) => rows.map(o => {
+      const it = o.wbs_item_id ? (itemById.get(o.wbs_item_id) as (FactItemRow & Record<string, unknown>) | undefined) ?? null : null
+      const f = it ? facts.get(it.id) ?? null : null
+      const order = orderFactsOf(o as unknown as FactOrderRow)
+      const action = decide(f?.facts ?? null, order, nowMs)
+      const filtersPass = it ? listFilterPass({ tags: it.tags, externalRef: it.external_ref }, { requireTag, wp }) : false
+      // ready·claimed 는 5.3 mine, 그 밖(reported 등)은 종전 뜻(점유 사용자 일치) — designFacts.responseMine.
+      const mine = responseMine(order, { userId: principal.userId, label: agentParam, lead, filtersPass }, nowMs)
+      return { ...o, item: it, ...designFieldsOf(o as unknown as FactOrderRow, it?.design_mode ?? null, action, mine) }
+    })
 
     const body: Record<string, unknown> = { ok: true, scope }
     if (wantClaimed) body.claimed = withItem(claimedRows)

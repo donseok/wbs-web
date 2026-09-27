@@ -6,6 +6,10 @@ import { HOLDER_RE } from '@/lib/agent/leadLease'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, requireScope, resolveAgentPrincipal,
 } from '@/lib/agent/externalApi'
+import { isMine, listFilterPass, parseWpList } from '@/lib/domain/designGate'
+import {
+  ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, decide, loadItemFacts, orderFactsOf, type FactItemRow, type FactOrderRow,
+} from '@/lib/agent/designFacts'
 
 /**
  * watch — 감시자(팀장 /dflow-team · 단독 /dflow-poll) 존재 신호. 좌석표 v1 스펙 §3-3.
@@ -26,6 +30,10 @@ export interface ResumeRequest {
   host: string | null
   claimed_by: string | null
   requested_at: string
+  /** 계약 2.11 — 5.3 mine(같은 신원 ∧ 도는 PC). 사람의 명시 요청이라 목록 거르기는 보지 않는다(12절 Y10). */
+  mine: boolean
+  /** 계약 2.11 — 설계 상태(null·review·accepted). */
+  design_state: string | null
 }
 
 /**
@@ -34,38 +42,34 @@ export interface ResumeRequest {
  * 조회에 실패하면 빈 배열로 위장하지 않고 null 을 돌려준다 — 호출자는 "요청 없음"과 구별해야 한다.
  */
 async function loadResumeRequests(
-  admin: ReturnType<typeof createAdminClient>, userId: string, projectId: string | null, holder: string | null,
+  admin: ReturnType<typeof createAdminClient>, userId: string, projectId: string | null,
+  leased: string[] | null | undefined, agentLabel: string,
 ): Promise<ResumeRequest[] | null> {
-  // 팀장이 holder 를 보내면 그 holder 로 쥔 lease 의 프로젝트만 돌려준다(스펙 §9). 신원+프로젝트마다 팀장이
-  // 하나이므로 hostname 이 겹치는 다른 PC 의 팀장이 남의 재개 요청을 가져가지 않는다.
-  let leased: Set<string> | null = null
-  if (holder !== null) {
-    const { data: ls, error: lErr } = await admin
-      .from('agent_lead_leases').select('project_id')
-      .eq('user_id', userId).eq('holder', holder).gt('expires_at', new Date().toISOString())
-    if (lErr) { console.error('[agent-api] lease 조회 실패:', lErr.message); return null }
-    leased = new Set(((ls ?? []) as Array<{ project_id: string }>).map(r => r.project_id))
-    // lease 가 하나도 없으면 이 신원은 어느 프로젝트에서도 팀장이 아니다 — orders 조회 자체를
-    // 건너뛴다. 건너뛰지 않으면 held 프로젝트가 없는 신원이라도 RESUME_MAX(50)를 다른(비-lease)
-    // 프로젝트의 오래된 요청이 다 채워, 뒤에 오는 held 프로젝트 요청이 잘릴 수 있다.
-    if (leased.size === 0) return []
-  }
+  // 팀장이 holder 를 보내면 그 holder 로 쥔 lease 의 프로젝트만 돌려준다(스펙 §9) — leased 는 leasedProjectIds 가 읽은 값이다
+  // (null 은 holder 없음, undefined 는 lease 조회 실패). 신원+프로젝트마다 팀장이 하나이므로 hostname 이 겹치는 다른 PC 의
+  // 팀장이 남의 재개 요청을 가져가지 않는다.
+  if (leased === undefined) return null
+  // lease 가 하나도 없으면 이 신원은 어느 프로젝트에서도 팀장이 아니다 — orders 조회 자체를
+  // 건너뛴다. 건너뛰지 않으면 held 프로젝트가 없는 신원이라도 RESUME_MAX(50)를 다른(비-lease)
+  // 프로젝트의 오래된 요청이 다 채워, 뒤에 오는 held 프로젝트 요청이 잘릴 수 있다.
+  if (leased !== null && leased.length === 0) return []
   let q = admin
     .from('agent_work_orders')
-    .select('id, project_id, wbs_item_id, claimed_by, resume_requested_at, resume_requested_host')
+    .select('id, project_id, wbs_item_id, claimed_by, claimed_by_user_id, runner, runner_seen_at, design_state, resume_requested_at, resume_requested_host')
     .eq('claimed_by_user_id', userId).eq('status', 'claimed')
     .not('resume_requested_at', 'is', null)
   if (projectId !== null) q = q.eq('project_id', projectId)
   // leased 가 있으면 DB 단에서 먼저 그 프로젝트로 좁혀 limit(RESUME_MAX) 가 held 프로젝트를
   // 밀어내지 않게 한다. 아래 in-memory 필터는 그대로 두어 이중 방어선을 유지한다.
-  if (leased !== null) q = q.in('project_id', [...leased])
+  if (leased !== null) q = q.in('project_id', leased)
   const { data, error } = await q.order('resume_requested_at', { ascending: true }).limit(RESUME_MAX)
   if (error) { console.error('[agent-api] 재개 요청 조회 실패:', error.message); return null }
   const allRows = (data ?? []) as Array<{
     id: string; project_id: string; wbs_item_id: string | null; claimed_by: string | null
+    claimed_by_user_id: string | null; runner: string | null; runner_seen_at: string | null; design_state: string | null
     resume_requested_at: string; resume_requested_host: string | null
   }>
-  const rows = leased === null ? allRows : allRows.filter(r => leased.has(r.project_id))
+  const rows = leased === null ? allRows : allRows.filter(r => leased.includes(r.project_id))
   if (rows.length === 0) return []
   // 팀장이 표로 보고할 때 TSK 코드가 있어야 사람이 어느 작업인지 안다 — 행이 소수라 한 번 더 읽는다.
   const itemIds = [...new Set(rows.map(r => r.wbs_item_id).filter((x): x is string => x !== null))]
@@ -77,14 +81,75 @@ async function loadResumeRequests(
       labels.set(it.id, { code: it.code, name: it.name })
     }
   }
+  const nowMs = Date.now()
   return rows.map(r => {
     const label = r.wbs_item_id ? labels.get(r.wbs_item_id) : undefined
+    const order = {
+      status: 'claimed' as const, claimedBy: r.claimed_by, claimedByUserId: r.claimed_by_user_id ?? null,
+      runner: r.runner ?? null, runnerSeenAt: r.runner_seen_at ?? null,
+    }
     return {
       order_id: r.id, id8: r.id.slice(0, 8), project_id: r.project_id, wbs_item_id: r.wbs_item_id,
       code: label?.code ?? null, name: label?.name ?? null,
       host: r.resume_requested_host, claimed_by: r.claimed_by, requested_at: r.resume_requested_at,
+      // Y10 — 재개 요청 ∧ mine 이면 팀장은 5.3 2행 skip 이어도 재개한다(사람의 명시 요청이라 목록 거르기는 보지 않는다).
+      mine: isMine(order, { userId, label: agentLabel, lead: false, filtersPass: true }, nowMs),
+      design_state: r.design_state ?? null,
     }
   })
+}
+
+/** 이 holder 로 쥔 살아 있는 lease 의 프로젝트(스펙 §9). holder 가 없으면 null(거르지 않음), 조회 실패는 undefined. */
+async function leasedProjectIds(
+  admin: ReturnType<typeof createAdminClient>, userId: string, holder: string | null,
+): Promise<string[] | null | undefined> {
+  if (holder === null) return null
+  const { data, error } = await admin
+    .from('agent_lead_leases').select('project_id')
+    .eq('user_id', userId).eq('holder', holder).gt('expires_at', new Date().toISOString())
+  if (error) { console.error('[agent-api] lease 조회 실패:', error.message); return undefined }
+  return ((data ?? []) as Array<{ project_id: string }>).map(r => r.project_id)
+}
+
+/**
+ * D22 — 이 신원·이 PC 가 띄울 action build 주문(승인·확정된 설계). 팀장은 이 목록에서 슬롯에 있는 id·제외한 id 를 빼고 남으면
+ * TICK 을 건너뛰지 않는다. build 는 설계 상태 accepted 에서만 나오므로 그것만 읽는다. 실패는 null(위장 금지).
+ */
+async function loadBuildReady(
+  admin: ReturnType<typeof createAdminClient>, userId: string, projectIds: string[] | null, label: string,
+  filters: { requireTag: string | null; wp: string[] | null },
+): Promise<Array<{ order_id: string; id8: string; code: string | null; name: string | null; status: string }> | null> {
+  // lease 가 하나도 없는 팀장은 어느 프로젝트에서도 띄울 것이 없다 — 재개 요청과 같은 이유로 조회하지 않는다.
+  if (projectIds !== null && projectIds.length === 0) return []
+  let q = admin.from('agent_work_orders')
+    .select(`id, project_id, wbs_item_id, status, ${ORDER_FACT_COLUMNS}`)
+    .in('status', ['ready', 'claimed']).eq('design_state', 'accepted')
+  if (projectIds !== null) q = q.in('project_id', projectIds)
+  const { data, error } = await q.limit(200)
+  if (error) { console.error('[agent-api] build 목록 조회 실패:', error.message); return null }
+  const rows = (data ?? []) as Array<FactOrderRow & { id: string; project_id: string; wbs_item_id: string | null }>
+  const itemIds = [...new Set(rows.map(r => r.wbs_item_id).filter((x): x is string => x !== null))]
+  if (itemIds.length === 0) return []
+  const { data: items, error: itemErr } = await admin.from('wbs_items').select(`code, name, ${ITEM_FACT_COLUMNS}`).in('id', itemIds)
+  if (itemErr) { console.error('[agent-api] build 목록 항목 조회 실패:', itemErr.message); return null }
+  const byId = new Map(((items ?? []) as Array<FactItemRow & { code: string; name: string }>).map(i => [i.id, i]))
+  let facts: Awaited<ReturnType<typeof loadItemFacts>>
+  try { facts = await loadItemFacts(admin, [...byId.values()]) } catch (e) {
+    console.error('[agent-api] build 목록 판단 재료 실패:', e instanceof Error ? e.message : e); return null
+  }
+  const nowMs = Date.now()
+  const out: Array<{ order_id: string; id8: string; code: string | null; name: string | null; status: string }> = []
+  for (const r of rows) {
+    const it = r.wbs_item_id ? byId.get(r.wbs_item_id) : undefined
+    const f = it ? facts.get(it.id) : undefined
+    if (!it || !f) continue
+    const order = orderFactsOf(r)
+    if (decide(f.facts, order, nowMs).action !== 'build') continue
+    const filtersPass = listFilterPass({ tags: it.tags, externalRef: it.external_ref }, filters)
+    if (!isMine(order, { userId, label, lead: true, filtersPass }, nowMs)) continue
+    out.push({ order_id: r.id, id8: r.id.slice(0, 8), code: it.code ?? null, name: it.name ?? null, status: r.status })
+  }
+  return out
 }
 
 function nonNegInt(v: unknown, name: string): number | null | { error: string } {
@@ -112,6 +177,12 @@ export async function POST(req: NextRequest) {
   if (holder !== null && (typeof holder !== 'string' || !HOLDER_RE.test(holder))) {
     return apiBadRequest('holder 형식이 올바르지 않습니다.')
   }
+  const requireTag = b.require_tag === undefined || b.require_tag === null ? null : b.require_tag
+  if (requireTag !== null && (typeof requireTag !== 'string' || requireTag === '' || requireTag.length > 40)) return apiBadRequest('require_tag 는 1~40자여야 합니다.')
+  const wpRaw = b.wp === undefined || b.wp === null ? null : Array.isArray(b.wp) ? (b.wp as unknown[]).join(',') : b.wp
+  if (wpRaw !== null && typeof wpRaw !== 'string') return apiBadRequest('wp 는 문자열 또는 배열이어야 합니다.')
+  const wp = parseWpList(wpRaw as string | null)
+  if (wp === 'invalid') return apiBadRequest('wp 형식 오류 — WP-02 또는 모듈/WP-02.')
 
   try {
     const admin = createAdminClient()
@@ -147,13 +218,18 @@ export async function POST(req: NextRequest) {
     const { error: gcErr } = await admin
       .from('agent_watchers').delete().lt('last_seen_at', new Date(now.getTime() - STALE_ROW_MS).toISOString())
     if (gcErr) console.error('[agent-api] watch 오래된 행 정리 실패:', gcErr.message)
-    const resume = await loadResumeRequests(admin, principal.userId, projectId, holder)
+    const leased = await leasedProjectIds(admin, principal.userId, holder)
+    const resume = await loadResumeRequests(admin, principal.userId, projectId, leased, agent)
+    const buildReady = leased === undefined ? null
+      : await loadBuildReady(admin, principal.userId, leased ?? (projectId !== null ? [projectId] : null), agent, { requireTag: requireTag as string | null, wp })
     return NextResponse.json({
       ok: true,
       expires_at: new Date(now.getTime() + WATCHER_TTL_MS).toISOString(),
       // 배열이면 그게 전부다. null 은 "조회에 실패했다"이며 "요청이 없다"가 아니다(에러 3원칙).
       resume_requests: resume,
       ...(resume === null ? { resume_requests_error: '재개 요청 조회에 실패했습니다.' } : {}),
+      build_ready: buildReady,
+      ...(buildReady === null ? { build_ready_error: '구현 대기 목록 조회에 실패했습니다.' } : {}),
     })
   } catch (e) {
     console.error('[agent-api] watch 처리 실패:', e instanceof Error ? e.message : e)

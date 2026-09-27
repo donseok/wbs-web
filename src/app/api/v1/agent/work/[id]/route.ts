@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { isUuidLike, isClaimStale } from '@/lib/domain/agentWork'
+import { AGENT_NAME_RE, isUuidLike, isClaimStale } from '@/lib/domain/agentWork'
+import { predsState, toDesignMode } from '@/lib/domain/designGate'
+import { decide, designFieldsOf, hasApprovedOrder, orderFactsOf, responseMine, type FactOrderRow } from '@/lib/agent/designFacts'
 import {
   apiBadRequest, apiInternalError, apiNotFound, isAgentProjectMember, patProjectAllowed,
   requireAgentProject, requireScope, resolveAgentPrincipal,
@@ -26,7 +28,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
     const { data: order, error } = await admin
       .from('agent_work_orders')
-      .select('id, project_id, status, priority, instructions, claimed_by, claimed_by_user_id, claimed_at, wbs_item_id, last_heartbeat_at, heartbeat_phase, resume_requested_at, resume_requested_host')
+      .select('id, project_id, status, priority, instructions, claimed_by, claimed_by_user_id, claimed_at, wbs_item_id, last_heartbeat_at, heartbeat_phase, heartbeat_agent, design_state, claim_scope, design_note, runner, runner_seen_at, resume_requested_at, resume_requested_host')
       .eq('id', id).maybeSingle()
     if (error) {
       console.error('[agent-api] 주문 조회 실패:', error.message)
@@ -56,7 +58,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     }
     // PAT 응답만 ITEM_DETAIL_COLUMNS 로 확장한다(클라이언트 spec.md 캐시 재료 — 결정 A).
     // 레거시 응답은 v1 그대로 — 회귀 기준선.
-    const itemColumns = principal.kind === 'pat' ? ITEM_DETAIL_COLUMNS : LEGACY_ITEM_COLUMNS
+    const itemColumns = principal.kind === 'pat' ? `${ITEM_DETAIL_COLUMNS}, actual_pct, design_mode` : LEGACY_ITEM_COLUMNS
     let item: unknown = null
     if (row.wbs_item_id) {
       const { data: items, error: itemErr } = await admin
@@ -81,7 +83,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       id: string; status: string; priority: number; instructions: string
       claimed_by: string | null; claimed_by_user_id: string | null
       claimed_at: string | null; wbs_item_id: string | null
-      last_heartbeat_at: string | null; heartbeat_phase: string | null
+      last_heartbeat_at: string | null; heartbeat_phase: string | null; heartbeat_agent: string | null
+      design_state: string | null; claim_scope: string | null; design_note: string | null
+      runner: string | null; runner_seen_at: string | null
       resume_requested_at: string | null; resume_requested_host: string | null
     }
     let extra: Record<string, unknown> = {}
@@ -105,6 +109,19 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         last_heartbeat_at: full.last_heartbeat_at, heartbeat_phase: full.heartbeat_phase,
         resume_requested_at: full.resume_requested_at, resume_requested_host: full.resume_requested_host,
       }
+      const agentParam = req.nextUrl.searchParams.get('agent')
+      const it = item as ({ id: string; stage: string | null; actual_pct: number | string | null; tags: string[] | null; design_mode: string | null } | null)
+      const order2 = orderFactsOf(full as unknown as FactOrderRow)
+      const itemFacts = it ? {
+        mode: toDesignMode(it.design_mode), stage: it.stage, actualPct: it.actual_pct == null ? null : Number(it.actual_pct),
+        delegated: (it.tags ?? []).includes('agent'), hasApprovedOrder: await hasApprovedOrder(admin, it.id),
+        preds: predsState(dependsInfo.filter(d => !d.reached)),
+      } : null
+      const nowMs = Date.now()
+      const action = decide(itemFacts, order2, nowMs)
+      // ready·claimed 는 5.3 mine, 그 밖(reported·approved 등)은 종전 뜻(점유 사용자 일치) — 팀장의 머지 충돌 해소가 기댄다.
+      const mine = responseMine(order2, { userId: principal.userId, label: agentParam && AGENT_NAME_RE.test(agentParam) ? agentParam : null, lead: false, filtersPass: true }, nowMs)
+      extra = { ...extra, ...designFieldsOf(full as unknown as FactOrderRow, it?.design_mode ?? null, action, mine) }
     }
     return NextResponse.json({
       ok: true,
