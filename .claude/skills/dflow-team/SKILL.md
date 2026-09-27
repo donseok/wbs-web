@@ -303,7 +303,7 @@ done
        단 `RETRY_DUE`(`lead-state.sh` — fetch·push 실패 뒤 30분)인 `skipped` 는 최종 판정이 아니다(12절 Y11). `WARN_RETRY` 면 「멈춤」 이다.
      - 서버 show 가 `status=claimed` 이고 `mine=true` 이며, `claimed_by` 를 소문자로 바꾼 값이
        `claude-<host>` 와 같거나 팀원 라벨 `<신원>/<host>/w<슬롯>` 의 가운데 칸이 `<host>` 다(이 PC 가 claim 했다).
-       계약 2.11 이면 `references/resume.md` 「서버 판단 확인」 도 통과한다(`same_host` 는 옛 서버의 대체 판정이다).
+       계약 2.11 이면 `references/resume.md` 「서버 판단 확인」 도 통과한다(`same_host` 는 옛 서버의 대체 판정).
      - 그 id8 의 재개 재시도가 상한(3)에 닿지 않았다.
      - 그 id8 이 `references/restart.md` 「이벤트로 본 상태」 에서 `PARKED`·`RL_WAIT`·`RL_DUE` 가 아니다.
        `RESTART_DUE` 는 이 다섯 조건과의 교집합일 때만 재개 가능이며(`references/restart.md` 「재투입」 의 재투입 전
