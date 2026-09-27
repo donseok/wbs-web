@@ -8,14 +8,18 @@ import { createRoot, type Root } from 'react-dom/client'
 const getWbsSpec = vi.fn()
 const updateWbsSpecFields = vi.fn()
 const updateAgentPrompt = vi.fn()
-const setAgentDelegation = vi.fn()
 
 vi.mock('@/app/actions/wbsSpec', () => ({
   getWbsSpec: (...a: unknown[]) => getWbsSpec(...(a as [])),
   updateWbsSpecFields: (...a: unknown[]) => updateWbsSpecFields(...(a as [])),
   updateAgentPrompt: (...a: unknown[]) => updateAgentPrompt(...(a as [])),
-  setAgentDelegation: (...a: unknown[]) => setAgentDelegation(...(a as [])),
   updateWbsSpec: vi.fn(),
+}))
+// 설계 영역·위임 저장의 서버 액션 — 위임 체크는 명세에 designMode 가 있어야 열린다(모르는 방식을 auto 로 쓰지 않는다).
+// 관리자는 편집 토글로 열므로 설계 영역 조회 결과는 이 파일의 관심사가 아니다.
+vi.mock('@/app/actions/designActions', () => ({
+  getDesignPanel: vi.fn().mockResolvedValue({ ok: false, error: '조회 실패' }), setDelegationAndMode: vi.fn(),
+  designAccept: vi.fn(), designConfirm: vi.fn(), designReopen: vi.fn(),
 }))
 vi.mock('@/app/actions/agentWork', () => ({
   getAgentOrderForItem: vi.fn().mockResolvedValue({ ok: true, order: null }),
@@ -33,7 +37,7 @@ import { WbsSpecPanel } from '@/components/wbs/WbsSpecPanel'
 const DETAIL = {
   category: 'dev', domain: null, priority: 'high', model: null,
   tags: ['agent'], depends: [], prdRef: null, entryPoint: null,
-  acceptance: [], spec: null, externalRef: 'mod/TSK-01-01', agentPrompt: null,
+  acceptance: [], spec: null, externalRef: 'mod/TSK-01-01', agentPrompt: null, designMode: 'auto',
 }
 
 /**

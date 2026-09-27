@@ -244,8 +244,10 @@ export function WbsSpecPanel({ itemId, editable, stubs = NO_STUBS }: { itemId: s
     && !(design?.ok === true && design.panel.designState === null)
   // 위임 체크·방식 select 를 여는 조건(D10 — 위임 권한은 관리자 또는 담당자 본인). 관리자는 지금처럼 편집 토글 안에서 연다.
   // 편집 토글이 없는 담당자는 설계 영역 조회의 canAct 로 연다 — 모르면(조회 중·실패) 열지 않는다.
+  // 명세에 방식이 없으면(designEnabled 거짓) 위임 칸을 열지 않는다 — 위임 저장은 방식과 한 칸이라, 모르는 방식을
+  // auto 로 채워 쓰게 된다(최종 수정 A4). 모르면 쓰지 않는다.
   const canAct = design?.ok === true && design.canAct
-  const delegationOpen = editable ? fieldsEditing : canAct
+  const delegationOpen = designEnabled && (editable ? fieldsEditing : canAct)
   const displayTags = detail
     ? (delegated ? [...detail.tags.filter(tg => tg !== 'agent'), 'agent'] : detail.tags.filter(tg => tg !== 'agent'))
     : []

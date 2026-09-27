@@ -347,13 +347,15 @@ describe('WbsSpecPanel — 설계 영역·설계 방식', () => {
     expect(container.textContent).toContain('wbs.designModeLabel · wbs.designModeReview')
   })
 
-  it('명세에 designMode 가 없으면 설계 영역·방식 select 를 그리지 않고 조회도 하지 않는다', async () => {
+  it('명세에 designMode 가 없으면 설계 영역·방식 select·위임 체크를 그리지 않고 조회도 하지 않는다(모르는 방식을 auto 로 쓰지 않는다)', async () => {
     const legacy: Record<string, unknown> = { ...DETAIL }
     delete legacy.designMode
     await render(legacy)
     await openEditing()
     expect(q('[data-spec-design]')).toBeNull()
     expect(q('[data-spec-design-mode]')).toBeNull()
+    expect(q('[data-spec-delegate]')).toBeNull()
+    expect(setDelegationAndMode).not.toHaveBeenCalled()
     expect(getDesignPanel).not.toHaveBeenCalled()
   })
 
