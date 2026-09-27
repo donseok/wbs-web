@@ -50,10 +50,28 @@ export const getProjectMinuteSignals = cache(async (projectId: string, limit = 8
 })
 
 const LIST_COLS =
-  'id, minute_date, team_code, title, meeting_id, project_id, meeting_occurrence_date, archived_at, created_by, created_by_name, created_at, updated_at, body_preview, folder_id, minute_files(count), meetings(category, project_id), projects(name)'
+  'id, minute_date, team_code, title, meeting_id, project_id, meeting_occurrence_date, archived_at, created_by, created_by_name, created_at, updated_at, body_preview, folder_id, minute_files(id), meetings(category, project_id), projects(name)'
+
+type Sb = Awaited<ReturnType<typeof createServerClient>>
+
+/**
+ * 목록 3종(달력·검색·탐색기) 공용 쿼리. 클립 배지용 첨부 임베드 필터를 여기서 한 번만 건다 —
+ * 호출부마다 `.eq('minute_files.role', ...)` 를 적게 하면 빼먹은 화면의 배지만 조용히
+ * 본문 .md 를 세기 시작한다(2026-09 실측: 운영 23건이 전부 그 상태였다).
+ *
+ * `minute_files(count)` 를 쓰지 않는 이유는 스테이징 PostgREST 실측이다 — **집계 임베드에는
+ * 임베드 필터가 먹지 않는다**(`!inner` 를 붙여도 자식 없는 부모가 남는다). 집계 함수
+ * (`count()` group by)는 이 프로젝트에서 아예 비활성이다(PGRST123). 비집계 임베드 + 필터만
+ * 정확히 동작하며, max_rows(1000) 는 top-level 행에만 걸려 절단 위험도 없다.
+ */
+function minutesListQuery(sb: Sb) {
+  return sb.from('minutes').select(LIST_COLS).eq('minute_files.role', 'attachment')
+}
 
 function mapMinute(r: Row, bodyMd = ''): Minute {
-  const files = r.minute_files as { count: number }[] | undefined
+  // minutesListQuery 가 임베드를 첨부로 한정하므로 이 배열 길이가 곧 첨부 수다.
+  // 상세(getMinuteDetail)는 이 임베드를 쓰지 않아 undefined → 0 (files[] 로 따로 센다).
+  const attachments = r.minute_files as { id: string }[] | undefined
   return {
     id: r.id as string,
     minuteDate: r.minute_date as string,
@@ -73,7 +91,7 @@ function mapMinute(r: Row, bodyMd = ''): Minute {
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
     archivedAt: (r.archived_at as string | null) ?? null,
-    fileCount: files?.[0]?.count ?? 0,
+    fileCount: attachments?.length ?? 0,
     bodyPreview: (r.body_preview as string | null) ?? '',
     meetingCategory: ((r.meetings as { category?: MeetingCategory } | null)?.category) ?? null,
     folderId: (r.folder_id as string | null) ?? null,
@@ -86,7 +104,7 @@ export const getMinutesPage = cache(async (
   rangeStart: string, rangeEnd: string, team: TeamCode | null,
 ): Promise<Minute[]> => {
   const sb = await createServerClient()
-  let q = sb.from('minutes').select(LIST_COLS)
+  let q = minutesListQuery(sb)
     .is('archived_at', null)
     .gte('minute_date', rangeStart).lte('minute_date', rangeEnd)
     .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
@@ -105,7 +123,7 @@ export const searchMinutes = cache(async (
   if (!needle) return []
   const sb = await createServerClient()
   const pat = ilikeOrPattern(needle)
-  let q = sb.from('minutes').select(LIST_COLS)
+  let q = minutesListQuery(sb)
     .is('archived_at', null)
     .or(`title.ilike.${pat},body_md.ilike.${pat}`)
     .order('minute_date', { ascending: false }).limit(limit)
@@ -122,7 +140,7 @@ export const searchMinutes = cache(async (
 export const getMinutesExplorer = cache(async (): Promise<ExplorerData | null> => {
   const sb = await createServerClient()
   const [mRes, fRes, hidden] = await Promise.all([
-    sb.from('minutes').select(LIST_COLS)
+    minutesListQuery(sb)
       .is('archived_at', null)
       .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
       .limit(MINUTES_TREE_LIMIT),

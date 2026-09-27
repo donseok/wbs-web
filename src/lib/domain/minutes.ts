@@ -7,6 +7,13 @@ export const MINUTE_BODY_FILE_MAX = 1_048_576   // 원시 .md 파일 안전망(1
 export const MINUTE_ATTACHMENT_MAX = 20_971_520 // 첨부 개당 20MB(버킷 file_size_limit와 일치)
 export const MINUTE_ATTACHMENTS_MAX_COUNT = 10
 
+/** 더 붙일 수 있는 첨부 개수. 등록 모달과 서버 액션(recordMinuteFile)이 같은 판정을 쓴다.
+ *  개수를 모르면(조회 실패로 NaN 이 흘러든 경우) 0 — 상한 판정은 fail-closed 다. */
+export function remainingMinuteAttachmentSlots(existingCount: number): number {
+  if (!Number.isFinite(existingCount)) return 0
+  return Math.max(0, MINUTE_ATTACHMENTS_MAX_COUNT - existingCount)
+}
+
 /** @deprecated 기본 5팀 폴백 — 런타임 기준은 팀 마스터. 호출처에서 활성 팀 목록을 주입할 것. */
 export const TEAM_CODES: readonly TeamCode[] = DEFAULT_TEAM_CODES
 

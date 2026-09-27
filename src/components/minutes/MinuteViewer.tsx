@@ -4,17 +4,19 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, ChevronRight, Download, ExternalLink, FolderOpen, History, Maximize2, Minimize2,
-  Paperclip, Share2,
+  Paperclip, Share2, X,
 } from 'lucide-react'
 import type {
   InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight, ProjectMember,
 } from '@/lib/domain/types'
 import {
-  MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
+  MINUTE_ATTACHMENT_MAX, MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX,
+  remainingMinuteAttachmentSlots, sanitizeFileName,
 } from '@/lib/domain/minutes'
 import {
-  getMinuteFileUrl, replaceMinuteBody, deleteMinute, toggleMinuteHighlight,
+  getMinuteFileUrl, replaceMinuteBody, deleteMinute, removeMinuteFile, toggleMinuteHighlight,
 } from '@/app/actions/minutes'
+import { uploadMinuteFile } from '@/lib/minutes/uploadMinuteFile'
 import {
   createIssueFromMinuteBlock, fetchIssueProjectMembers, prepareMinuteIssueDraft,
   type IssueActionResult, type IssueInput, type MinuteIssueSourceInput,
@@ -112,6 +114,8 @@ export function MinuteViewer({
   const [shareOpen, setShareOpen] = useState(false)
   const [focus, setFocus] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  // 첨부 삭제 확인 대상. 스토리지 삭제는 되돌릴 수 없어 한 번의 오클릭으로 지워지지 않게 한다.
+  const [pendingRemove, setPendingRemove] = useState<MinuteFile | null>(null)
   const fs = useMinuteFontSize({ initial: initialFontSize })
   const bodyFile = historicalVersion ? null : files.find(f => f.role === 'body') ?? null
   const attachments = historicalVersion ? [] : files.filter(f => f.role === 'attachment')
@@ -603,6 +607,48 @@ export function MinuteViewer({
     }
   }
 
+  /**
+   * 첨부 나중 추가 — 등록 모달과 같은 업로드 단위(uploadMinuteFile)를 쓴다.
+   * 개수·용량은 서버(recordMinuteFile)도 다시 보지만, 20MB 를 올려놓고 거부당하는
+   * 왕복을 사용자에게 시키지 않으려고 고른 즉시 여기서 먼저 거른다.
+   */
+  async function onAddAttachments(e: ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    if (picked.length === 0) return
+    setErr(null)
+    if (picked.length > remainingMinuteAttachmentSlots(attachments.length)) {
+      setErr(t('min.err.attachCount')); return
+    }
+    if (picked.some(f => f.size > MINUTE_ATTACHMENT_MAX)) { setErr(t('min.err.attachMax')); return }
+    setBusy(true)
+    try {
+      const sb = createBrowserClient()
+      // 순차 업로드 — 경로 타임스탬프가 밀리초라 동시에 올리면 같은 경로가 생길 여지가 있고,
+      // 부분 실패 지점을 특정할 수 있어야 한다(등록 모달도 순차다).
+      let done = 0
+      for (const f of picked) {
+        const res = await uploadMinuteFile(sb, minute.id, 'attachment', f)
+        if (!res.ok) { setErr(res.error || t('min.err.upload')); break }
+        done += 1
+      }
+      // 하나라도 올라갔으면 반드시 새로 받는다 — 올라간 첨부가 화면에 없으면 사용자는
+      // 유실됐다고 읽는다. 하나도 못 올렸으면 새로 받을 것이 없다(무의미한 왕복 회피).
+      if (done > 0) router.refresh()
+    } finally { setBusy(false) }
+  }
+
+  /** 첨부 삭제 — 확인 모달을 거친 뒤에만 불린다. */
+  async function onRemoveAttachment(f: MinuteFile) {
+    setErr(null)
+    setBusy(true)
+    try {
+      const res = await removeMinuteFile(f.id)
+      if (!res.ok) { setErr(res.error ?? t('min.err.removeAttach')); return }
+      router.refresh()
+    } finally { setBusy(false) }
+  }
+
   async function onReplaceBody(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
     e.target.value = ''
@@ -709,11 +755,37 @@ export function MinuteViewer({
               </button>
             )}
             {attachments.map(f => (
-              <button key={f.id} onClick={() => void download(f.id)} disabled={busy}
-                className="btn h-8 max-w-[10rem] px-2.5 text-xs">
-                <Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{f.fileName}</span>
-              </button>
+              <span key={f.id} className="inline-flex items-center">
+                <button onClick={() => void download(f.id)} disabled={busy}
+                  className={`btn h-8 max-w-[10rem] px-2.5 text-xs ${canManage ? 'rounded-r-none' : ''}`}>
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{f.fileName}</span>
+                </button>
+                {canManage && (
+                  <button data-testid={`attach-remove-${f.id}`} onClick={() => setPendingRemove(f)}
+                    disabled={busy} title={t('min.attach.remove')}
+                    aria-label={`${t('min.attach.remove')}: ${f.fileName}`}
+                    className="btn -ml-px h-8 rounded-l-none px-1.5 text-xs text-ink-muted hover:text-delayed">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </span>
             ))}
+            {canManage && (() => {
+              // 상한에 닿으면 입력을 잠근다 — 고르게 해놓고 서버에서 거부하는 편이 더 나쁘다.
+              const full = remainingMinuteAttachmentSlots(attachments.length) <= 0
+              return (
+                <label title={full ? t('min.attach.full') : t('min.attach.add')}
+                  className={`btn h-8 px-2.5 text-xs ${full ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  {/* 첨부가 하나도 없을 때만 글자를 같이 보인다 — 아이콘만 두면 발견되지 않는다. */}
+                  {attachments.length === 0 && <span>{t('min.attach.add')}</span>}
+                  {/* 첨부가 있을 때는 라벨 글자가 없어 접근 이름이 비므로 input 에 직접 붙인다. */}
+                  <input data-testid="attach-add" type="file" multiple className="hidden"
+                    aria-label={t('min.attach.add')}
+                    disabled={full || busy} onChange={onAddAttachments} />
+                </label>
+              )
+            })()}
             {minute.meetingId && minute.meetingProjectId && (
               <Link href={`/p/${minute.meetingProjectId}/meetings`}
                 className="inline-flex items-center gap-1 text-xs text-brand underline underline-offset-2 hover:text-brand-hover">
@@ -938,6 +1010,27 @@ export function MinuteViewer({
           </div>
         }>
         <p className="text-sm text-ink">{t('min.detail.deleteConfirm')}</p>
+      </Modal>
+
+      <Modal open={pendingRemove !== null} onClose={() => setPendingRemove(null)}
+        title={t('min.attach.remove')} size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setPendingRemove(null)} className="btn">{t('common.cancel')}</button>
+            <button data-testid="attach-remove-confirm" disabled={busy} className="btn text-delayed"
+              onClick={() => {
+                const target = pendingRemove
+                setPendingRemove(null)
+                if (target) void onRemoveAttachment(target)
+              }}>
+              {t('min.attach.remove')}
+            </button>
+          </div>
+        }>
+        <p className="text-sm text-ink">
+          {t('min.attach.removeConfirm')}
+          {pendingRemove && <><br /><span className="font-semibold">{pendingRemove.fileName}</span></>}
+        </p>
       </Modal>
     </div>
   )

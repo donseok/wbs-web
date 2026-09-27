@@ -129,6 +129,15 @@ try {
   psql(STAGING, `set storage.allow_delete_query = 'true'; delete from storage.buckets`)  // objects 는 복사하지 않으므로 참조 잔존 없음
   psqlFile(STAGING, join(tmp, 'buckets.sql'))
 
+  console.log('storage.objects RLS 정책 재적용…')
+  // 위의 `drop schema public cascade` 가 스토리지 정책 9건 중 7건을 함께 지운다 —
+  // can_attach·can_edit_issue·app_role·minute_versions(모두 public)를 참조하기 때문이다.
+  // 재적용하지 않으면 storage.objects 는 'RLS on + 정책 0건' = 업로드 전면 거부가 되고,
+  // 회의록 본문 .md·회의록 첨부·이슈 첨부·WBS 산출물이 모두
+  // `new row violates row-level security policy for table "objects"` 로 실패한다
+  // (2026-09-27 실제 사고). public 복원 뒤에 와야 참조 대상이 존재한다.
+  psqlFile(STAGING, new URL('../supabase/storage-policies.sql', import.meta.url).pathname)
+
   // 8) realtime publication 재등록 (§6.1-6) — drop cascade 로 멤버십이 사라졌다
   if (pubTables) {
     for (const t of pubTables.split(',')) {

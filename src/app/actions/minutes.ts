@@ -11,7 +11,7 @@ import { displayNameFrom } from '@/lib/domain/display-name'
 import {
   validateMinuteInput, isMinuteFilePathValid, validateFolderName, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX,
   isTeamRootName, isTeamRootFolder, teamSubOfFolder, normalizeFolderName,
-  MINUTES_PROJECT_BULK_MAX,
+  MINUTES_PROJECT_BULK_MAX, MINUTE_ATTACHMENTS_MAX_COUNT, remainingMinuteAttachmentSlots,
   type MinuteInput,
 } from '@/lib/domain/minutes'
 import { resolveFolderDrop, type MinuteDropReject } from '@/lib/domain/minutes-drop'
@@ -678,6 +678,21 @@ export async function recordMinuteFile(
     return { ok: true }
   }
 
+  // 개수 상한은 DB 제약이 아니라 여기서 센다. 상세 화면에서 나중에 첨부를 붙일 수 있게 된
+  // 뒤로는 이 액션이 유일한 관문이므로, 세지 못하면 통과시키지 않는다(fail-closed).
+  // body 를 함께 세면 첨부 9개 + 본문 1개에서 조용히 막히므로 role 로 한정한다.
+  const { count, error: countErr } = await sb.from('minute_files')
+    .select('id', { count: 'exact', head: true })
+    .eq('minute_id', minuteId)
+    .eq('role', 'attachment')
+  if (countErr || count === null || count === undefined) {
+    console.error('[recordMinuteFile] 첨부 개수 조회 실패:', countErr?.message ?? 'count 미수신')
+    return { ok: false, error: '첨부 개수를 확인할 수 없어 중단했습니다.' }
+  }
+  if (remainingMinuteAttachmentSlots(count) <= 0) {
+    return { ok: false, error: `첨부는 최대 ${MINUTE_ATTACHMENTS_MAX_COUNT}개까지 올릴 수 있습니다.` }
+  }
+
   const { error } = await sb.from('minute_files').insert({
     minute_id: minuteId, role: file.role, file_name: file.fileName, file_path: file.filePath,
     size: file.size, mime: file.mime, uploaded_by: user.id,
@@ -698,8 +713,22 @@ export async function removeMinuteFile(fileId: string): Promise<MinuteActionResu
   if ((f.role as string) === 'body') return { ok: false, error: '본문 파일은 교체로만 변경할 수 있습니다.' }
   const own = await checkOwner(sb, f.minute_id as string, g.actor)
   if (own) return { ok: false, error: own }
-  // Storage 삭제 실패는 고아 파일만 남기므로 로그 후 진행(메타 행 삭제는 계속한다).
-  const { error: rmErr } = await sb.storage.from(BUCKET).remove([f.file_path as string])
+  // 객체 삭제는 service_role 로 한다. `minutes` 버킷의 DELETE 정책(0021)은
+  // `owner = auth.uid() OR app_role() = 'pmo_admin'` 인데, 이 액션의 게이트(checkOwner)는
+  // **작성자 또는 프로젝트 관리자**를 통과시킨다. 업로더가 아닌 관리자가 지우면 사용자
+  // 권한으로는 객체 삭제가 거부되고 메타만 사라져 파일이 스토리지에 남는다(고아).
+  // 허가 판정은 위에서 이미 끝났으므로 여기서는 실행만 한다.
+  const adm = adminOr('첨부 파일 삭제에 service_role 설정이 필요합니다.')
+  let remover = sb.storage
+  if ('admin' in adm) {
+    remover = adm.admin.storage
+  } else {
+    console.error('[removeMinuteFile] service_role 을 쓸 수 없어 사용자 권한으로 삭제를 시도합니다'
+      + ' — 업로더가 아니면 객체가 남습니다:', adm.error)
+  }
+  // Storage 삭제 실패는 고아 파일만 남기므로 로그 후 진행(메타 행 삭제는 계속한다) —
+  // 화면에서 사라지는 것이 사용자의 기대이고, 메타를 남기면 열 수 없는 첨부가 목록에 남는다.
+  const { error: rmErr } = await remover.from(BUCKET).remove([f.file_path as string])
   if (rmErr) console.error('[removeMinuteFile] Storage 삭제 실패(고아 파일 잔존):', rmErr.message)
   const { error } = await sb.from('minute_files').delete().eq('id', fileId)
   if (error) return { ok: false, error: error.message }

@@ -8,8 +8,9 @@ import {
 } from '@/lib/domain/minutes'
 import { pickDefaultProjectId, sortMyProjectsFirst } from '@/lib/domain/projectPick'
 import {
-  createMinute, fetchMinuteFoldersLite, fetchProjectMeetingsLite, recordMinuteFile,
+  createMinute, fetchMinuteFoldersLite, fetchProjectMeetingsLite,
 } from '@/app/actions/minutes'
+import { uploadMinuteFile } from '@/lib/minutes/uploadMinuteFile'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
@@ -187,17 +188,14 @@ export function MinuteUploadModal({
       // body 파일 실패면 뷰어가 '재업로드 유도' 상태를 안내하고, replaceMinuteBody 로 복구 가능.
       for (let i = progressRef.current?.done ?? 0; i < files.length; i++) {
         const { role, f } = files[i]
-        const path = `${minuteId}/${Date.now()}-${sanitizeFileName(f.name)}`
-        const up = await sb.storage.from(BUCKET).upload(path, f, { upsert: false })
-        if (up.error) { setErr(`${t('min.err.upload')}: ${up.error.message}`); return }
-        const rec = await recordMinuteFile(minuteId, {
-          role, fileName: f.name, filePath: path,
-          size: f.size, mime: f.type || 'application/octet-stream',
-        })
-        if (!rec.ok) {
-          // 메타 기록 실패 → 방금 올린 객체 정리(보상). 회의록은 유지.
-          await sb.storage.from(BUCKET).remove([path])
-          setErr(rec.error ?? t('min.err.record')); return
+        // 경로 생성·업로드·메타 기록·보상 삭제는 공용 단위가 한다(뷰어의 나중 첨부 추가와 공유).
+        // 재개(progressRef)는 여기 남는다 — body 는 버전 커밋 경로를 타므로 함께 묶지 않는다.
+        const res = await uploadMinuteFile(sb, minuteId, role, f)
+        if (!res.ok) {
+          setErr(res.reason === 'upload'
+            ? `${t('min.err.upload')}: ${res.error}`
+            : (res.error || t('min.err.record')))
+          return
         }
         progressRef.current = { id: minuteId, done: i + 1 }
       }
