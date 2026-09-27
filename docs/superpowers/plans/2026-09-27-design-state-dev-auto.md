@@ -6957,3 +6957,906 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
+
+## Task 22b: 팀장 문서 — 범위 인자 제거·서버 판단 확인·설계 사전 검사·결과 처리(`/dflow-team`)
+
+**Files:**
+- Modify: `.claude/skills/dflow-team/SKILL.md`(「참조」 표, 「인자」, 「팀장 상태」 보조·재구성 규칙·고아 스캔·「멈춤」 보고, 「1. 시작」 3·5번, 「2-1」 poll, 「2-3」 재개 요청·`build`·4번·poll exit 0·설계 사전 검사, 「3」 결과 표, 「5」 4번·끝, 「5-1」, 「금지」)
+- Create: `.claude/skills/dflow-team/references/design-state.md`
+- Modify: `.claude/skills/dflow-team/references/resume.md`·`design-ahead.md`·`restart.md`·`events.md`·`help.md`
+- Delete: `.claude/skills/dflow-team/references/scope.md`
+- Test: `tests/skills/dflow-dev-scope.test.ts`(「다른 스킬」 의 팀장 단언), `tests/skills/dflow-team-merge-conflict.test.ts`·`dflow-team-restart-flow.test.ts`(재spawn 예외 여섯·살아 있는 팀원 목록), `tests/skills/dflow-team.test.ts`(poll 첫 줄)
+
+**Interfaces:**
+- Consumes: Task 19 `poll.sh --lead` 와 넷째 칸 `action`, Task 22a `wake.sh` 의 `build`·`reqs[].mine`·`.design_state`, `lead-state.sh` 의 `RETRY_DUE`·`WARN_RETRY`, Task 21 워커 결과 줄, Task 18 `dflow.sh design-reopen`·`design-done`
+- Produces: 팀장 규칙(사람과 팀장 세션이 읽는다). 새 참조 문서 `references/design-state.md`(1. 설계 사전 검사, 2. `build`, 3. 결과 보충), `references/resume.md` 「서버 판단 확인 (계약 2.11)」 표
+
+**정한 것(스펙 6.1·6.2·6.6·6.7·9절, 12절 Y3·Y5·Y8·Y9·Y10·Y11·L5·L11):**
+- 팀장 인자 "설계만"·"구현부터" 는 없다(D27). `team.start` 의 `scope` 는 늘 `server` 이고(events.md 가드의 필수 칸이라 칸은 남긴다), 포인터 `SCOPE` 는 작업마다 서버 판단 `action` 이다.
+- 이어 갈지는 `resume.md` 「서버 판단 확인」 표 **한 곳**이 정한다. 5-1 재개·restart 재투입·고아 스캔·design-ahead 2·재개 요청·「1. 시작」 3번이 모두 이 표를 부른다. 표는 이미 있는 안전장치를 통과한 대상에만 쓰고 **막기만** 한다. 새로 여는 길은 「설계 승인」 된 claimed 주문(`build`)의 원격 재개 하나다(Y3).
+- **옛 서버(계약 < 2.11)** 는 종전 판정 그대로다. 고아 스캔·restart.md 의 `same_host` jq(`claude-<host>`·`<신원>/<host>/w<n>`)는 옛 서버의 대체 판정으로 남긴다 — 2.9 의 `mine` 은 "같은 사용자"만 뜻하기 때문이다. 2.11 에서도 show 의 `mine` 은 팀원 라벨을 보지 않으므로(Task 16, `lead:false`) 표의 `수동 세션 점유` 행이 Y9 를 막는다.
+- 재독 세트(압축 뒤 다시 읽는 「참조」~「인자」「팀장 상태」「2」「3」)는 5만 자 상한이 있다(`dflow-team.test.ts`). 그래서 긴 절차(설계 사전 검사·`build` 처리·결과 보충)는 새 `references/design-state.md` 에 두고 `SKILL.md` 는 가리키기만 한다(지운 `scope.md` 70줄을 이 문서가 대신한다). 이 Task 뒤 재독 세트는 49,646자다.
+- 설계 사전 검사의 5절 판정은 스크립트가 아니라 팀장이 `## ` 제목 줄을 읽어 한다. 실제 design.md 는 제목에 번호를 붙이고("## 1. 접근 방식") 형식이 조금씩 달라, 워커의 Design 게이트처럼 판단으로 가른다.
+- fetch·push 실패로 끝난 잡은 작업은 워크트리를 `parked` 로 남기고 `RETRY_DUE` 가 30분 뒤 고아 스캔으로 다시 띄운다. 3회 연속이면 `WARN_RETRY` 로 「멈춤」(Y11).
+- 결과 줄 없이 `wait_review` 로 끝났는데 서버에 설계 상태가 없으면(멈춤이 서버에 닿지 않음) 팀장은 push 하지 않는다. `parked` + 「멈춤」(`설계 멈춤 미완료`)으로 두고 `--resume` 한 워커의 「끝나지 않은 설계 멈춤 이어받기」 가 마저 한다(팀장이 워커 워크트리에서 git 을 쓰지 않는다는 규칙을 지킨다).
+
+**계획 단계 검증**: Task 21·22a 를 적용한 리포 사본에 아래 문구를 적용해, 팀장 관련 테스트 8개 파일 220건이 통과했고 `tests/skills` 전체에서 기준선에 없던 실패가 없었다. 테스트만 먼저 바꾸면 7건이 실패했다.
+
+- [ ] **Step 1: 실패하는 테스트**
+
+`tests/skills/dflow-dev-scope.test.ts`(Task 21 이 쓴 파일) — `existsSync` 를 import 하고 「다른 스킬」 의 팀장 단언 둘을 셋으로 바꾼다:
+
+**Z0** — 아래 원문을 바꾼다.
+
+```text
+import { readFileSync } from 'node:fs'
+```
+
+바꿀 문구:
+
+```text
+import { existsSync, readFileSync } from 'node:fs'
+```
+
+**Z1** — 아래 원문을 바꾼다.
+
+```text
+  it('팀장: 인자로 범위를 정해 team.start·포인터로 넘기고, 워커가 --scope 로 바꾼다', () => {
+    const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
+    expect(team).toContain('"설계만"·"설계까지" → `design`, "구현부터"·"개발자동" → `build`, 없으면 `full`')
+    expect(team).toContain('`team.start`(backend, slots, until, wp, scope)')
+    expect(team).toContain('SCOPE=<full|design|build>')
+    expect(team).toContain('| `design_review`(설계만 멈춤, `<SCOPE>`=`design`) | 해제 | 없음 |')
+    expect(read('.claude/skills/dflow-team/scripts/lead-state.sh')).toContain('scope=\\($st.scope // "-")')
+  })
+  it('팀장: 범위 build 만 검토 대기 설계를 이어 가고, 좌석 「이어서 시작」 은 범위와 무관하게 build 로 띄운다', () => {
+    const sc = flat(read('.claude/skills/dflow-team/references/scope.md'))
+    expect(sc).toContain('select(.phase == "wait_review")')
+    expect(sc).toContain('`full`·`design` 에서는 1 을 하지 않는다')
+    expect(sc).toContain('요청 작업이 검토 대기면 포인터를 `SCOPE=build` 로 띄운다')
+    expect(sc).toContain('git -C \'<MAIN>\' cat-file -e "origin/<개발브랜치>:<TASK_DIR>/design.md"')
+    expect(flat(read('.claude/skills/dflow-team/references/restart.md'))).toContain('| 4-2 | `local_phase=wait_review` |')
+  })
+```
+
+바꿀 문구:
+
+```text
+  it('팀장: 범위 인자를 받지 않고 작업마다 서버 판단(action)을 포인터 SCOPE 로 넘긴다(D27)', () => {
+    const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
+    expect(team).toContain('- **설계 방식은 인자가 아니다**(계약 2.11, 설계 상태 스펙 D27).')
+    expect(team).not.toContain('"설계만"·"설계까지" → `design`')
+    expect(team).toContain('`team.start`(backend, slots, until, wp, scope)')
+    expect(team).toContain('`scope` 는 늘 `server` 다')
+    expect(team).toContain('SCOPE=<full|design|build>')
+    expect(team).toContain('`SCOPE` 는 그 주문의 서버 판단 `action` 이다(계약 2.11)')
+    expect(team).toContain('--require-tag agent --lead --until')
+    expect(team).not.toContain('scope.md')
+    expect(existsSync(join(process.cwd(), '.claude/skills/dflow-team/references/scope.md'))).toBe(false)
+    expect(read('.claude/skills/dflow-team/references/help.md')).not.toMatch(/설계만\|구현부터|개발자동/)
+    expect(read('.claude/skills/dflow-team/scripts/lead-state.sh')).toContain('scope=\\($st.scope // "-")')
+  })
+  it('팀장: 결과 표·설계 사전 검사·build 목록·금지 예외 — 긴 절차는 design-state.md(6.2·6.7·Y11·L11)', () => {
+    const team = flat(read('.claude/skills/dflow-team/SKILL.md'))
+    expect(team).toContain('| `design_review`(설계 검토 대기로 멈춤) | 해제 | 없음 |')
+    expect(team).toContain('| `design_reopened`(설계를 사람에게 되돌렸거나 주문이 바뀜, 계약 2.11) | 해제 | 없음 | 미커밋 변경이 있어도 지운다')
+    expect(team).toContain('**설계 사전 검사**(계약 2.11)')
+    expect(team).toContain('**`build`(계약 2.11)는 「설계 승인」 된 작업 목록이다.**')
+    expect(team).toContain('`RETRY_DUE`')
+    expect(team).toContain('예외 넷:')
+    expect(team).toContain('| `references/design-state.md` |')
+    const ds = flat(read('.claude/skills/dflow-team/references/design-state.md'))
+    expect(ds).toContain('## 1. 설계 사전 검사')
+    expect(ds).toContain('dflow.sh design-reopen <id8> --reason')
+    expect(ds).toContain('`사람 설계 초안 있음 — 방식을 구현자동으로 바꾸거나 초안을 지우라`')
+    expect(ds).toContain('「설계 승인」을 누르면 다음 TICK 에 팀장이 구현을 이어 간다')
+    expect(ds).toContain('`WARN_RETRY`')
+    expect(ds).toContain('`git worktree remove --force <워크트리>`')
+  })
+  it('팀장: 이어 가기는 resume.md 「서버 판단 확인」 한 곳이 막고, 원격 재개는 승인 대상뿐이다(Y3·Y5·Y8·Y9·Y10)', () => {
+    const r = flat(read('.claude/skills/dflow-team/references/resume.md'))
+    expect(r).toContain('## 서버 판단 확인 (계약 2.11)')
+    expect(r).toContain('**띄우지 않게 막기만 한다**')
+    expect(r).toContain('새로 여는 길은 **승인** 대상의 원격 재개 하나다')
+    expect(r).toContain('`수동 세션 점유`')
+    expect(r).toContain('- **승인**(계약 2.11)')
+    expect(r).toContain('`-B` 로 덮지 않고 로컬 브랜치로 만든다')
+    const rs = flat(read('.claude/skills/dflow-team/references/restart.md'))
+    expect(rs).toContain('| 4-2 | `local_phase=wait_review` |')
+    expect(rs).toContain('`설계 멈춤 미완료')
+    expect(rs).not.toContain('scope.md')
+    const da = flat(read('.claude/skills/dflow-team/references/design-ahead.md'))
+    expect(da).toContain('서버가 claimed·`mine`·단계 `dd` 로 확인한 것만 센다')
+    expect(da).toContain('`<id8> 선행 주문 없음: <ref>`')
+  })
+```
+
+`tests/skills/dflow-team-merge-conflict.test.ts`:
+
+**Z2** — 아래 원문을 바꾼다.
+
+```text
+    expect(TEAM).toContain('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`)을 받지 않은 팀원이다')
+```
+
+바꿀 문구:
+
+```text
+    expect(TEAM).toContain('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`·`design_reopened`)을 받지 않은 팀원이다')
+```
+
+**Z3** — 아래 원문을 바꾼다.
+
+```text
+    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 다섯뿐이다.')
+    expect(TEAM).toContain('같은 작업을 다시 띄우는 것은 다섯뿐이다(')
+```
+
+바꿀 문구:
+
+```text
+    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 여섯뿐이다.')
+    expect(TEAM).toContain('같은 작업을 다시 띄우는 것은 여섯뿐이다(')
+```
+
+**Z6** — 아래 원문을 바꾼다.
+
+```text
+  it('금지: heartbeat·--resolve 예외, 재spawn 예외는 다섯', () => {
+```
+
+바꿀 문구:
+
+```text
+  it('금지: heartbeat·--resolve 예외, 재spawn 예외는 여섯', () => {
+```
+
+`tests/skills/dflow-team-restart-flow.test.ts`:
+
+**Z4** — 아래 원문을 바꾼다.
+
+```text
+    expect(S).toContain('같은 작업을 다시 띄우는 것은 다섯뿐이다(')
+    expect(S).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 다섯뿐이다.')
+```
+
+바꿀 문구:
+
+```text
+    expect(S).toContain('같은 작업을 다시 띄우는 것은 여섯뿐이다(')
+    expect(S).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 여섯뿐이다.')
+```
+
+**Z7** — 아래 원문을 바꾼다.
+
+```text
+  it('같은 작업 재spawn 예외가 넷이고 마감은 재시작 대기를 멈춤 표에 적는다', () => {
+```
+
+바꿀 문구:
+
+```text
+  it('같은 작업 재spawn 예외가 여섯이고 마감은 재시작 대기를 멈춤 표에 적는다', () => {
+```
+
+`tests/skills/dflow-team.test.ts`(poll 명령 첫 줄에 `--lead`):
+
+**Z5** — 아래 원문을 바꾼다.
+
+```text
+    expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until \'<UNTIL>\' --interval 180 --recheck-cycles 10 \\')
+```
+
+바꿀 문구:
+
+```text
+    expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --lead --until \'<UNTIL>\' --interval 180 --recheck-cycles 10 \\')
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/skills/dflow-dev-scope.test.ts tests/skills/dflow-team-merge-conflict.test.ts tests/skills/dflow-team-restart-flow.test.ts tests/skills/dflow-team.test.ts`
+Expected: FAIL 7건
+
+- [ ] **Step 3: `SKILL.md` — 「참조」·「인자」·「팀장 상태」·「1. 시작」**
+
+**M0a** — 아래 원문을 바꾼다.
+
+```text
+| `references/resume.md` | 재개 spawn(「5-1」) 때 |
+```
+
+바꿀 문구:
+
+```text
+| `references/resume.md` | 재개 spawn(「5-1」) 때, 계약 2.11 에서 이어 갈지 가를 때(「서버 판단 확인」) |
+```
+
+**M0b** — 아래 원문을 바꾼다.
+
+```text
+| `references/scope.md` | 실행 범위(`<SCOPE>`)가 `full` 이 아닐 때의 후보 판정, `design_review` 결과, `wait_review` 재개 때 |
+```
+
+바꿀 문구:
+
+```text
+| `references/design-state.md` | 계약 2.11 에서 poll 후보의 설계 사전 검사, 「설계 승인」 된 작업(`build`), 설계 상태 결과 처리 때 |
+```
+
+**M1** — 아래 원문을 바꾼다.
+
+```text
+- **실행 범위**는 선택이다: "설계만"·"설계까지" → `design`, "구현부터"·"개발자동" → `build`, 없으면 `full`. 정한 값을
+  `<SCOPE>` 로 기억하고 `team.start` 의 `scope` 에 남긴다(「1. 시작」 5번, 압축 뒤 `RUN` 의 `scope` 로 복원). 포인터에
+  `SCOPE=<SCOPE>` 를 싣고 워커가 `/dflow-dev --scope` 로 넘긴다(정본 `/dflow-dev` SKILL.md 「실행 범위」). `design` 은 설계를 마치고
+  사람의 검토를 기다리며 멈추고(`design_review`), `build` 는 사람이 쓴 설계(개발 브랜치 `<TASKS>/<TSK>/design.md`)나 검토 대기 설계에서
+  구현한다. `full` 이 아니면 후보 판정·결과 처리에 `references/scope.md` 를 Bash `cat` 으로 읽어 더한다. 시작 보고에 범위를 한 줄 적는다.
+```
+
+바꿀 문구:
+
+```text
+- **설계 방식은 인자가 아니다**(계약 2.11, 설계 상태 스펙 D27). 사람이 WBS 작업 패널에서 작업마다 고르고, 팀장은 서버 판단 `action` 을
+  포인터 `SCOPE` 로 넘긴다(「5」 4번). 옛 인자 "설계만"·"구현부터" 가 오면 쓰지 않고 그렇다고 한 줄 알린다.
+```
+
+**M2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+  `claimed_by` 불일치)를 무시하고 진행하며, 띄우기 전에 무엇이 남아 있고 무엇을 잃는지 한 줄로 보고한다.
+```
+
+더할 문구:
+
+```text
+  계약 2.11 서버에서는 서버 `mine` 이 거짓이면(다른 PC 가 30분 안에 돌렸거나 다른 신원이 잡았다) 띄우지 않는다(`references/resume.md`
+  「서버 판단 확인」).
+```
+
+**M3** — 아래 원문을 바꾼다.
+
+```text
+- `RUN` 의 `scope`(`team.start` 의 `scope`, 없는 옛 줄은 `-` = `full`)가 실행 범위 `<SCOPE>` 다.
+```
+
+바꿀 문구:
+
+```text
+- `RUN` 의 `scope` 는 옛 팀장 기록과의 호환 칸이다. 계약 2.11 팀장은 `server` 를 적고 이 값을 쓰지 않는다(범위는 작업마다 서버 판단).
+```
+
+**M4** — 아래 원문을 바꾼다.
+
+```text
+  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit`·`design_waiting`·`design_review` 은 제외
+```
+
+바꿀 문구:
+
+```text
+  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit`·`design_waiting`·`design_review`·`design_reopened` 은 제외
+```
+
+**M5** — 아래 원문을 바꾼다.
+
+```text
+- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`)을 받지 않은 팀원이다.
+```
+
+바꿀 문구:
+
+```text
+- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`·`design_reopened`)을 받지 않은 팀원이다.
+```
+
+**M6** — 아래 원문을 바꾼다.
+
+```text
+     거두고, 이어 가기는 `references/scope.md` 「2」 만 한다.
+```
+
+바꿀 문구:
+
+```text
+     거두고, 「설계 승인」 뒤에는 「2-3」 의 `build`(승인된 작업)가 이어 가기를 부른다.
+```
+
+**M7** — 아래 줄 바로 뒤에 더한다.
+
+```text
+     - `.result` 가 없거나, 있어도 status 가 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`)이 아니다.
+       최종 판정이 있으면 재개가 아니라 「3. 결과 처리」 의 몫이다.
+```
+
+더할 문구:
+
+```text
+       단 `RETRY_DUE`(`lead-state.sh` — fetch·push 실패 뒤 30분)인 `skipped` 는 최종 판정이 아니다(12절 Y11). `WARN_RETRY` 면 「멈춤」 이다.
+```
+
+**M8** — 아래 줄 바로 뒤에 더한다.
+
+```text
+       `claude-<host>` 와 같거나 팀원 라벨 `<신원>/<host>/w<슬롯>` 의 가운데 칸이 `<host>` 다(이 PC 가 claim 했다).
+```
+
+더할 문구:
+
+```text
+       계약 2.11 이면 `references/resume.md` 「서버 판단 확인」 도 통과한다(`same_host` 는 옛 서버의 대체 판정).
+```
+
+**M9** — 아래 원문을 바꾼다.
+
+```text
+  `rate-limit 대기(<HH:MM>)`·`중단 표식 불일치`·`중단 표식 삭제 실패`·`거두기 실패`·`살아 있는 팀원`·`서버 <status>`·`서버 조회 실패`(`references/restart.md`), 또는 결과 줄의
+```
+
+바꿀 문구:
+
+```text
+  `rate-limit 대기(<HH:MM>)`·`중단 표식 불일치`·`중단 표식 삭제 실패`·`거두기 실패`·`살아 있는 팀원`·`서버 <status>`·`서버 조회 실패`(`references/restart.md`),
+  계약 2.11 의 `references/resume.md` 「서버 판단 확인」 사유·`사람 설계 초안 있음`·`fetch·push 3회 연속 실패`·`설계 멈춤 미완료`, 또는 결과 줄의
+```
+
+**M10** — 아래 줄 바로 뒤에 더한다.
+
+```text
+   상태 열이 `CL` 인 행만 센다(`--scope claimed` 는 승인 대기인 `RP` 행도 돌려준다).
+```
+
+더할 문구:
+
+```text
+   계약 2.11 이면 이 목록의 id8 마다 `references/resume.md` 「서버 판단 확인」 을 돌려 사유를 그 표의 것으로 적는다. 그 표가 띄우라고
+   가르는 것은 「설계 승인」 된 작업(`action=build`)뿐이다 — 멈춤이 아니라 재개 대상으로 넘긴다(「5-1」 이 원격 agent 브랜치에서
+   워크트리를 만든다. 설계 상태 스펙 12절 Y3 이 여는 유일한 새 길).
+```
+
+**M11** — 아래 원문을 바꾼다.
+
+```text
+5. `team.start`(backend, slots, until, wp, scope)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. `scope` 는 `<SCOPE>`(`full`·`design`·`build`)다. 3번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
+```
+
+바꿀 문구:
+
+```text
+5. `team.start`(backend, slots, until, wp, scope)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. `scope` 는 늘 `server` 다(설계 방식은 작업마다 서버 판단 — 「인자」). 3번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
+```
+
+- [ ] **Step 4: `SKILL.md` — 「2-1」·「2-3」**
+
+**M12a** — 아래 원문을 바꾼다.
+
+```text
+    "<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until '<UNTIL>' --interval 180 --recheck-cycles 10 \
+```
+
+바꿀 문구:
+
+```text
+    "<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --lead --until '<UNTIL>' --interval 180 --recheck-cycles 10 \
+```
+
+**M12b** — 아래 줄 바로 뒤에 더한다.
+
+```text
+- `--wp` 에는 WP 범위(`team.start` 의 `wp`)를 공백 없는 쉼표 구분으로 넣는다. 범위가 전체(`-`)면 플래그를 생략한다.
+  poll.sh 가 형식(`WP-<숫자>` 또는 `<모듈>/WP-<숫자>`)을 검사해 틀리면 exit 2 로 끝나며, 번호 앞의 0 은 무시한다.
+```
+
+더할 문구:
+
+```text
+- `--lead`(계약 2.11): 서버가 `mine` 을 팀장 기준으로 계산한다. 새 서버면 ready 줄에 넷째 칸 `action` 이 붙고 `action` 이
+  `full`·`design`·`build` 이고 `mine` 인 것만 온다(12절 Y4). 옛 서버는 종전과 같다.
+```
+
+**M13a** — 아래 줄 바로 뒤에 더한다.
+
+```text
+  파생한 값이다. 팀장이 다시 계산하지 않는다). 다른 값이면 **"멈춤" 표에 사유 `다른 PC claim` 으로 적고 띄우지 않는다.**
+```
+
+더할 문구:
+
+```text
+  계약 2.11 이면 `host` 대신 요청의 `mine` 으로 가른다(거짓이면 「멈춤」 `다른 PC 도는 중`). `design_state` 가 `review` 면 띄우지 않고
+  "「설계 승인」 뒤에 이어 갑니다" 를 한 줄 알린다. 그 밖에는 서버 판단이 `skip` 이어도 띄운다(12절 Y10).
+```
+
+**M13b** — 아래 원문을 지운다(그 줄을 통째로).
+
+```text
+- 요청 작업이 설계 검토 대기(`wait_review`)면 범위와 무관하게 포인터 `SCOPE=build` 로 띄운다(`references/scope.md` 「2」 2).
+```
+
+**M14** — 아래 줄 바로 뒤에 더한다.
+
+```text
+로 부르면 무필터로 전체 재개 요청이 온다)면 `beat` 는 이미 갱신됐으므로 잠금은 유효하고, 그 기상의 요청 처리만 건너뛴다.
+```
+
+더할 문구:
+
+```text
+
+**`build`(계약 2.11)는 「설계 승인」 된 작업 목록이다.** 기상 블록 요약 끝의 `build` 칸이며, 처리는 `references/design-state.md` 「2」 다
+(claimed 원소를 재개 대상으로. `"NULL"` 은 조회 실패).
+```
+
+**M15** — 아래 줄 바로 뒤에 더한다.
+
+```text
+   새 작업보다 먼저다. rate-limit 보류 중에는 재개·새 작업 모두 띄우지 않는다(`RL_DUE` 슬롯 자신의 재투입만 예외).
+```
+
+더할 문구:
+
+```text
+   기상 블록 요약의 `build` 의 claimed 원소(「설계 승인」 된 작업, 계약 2.11)와 재구성의 `RETRY_DUE`(fetch·push 실패 재시도)도 재개
+   대상이다 — 새 작업보다 먼저다.
+```
+
+**M16** — 아래 원문을 바꾼다.
+
+```text
+| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다(겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌 수 있다). 일시 제외는 대조하지 않는다(poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정한다, 「2-1」). 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 보고와 `team.result` 는 같게 하되, 일시 제외가 아니라 **선행 대기**에 넣는다(아래 「선행 사전 검사」). `deps_unmet` 이 비었고 `deps_nohead` 가 비어 있지 않으면 아래 「선행 반영 사전 검사」 를 거친다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다. `<SCOPE>` 가 `full` 이 아니면 이 판정에 `references/scope.md` 「1」 을 더한다 |
+```
+
+바꿀 문구:
+
+```text
+| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름[<TAB>action]` 에서 순번은 버리고 id8 과 `action`(계약 2.11, 없으면 `full`)을 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다(겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌 수 있다). 일시 제외는 대조하지 않는다(poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정한다, 「2-1」). 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 보고와 `team.result` 는 같게 하되, 일시 제외가 아니라 **선행 대기**에 넣는다(아래 「선행 사전 검사」). `deps_unmet` 이 비었고 `deps_nohead` 가 비어 있지 않으면 아래 「선행 반영 사전 검사」 를 거친다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다. `action` 이 `design` 이면 `deps_unmet` 이 있어도 선행 대기에 넣지 않는다(설계만 한다, 스펙 6.6). spawn 전에 아래 「설계 사전 검사」 를 거친다 |
+```
+
+**M17** — 아래 줄 바로 뒤에 더한다.
+
+```text
+- 모두 `REFLECTED` 면 그대로 spawn 한다.
+```
+
+더할 문구:
+
+```text
+
+**설계 사전 검사**(계약 2.11): `action` 이 있는 후보는 띄우기 전에 `references/design-state.md` 「1」 을 한다.
+```
+
+- [ ] **Step 5: `SKILL.md` — 「3」 결과 표·「5」·「5-1」·「금지」**
+
+**M18a** — 아래 원문을 바꾼다.
+
+```text
+| `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙, 아니면 `done` 과 같다 | 사유 보고 |
+```
+
+바꿀 문구:
+
+```text
+| `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재, 계약 2.11 의 `설계 관문(<code>)`·`사람 설계 초안 있음`·서버 판단 사유) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙, 아니면 `done` 과 같다 | 사유 보고. `사람 설계 초안 있음` 은 「멈춤」 표에도 |
+| `skipped`(`fetch 실패`·`push 실패`·`다른 PC 도는 중(<runner>)`, 계약 2.11) | 해제 | 일시 제외 | **지우지 않는다**. `parked` 로 | `references/design-state.md` 「3」 |
+```
+
+**M18b** — 아래 원문을 바꾼다.
+
+```text
+| `design_waiting`(설계 완료·선행 대기, 사유는 미충족 선행 ref) | 해제 | 없음 | **지우지 않는다**. `.dflow-agent` 를 `parked` 로 | 실패가 아니다(차단기 연속 수를 0 으로). 재개는 `references/design-ahead.md` 2·4번 |
+```
+
+바꿀 문구:
+
+```text
+| `design_waiting`(설계 완료·선행 대기, 사유는 미충족 선행 ref) | 해제 | 없음 | **지우지 않는다**. `.dflow-agent` 를 `parked` 로 | 실패가 아니다(차단기 연속 수를 0 으로). 재개는 `references/design-ahead.md` 2·4번. `design-done 미확인` 이면 `references/design-state.md` 「3」 먼저 |
+```
+
+**M18c** — 아래 원문을 바꾼다.
+
+```text
+| `design_review`(설계만 멈춤, `<SCOPE>`=`design`) | 해제 | 없음 | `done` 과 같다(설계는 agent 브랜치에 push 돼 있다) | 실패가 아니다(차단기 연속 수를 0 으로). 좌석은 「설계 검토 대기」. 이어 가기는 `references/scope.md` 「결과」 |
+```
+
+바꿀 문구:
+
+```text
+| `design_review`(설계 검토 대기로 멈춤) | 해제 | 없음 | `done` 과 같다(설계는 push 돼 있다) | 실패가 아니다(차단기 0). 보고·`design-done 미확인` 은 `references/design-state.md` 「3」 |
+| `design_reopened`(설계를 사람에게 되돌렸거나 주문이 바뀜, 계약 2.11) | 해제 | 없음 | 미커밋 변경이 있어도 지운다(`references/design-state.md` 「3」) | 실패가 아니다(차단기 0) |
+```
+
+**M19** — 아래 원문을 바꾼다.
+
+```text
+   - `SCOPE` 는 「인자」 의 `<SCOPE>` 다. 재개(「5-1」)·재시작(restart.md 재투입)도 같은 값을 싣는다 — 단 `references/scope.md` 가
+     정한 재개(검토 대기 설계를 구현으로 넘기기)는 `build` 다.
+```
+
+바꿀 문구:
+
+```text
+   - `SCOPE` 는 그 주문의 서버 판단 `action` 이다(계약 2.11). 새 작업은 poll 줄의 넷째 칸이고, 비었으면(옛 서버) `full` 이다. 재개(「5-1」)·
+     재시작(restart.md 재투입)은 `references/resume.md` 「서버 판단 확인」 의 `action`(`full`·`design`·`build`, 그 밖은 `full`)이다 — 워커는
+     잡힌 작업에서 서버 `claim_scope` 를 따른다.
+```
+
+**M20a** — 아래 원문을 바꾼다.
+
+```text
+같은 작업을 다시 띄우는 것은 다섯뿐이다(다섯째는 「5-2. 해소 spawn」 의 해소 워커다. 주문이 `reported`·`approved` 라 개발 재spawn 이 아니며 `resolve-decide.sh` 판정 안에서만 띄운다). poll 이 그 작업을 다시 돌려준 경우(일시 제외가 풀린 `skipped`,
+제외하지 않는 `failed rate-limit`), 고아 스캔이 "재개 가능" 으로 분류한 중단 작업, `--resume` 으로 사람이 지목한
+작업, 자동 재시작(`references/restart.md`)이 다시 띄우는 작업이다. 뒤의 셋은 이 절이 아니라 「5-1. 재개 spawn」 의 절차로 띄운다(워크트리를 새로 만들지 않고 claim 도
+```
+
+바꿀 문구:
+
+```text
+같은 작업을 다시 띄우는 것은 여섯뿐이다(다섯째는 「5-2. 해소 spawn」 의 해소 워커다. 주문이 `reported`·`approved` 라 개발 재spawn 이 아니며 `resolve-decide.sh` 판정 안에서만 띄운다). poll 이 그 작업을 다시 돌려준 경우(일시 제외가 풀린 `skipped`,
+제외하지 않는 `failed rate-limit`), 고아 스캔이 "재개 가능" 으로 분류한 중단 작업, `--resume` 으로 사람이 지목한
+작업, 자동 재시작(`references/restart.md`)이 다시 띄우는 작업, 여섯째로 「설계 승인」 된 작업의 이어 가기(계약 2.11, 「2-3」 의 `build`)다. 뒤의 넷은 이 절이 아니라 「5-1. 재개 spawn」 의 절차로 띄운다(워크트리를 새로 만들지 않고 claim 도
+```
+
+**M20b** — 아래 원문을 바꾼다.
+
+```text
+- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 다섯뿐이다. `blocked` 는 재spawn 하지 않는다.
+```
+
+바꿀 문구:
+
+```text
+- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 여섯뿐이다. `blocked` 는 재spawn 하지 않는다.
+```
+
+**M21** — 아래 원문을 바꾼다.
+
+```text
+중단된 작업을 이어 띄운다. 새 작업 spawn 과 두 가지가 다르다. **워크트리를 새로 만들지 않고**(남아 있으면
+그대로 쓴다) **claim 하지 않는다**. 대상은 넷이다: 고아 스캔의 "재개 가능"(**자동**, 대기 큐보다 먼저), 좌석표 「이어서 시작」
+의 `resume_requests`(**요청**, 재시도 상한 무시), `references/restart.md` 「재투입」(**재시작**), `--resume <id8>`(**지목**,
+자동 판정의 거부 사유 무시. 서버 status 가 `claimed` 일 때만 재개다). 띄울 때마다 `references/resume.md` 를 Bash `cat` 으로
+읽고 그 0~9항 절차(입장 제어 → 손실 보고 → 다른 PC 경고 → 워크트리 확보 → `TASK_DIR`·`DOCKER` → 슬롯·`.dflow-agent` 되돌리기
+→ 포인터 재작성 → 중단 표식 정리·띄우기 → 옛 `.result` 삭제 → `team.spawn`(`resume`))를 그대로 따른다.
+```
+
+바꿀 문구:
+
+```text
+중단된 작업을 이어 띄운다. 새 작업 spawn 과 두 가지가 다르다. **워크트리를 새로 만들지 않고**(남아 있으면
+그대로 쓴다) **claim 하지 않는다**. 대상은 다섯이다: 고아 스캔의 "재개 가능"(**자동**, 대기 큐보다 먼저), 좌석표 「이어서 시작」
+의 `resume_requests`(**요청**, 재시도 상한 무시), `references/restart.md` 「재투입」(**재시작**), `--resume <id8>`(**지목**,
+자동 판정의 거부 사유 무시. 서버 status 가 `claimed` 일 때만 재개다), 「2-3」 의 `build` 의 claimed 원소(**승인**, 계약 2.11 — 워크트리가
+없으면 원격 agent 브랜치에서 만든다). 띄울 때마다 `references/resume.md` 를 Bash `cat` 으로 읽고 「서버 판단 확인」(계약 2.11)과
+그 0~9항 절차(입장 제어 → 손실 보고 → 다른 PC 경고 → 워크트리 확보 → `TASK_DIR`·`DOCKER` → 슬롯·`.dflow-agent` 되돌리기
+→ 포인터 재작성 → 중단 표식 정리·띄우기 → 옛 `.result` 삭제 → `team.spawn`(`resume`))를 그대로 따른다.
+```
+
+**M22a** — 아래 원문을 바꾼다.
+
+```text
+  예외 둘: (1) 머지 충돌 표시 heartbeat(`merge_conflict` 설정·해제, `references/merge-conflict.md`
+  「3」)는 팀장이 한다. 주문 상태를 바꾸지 않고 표시 열만 쓴다. (2) 팀장이 띄운
+  해소 워커의 `/dflow-merge --resolve` 가 개발 브랜치에 한 건을 머지·push 한다. "스윕의 머지만 팀장이 한다" 의 유일한
+  예외다. 경합은 두 쪽 모두 non-fast-forward 거부로 드러나고, force push 는 여전히 금지다.
+```
+
+바꿀 문구:
+
+```text
+  예외 넷: (1) 머지 충돌 표시 heartbeat(`merge_conflict` 설정·해제, `references/merge-conflict.md`
+  「3」)는 팀장이 한다. 주문 상태를 바꾸지 않고 표시 열만 쓴다. (2) 팀장이 띄운
+  해소 워커의 `/dflow-merge --resolve` 가 개발 브랜치에 한 건을 머지·push 한다. "스윕의 머지만 팀장이 한다" 의 유일한
+  예외다. 경합은 두 쪽 모두 non-fast-forward 거부로 드러나고, force push 는 여전히 금지다. (3) 「2-3」 「설계 사전 검사」 의
+  `design-reopen`(ready 인 구현자동 작업의 사람 설계를 되돌린다 — 주문의 설계 상태만 바꾼다). (4) 「3. 결과 처리」 의 설계 멈춤 이어받기
+  에서 부르는 `design-done`(워커가 push 까지 마친 멈춤을 서버에 기록만 한다, 설계 상태 스펙 6.3).
+```
+
+재독 세트 크기를 확인한다:
+
+```bash
+sed -n '/^\*\*참조\*\*/,/^## 두 번째 팀장/p;/^## 2\. 기상과 감시/,/^## 4\. 승인 스윕/p' .claude/skills/dflow-team/SKILL.md | wc -m
+```
+
+Expected: `49646` 안팎(5만 미만이면 통과).
+
+- [ ] **Step 6: `references/design-state.md`(새)·`resume.md`**
+
+**Q2** — `references/design-state.md` 를 새로 만든다.
+
+````markdown
+# /dflow-team 설계 상태 (계약 2.11)
+
+SKILL.md 「2-3」 의 poll exit 0·`build`, 「3. 결과 처리」 가 가리킬 때 Bash `cat` 으로 읽는다. 옛 서버(계약 < 2.11)에서는 읽지 않는다 —
+모든 작업이 완전자동이다. 워커 쪽 정본은 `/dflow-dev` `references/orch/start.md` 「서버 판단」 과 worker-mode.md 「설계 상태의 결과 줄」 이고,
+설계는 wbs-web 리포 docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md 6절·12절(킷에는 미동봉)이다.
+
+## 1. 설계 사전 검사
+
+poll 줄에 넷째 칸 `action` 이 있는 후보를 띄우기 전에 개발 브랜치의 설계 문서를 본다(스펙 6.2 「띄우기 전 검사」). 워커를 띄워 곧 되돌리는
+낭비와, 사람 초안을 에이전트 설계가 옮기거나 덮는 일(12절 L5)을 막는다. `git fetch origin` 은 기상마다 한 번만 하고, 실패하면 이 기상에는
+`action` 이 있는 후보를 하나도 띄우지 않는다(모르는 채 띄우지 않는다. 제외도 하지 않는다 — 다음 기상에 다시 본다). `<TASK_DIR>` 은 SKILL.md
+「5. 팀원 spawn」 3번 블록으로 여기서 먼저 구하고, 「5」 는 그 값을 다시 쓴다.
+```bash
+git -C '<MAIN>' fetch -q origin || echo FETCH_FAIL
+git -C '<MAIN>' show "origin/<개발브랜치>:<TASK_DIR>/design.md" 2>/dev/null | grep '^## ' || echo NO_DESIGN
+```
+- `action=build`(구현자동 — 사람이 「설계 확정」 했다): 제목 줄만 보고 Design 게이트의 최소 구조 5절(접근·변경 파일 목록·테스트 전략·수용
+  기준 매핑·불변 규칙 — 번호와 덧붙인 말은 무시한다)이 모두 있는지 가린다. `NO_DESIGN` 이거나 절이 빠졌으면 띄우지 않고
+  `.claude/skills/dflow-work/scripts/dflow.sh design-reopen <id8> --reason "<design.md 없음 | 빠진 절: …>"` 를 부른다. 서버가 사람 설계
+  대기로 되돌리고 사유를 화면에 보인다(사람이 고쳐 다시 확정하면 poll 이 다시 준다). 제외는 하지 않는다. 보고 한 줄:
+  `<TSK> 사람 설계를 되돌렸습니다 — <사유>`. design-reopen 이 실패하면 띄우지 않고 사유 `설계 되돌리기 실패(exit <n>)` 로 일시 제외에 넣고
+  `team.result`(slot `-`, status `skipped`)를 남긴다.
+- `action=design`·`full`: `NO_DESIGN` 이 아니면 사람이 쓴 설계 초안이 개발 브랜치에 있다. 띄우지 않고 「멈춤」 표에
+  `사람 설계 초안 있음 — 방식을 구현자동으로 바꾸거나 초안을 지우라` 로 올리며, `team.result`(slot `-`, status `skipped`, 사유
+  `사람 설계 초안 있음`)를 남겨 일시 제외한다(poll 이 30분 뒤 다시 준다, 12절 L11).
+- 통과하면 그대로 spawn 한다. 포인터의 `SCOPE` 는 그 `action` 이다(SKILL.md 「5」 4번).
+
+## 2. 「설계 승인」 된 작업(`build`)
+
+기상 블록 요약 끝의 `build` 칸이다(옛 서버면 칸이 없다). 서버가 팀장 lease 의 프로젝트로 이미 좁혀 준 "이 신원·이 PC 가 띄울 build 주문"
+이다.
+- `"NULL"` 이면 조회 실패다. 그 기상에는 처리하지 않고 `build_err` 를 한 줄 보고한다(빈 목록과 뭉개지 않는다).
+- 배열이면 `status` 가 `claimed` 인 원소(「설계 승인」 된 설계 검토 작업 — poll 에 나오지 않는다) 중 슬롯·영구 제외에 없는 것을 재개 대상에
+  더한다(SKILL.md 「2-3」 4번의 순서, 「5-1」 의 **승인** 대상). 이 PC 에 워크트리가 있으면 그것을, 없으면 `references/resume.md` 3항이 원격
+  agent 브랜치에서 만든다. 띄우기 전 확인은 resume.md 「서버 판단 확인」 이다.
+- `ready` 원소(구현자동 확정)는 poll(`action=build`)이 가져오므로 여기서 띄우지 않는다.
+
+## 3. 결과
+
+SKILL.md 「3. 결과 처리」 표가 가리키는 보충이다.
+- **`design_review`**: 실패가 아니다. 보고 한 줄: `<TSK> 설계 검토 대기(<branch>) — 「설계 승인」을 누르면 다음 TICK 에 팀장이 구현을
+  이어 간다`.
+- **`design-done 미확인`**(`design_review`·`design_waiting` 의 사유): 워커가 push 까지 마쳤는데 design-done 이 네트워크로 실패했다. 워크트리를
+  지우기 전에 `.claude/skills/dflow-work/scripts/dflow.sh design-done <id8>` 를 부른다(설계 멈춤 이어받기, 스펙 6.3). 실패하면 워크트리를
+  지우지 않고 `parked` 로 두며 다음 기상에 다시 부르고, 「멈춤」 표에 사유 `설계 멈춤 미완료` 로 올린다.
+- **`skipped fetch 실패`·`skipped push 실패`**(잡은 작업): 워크트리를 지우지 않는다(push 하지 못한 커밋이 있을 수 있다). 30분 뒤 재구성의
+  `RETRY_DUE` 로 고아 스캔이 다시 띄우고, 같은 계열이 3회 연속이면 `WARN_RETRY` 로 「멈춤」 표에 `fetch·push 3회 연속 실패` 를 올린다
+  (12절 Y11 — 네트워크·권한을 사람이 확인한 뒤 `--resume`).
+- **`skipped 다른 PC 도는 중(<runner>)`**: 워크트리를 지우지 않고 「멈춤」 표에 올린다(다른 PC 의 세션이 이어 간다).
+- **`design_reopened`**(설계를 사람에게 되돌렸거나 주문이 바뀜): 실패가 아니다. 워크트리는 미커밋 변경이 있어도 지운다 — 설계 원본은 개발
+  브랜치이거나 이미 push 돼 있다. `git worktree remove --force <워크트리>`(Orca 는 Orca 정리 명령에 `--force`) 뒤 backends.md
+  「고아 정리 규칙」 5번의 생성 브랜치 정리. 보고 한 줄: `<TSK> 설계를 사람에게 되돌렸습니다 — <사유>. 다시 확정·승인되면 새로 띄웁니다`.
+````
+
+U 는 `references/resume.md` 다.
+
+**U1** — 아래 원문을 바꾼다.
+
+```text
+대상은 넷이다.
+```
+
+바꿀 문구:
+
+```text
+대상은 다섯이다.
+```
+
+**U2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+  한다.
+```
+
+더할 문구:
+
+```text
+- **승인**(계약 2.11): 기상 블록 요약의 `build` 에 든 claimed 주문(「설계 승인」 된 설계 검토 작업). 워크트리가 이 PC 에 없으면 3항이 원격
+  agent 브랜치에서 만든다(설계 상태 스펙 12절 Y3 이 여는 유일한 새 길). 재시도 상한은 자동 갈래와 나눠 쓴다.
+```
+
+**U3** — 아래 줄 바로 앞에 더한다.
+
+```text
+절차:
+```
+
+더할 문구:
+
+````text
+## 서버 판단 확인 (계약 2.11)
+
+`dflow.sh contract-ge 2.11` 이 exit 0 이면 대상마다 아래 절차 0항 전에 한 번 돈다(옛 서버는 건너뛴다 — 종전 판정 그대로). 이 표는 이미
+있는 안전장치(살아 있는 슬롯·최종 결과·제외·재시도 상한·`PARKED`·선행 반영 검사)를 통과한 대상에만 쓰고, **띄우지 않게 막기만 한다**.
+새로 여는 길은 **승인** 대상의 원격 재개 하나다(설계 상태 스펙 6.2·12절 Y3). 「1. 시작」 3번의 멈춤 사유도 이 표로 적는다.
+```bash
+(.claude/skills/dflow-work/scripts/dflow.sh show '<id8>') | jq -r '.order | [.status, (.mine | tostring), (.action // "-"), (.action_reason // "-"),
+  (.design_state // "-"), (.runner // "-"), (.item.stage // "-"), (.claimed_by // "-")] | @tsv' || echo SHOW_FAILED
+```
+위에서부터 보고 처음 맞는 줄에서 멈춘다. `워크트리` 는 이 PC 에 그 id8 의 팀원 워크트리가 있는지다(`parked` 포함).
+
+| 조건 | 처리 |
+|---|---|
+| `SHOW_FAILED`·빈 출력 | 이번 기상에 띄우지 않는다(「멈춤」 사유 `서버 조회 실패`는 두 기상 연속일 때만) |
+| status 가 `claimed` 가 아님 | 위 대상별 규칙(지목의 `ready`·`reported`·`approved` 갈래). 자동·재시작·승인은 띄우지 않는다 |
+| `mine` 이 거짓 | 띄우지 않는다. 「멈춤」 사유 `다른 PC 도는 중(<runner>)`(runner 가 있을 때) 또는 `다른 신원 점유` |
+| `design_state` 가 `review` | 띄우지 않는다. 「멈춤」 에 올리지 않는다(사람의 「설계 승인」 을 기다린다 — 승인되면 **승인** 대상으로 온다) |
+| 대상이 요청·지목 | 띄운다 — `action` 이 `skip`·`wait` 이어도(사람의 명시 요청, 12절 Y10·Y12. 선행이 아직이면 워커가 다시 보고 `design_waiting` 으로 곧 끝난다 — 한 번 누름에 한 번이다) |
+| `action` 이 `wait` | 띄우지 않는다. 「멈춤」 에 올리지 않는다(선행 대기 — 설계 완료 대기는 `references/design-ahead.md` 2번이 선행이 풀린 뒤 본다) |
+| 대상이 자동·재시작·승인이고 점유 라벨이 팀원 라벨(`<신원>/<host>/w<n>`)이 아님 | 띄우지 않는다. 「멈춤」 사유 `수동 세션 점유`(사람이 손으로 잡은 작업은 팀장이 이어받지 않는다, 12절 Y9) |
+| `action` 이 `skip` 이고 워크트리 있음, 대상이 재시작·자동 | 띄운다(결과 없이 죽은 이 PC 의 팀원만 — 종전 재시작 규칙) |
+| `action` 이 `skip` 이고 워크트리 없음, 단계가 `ip` 이상 | 띄우지 않는다. 「멈춤」 사유 `워크트리 없음 — 구현 중`(다른 PC 의 워크트리에 push 하지 않은 구현이 있을 수 있다) |
+| `action` 이 `skip`(그 밖) | 띄우지 않는다. 「멈춤」 사유는 `<action_reason>` |
+| `action` 이 `full`·`design` 이고 워크트리 없음 | 띄우지 않는다. 「멈춤」 사유 `워크트리 없음`(종전 — 사람이 `--resume` 으로 지목하면 띄운다) |
+| 그 밖(`full`·`design`·`build`) | 띄운다. 포인터 `SCOPE` 는 그 `action` 이다. `action` 이 `full`·`build` 이고 선행 중 `reached` 인데 `head_sha` 가 없는 것이 있으면 SKILL.md 「2-3」 「선행 반영 사전 검사」 를 먼저 하고, `NOT_REFLECTED` 면 이번 기상에 띄우지 않는다(12절 Y5 — 다음 기상에 다시 본다) |
+
+````
+
+**U4** — 아래 줄 바로 뒤에 더한다.
+
+```text
+   `--resume` 으로만 오므로 사람이 지목한 것으로 보고 진행한다.
+```
+
+더할 문구:
+
+```text
+   계약 2.11 이면 이 경고 대신 「서버 판단 확인」 의 `mine`·`runner` 로 가른다. `mine` 이 참인데 `runner` 가 다른 PC 면 그 PC 가 30분 넘게
+   조용하다는 뜻이므로 "원래 PC 의 세션이 살아 있으면 먼저 끄세요" 만 한 줄 적는다(12절 Y1).
+```
+
+**U5** — 아래 줄 바로 뒤에 더한다.
+
+```text
+     원격 agent 브랜치가 있으면 detach 하지 않고 그 브랜치로 만든다. 이어서 push 해야 하기 때문이다.
+```
+
+더할 문구:
+
+```text
+     로컬 agent 브랜치(`agent/<id8>-<slug>`)가 남아 있으면(지운 워크트리의 브랜치) 원격과 견준다(설계 상태 스펙 6.2). 로컬이 원격보다 앞서면
+     (원격이 로컬의 조상) `-B` 로 덮지 않고 로컬 브랜치로 만든다(`git worktree add <MAIN>/.claude/worktrees/dflow-<id8> agent/<id8>-<slug>`).
+     원격이 앞서거나 같으면 아래 명령 그대로다. 갈라졌으면 만들지 않고 「멈춤」(사유 `브랜치 갈라짐 <로컬 sha> <원격 sha>`)으로 보낸다.
+```
+
+- [ ] **Step 7: `design-ahead.md`·`restart.md`·`events.md`·`help.md`·`scope.md` 삭제**
+
+D 는 `design-ahead.md`, S 는 `restart.md`, V1 은 `events.md`, H 는 `help.md`, Q1 은 `scope.md` 다(`git rm` 으로 지운다).
+
+**D1** — 아래 줄 바로 뒤에 더한다.
+
+```text
+이 목록뿐이고 상한(아래 `DFLOW_DESIGN_AHEAD_MAX`)이 있어 조회가 적다.
+```
+
+더할 문구:
+
+```text
+0. 계약 2.11 이면 먼저 `references/resume.md` 「서버 판단 확인」 을 돈다. `action` 이 `wait` 면 아직이다(그대로 둔다). 표가 띄우지 않는다고
+   가르면(다른 PC·다른 신원 등) 이 목록과 3번의 상한에서 빼고 「멈춤」 표에 그 사유로 올린다(설계 상태 스펙 12절 Y8).
+```
+
+**D2** — 아래 줄 바로 뒤에 더한다.
+
+```text
+이유: 빈 슬롯이 셋이면 한 기상에 셋을 띄워 상한을 넘긴 채 설계만 쌓인다.
+```
+
+더할 문구:
+
+```text
+계약 2.11 이면 설계 완료 대기의 수는 2번 0에서 서버가 claimed·`mine`·단계 `dd` 로 확인한 것만 센다(다른 PC 로 옮긴 옛 잔재가 한도를
+차지하지 않게, 12절 Y8). 설계 검토(`review`) 작업의 설계 선행은 이 상한과 무관하다 — poll 이 `action=design` 으로 곧바로 준다(SKILL.md
+「2-3」 poll exit 0). 구현자동(`human`)은 서버가 선행이 풀릴 때까지 `wait` 로 둬 후보에 오지 않는다(스펙 6.6).
+```
+
+**D3** — 아래 줄 바로 뒤에 더한다.
+
+```text
+`resolved` 결과가 올 때까지 다시 고르지 않는다(`TOO_EARLY`) — 안 그러면 30분 일시 제외가 풀릴 때마다 같은 거부를 되풀이한다.
+```
+
+더할 문구:
+
+```text
+후보의 show(`show-<id8>.json`)에서 미충족 선행의 `stage` 가 `as` 이거나 없으면(선행에 주문이 없다 — 위임되지 않았다) 설계 선행으로 주지
+않고 시작·마감 보고에 `<id8> 선행 주문 없음: <ref>` 로 알린다. 서버가 늘 거부해 2시간마다 되풀이하기 때문이다(사람이 선행을 위임하거나
+강제 진행한다, 스펙 6.6).
+```
+**S1** — 아래 원문을 바꾼다.
+
+```text
+  재개한다(「판정」 4-1). `wait_review`(설계만·검토 대기)도 재시작하지 않는다(「판정」 4-2, 이어 가기는 `references/scope.md` 「2」).
+```
+
+바꿀 문구:
+
+```text
+  재개한다(「판정」 4-1). `wait_review`(설계만·검토 대기)도 재시작하지 않는다(「판정」 4-2. 「설계 승인」 뒤에는 SKILL.md 「2-3」 의 `build` 가 이어 가기를 부른다).
+```
+
+**S2** — 아래 원문을 바꾼다.
+
+```text
+| 4-2 | `local_phase=wait_review` | 설계만 멈춤(멈춤 절차 뒤 결과 줄 없이 끝남) | 같다(오른쪽) | 거두기 → `team.result`(status `design_review`, hash `-`, 사유 `-`) → 슬롯 해제, 워크트리는 SKILL.md 「3. 결과 처리」 `design_review` 행대로. `team.lost` 를 쓰지 않고 재시작하지 않는다 — 이어 가기는 `references/scope.md` 「2」 |
+```
+
+바꿀 문구:
+
+```text
+| 4-2 | `local_phase=wait_review` | 설계만 멈춤(멈춤 절차 뒤 결과 줄 없이 끝남) | 같다(오른쪽) | 거두기 → `team.result`(status `design_review`, hash `-`, 사유 `-`) → 슬롯 해제, 워크트리는 SKILL.md 「3. 결과 처리」 `design_review` 행대로. `team.lost` 를 쓰지 않고 재시작하지 않는다 — 「설계 승인」 뒤에는 SKILL.md 「2-3」 의 `build` 가 이어 간다. 계약 2.11 이면 거두기 전에 `dflow.sh show <id8>` 의 `.order.design_state` 를 본다. 비어 있으면 멈춤이 서버에 닿지 않은 것이다 — `team.result` 를 쓰지 않고 워크트리를 `parked` 로 두며 「멈춤」(사유 `설계 멈춤 미완료 — /dflow-team <종료시각> --resume <id8> 이 마저 한다`)으로 보낸다(워커의 「끝나지 않은 설계 멈춤 이어받기」 가 push·design-done 을 한다) |
+```
+
+**S3** — 아래 줄 바로 뒤에 더한다.
+
+```text
+재투입하지 않고 「판정」 4-1·4-2 의 오른쪽 칸대로 처리한다 — 선행이 아직이면 "재개 → 미충족 → 멈춤 → 재개" 가 끝없이 돈다.
+```
+
+더할 문구:
+
+```text
+계약 2.11 이면 `REINJECT_OK` 뒤에 `references/resume.md` 「서버 판단 확인」 도 통과해야 띄운다(아래 `same_host` 는 옛 서버의 대체 판정으로 남는다).
+```
+**V1** — 아래 원문을 바꾼다.
+
+```text
+  문자열(예: `WP-2,dict/WP-3`)이며 전체면 `-` 다. 재구성이 이 값으로 poll 의 `--wp` 를 복원한다. `scope` 는 실행 범위
+  `full`·`design`·`build` 다(SKILL.md 「인자」). 재구성이 `<SCOPE>` 를 복원한다.
+```
+
+바꿀 문구:
+
+```text
+  문자열(예: `WP-2,dict/WP-3`)이며 전체면 `-` 다. 재구성이 이 값으로 poll 의 `--wp` 를 복원한다. `scope` 는 계약 2.11 팀장이면 늘
+  `server` 다(설계 방식은 작업마다 서버 판단, SKILL.md 「인자」). 옛 줄의 `full`·`design`·`build` 는 재구성이 쓰지 않는다.
+```
+
+**H1** — 아래 원문을 바꾼다.
+
+```text
+/dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [effort] [WP-XX…] [설계만|구현부터]
+```
+
+바꿀 문구:
+
+```text
+/dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [effort] [WP-XX…]
+```
+
+**H2** — 아래 원문을 바꾼다.
+
+```text
+| 실행 범위 | 아니오 | `설계만` · `구현부터`(`개발자동`) | 설계만 하고 검토 대기로 멈추거나, 검토를 마친 설계·개발 브랜치의 사람 설계(`<작업 폴더>/design.md`)로 구현한다. 없으면 설계부터 마감까지 |
+```
+
+바꿀 문구:
+
+```text
+| 설계 방식 | — | (인자가 아니다) | 완전자동·설계 검토·구현자동은 D'Flow WBS 작업 패널에서 작업마다 고른다. 팀장은 작업마다 서버 판단을 따른다(옛 인자 `설계만`·`구현부터` 는 받지 않는다) |
+```
+
+**H3** — 아래 원문을 지운다(그 줄을 통째로).
+
+```text
+/dflow-team 18:00 설계만                설계까지만 하고 검토를 기다린다
+/dflow-team 18:00 구현부터              검토를 마친 설계·사람이 쓴 설계로 구현
+```
+
+**Q1** — 파일을 지운다.
+
+- [ ] **Step 8: 통과 확인**
+
+Run: `npx vitest run tests/skills/dflow-dev-scope.test.ts tests/skills/dflow-team-merge-conflict.test.ts tests/skills/dflow-team-restart-flow.test.ts tests/skills/dflow-team.test.ts tests/skills/dflow-team-design-ahead.test.ts tests/skills/dflow-team-restart-blocks.test.ts tests/skills/dflow-no-docker.test.ts tests/skills/dflow-key-select.test.ts`
+Expected: PASS(220건)
+
+Run: `npx vitest run tests/skills`
+Expected: Task 0 기준선에 없던 실패가 없다.
+
+- [ ] **Step 9: 커밋**
+
+```bash
+git rm -q .claude/skills/dflow-team/references/scope.md
+git add .claude/skills/dflow-team/SKILL.md .claude/skills/dflow-team/references/design-state.md .claude/skills/dflow-team/references/resume.md \
+  .claude/skills/dflow-team/references/design-ahead.md .claude/skills/dflow-team/references/restart.md \
+  .claude/skills/dflow-team/references/events.md .claude/skills/dflow-team/references/help.md \
+  tests/skills/dflow-dev-scope.test.ts tests/skills/dflow-team-merge-conflict.test.ts tests/skills/dflow-team-restart-flow.test.ts tests/skills/dflow-team.test.ts
+git commit -m "feat(dflow-team): 범위 인자를 없애고 작업마다 서버 판단을 따른다(계약 2.11)
+
+이어 갈지는 resume.md 「서버 판단 확인」 표 한 곳이 막고, 새로 여는 길은 「설계 승인」 된 작업의 원격 재개 하나다.
+설계 사전 검사·build 처리·결과 보충은 design-state.md 로 옮겨 재독 세트를 5만 자 안에 둔다. scope.md 는 지운다.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
