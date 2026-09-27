@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 15 App Router(route handlers·server actions), Supabase Postgres 17(plpgsql RPC, Management API 로 적용), TypeScript, vitest, POSIX sh(`dflow.sh`·`poll.sh`·`tick.sh`·훅), jq.
 
-**Spec:** `docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md`(5판 본문 + 12절 예외 대응표, 2026-09-27 승인). **12절이 본문과 다르면 12절을 따른다.** 이 계획서는 둘을 합친 규칙을 적고, 스펙이 계획서로 넘긴 빈칸은 아래 「계획에서 새로 정한 것」(P1~P17)으로 정했다. P17 은 빈칸이 아니라 스펙 6.3 과 일부러 다르게 정한 것이다. 상태 공간 모델은 `docs/superpowers/specs/2026-09-26-design-state-model/model5.py`(Task 2 가 P16 스위치를 더한다).
+**Spec:** `docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md`(5판 본문 + 12절 예외 대응표, 2026-09-27 승인). **12절이 본문과 다르면 12절을 따른다.** 이 계획서는 둘을 합친 규칙을 적고, 스펙이 계획서로 넘긴 빈칸은 아래 「계획에서 새로 정한 것」(P1~P18)으로 정했다. P17·P18 은 빈칸이 아니라 스펙 본문과 일부러 다르게 정한 것이다(P17 은 6.3, P18 은 7절의 `/dflow-poll` 알림 — P18 은 12절 Y4 를 따른 결과다). 상태 공간 모델은 `docs/superpowers/specs/2026-09-26-design-state-model/model5.py`(Task 2 가 P16 스위치를 더한다).
 
 ---
 
@@ -8717,6 +8717,5750 @@ git add .claude/skills/dflow-poll/SKILL.md .claude/skills/dflow-work/SKILL.md .c
 git commit -m "docs(dflow-poll·dflow-work): 설계 상태(계약 2.11) — /dflow-poll 은 full 만 착수, exit 11·12 와 design-done·design-reopen 안내
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 24: 설계 상태 서버 액션 — 방식·위임 한 번에 쓰기, 세 설계 버튼, 허브 설계 동작
+
+**Files:**
+- Create: `src/lib/agent/designPanel.ts`(`'use server'` 없음), `src/app/actions/designActions.ts`(`'use server'`)
+- Modify: `src/app/actions/wbsSpec.ts`, `src/app/actions/agentHub.ts`
+- Test: `tests/agent/design-panel.test.ts`(새), `tests/actions/design-actions.test.ts`(새), `tests/actions/wbs-spec.test.ts`, `tests/actions/agent-hub-actions.test.ts`
+
+**Interfaces:**
+- Consumes:
+  - Task 1 `designScreen`·`designButtons`·`designPushWarning`·`designModeChangeBlock`·`toDesignMode`·`DESIGN_MODES`, 타입 `ItemFacts`·`ScreenOrder`·`DesignMode`·`DesignState`·`DesignButton`(`src/lib/domain/designGate.ts`)
+  - Task 6 `applyWorkflowEvent` — `set_design_mode`(`itemId`·`mode` → `designModeChanged`), `design_accept`·`design_reopen`(`orderId`·`note`·`cas` → `actualChanged`·`skipped`), 실패 `{ conflict, reason, error }`(`design_mode_locked`·`design_gate`). 기존 `SKIPPED_WARN`
+  - Task 9 `ITEM_FACT_COLUMNS`·`ORDER_FACT_COLUMNS`·`loadItemFacts`·`orderFactsOf`·`FactItemRow`·`FactOrderRow`(`src/lib/agent/designFacts.ts`)
+  - 기존 `requireDelegationRight`·`applyDelegation`·`AgentDelegationResult`(`src/lib/agent/delegation.ts` — Task 7 이 취소 갈래를 바꿔도 서명은 같다), `requireProjectMember`·`resolveProjectId`(`src/lib/authz`), `recordProgressSnapshot`(`src/lib/data/snapshots.ts`)
+- Produces(Task 25·26 이 쓴다 — 이름과 타입을 바꾸지 않는다):
+
+```ts
+// src/lib/agent/designPanel.ts ('use server' 없음 — 서버 액션 밖의 로더·조립)
+export type DesignTarget = {
+  itemId: string; projectId: string
+  item: ItemFacts
+  active: (ScreenOrder & { id: string }) | null   // 활성 주문(ready·claimed·reported — 0077 로 항목당 하나)
+  orderStatuses: string[]                        // 항목의 모든 주문 status(방식 잠금 판정)
+  lastReview: 'approve' | 'reject' | null
+}
+export type DesignPanel = {
+  mode: DesignMode
+  designState: DesignState | null
+  screen: { row: number; label: string; note: string | null; hint: string | null } | null   // 3절 화면 행, 없으면 null
+  buttons: DesignButton[]
+  pushWarning: string | null
+  modeLock: string | null                        // 방식을 바꿀 수 없는 이유(null 이면 바꿀 수 있다)
+}
+export async function loadDesignTarget(admin: AdminClient, itemId: string): Promise<DesignTarget | null>  // 조회 실패는 throw
+export function designPanelOf(t: DesignTarget, nowMs: number): DesignPanel
+
+// src/app/actions/designActions.ts ('use server')
+export type DesignPanelResult = { ok: true; panel: DesignPanel; canAct: boolean } | { ok: false; error: string }
+export type DesignOpResult = { ok: boolean; error?: string; warning?: string }
+export async function getDesignPanel(itemId: string): Promise<DesignPanelResult>
+export async function setDelegationAndMode(itemId: string, delegated: boolean, mode: DesignMode): Promise<AgentDelegationResult & { modeChanged?: boolean }>
+export async function designAccept(itemId: string): Promise<DesignOpResult>   // 「설계 승인」
+export async function designConfirm(itemId: string): Promise<DesignOpResult>  // 「설계 확정」
+export async function designReopen(itemId: string, reason: string): Promise<DesignOpResult>  // 「설계 되돌리기」, 빈 사유면 서버 기본 사유
+
+// src/app/actions/wbsSpec.ts — WbsSpecDetail 에 선택 칸
+//   designMode?: DesignMode      (getWbsSpec 은 늘 채운다: toDesignMode(row.design_mode))
+
+// src/app/actions/agentHub.ts — HubProcessOp 에 세 종류
+//   | { kind: 'design_accept'; itemId: string }
+//   | { kind: 'design_confirm'; itemId: string }
+//   | { kind: 'design_reopen'; itemId: string; note: string }
+// runHubProcessOp 는 항목의 프로젝트를 확인한 뒤 designAccept·designConfirm·designReopen 을 부르고, 기존 반환 모양(HubProcessResult)을 따른다.
+```
+
+이 Task 에서 정한 동작은 다음과 같다.
+
+- `setDelegationAndMode` 는 쓰기 전에 현재 `design_mode` 를 읽는다. 읽기가 실패하면 아무것도 쓰지 않는다(에러 3원칙 ②).
+  - 방식이 바뀔 때만 `set_design_mode` 를 부른다. 방식이 그대로면 부르지 않으므로, 승인 이력(approved 주문)이 있는 항목을 다시 위임할 때 방식 잠금에 막히지 않는다.
+  - 위임을 켤 때는 방식을 먼저 쓰고 위임을 나중에 쓴다. 표식이 켜진 순간 팀장이 옛 방식으로 가져가는 틈이 없다. 방식 쓰기가 거부되면(`design_mode_locked` 등) 위임은 건드리지 않고 사유를 돌려준다.
+  - 방식을 쓴 뒤 위임이 실패하면 실패 결과에 `modeChanged` 를 실어, 화면이 바뀐 방식을 알 수 있게 한다.
+  - 위임을 끌 때는 위임을 먼저 풀고 방식을 쓴다. 주문 취소가 방식 잠금을 푼다. 이때 방식 쓰기가 실패하면 결과를 실패로 뒤집지 않고 `warning` 에 싣고 로그를 남긴다.
+- 세 버튼은 공용 함수 `runDesignOp` 를 거친다. 순서는 위임 권한(`requireDelegationRight`, D10) → `loadDesignTarget` → `designButtons` 로 버튼 재확인 → CAS 전이다.
+  - 활성 주문이 없거나 서버 판정에 그 버튼이 없으면 `ERR_STALE` 을 돌려준다. 화면이 낡았다는 뜻이다.
+  - CAS 는 `{ design_state, design_mode }` 로 건다. conflict 면 `ERR_CHANGED` 를, 그 밖의 전이 실패는 사유 문구를 그대로 돌려준다.
+  - 실적이 바뀌면 `after(recordProgressSnapshot)` 을 건다. RPC 가 단계·실적을 건너뛰었으면(`skipped`) `warning` 으로 알린다.
+  - 「설계 승인」과 「설계 확정」은 같은 `design_accept` 사건이다. RPC 가 주문 status(claimed·ready)로 ①·② 를 가른다.
+- `getDesignPanel` 은 멤버 가드를 통과하면 판정 재료와 위임 권한을 함께 읽고(`Promise.all`), 버튼 자격을 `canAct` 로 싣는다.
+- 허브의 항목 확인 분기는 op 의 kind 로 가른다. `'itemId' in op` 로 가르면 주문 op 에 `itemId` 칸을 끼워 넣어 주문의 프로젝트 확인을 건너뛸 수 있다. `stopOrderByAdmin` 은 그 확인에 기대므로 다른 프로젝트 주문을 멈추는 길이 열린다. 설계 버튼의 자격은 허브에서 좁히지 않고 액션이 위임 권한으로 본다.
+- 기존 `setAgentDelegation` 은 이 Task 에서는 지우지 않는다. 지금 부르는 곳은 `src/components/wbs/WbsSpecPanel.tsx`(QuickFields 의 `delegate`) 하나이고, Task 25 가 그 호출을 `setDelegationAndMode` 로 바꾼 뒤 이 함수와 전용 테스트를 지운다.
+
+- [ ] **Step 1: 실패하는 테스트 — 판정 재료와 서버 액션**
+
+`tests/agent/design-panel.test.ts`:
+
+```ts
+// tests/agent/design-panel.test.ts — WBS 작업 패널의 설계 영역 재료(설계 상태 스펙 3절·7절). designGate 판정은 실제 함수를 쓴다.
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({ loadItemFacts: vi.fn() }))
+vi.mock('@/lib/agent/designFacts', async (orig) => ({ ...(await orig<typeof import('@/lib/agent/designFacts')>()), loadItemFacts: mocks.loadItemFacts }))
+
+import { designPanelOf, loadDesignTarget } from '@/lib/agent/designPanel'
+import type { ItemFacts } from '@/lib/domain/designGate'
+
+const W1 = '33333333-3333-4333-8333-333333333333'
+const O1 = '44444444-4444-4444-8444-444444444444'
+type Resp = { data?: unknown; error?: { message: string } | null }
+/** 테이블별 순차 응답 흉내 — select/eq/in/order/limit 체인 뒤 maybeSingle 또는 thenable. */
+function admin(queues: Record<string, Resp[]>) {
+  return { from: vi.fn((table: string) => {
+    const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
+    const b: Record<string, unknown> = {}
+    for (const k of ['select', 'eq', 'in', 'order', 'limit']) b[k] = () => b
+    b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
+    b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
+    return b
+  }) } as never
+}
+const ITEM = { id: W1, project_id: 'p1', external_ref: 'm/TSK-01-01', stage: 'dd', actual_pct: 20, tags: ['agent'], depends: [], depends_waived: [], design_mode: 'review' }
+const facts = (f: Partial<ItemFacts> = {}): ItemFacts => ({ mode: 'review', stage: 'dd', actualPct: 20, delegated: true, hasApprovedOrder: false, preds: 'met', ...f })
+const CLAIMED_REVIEW = { id: O1, status: 'claimed', claimed_by: 'a/b/w1', claimed_by_user_id: 'u1', last_heartbeat_at: null,
+  heartbeat_phase: 'wait_review', heartbeat_agent: 'a/b/w1', design_state: 'review', claim_scope: 'design', design_note: '빠진 절: 테스트 전략', runner: null, runner_seen_at: null }
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.loadItemFacts.mockResolvedValue(new Map([[W1, { facts: facts(), depsUnmet: [] }]]))
+})
+
+describe('loadDesignTarget', () => {
+  it('항목·활성 주문·마지막 검토·판단 재료를 모은다', async () => {
+    const t = await loadDesignTarget(admin({
+      wbs_items: [{ data: ITEM }],
+      agent_work_orders: [{ data: [{ id: 'old', status: 'cancelled' }, { ...CLAIMED_REVIEW }] }],
+      agent_work_reports: [{ data: { review_action: 'reject' } }],
+    }), W1)
+    expect(t).toMatchObject({ itemId: W1, projectId: 'p1', item: facts(), orderStatuses: ['cancelled', 'claimed'], lastReview: 'reject' })
+    expect(t?.active).toMatchObject({ id: O1, status: 'claimed', designState: 'review', designNote: '빠진 절: 테스트 전략' })
+    expect(mocks.loadItemFacts).toHaveBeenCalledWith(expect.anything(), [ITEM])
+  })
+  it('활성 주문(ready·claimed·reported)이 없으면 active·lastReview 는 null — 승인·취소된 주문은 활성이 아니다', async () => {
+    const t = await loadDesignTarget(admin({
+      wbs_items: [{ data: ITEM }],
+      agent_work_orders: [{ data: [{ id: 'a1', status: 'approved' }, { id: 'c1', status: 'cancelled' }] }],
+    }), W1)
+    expect(t).toMatchObject({ active: null, lastReview: null, orderStatuses: ['approved', 'cancelled'] })
+  })
+  it('항목이 없으면 null, 조회 실패는 throw(없음으로 위장하지 않는다)', async () => {
+    expect(await loadDesignTarget(admin({ wbs_items: [{ data: null }] }), W1)).toBeNull()
+    await expect(loadDesignTarget(admin({ wbs_items: [{ error: { message: 'db' } }] }), W1)).rejects.toThrow('항목 조회 실패')
+    await expect(loadDesignTarget(admin({ wbs_items: [{ data: ITEM }], agent_work_orders: [{ error: { message: 'db' } }] }), W1))
+      .rejects.toThrow('주문 조회 실패')
+    await expect(loadDesignTarget(admin({
+      wbs_items: [{ data: ITEM }], agent_work_orders: [{ data: [CLAIMED_REVIEW] }], agent_work_reports: [{ error: { message: 'db' } }],
+    }), W1)).rejects.toThrow('보고 조회 실패')
+    mocks.loadItemFacts.mockRejectedValueOnce(new Error('선행 항목 조회 실패: db'))
+    await expect(loadDesignTarget(admin({ wbs_items: [{ data: ITEM }], agent_work_orders: [{ data: [] }] }), W1)).rejects.toThrow('선행 항목 조회 실패')
+  })
+})
+
+describe('designPanelOf', () => {
+  const base = { itemId: W1, projectId: 'p1', lastReview: null as null }
+  it('설계 검토 대기 — 1행 문구·사유, 「설계 승인」 버튼, 방식 잠금', () => {
+    const p = designPanelOf({ ...base, item: facts(), orderStatuses: ['claimed'],
+      active: { id: O1, status: 'claimed', designState: 'review', runner: null, lastHeartbeatAt: null, heartbeatPhase: 'wait_review', designNote: '빠진 절: 테스트 전략' } }, Date.now())
+    expect(p.screen).toMatchObject({ row: 1, label: '설계 검토 대기', note: '빠진 절: 테스트 전략' })
+    expect(p.buttons).toEqual(['accept'])
+    expect(p.modeLock).toMatch(/설계가/)
+    expect(p.designState).toBe('review')
+    expect(p.mode).toBe('review')
+  })
+  it('구현자동 ready — 6행과 「설계 확정」, 방식은 바꿀 수 있다', () => {
+    const p = designPanelOf({ ...base, item: facts({ mode: 'human', stage: 'as', actualPct: 0 }), orderStatuses: ['ready'],
+      active: { id: O1, status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null } }, Date.now())
+    expect(p.screen?.row).toBe(6)
+    expect(p.buttons).toEqual(['confirm'])
+    expect(p.modeLock).toBeNull()
+  })
+  it('승인된 설계로 구현 중 — push 경고(Y13), 버튼 없음', () => {
+    const p = designPanelOf({ ...base, item: facts({ stage: 'ip', actualPct: 50 }), orderStatuses: ['claimed'],
+      active: { id: O1, status: 'claimed', designState: 'accepted', runner: 'a/b/w1', lastHeartbeatAt: new Date().toISOString(), heartbeatPhase: 'build', designNote: null } }, Date.now())
+    expect(p.pushWarning).toMatch(/agent 브랜치에 push 하지 마세요/)
+    expect(p.buttons).toEqual([])
+  })
+  it('어느 행에도 맞지 않으면 screen 은 null(단계 문구 그대로) — 완전자동 대기 주문', () => {
+    const p = designPanelOf({ ...base, item: facts({ mode: 'auto', stage: 'as', actualPct: 0 }), orderStatuses: ['ready'],
+      active: { id: O1, status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null } }, Date.now())
+    expect(p).toEqual({ mode: 'auto', designState: null, screen: null, buttons: [], pushWarning: null, modeLock: null })
+  })
+})
+```
+
+`tests/actions/design-actions.test.ts`:
+
+```ts
+// tests/actions/design-actions.test.ts — 설계 방식·세 버튼 서버 액션(설계 상태 스펙 7절). 권한·순서·CAS·실패 문구를 고정한다.
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+  resolveProjectId: vi.fn(), requireProjectMember: vi.fn(), createAdminClient: vi.fn(),
+  requireDelegationRight: vi.fn(), applyDelegation: vi.fn(), applyWorkflowEvent: vi.fn(),
+  loadDesignTarget: vi.fn(), after: vi.fn(), recordProgressSnapshot: vi.fn(), revalidatePath: vi.fn(),
+}))
+vi.mock('@/lib/authz', () => ({ resolveProjectId: mocks.resolveProjectId, requireProjectMember: mocks.requireProjectMember }))
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
+vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }))
+vi.mock('next/server', () => ({ after: mocks.after }))
+vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: mocks.recordProgressSnapshot }))
+vi.mock('@/lib/agent/delegation', () => ({ requireDelegationRight: mocks.requireDelegationRight, applyDelegation: mocks.applyDelegation }))
+// 전이 RPC 만 목으로 바꾸고 나머지(SKIPPED_WARN 등)는 실제 모듈 그대로 둔다 — 목에 없는 이름은 그 경로를 탈 때만 터진다.
+vi.mock('@/lib/agent/workflowEvent', async (orig) => ({ ...(await orig<typeof import('@/lib/agent/workflowEvent')>()), applyWorkflowEvent: mocks.applyWorkflowEvent }))
+vi.mock('@/lib/agent/designPanel', async (orig) => ({ ...(await orig<typeof import('@/lib/agent/designPanel')>()), loadDesignTarget: mocks.loadDesignTarget }))
+
+import { designAccept, designConfirm, designReopen, getDesignPanel, setDelegationAndMode } from '@/app/actions/designActions'
+import { SKIPPED_WARN } from '@/lib/agent/workflowEvent'
+
+const P1 = '11111111-1111-4111-8111-111111111111'
+const W1 = '33333333-3333-4333-8333-333333333333'
+const O1 = '44444444-4444-4444-8444-444444444444'
+const RIGHT = { ok: true, actor: { userId: 'u1' }, projectId: P1, isAdmin: false }
+const DENIED = { ok: false, error: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.' }
+const LOCKED = '설계가 확정·검토 중이거나 에이전트가 작업 중이라 설계 방식을 바꿀 수 없습니다.'
+
+/** wbs_items.design_mode 한 번 읽기 흉내 — 고른 열을 기록한다(select 에서 design_mode 가 빠지면 드러나게). */
+function admin(row: { design_mode: string | null } | null, error: { message: string } | null = null) {
+  const selected: string[] = []
+  const client = { from: vi.fn(() => {
+    const b: Record<string, unknown> = {}
+    b.select = (cols: string) => { selected.push(cols); return b }
+    b.eq = () => b
+    b.maybeSingle = async () => ({ data: error ? null : row, error })
+    return b
+  }) }
+  mocks.createAdminClient.mockReturnValue(client)
+  return { client, selected }
+}
+const target = (over: Record<string, unknown> = {}) => ({
+  itemId: W1, projectId: P1, lastReview: null, orderStatuses: ['claimed'],
+  item: { mode: 'review', stage: 'dd', actualPct: 20, delegated: true, hasApprovedOrder: false, preds: 'met' },
+  active: { id: O1, status: 'claimed', designState: 'review', runner: null, lastHeartbeatAt: null, heartbeatPhase: 'wait_review', designNote: null },
+  ...over,
+})
+/** 구현자동(human) 작업의 ready 주문 — 「설계 확정」 자리. */
+const humanReady = () => target({
+  orderStatuses: ['ready'],
+  item: { mode: 'human', stage: 'as', actualPct: 0, delegated: true, hasApprovedOrder: false, preds: 'met' },
+  active: { id: O1, status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null },
+})
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.requireDelegationRight.mockResolvedValue(RIGHT)
+  mocks.applyDelegation.mockResolvedValue({ ok: true })
+  mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, designModeChanged: true, actualChanged: false, skipped: null })
+  mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
+  mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'u1' } })
+})
+
+describe('setDelegationAndMode — 위임 표식과 설계 방식을 한 번에(스펙 7절)', () => {
+  it('위임을 켤 때 방식이 바뀌면 방식을 먼저 쓰고 위임을 나중에 쓴다', async () => {
+    const { selected } = admin({ design_mode: 'auto' })
+    const order: string[] = []
+    mocks.applyWorkflowEvent.mockImplementation(async () => { order.push('mode'); return { ok: true, designModeChanged: true } })
+    mocks.applyDelegation.mockImplementation(async () => { order.push('delegate'); return { ok: true } })
+    expect(await setDelegationAndMode(W1, true, 'review')).toEqual({ ok: true, modeChanged: true })
+    expect(order).toEqual(['mode', 'delegate'])
+    expect(selected).toEqual(['design_mode'])
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'set_design_mode', actorUserId: 'u1', itemId: W1, mode: 'review' })
+    expect(mocks.applyDelegation).toHaveBeenCalledWith(expect.anything(), { itemId: W1, projectId: P1, delegated: true, actorUserId: 'u1', isAdmin: false })
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(`/p/${P1}`, 'layout')
+  })
+  it('방식이 그대로면 방식 사건을 부르지 않는다(승인 이력이 있는 항목의 재위임이 방식 잠금에 막히지 않게) — 빈 방식은 auto', async () => {
+    admin({ design_mode: 'review' })
+    expect(await setDelegationAndMode(W1, true, 'review')).toEqual({ ok: true, modeChanged: false })
+    admin({ design_mode: null })
+    expect(await setDelegationAndMode(W1, true, 'auto')).toEqual({ ok: true, modeChanged: false })
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+    expect(mocks.applyDelegation).toHaveBeenCalledTimes(2)
+  })
+  it('해제면 위임을 먼저 풀고(주문 취소로 방식 잠금이 풀린다) 방식을 쓴다 — 실적이 바뀌었으면 스냅샷', async () => {
+    admin({ design_mode: 'review' })
+    const order: string[] = []
+    mocks.applyWorkflowEvent.mockImplementation(async () => { order.push('mode'); return { ok: true, designModeChanged: true } })
+    mocks.applyDelegation.mockImplementation(async () => { order.push('delegate'); return { ok: true, cancelledClaimedIds: [O1], actualChanged: true } })
+    expect(await setDelegationAndMode(W1, false, 'human')).toEqual({ ok: true, cancelledClaimedIds: [O1], actualChanged: true, modeChanged: true })
+    expect(order).toEqual(['delegate', 'mode'])
+    expect(mocks.after).toHaveBeenCalledTimes(1)
+  })
+  it('방식이 잠겨 있으면(design_mode_locked) 위임을 건드리지 않고 사유를 돌려준다', async () => {
+    admin({ design_mode: 'auto' })
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: false, conflict: false, reason: 'design_mode_locked', orderStatus: null, error: LOCKED })
+    expect(await setDelegationAndMode(W1, true, 'human')).toEqual({ ok: false, error: LOCKED })
+    expect(mocks.applyDelegation).not.toHaveBeenCalled()
+    expect(mocks.revalidatePath).not.toHaveBeenCalled()
+  })
+  it('켤 때 방식은 바뀌었는데 위임이 실패하면 실패와 함께 modeChanged 를 싣는다(화면이 바뀐 방식을 알게)', async () => {
+    admin({ design_mode: 'auto' })
+    mocks.applyDelegation.mockResolvedValue({ ok: false, error: '프로젝트 에이전트가 꺼져 있습니다. 관리자가 에이전트 페이지에서 켜야 합니다.' })
+    expect(await setDelegationAndMode(W1, true, 'human'))
+      .toEqual({ ok: false, error: '프로젝트 에이전트가 꺼져 있습니다. 관리자가 에이전트 페이지에서 켜야 합니다.', modeChanged: true })
+  })
+  it('해제 뒤 방식 쓰기가 실패하면 위임 해제는 성공으로 두고 경고한다(로그도 남긴다)', async () => {
+    admin({ design_mode: 'review' })
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: false, conflict: false, reason: 'rpc_error', orderStatus: null, error: '전이 실패: x' })
+    const r = await setDelegationAndMode(W1, false, 'human')
+    expect(r).toMatchObject({ ok: true, modeChanged: false })
+    expect(r.warning).toBe('위임은 풀었지만 설계 방식을 바꾸지 못했습니다 — 전이 실패: x')
+    expect(err).toHaveBeenCalled()
+    err.mockRestore()
+  })
+  it('현재 방식을 읽지 못하면 아무것도 쓰지 않는다(에러 3원칙 ②), 항목이 없으면 대상 없음', async () => {
+    admin(null, { message: 'db' })
+    expect(await setDelegationAndMode(W1, true, 'review')).toEqual({ ok: false, error: '항목 조회 실패: db' })
+    admin(null)
+    expect(await setDelegationAndMode(W1, true, 'review')).toEqual({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+    expect(mocks.applyDelegation).not.toHaveBeenCalled()
+  })
+  it('잘못된 입력·권한 없음은 거부', async () => {
+    const BAD = { ok: false, error: '잘못된 요청입니다.' }
+    expect(await setDelegationAndMode(W1, true, 'weird' as never)).toEqual(BAD)
+    expect(await setDelegationAndMode(W1, 'yes' as never, 'auto')).toEqual(BAD)
+    expect(await setDelegationAndMode('nope', true, 'auto')).toEqual(BAD)
+    expect(mocks.requireDelegationRight).not.toHaveBeenCalled()
+    mocks.requireDelegationRight.mockResolvedValue(DENIED)
+    expect(await setDelegationAndMode(W1, true, 'auto')).toEqual(DENIED)
+    expect(mocks.createAdminClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('설계 세 버튼 — 서버 판정으로 다시 보고, CAS 로 쓴다', () => {
+  it('「설계 승인」 — 버튼이 서버 판정에도 있을 때만 design_accept 를 CAS 와 함께 부른다', async () => {
+    admin(null)
+    mocks.loadDesignTarget.mockResolvedValue(target())
+    expect(await designAccept(W1)).toEqual({ ok: true })
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), {
+      event: 'design_accept', actorUserId: 'u1', orderId: O1, note: null, cas: { design_state: 'review', design_mode: 'review' },
+    })
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(`/p/${P1}`, 'layout')
+    expect(mocks.after).not.toHaveBeenCalled()
+  })
+  it('「설계 확정」 — ready 주문에도 같은 design_accept 사건(RPC 가 주문 status 로 가른다), 실적이 바뀌면 스냅샷', async () => {
+    admin(null)
+    mocks.loadDesignTarget.mockResolvedValue(humanReady())
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, actualChanged: true, skipped: null })
+    expect(await designConfirm(W1)).toEqual({ ok: true })
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), {
+      event: 'design_accept', actorUserId: 'u1', orderId: O1, note: null, cas: { design_state: null, design_mode: 'human' },
+    })
+    expect(mocks.after).toHaveBeenCalledTimes(1)
+  })
+  it('서버 판정에 버튼이 없으면 거부한다(화면이 낡았다) — 활성 주문이 없어도 같다', async () => {
+    admin(null)
+    mocks.loadDesignTarget.mockResolvedValue(target())
+    expect(await designConfirm(W1)).toEqual({ ok: false, error: '지금은 누를 수 없습니다 — 화면을 새로 고친 뒤 다시 보세요.' })
+    mocks.loadDesignTarget.mockResolvedValue(target({ active: null, orderStatuses: [] }))
+    expect(await designAccept(W1)).toEqual({ ok: false, error: '지금은 누를 수 없습니다 — 화면을 새로 고친 뒤 다시 보세요.' })
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+  })
+  it('CAS 충돌은 새로 고치라고 알리고, 그 밖의 전이 실패는 사유 문구 그대로', async () => {
+    admin(null)
+    mocks.loadDesignTarget.mockResolvedValue(target())
+    mocks.applyWorkflowEvent.mockResolvedValueOnce({ ok: false, conflict: true, reason: 'conflict', orderStatus: 'claimed', error: 'x' })
+    expect(await designAccept(W1)).toEqual({ ok: false, error: '그 사이 상태가 바뀌었습니다 — 화면을 새로 고친 뒤 다시 보세요.' })
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.applyWorkflowEvent.mockResolvedValueOnce({ ok: false, conflict: false, reason: 'design_gate', orderStatus: 'claimed', error: '설계 상태 때문에 처리할 수 없습니다.' })
+    expect(await designAccept(W1)).toEqual({ ok: false, error: '설계 상태 때문에 처리할 수 없습니다.' })
+    expect(err).toHaveBeenCalled()
+    err.mockRestore()
+    expect(mocks.revalidatePath).not.toHaveBeenCalled()
+  })
+  it('「설계 되돌리기」 — 사유를 다듬어 싣고, 비면 서버 기본 사유', async () => {
+    admin(null)
+    const accepted = { id: O1, status: 'claimed', designState: 'accepted', runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null }
+    mocks.loadDesignTarget.mockResolvedValue(target({ active: accepted }))
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, actualChanged: true, skipped: null })
+    expect(await designReopen(W1, '  테스트 전략이 모자람  ')).toEqual({ ok: true })
+    expect(mocks.applyWorkflowEvent).toHaveBeenLastCalledWith(expect.anything(), {
+      event: 'design_reopen', actorUserId: 'u1', orderId: O1, note: '테스트 전략이 모자람', cas: { design_state: 'accepted', design_mode: 'review' },
+    })
+    expect(mocks.after).toHaveBeenCalledTimes(1)
+    await designReopen(W1, '   ')
+    expect(mocks.applyWorkflowEvent).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ note: '사람이 설계를 되돌렸습니다.' }))
+    await designReopen(W1, 'x'.repeat(600))
+    expect(mocks.applyWorkflowEvent).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ note: 'x'.repeat(500) }))
+  })
+  it('처리는 됐지만 단계·실적을 건너뛰었으면 경고로 알린다', async () => {
+    admin(null)
+    mocks.loadDesignTarget.mockResolvedValue(humanReady())
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, actualChanged: false, skipped: 'parent' })
+    expect(await designConfirm(W1)).toEqual({ ok: true, warning: SKIPPED_WARN.parent })
+  })
+  it('설계 상태를 읽지 못하면 조회 실패로 알리고(없음으로 위장하지 않는다), 항목이 없으면 대상 없음', async () => {
+    admin(null)
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.loadDesignTarget.mockRejectedValue(new Error('주문 조회 실패: db'))
+    expect(await designAccept(W1)).toEqual({ ok: false, error: '설계 상태를 읽지 못했습니다.' })
+    err.mockRestore()
+    mocks.loadDesignTarget.mockResolvedValue(null)
+    expect(await designAccept(W1)).toEqual({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+  })
+  it('위임 권한이 없으면 읽지도 쓰지도 않는다(D10), 잘못된 itemId 는 거부', async () => {
+    admin(null)
+    mocks.requireDelegationRight.mockResolvedValue(DENIED)
+    expect(await designAccept(W1)).toEqual(DENIED)
+    expect(await designReopen(W1, '이유')).toEqual(DENIED)
+    expect(mocks.loadDesignTarget).not.toHaveBeenCalled()
+    expect(await designConfirm('nope')).toEqual({ ok: false, error: '잘못된 요청입니다.' })
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('getDesignPanel — 멤버면 보고, 버튼은 위임 권한이 있을 때만', () => {
+  it('위임 권한이 있으면 canAct=true, 없으면 false — 판정은 서버의 designPanelOf', async () => {
+    admin(null)
+    mocks.loadDesignTarget.mockResolvedValue(target())
+    expect(await getDesignPanel(W1)).toMatchObject({ ok: true, canAct: true, panel: { designState: 'review', buttons: ['accept'], screen: { row: 1 } } })
+    mocks.requireDelegationRight.mockResolvedValue(DENIED)
+    expect(await getDesignPanel(W1)).toMatchObject({ ok: true, canAct: false, panel: { buttons: ['accept'] } })
+  })
+  it('멤버가 아니면 읽지 않는다', async () => {
+    mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '권한이 없습니다.' })
+    expect(await getDesignPanel(W1)).toEqual({ ok: false, error: '권한이 없습니다.' })
+    expect(mocks.loadDesignTarget).not.toHaveBeenCalled()
+  })
+  it('조회 실패는 오류로(없음으로 위장하지 않는다), 항목이 없으면 대상 없음, 잘못된 itemId 는 거부', async () => {
+    admin(null)
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.loadDesignTarget.mockRejectedValue(new Error('x'))
+    expect(await getDesignPanel(W1)).toEqual({ ok: false, error: '설계 상태를 읽지 못했습니다.' })
+    expect(err).toHaveBeenCalled()
+    err.mockRestore()
+    mocks.loadDesignTarget.mockResolvedValue(null)
+    expect(await getDesignPanel(W1)).toEqual({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    expect(await getDesignPanel('nope')).toEqual({ ok: false, error: '잘못된 요청입니다.' })
+  })
+})
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/agent/design-panel.test.ts tests/actions/design-actions.test.ts`
+Expected: FAIL — 모듈이 아직 없다.
+- `design-panel.test.ts`: `Cannot find package '@/lib/agent/designPanel'`
+- `design-actions.test.ts`: `Cannot find package '@/app/actions/designActions'`
+
+- [ ] **Step 3: 판정 재료 모듈과 서버 액션을 쓴다**
+
+`src/lib/agent/designPanel.ts`:
+
+```ts
+// 설계 영역 판정 재료(WBS 작업 패널) — 항목 하나의 설계 사실과 활성 주문을 읽어 designGate 의 화면 판정에 넘긴다.
+// 서버 액션 파일('use server') 밖에 두는 이유: 가드 없는 본체가 액션으로 열리지 않게(delegation.ts 와 같은 이유).
+// 스펙: docs/superpowers/specs/2026-09-26-design-state-dev-auto-design.md 3절·7절
+import type { AdminClient } from '@/lib/minutes/externalApi'
+import {
+  designButtons, designModeChangeBlock, designPushWarning, designScreen,
+  type DesignButton, type DesignMode, type DesignState, type ItemFacts, type ScreenOrder,
+} from '@/lib/domain/designGate'
+import { ITEM_FACT_COLUMNS, ORDER_FACT_COLUMNS, loadItemFacts, orderFactsOf, type FactItemRow, type FactOrderRow } from '@/lib/agent/designFacts'
+
+export type DesignTarget = {
+  itemId: string; projectId: string
+  item: ItemFacts
+  /** 활성 주문(ready·claimed·reported — 0077 로 항목당 하나). */
+  active: (ScreenOrder & { id: string }) | null
+  /** 항목의 모든 주문 status(방식 잠금 판정). */
+  orderStatuses: string[]
+  lastReview: 'approve' | 'reject' | null
+}
+
+export type DesignPanel = {
+  mode: DesignMode
+  designState: DesignState | null
+  /** 3절 화면 행 — 없으면 null(단계 문구 그대로). */
+  screen: { row: number; label: string; note: string | null; hint: string | null } | null
+  buttons: DesignButton[]
+  pushWarning: string | null
+  /** 방식을 바꿀 수 없는 이유(null 이면 바꿀 수 있다). */
+  modeLock: string | null
+}
+
+/** 활성 주문 status — 0077 의 부분 유일 인덱스(agent_work_orders_active_per_item_uidx)가 항목당 하나로 묶는다. */
+const ACTIVE_STATUSES: ReadonlySet<string> = new Set(['ready', 'claimed', 'reported'])
+
+/** 조회 실패는 throw — 호출부가 오류로 드러낸다(에러 3원칙). 항목이 없으면 null. */
+export async function loadDesignTarget(admin: AdminClient, itemId: string): Promise<DesignTarget | null> {
+  const { data: item, error } = await admin.from('wbs_items').select(ITEM_FACT_COLUMNS).eq('id', itemId).maybeSingle()
+  if (error) throw new Error(`항목 조회 실패: ${error.message}`)
+  if (!item) return null
+  const row = item as unknown as FactItemRow
+  // 주문 목록과 판단 재료(승인 주문·선행)는 서로 기대지 않는다 — 함께 읽어 패널을 열 때의 왕복을 줄인다.
+  const [orders, factsById] = await Promise.all([
+    admin.from('agent_work_orders').select(`id, status, ${ORDER_FACT_COLUMNS}`).eq('wbs_item_id', itemId),
+    loadItemFacts(admin, [row]),
+  ])
+  if (orders.error) throw new Error(`주문 조회 실패: ${orders.error.message}`)
+  const list = (orders.data ?? []) as unknown as Array<FactOrderRow & { id: string }>
+  const activeRow = list.find(o => ACTIVE_STATUSES.has(o.status)) ?? null
+  let lastReview: 'approve' | 'reject' | null = null
+  if (activeRow) {
+    // 마지막 완료 보고의 검토 결과 — 3절 5행(재작업 대기)의 재료. 좌석·허브와 같은 규칙(kind completion 의 최신 행).
+    const { data: rep, error: rErr } = await admin.from('agent_work_reports').select('review_action')
+      .eq('work_order_id', activeRow.id).eq('kind', 'completion').order('created_at', { ascending: false }).limit(1).maybeSingle()
+    if (rErr) throw new Error(`보고 조회 실패: ${rErr.message}`)
+    lastReview = (rep as { review_action: 'approve' | 'reject' | null } | null)?.review_action ?? null
+  }
+  const facts = factsById.get(row.id)
+  if (!facts) throw new Error('설계 판단 재료를 만들지 못했습니다.')
+  const active = activeRow ? { ...orderFactsOf(activeRow), id: activeRow.id, designNote: activeRow.design_note ?? null } : null
+  return { itemId, projectId: row.project_id, item: facts.facts, active, orderStatuses: list.map(o => o.status), lastReview }
+}
+
+/** 3절 화면 판정·7절 버튼·Y13 push 경고·4.1 방식 잠금을 한 번에. */
+export function designPanelOf(t: DesignTarget, nowMs: number): DesignPanel {
+  const screen = designScreen({ item: t.item, active: t.active, lastReview: t.lastReview, nowMs })
+  const designState = t.active?.designState ?? null
+  return {
+    mode: t.item.mode,
+    designState,
+    screen: screen ? { row: screen.row, label: screen.label, note: screen.note, hint: screen.hint } : null,
+    buttons: designButtons(t.item, t.active),
+    pushWarning: designPushWarning(t.item, t.active),
+    modeLock: designModeChangeBlock({ designState, orderStatuses: t.orderStatuses }),
+  }
+}
+```
+
+`src/app/actions/designActions.ts`:
+
+```ts
+'use server'
+// 설계 방식·설계 버튼 서버 액션(설계 상태 스펙 7절). 자격은 모두 위임 권한(requireDelegationRight, D10).
+// 판정 재료·화면 판정은 src/lib/agent/designPanel.ts, 전이는 전이 RPC(apply_workflow_event, 0108) 하나다.
+import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { requireProjectMember, resolveProjectId } from '@/lib/authz'
+import { isUuidLike } from '@/lib/domain/agentWork'
+import { DESIGN_MODES, designButtons, toDesignMode, type DesignButton, type DesignMode } from '@/lib/domain/designGate'
+import { applyDelegation, requireDelegationRight, type AgentDelegationResult } from '@/lib/agent/delegation'
+import { SKIPPED_WARN, applyWorkflowEvent } from '@/lib/agent/workflowEvent'
+import { designPanelOf, loadDesignTarget, type DesignPanel, type DesignTarget } from '@/lib/agent/designPanel'
+
+const ERR_BAD = '잘못된 요청입니다.'
+const ERR_MISSING = '대상을 찾을 수 없습니다.'
+const ERR_LOAD = '설계 상태를 읽지 못했습니다.'
+const ERR_STALE = '지금은 누를 수 없습니다 — 화면을 새로 고친 뒤 다시 보세요.'
+const ERR_CHANGED = '그 사이 상태가 바뀌었습니다 — 화면을 새로 고친 뒤 다시 보세요.'
+const DEFAULT_REOPEN_NOTE = '사람이 설계를 되돌렸습니다.'
+/** design_note 상한(0108 CHECK 500자). */
+const NOTE_MAX = 500
+
+export type DesignPanelResult = { ok: true; panel: DesignPanel; canAct: boolean } | { ok: false; error: string }
+export type DesignOpResult = { ok: boolean; error?: string; warning?: string }
+
+const isDesignMode = (v: unknown): v is DesignMode => typeof v === 'string' && (DESIGN_MODES as readonly string[]).includes(v)
+
+/** WBS 작업 패널의 설계 영역 — 멤버면 누구나 본다. 버튼은 위임 권한(관리자·담당자 본인)이 있을 때만(canAct). */
+export async function getDesignPanel(itemId: string): Promise<DesignPanelResult> {
+  if (!isUuidLike(itemId)) return { ok: false, error: ERR_BAD }
+  const resolved = await resolveProjectId('wbs_items', itemId)
+  if (!resolved.ok) return { ok: false, error: resolved.error }
+  if (resolved.projectId === null) return { ok: false, error: ERR_MISSING }
+  const g = await requireProjectMember(resolved.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  try {
+    // 판정 재료와 버튼 자격은 서로 기대지 않는다 — 함께 읽어 패널을 열 때의 왕복을 줄인다.
+    const [target, right] = await Promise.all([loadDesignTarget(createAdminClient(), itemId), requireDelegationRight(itemId)])
+    if (!target) return { ok: false, error: ERR_MISSING }
+    return { ok: true, panel: designPanelOf(target, Date.now()), canAct: right.ok }
+  } catch (e) {
+    console.error('[designActions] 설계 영역 조회 실패:', e instanceof Error ? e.message : e)
+    return { ok: false, error: ERR_LOAD }
+  }
+}
+
+/**
+ * 위임 표식과 설계 방식을 한 번에 쓴다(스펙 7절). 켤 때는 방식을 먼저 쓰고 위임을 나중에 써서, 표식이 켜진 순간 팀장이 옛 방식으로
+ * 가져가는 틈을 없앤다. 끌 때는 위임을 먼저 풀어(주문 취소로 방식 잠금이 풀린다) 방식을 쓴다. 방식이 그대로면 방식 사건을 부르지 않는다 —
+ * 승인 이력이 있는 항목의 재위임이 방식 잠금(approved 주문)에 막히지 않게.
+ */
+export async function setDelegationAndMode(
+  itemId: string, delegated: boolean, mode: DesignMode,
+): Promise<AgentDelegationResult & { modeChanged?: boolean }> {
+  if (!isUuidLike(itemId) || typeof delegated !== 'boolean' || !isDesignMode(mode)) return { ok: false, error: ERR_BAD }
+  const right = await requireDelegationRight(itemId)
+  if (!right.ok) return { ok: false, error: right.error }
+  const admin = createAdminClient()
+  // 쓰기 전 선행 조회 — 실패하면 아무것도 쓰지 않는다(에러 3원칙 ②).
+  const { data: cur, error: curErr } = await admin.from('wbs_items').select('design_mode').eq('id', itemId).maybeSingle()
+  if (curErr) return { ok: false, error: `항목 조회 실패: ${curErr.message}` }
+  if (!cur) return { ok: false, error: ERR_MISSING }
+  const needMode = toDesignMode((cur as { design_mode: string | null }).design_mode) !== mode
+  const setMode = () => applyWorkflowEvent(admin, { event: 'set_design_mode', actorUserId: right.actor.userId, itemId, mode })
+  let modeChanged = false
+  if (delegated && needMode) {
+    const m = await setMode()
+    // 방식 잠금(design_mode_locked) 등으로 거부되면 위임은 건드리지 않는다.
+    if (!m.ok) return { ok: false, error: m.error }
+    modeChanged = m.designModeChanged
+  }
+  const r = await applyDelegation(admin, { itemId, projectId: right.projectId, delegated, actorUserId: right.actor.userId, isAdmin: right.isAdmin })
+  // 방식은 이미 바뀌었을 수 있다 — 실패여도 modeChanged 를 실어 화면이 바뀐 방식을 알게 한다.
+  if (!r.ok) return { ...r, modeChanged }
+  let warning = r.warning
+  if (!delegated && needMode) {
+    const m = await setMode()
+    if (m.ok) modeChanged = m.designModeChanged
+    else {
+      // 위임 해제는 이미 끝났다 — 실패로 뒤집지 않고 경고로 드러낸다(표시 = 로깅).
+      console.error('[designActions] 위임 해제 뒤 설계 방식 쓰기 실패:', itemId, m.error)
+      warning = [warning, `위임은 풀었지만 설계 방식을 바꾸지 못했습니다 — ${m.error}`].filter(Boolean).join(' ')
+    }
+  }
+  revalidatePath(`/p/${right.projectId}`, 'layout')
+  if (r.actualChanged) after(() => recordProgressSnapshot(right.projectId))
+  return { ...r, ...(warning ? { warning } : {}), modeChanged }
+}
+
+/** 세 버튼의 공용 본체 — 위임 권한 → 판정 재료 → 서버 판정으로 버튼 재확인 → CAS 전이. */
+async function runDesignOp(
+  itemId: string, button: DesignButton, event: 'design_accept' | 'design_reopen', note: string | null,
+): Promise<DesignOpResult> {
+  if (!isUuidLike(itemId)) return { ok: false, error: ERR_BAD }
+  const right = await requireDelegationRight(itemId)
+  if (!right.ok) return { ok: false, error: right.error }
+  const admin = createAdminClient()
+  let target: DesignTarget | null
+  try { target = await loadDesignTarget(admin, itemId) } catch (e) {
+    console.error('[designActions] 설계 상태 조회 실패:', e instanceof Error ? e.message : e)
+    return { ok: false, error: ERR_LOAD }
+  }
+  if (!target) return { ok: false, error: ERR_MISSING }
+  // 버튼은 서버 판정으로 다시 본다 — 화면이 낡았으면 누른 버튼이 지금은 없다.
+  const active = target.active
+  if (active === null || !designButtons(target.item, active).includes(button)) return { ok: false, error: ERR_STALE }
+  // CAS(P1) — 판정에 쓴 설계 상태·방식이 쓰기 순간에도 같아야 한다. 그 사이 바뀌었으면 RPC 가 conflict 로 거부한다.
+  const tr = await applyWorkflowEvent(admin, {
+    event, actorUserId: right.actor.userId, orderId: active.id, note,
+    cas: { design_state: active.designState, design_mode: target.item.mode },
+  })
+  if (!tr.ok) {
+    if (tr.conflict) return { ok: false, error: ERR_CHANGED }
+    console.error('[designActions] 설계 전이 실패:', event, itemId, tr.error)
+    return { ok: false, error: tr.error }
+  }
+  revalidatePath(`/p/${right.projectId}`, 'layout')
+  if (tr.actualChanged) after(() => recordProgressSnapshot(right.projectId))
+  return tr.skipped ? { ok: true, warning: SKIPPED_WARN[tr.skipped] } : { ok: true }
+}
+
+/** 「설계 승인」 — 설계 검토 대기(claimed·review·dd) 작업의 설계를 승인한다. 팀장이 다음 TICK 에 구현을 이어 간다. */
+export async function designAccept(itemId: string): Promise<DesignOpResult> {
+  return runDesignOp(itemId, 'accept', 'design_accept', null)
+}
+
+/** 「설계 확정」 — 구현자동 작업의 사람 설계를 확정한다(ready 주문, 단계 dd). RPC 는 주문 status 로 승인과 가른다. */
+export async function designConfirm(itemId: string): Promise<DesignOpResult> {
+  return runDesignOp(itemId, 'confirm', 'design_accept', null)
+}
+
+/** 「설계 되돌리기」 — 승인·확정된 설계를 구현 전에 되돌린다(review·auto 는 설계 검토 대기, human 은 사람 설계 대기). 빈 사유면 기본 사유. */
+export async function designReopen(itemId: string, reason: string): Promise<DesignOpResult> {
+  const note = typeof reason === 'string' ? reason.trim().slice(0, NOTE_MAX) : ''
+  return runDesignOp(itemId, 'reopen', 'design_reopen', note || DEFAULT_REOPEN_NOTE)
+}
+```
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `npx vitest run tests/agent/design-panel.test.ts tests/actions/design-actions.test.ts`
+Expected: PASS(26건)
+
+- [ ] **Step 5: 기존 테스트에 설계 방식과 허브 설계 동작을 더한다**
+
+`tests/actions/wbs-spec.test.ts` — `describe('getWbsSpec'` 안의 첫 테스트(`it('같은 프로젝트 멤버 + 조회 성공 → 현재 값 반환'` 부터 그 `it` 을 닫는 `})` 까지)를 아래로 바꾼다. 목이 고른 열과 무관하게 행을 돌려주므로 select 열 목록을 따로 본다.
+
+```ts
+  it('같은 프로젝트 멤버 + 조회 성공 → 현재 값 반환', async () => {
+    let selected = ''
+    mocks.createServerClient.mockResolvedValue({
+      from: () => ({
+        select: (cols: string) => {
+          selected = cols
+          return {
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: {
+                  category: 'dev', domain: 'fullstack', priority: 'high', model: 'opus',
+                  tags: ['contract'], depends: ['TSK-01-00'], prd_ref: 'docs/prd.md#3',
+                  entry_point: 'src/x.tsx', acceptance: ['목록이 뜬다'], spec: '# 명세',
+                  external_ref: 'mod/TSK-01-01', agent_prompt: '레거시 호환 유지할 것', design_mode: 'review',
+                },
+                error: null,
+              }),
+            }),
+          }
+        },
+      }),
+    })
+    const r = await getWbsSpec(W1)
+    expect(mocks.resolveProjectId).toHaveBeenCalledWith('wbs_items', W1)
+    expect(mocks.requireProjectMember).toHaveBeenCalledWith(P1)
+    // 설계 방식(0108)은 select 에 실제로 있어야 한다 — 목은 고른 열과 무관하게 행을 돌려주므로 열 목록을 따로 본다.
+    expect(selected.split(',').map(c => c.trim())).toContain('design_mode')
+    expect(r).toEqual({
+      category: 'dev', domain: 'fullstack', priority: 'high', model: 'opus',
+      tags: ['contract'], depends: ['TSK-01-00'], prdRef: 'docs/prd.md#3',
+      entryPoint: 'src/x.tsx', acceptance: ['목록이 뜬다'], spec: '# 명세',
+      externalRef: 'mod/TSK-01-01', agentPrompt: '레거시 호환 유지할 것', designMode: 'review',
+    })
+  })
+```
+
+`tests/actions/agent-hub-actions.test.ts` — 세 곳을 고친다(Task 7·16 이 이 파일의 `stop`·`resume` 테스트를 먼저 고쳐도 아래 자리는 겹치지 않는다).
+
+① `vi.hoisted` 안의 `approve: vi.fn(), reject: vi.fn(), unapprove: vi.fn(), rework: vi.fn(), setWbsStage: vi.fn(), emitNotification: vi.fn(),` 줄 뒤에 더한다:
+
+```ts
+  designAccept: vi.fn(), designConfirm: vi.fn(), designReopen: vi.fn(),
+```
+
+② `vi.mock('@/app/actions/wbsAssign', () => ({ setWbsStage: mocks.setWbsStage }))` 줄 뒤에 더한다:
+
+```ts
+// 설계 버튼(설계 상태 스펙 7절)의 자격(위임 권한)은 designActions 가 본다 — 여기서는 전달과 항목의 프로젝트 확인만 본다.
+vi.mock('@/app/actions/designActions', () => ({
+  designAccept: mocks.designAccept, designConfirm: mocks.designConfirm, designReopen: mocks.designReopen,
+}))
+```
+
+③ 파일 끝에 새 describe 를 더한다:
+
+```ts
+describe('runHubProcessOp — 설계 버튼(설계 상태 스펙 7절): 항목이 이 프로젝트 것인지 본 뒤 designActions 로, 자격은 그쪽(위임 권한, D10)', () => {
+  const ITEMS = { [I(1)]: { project_id: P1 }, [I(2)]: { project_id: P2 } }
+  const BAD = { ok: false, error: '잘못된 요청입니다.' }
+  beforeEach(() => {
+    mocks.requireProjectMember.mockResolvedValue(ADMIN)
+    for (const m of [mocks.designAccept, mocks.designConfirm, mocks.designReopen]) m.mockResolvedValue({ ok: true })
+  })
+
+  it('design_accept·design_confirm·design_reopen → 항목의 프로젝트를 본 뒤 각 액션으로, 허브를 다시 읽어 돌려준다', async () => {
+    const { client } = fakeAdmin({ items: ITEMS })
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(1) })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.designAccept).toHaveBeenCalledWith(I(1))
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', itemId: I(1) })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.designConfirm).toHaveBeenCalledWith(I(1))
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(1), note: '테스트 전략이 모자람' })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.designReopen).toHaveBeenCalledWith(I(1), '테스트 전략이 모자람')
+    // 항목을 대상으로 하는 op 는 주문이 아니라 항목의 프로젝트를 본다.
+    expect(client.from).toHaveBeenCalledWith('wbs_items')
+    expect(client.from).not.toHaveBeenCalledWith('agent_work_orders')
+    expect(mocks.getAgentHub).toHaveBeenCalledWith(P1, { userId: 'admin-1', isAdmin: true })
+  })
+  it('자격은 여기서 좁히지 않고 위임 권한을 보는 액션에 맡긴다 — 멤버도 넘어가고, 거부 문구는 그대로·재조회 없음, 경고는 싣는다', async () => {
+    mocks.requireProjectMember.mockResolvedValue(MEMBER)
+    fakeAdmin({ items: ITEMS })
+    mocks.designAccept.mockResolvedValueOnce({ ok: false, error: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(1) }))
+      .toEqual({ ok: false, error: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.' })
+    expect(mocks.designAccept).toHaveBeenCalledWith(I(1))
+    expect(mocks.isSubtreeManager).not.toHaveBeenCalled()
+    expect(mocks.getAgentHub).not.toHaveBeenCalled()
+    mocks.designConfirm.mockResolvedValueOnce({ ok: true, warning: '처리는 됐지만 단계·실적을 바꾸지 않았습니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', itemId: I(1) }))
+      .toEqual({ ok: true, hub: HUB, warning: '처리는 됐지만 단계·실적을 바꾸지 않았습니다.' })
+  })
+  it('남의 프로젝트 항목 → 거부, 액션 미호출 — 주문 op 에 itemId 를 끼워 넣어도 주문의 프로젝트를 본다', async () => {
+    fakeAdmin({ orders: { [O(2)]: { project_id: P2, status: 'reported', wbs_item_id: null } }, items: ITEMS })
+    const OTHER = { ok: false, error: '이 프로젝트의 항목이 아닙니다.' }
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(2) })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', itemId: I(2) })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(2), note: '다시' })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: I(3) })).toEqual(OTHER)
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(2), itemId: I(1) } as never))
+      .toEqual({ ok: false, error: '이 프로젝트의 주문이 아닙니다.' })
+    for (const m of [mocks.designAccept, mocks.designConfirm, mocks.designReopen, mocks.approve]) expect(m).not.toHaveBeenCalled()
+    expect(mocks.getAgentHub).not.toHaveBeenCalled()
+  })
+  it('note 가 문자열이 아닌 reopen·uuid 가 아닌 itemId·orderId 로 온 설계 op → 잘못된 요청(조회·액션 없음)', async () => {
+    const { client } = fakeAdmin({ items: ITEMS })
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(1) } as never)).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'design_reopen', itemId: I(1), note: 3 } as never)).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'design_accept', itemId: 'x' })).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'design_confirm', orderId: O(1) } as never)).toEqual(BAD)
+    expect(mocks.requireProjectMember).not.toHaveBeenCalled()
+    expect(client.from).not.toHaveBeenCalled()
+    for (const m of [mocks.designAccept, mocks.designConfirm, mocks.designReopen]) expect(m).not.toHaveBeenCalled()
+  })
+})
+```
+
+- [ ] **Step 6: 실패 확인**
+
+Run: `npx vitest run tests/actions/wbs-spec.test.ts tests/actions/agent-hub-actions.test.ts`
+Expected: FAIL 4건.
+- wbs-spec 1건: select 열에 `design_mode` 가 없다.
+- 허브 3건: `isProcessOp` 가 새 kind 를 몰라 '잘못된 요청입니다.' 를 돌려준다.
+- 새 describe 의 넷째 테스트(잘못된 요청)는 모르는 kind 를 지금도 거부하므로 이미 통과한다.
+
+- [ ] **Step 7: `wbsSpec.ts`·`agentHub.ts` 를 고친다**
+
+`src/app/actions/wbsSpec.ts` — 네 곳을 고친다.
+
+① `import { isUuidLike } from '@/lib/domain/agentWork'` 줄 뒤에 더한다:
+
+```ts
+import { toDesignMode, type DesignMode } from '@/lib/domain/designGate'
+```
+
+② `WbsSpecDetail` 의 마지막 칸 `agentPrompt: string | null` 뒤(인터페이스를 닫는 `}` 앞)에 더한다:
+
+```ts
+  /**
+   * 설계 방식(0108, 설계 상태 스펙 7절) — getWbsSpec 은 늘 채운다. 선택 칸으로 두는 까닭은 가짜 DETAIL 을 쓰는
+   * 기존 패널 테스트가 그대로 컴파일되고 통과하게 하려는 것이다.
+   */
+  designMode?: DesignMode
+```
+
+③ `getWbsSpec` 의 select 줄 끝에 `design_mode` 를 더한다:
+
+```ts
+    .select('category, domain, priority, model, tags, depends, prd_ref, entry_point, acceptance, spec, external_ref, agent_prompt, design_mode')
+```
+
+④ 같은 함수에서 row 타입의 `agent_prompt: string | null` 줄 뒤와 반환 객체의 `agentPrompt: row.agent_prompt ?? null,` 줄 뒤에 한 줄씩 더한다:
+
+```ts
+    design_mode: string | null
+```
+
+```ts
+    designMode: toDesignMode(row.design_mode),
+```
+
+`src/app/actions/agentHub.ts` — 다섯 곳을 고친다. Task 3(20행 import·`STAGE_CODES`)·Task 7(`stopOrderByAdmin`)·Task 16(`requestResumeOnOrder`)이 이 파일을 먼저 고치지만, 아래 자리는 그 편집과 겹치지 않는다.
+
+① `import { setWbsStage } from '@/app/actions/wbsAssign'` 줄 뒤에 더한다:
+
+```ts
+import { designAccept, designConfirm, designReopen } from '@/app/actions/designActions'
+```
+
+② `HubProcessOp` 의 마지막 줄 `| { kind: 'stage'; itemId: string; stage: WbsStageCode | null }` 뒤에 더한다:
+
+```ts
+  /**
+   * 설계 버튼(설계 상태 스펙 7절) — 완료 승인과 다른 동작이다. 「설계 승인」·「설계 확정」·「설계 되돌리기」.
+   * 자격은 designActions 가 위임 권한(requireDelegationRight, D10)으로 본다.
+   */
+  | { kind: 'design_accept'; itemId: string }
+  | { kind: 'design_confirm'; itemId: string }
+  | { kind: 'design_reopen'; itemId: string; note: string }
+```
+
+③ `isProcessOp` 에서 `stage` 갈래의 `return uuid(o.itemId) && (o.stage === null || …` 줄 뒤(`default:` 앞)에 더한다:
+
+```ts
+    case 'design_accept': case 'design_confirm':
+      return uuid(o.itemId)
+    case 'design_reopen':
+      return uuid(o.itemId) && typeof o.note === 'string'
+```
+
+④ `runHubProcessOp` 의 `  if (op.kind === 'stage') {` 줄을 아래 세 줄로 바꾼다(바로 위 `let orderItemId: string | null = null` 은 그대로 둔다):
+
+```ts
+  // 항목을 대상으로 하는 op(단계·설계 버튼)는 항목의 프로젝트를 본다. kind 로 가른다 — 주문 op 에 itemId 칸을 끼워 넣어
+  // 주문의 프로젝트 확인을 건너뛰는 길을 열지 않으려는 것이다.
+  if (op.kind === 'stage' || op.kind === 'design_accept' || op.kind === 'design_confirm' || op.kind === 'design_reopen') {
+```
+
+⑤ switch 의 `    case 'stage': r = await setWbsStage(op.itemId, op.stage); break` 줄 뒤에 더한다:
+
+```ts
+    case 'design_accept': r = await designAccept(op.itemId); break
+    case 'design_confirm': r = await designConfirm(op.itemId); break
+    case 'design_reopen': r = await designReopen(op.itemId, op.note); break
+```
+
+`HubProcessOp` 에 kind 를 더하고 switch 에 케이스를 빠뜨리면 tsc 가 "`r` 이 할당되기 전에 쓰였다"고 알린다. 타입 검사가 누락을 잡는다.
+
+- [ ] **Step 8: 통과 확인과 타입 검사**
+
+Run: `npx vitest run tests/agent/design-panel.test.ts tests/actions/design-actions.test.ts tests/actions/wbs-spec.test.ts tests/actions/agent-hub-actions.test.ts && npx tsc --noEmit -p .`
+Expected: PASS, 타입 오류 없음.
+- 허브 테스트의 소스 문자열 검사(`agentHub.ts` 에 `revalidatePath(` 가 없어야 한다)도 그대로 통과한다.
+- 화면 갱신은 designActions 안에서 한다. 기존 조정 액션(`approveAgentCompletion`·`setWbsStage`)과 같은 자리다.
+
+- [ ] **Step 9: 커밋**
+
+```bash
+git add src/lib/agent/designPanel.ts src/app/actions/designActions.ts src/app/actions/wbsSpec.ts src/app/actions/agentHub.ts \
+  tests/agent/design-panel.test.ts tests/actions/design-actions.test.ts tests/actions/wbs-spec.test.ts tests/actions/agent-hub-actions.test.ts
+git commit -m "feat(design-state): 설계 방식과 위임을 한 번에 쓰는 액션, 세 설계 버튼, 허브의 설계 동작
+
+켤 때는 방식을 먼저, 끌 때는 위임을 먼저 써서 팀장이 옛 방식으로 가져가는 틈과 방식 잠금에 막히는 일을 없앤다.
+세 버튼은 서버 판정으로 버튼을 다시 보고 설계 상태·방식 CAS 로 쓴다 — 화면이 낡았으면 거부한다.
+허브의 설계 동작은 항목의 프로젝트를 확인한 뒤 같은 액션을 부르고, 자격은 위임 권한이다(D10).
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 25: WBS 작업 패널 — 위임과 설계 방식, 설계 영역
+
+**Files:**
+- Create: `src/components/wbs/WbsDesignSection.tsx`
+- Modify: `src/components/wbs/WbsSpecPanel.tsx`, `src/lib/i18n/dict/wbs.ts`, `src/lib/i18n/dict/wbs.en.ts`, `src/app/actions/wbsSpec.ts`(`setAgentDelegation` 삭제), `src/app/actions/agentHub.ts`(그 이름을 가리키던 주석 한 줄)
+- Delete: `tests/actions/wbs-spec-delegation-right.test.ts`(단언은 `tests/actions/design-actions.test.ts` 로 옮긴다)
+- Test: `tests/components/wbs-design-section.test.tsx`(새), `tests/components/wbs-spec-debounced-save.test.tsx`, `tests/actions/design-actions.test.ts`
+
+**Interfaces:**
+- Consumes:
+  - Task 24 `src/app/actions/designActions.ts`: `getDesignPanel(itemId): Promise<DesignPanelResult>`, `setDelegationAndMode(itemId, delegated, mode): Promise<AgentDelegationResult & { modeChanged?: boolean }>`(켤 때 방식만 저장되고 위임이 실패하면 `{ ok: false, modeChanged: true }`, 끌 때 위임은 풀리고 방식 쓰기만 실패하면 `{ ok: true, warning }`), `designAccept(itemId)`·`designConfirm(itemId)`·`designReopen(itemId, reason)`: `Promise<DesignOpResult>`, 타입 `DesignPanelResult`·`DesignOpResult`
+  - Task 24 `src/app/actions/wbsSpec.ts`: `WbsSpecDetail.designMode?: DesignMode`(`getWbsSpec` 이 늘 채운다). 이 Task 는 Task 24 가 고친 이 파일에서 `setAgentDelegation` 을 지운다
+  - Task 24 `src/lib/agent/designPanel.ts`: 테스트가 `designPanelOf`·`DesignPanel`·`DesignTarget` 으로 서버와 같은 판정의 패널을 만든다. Task 24 `tests/actions/design-actions.test.ts` 에 단언을 더한다
+  - Task 7 `cancelOrders`(`src/lib/agent/cancelOrder.ts`)와 `applyDelegation` 의 해제 갈래(cancel 사건) — 옮겨 온 해제 단언의 기준
+  - Task 1 `src/lib/domain/designGate.ts`: `DESIGN_MODES`·`DesignMode`, 테스트의 `ItemFacts`
+  - 기존 `useDebouncedSave`(`src/components/wbs/useDebouncedSave.ts`, 값을 `Object.is` 로 비교한다), `requireDelegationRight`·`applyDelegation`(`src/lib/agent/delegation.ts`)
+- Produces:
+  - `src/components/wbs/WbsDesignSection.tsx`:
+    - `WbsDesignSection({ itemId, res, onChanged }: { itemId: string; res: DesignPanelResult | null; onChanged: () => void })`
+    - `useDesignPanel(itemId: string, enabled: boolean, refreshKey: number): DesignPanelResult | null`
+    - `DESIGN_MODE_KEYS: Record<DesignMode, DictKey>`
+    - `` type DelegationValue = `${'on' | 'off'}:${DesignMode}` ``, `packDelegation(on: boolean, mode: DesignMode): DelegationValue`, `unpackDelegation(v: DelegationValue): { on: boolean; mode: DesignMode }`
+  - `WbsSpecPanel` 의 debounce 칸이 `{ priority; delegation: DelegationValue }` 로 바뀌고, 위임 저장은 `setDelegationAndMode` 로 간다.
+  - `src/app/actions/wbsSpec.ts` 에서 `setAgentDelegation` 이 없어진다(화면의 유일한 호출부가 `setDelegationAndMode` 로 바뀐다).
+  - 사전 키 21개(ko·en): `wbs.designMode{Label,Auto,Review,Human,Hint}`, `wbs.design{SectionTitle,LoadFail,NoteLabel,Accept,Confirm,Reopen,ReopenReason,NoRight}`, `wbs.designExit{Title,When,Step1,Step2,Step3,Step4}`, `wbs.delegationOffConfirm`, `wbs.delegationOffConfirmOk`
+  - data 속성(Task 27 의 브라우저 E2E 가 쓴다 — 이름을 바꾸지 않는다):
+    - 설계 영역 루트 `data-spec-design`, 방식 select `data-spec-design-mode`, 위임 체크박스 `data-spec-delegate`(기존 이름 그대로)
+    - 화면 문구 `data-design-label`, 되돌림 사유 `data-design-note`, 안내 `data-design-hint`
+    - 버튼 `data-design-btn="accept" | "confirm" | "reopen"` — `reopen` 은 사유 칸 `data-design-reopen-reason` 과 제출 버튼 `data-design-reopen-submit` 을 연다
+    - 방식 잠금 사유 `data-design-mode-lock`, push 경고 `data-design-push-warning`, 빠져나오기 안내 `data-design-exit-guide`
+    - 위임 해제 인라인 확인 `data-delegation-confirm`, 그 안의 확인 `data-delegation-confirm-ok`·취소 `data-delegation-confirm-cancel`
+
+**화면 배치(이 Task 에서 정한 것):**
+- 위임 체크와 방식 select 는 위임 권한(D10 — 관리자 또는 담당자 본인)으로 연다. 관리자는 지금처럼 편집 토글 안에서 보고, 편집 토글이 없는 담당자는 설계 영역 조회의 `canAct` 가 참이면 본문에서 바로 본다. 두 칸을 토글 밖으로 옮기지 않은 까닭은 관리자 화면과 기존 패널 테스트를 그대로 두려는 것이다. 허브에는 방식 select 를 두지 않는다.
+- 두 칸이 닫혀 있으면(위임 권한이 없거나 관리자가 편집 토글을 닫음) 지금 방식을 읽기 전용 글자(`설계 방식 · 완전자동`)로 보인다.
+- 두 칸은 debounce 저장의 한 칸 `delegation`(`'on:<mode>' | 'off:<mode>'`)을 함께 바꾸고, 저장할 때 `setDelegationAndMode(itemId, on, mode)` 한 번을 부른다. `useDebouncedSave` 가 값을 `Object.is` 로 비교하므로 객체가 아니라 문자열로 둔다.
+- 설계 영역은 명세 본문(접힘) 밖, 「에이전트 진행 상황」 바로 위에 둔다. 「설계 승인」·「설계 확정」은 사람만 하는 일이라 접힘 뒤로 숨기지 않는다(진행 상황을 본문 밖에 둔 것과 같은 이유다).
+- 설계 영역 조회(`useDesignPanel`)는 패널이 한 번 부르고, 그 결과를 설계 영역·방식 잠금·위임 해제 확인·`canAct` 가 함께 쓴다. `detail.designMode` 가 없으면(기존 패널 테스트 6개의 가짜 명세) 조회하지 않고 영역·select·읽기 전용 글자도 그리지 않는다. 그래서 그 테스트들은 고치지 않아도 통과한다.
+- 조회 중이면 영역을 그리지 않는다. 보일 것이 없는 완전자동 작업(화면 행·버튼·push 경고·설계 상태가 모두 없음)도 그리지 않는다. 조회가 실패하면 오류 문구를 보이고 로그를 남긴다.
+- 화면 문구(label)·되돌림 사유(note)·안내(hint)는 `designScreen` 이 준 문자열을 그대로 보인다. 번역하지 않는 까닭은 규칙 원본을 하나로 두려는 것이다. 버튼 라벨·방식 이름·고정 안내만 사전에 둔다.
+- 「설계 되돌리기」는 반려·재작업과 같은 두 단계다. `data-design-btn="reopen"` 을 누르면 사유 칸과 제출(`data-design-reopen-submit`)·취소 버튼이 열린다. 사유를 비우고 제출하면 빈 문자열을 넘기고 서버가 기본 사유를 쓴다. 성공하면 칸을 닫고, 실패하면 열어 둔 채 오류를 보인다.
+- 「설계를 지키며 빠져나오기」(스펙 7절 1~4단계)는 설계 상태가 accepted 일 때 접힌 `<details>` 로 둔다. "갇힘"(점유자가 사라짐)은 패널 값만으로 알 수 없어서 accepted 이면 늘 둔다.
+- 위임 해제 확인은 서버에 위임이 켜져 있고, 설계 상태가 있거나 아직 모를 때(조회 중·실패) 띄운다. 확인(`data-delegation-confirm-ok`)을 눌러야 저장 칸이 바뀐다. 브라우저 `confirm()` 은 쓰지 않는다.
+- 방식 잠금은 서버 판정(`modeLock`)을 따른다. 조회 중이거나 실패해서 모를 때는 잠그지 않는다. 그때는 서버가 같은 규칙으로 거부하고, 그 사유가 오류 칸에 보인다.
+- 위임·방식 저장의 부분 성공은 저장 결과로 화면을 맞춘다. 켤 때 `{ ok: false, modeChanged: true }`(방식은 저장, 위임은 실패)면 위임은 이전 값으로 되돌리고 방식은 새 값으로 둔다. 끌 때 `{ ok: true, warning }`(위임은 해제, 방식 쓰기만 실패, `modeChanged` 없음)이면 위임은 해제로 두고 방식은 이전 값으로 두며 경고를 오류 칸에 보인다.
+- 위임·방식 저장 뒤(실패 포함)와 설계 버튼 뒤에는 `orderRefreshKey` 를 올려 진행 상황과 설계 영역을 함께 다시 읽는다. 버튼이 실패해도(`ERR_STALE`·`ERR_CHANGED` 포함) 오류를 보이고 다시 읽는다 — 화면이 낡았거나 그 사이 바뀐 경우 지금 상태를 보여야 다음 행동을 고른다. 오류 문자열로 갈라 처리하지 않는다. 다시 읽은 방식이 명세 사본과 다르면 사본을 맞춘다(동시 변경·경합의 안전망).
+- `setAgentDelegation` 은 이 Task 가 화면 호출을 바꾸고 나면 부르는 곳이 없어 지운다. 그 전용 테스트(`tests/actions/wbs-spec-delegation-right.test.ts`)는 실제 위임 가드(`requireDelegationRight`)와 위임 본체(`applyDelegation`)를 검사하던 유일한 파일이라, 권한 단언과 본체 단언을 `tests/actions/design-actions.test.ts` 로 옮긴 뒤 지운다. 해제 갈래 단언은 Task 7 의 cancel 사건 기준으로 다시 쓴다.
+
+- [ ] **Step 1: 실패하는 테스트 — 설계 영역**
+
+`tests/components/wbs-design-section.test.tsx`(새). 패널은 서버와 같은 판정(`designPanelOf`)으로 만든 값을 받는다. 계획서 Review Focus 4 의 화면 테스트는 첫 `it.each` 다 — 3절 6행 「사람 설계 대기」와 1행 「설계 검토 대기」에 되돌림 사유가 있으면 그 문자열이 화면에 보여야 한다. 위임 권한이 있는 담당자(관리자 아님)가 편집 토글 없이 방식을 바꾸는 테스트와, E2E 가 누를 속성(`data-design-reopen-submit`·`data-delegation-confirm-ok`·`data-delegation-confirm-cancel`·`data-spec-delegate`)이 있는지 보는 단언도 여기 있다.
+
+```tsx
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { SAVE_DEBOUNCE_MS } from '@/components/wbs/useDebouncedSave'
+import { designPanelOf, type DesignPanel, type DesignTarget } from '@/lib/agent/designPanel'
+import type { ItemFacts } from '@/lib/domain/designGate'
+
+;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
+
+const getWbsSpec = vi.fn()
+const getAgentOrderForItem = vi.fn()
+const getDesignPanel = vi.fn()
+const setDelegationAndMode = vi.fn()
+const designAccept = vi.fn()
+const designConfirm = vi.fn()
+const designReopen = vi.fn()
+const refresh = vi.fn()
+
+vi.mock('@/app/actions/wbsSpec', () => ({
+  getWbsSpec: (...a: unknown[]) => getWbsSpec(...(a as [])),
+  updateWbsSpecFields: vi.fn(), updateAgentPrompt: vi.fn(), updateWbsSpec: vi.fn(),
+}))
+vi.mock('@/app/actions/designActions', () => ({
+  getDesignPanel: (...a: unknown[]) => getDesignPanel(...(a as [])),
+  setDelegationAndMode: (...a: unknown[]) => setDelegationAndMode(...(a as [])),
+  designAccept: (...a: unknown[]) => designAccept(...(a as [])),
+  designConfirm: (...a: unknown[]) => designConfirm(...(a as [])),
+  designReopen: (...a: unknown[]) => designReopen(...(a as [])),
+}))
+vi.mock('@/app/actions/agentWork', () => ({
+  getAgentOrderForItem: (...a: unknown[]) => getAgentOrderForItem(...(a as [])),
+  approveAgentCompletion: vi.fn(), rejectAgentCompletion: vi.fn(),
+  unapproveAgentCompletion: vi.fn(), requestAgentRework: vi.fn(),
+}))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
+vi.mock('next/dynamic', () => ({ default: () => () => null }))
+vi.mock('@/components/providers/LocaleProvider', () => ({
+  useLocale: () => ({ t: (k: string) => k }),
+}))
+
+import { WbsSpecPanel } from '@/components/wbs/WbsSpecPanel'
+
+const DETAIL = {
+  category: 'dev', domain: null, priority: null, model: null,
+  tags: ['agent'], depends: [], prdRef: null, entryPoint: null,
+  acceptance: [], spec: null, externalRef: 'mod/TSK-01-01', agentPrompt: null, designMode: 'review',
+}
+
+const ITEM: ItemFacts = { mode: 'review', stage: 'as', actualPct: 0, delegated: true, hasApprovedOrder: false, preds: 'met' }
+type ActiveOrder = NonNullable<DesignTarget['active']>
+const ORDER: ActiveOrder = {
+  id: 'o-1', status: 'ready', designState: null, runner: null, lastHeartbeatAt: null, heartbeatPhase: null, designNote: null,
+}
+/** 서버와 같은 판정(designPanelOf)으로 패널을 만든다 — 화면 문구·사유·버튼·잠금이 규칙 원본(designGate)에서 온다. */
+function panelOf(item: Partial<ItemFacts>, order: Partial<ActiveOrder> | null): DesignPanel {
+  const active = order === null ? null : { ...ORDER, ...order }
+  return designPanelOf({
+    itemId: 'item-1', projectId: 'p-1', item: { ...ITEM, ...item }, active,
+    orderStatuses: active ? [active.status] : [], lastReview: null,
+  }, Date.now())
+}
+const found = (panel: DesignPanel, canAct = true) => ({ ok: true, panel, canAct })
+
+/**
+ * WBS 작업 패널의 설계 영역과 설계 방식(설계 상태 스펙 3절 화면 판정·7절 화면과 권한). 문구·사유·안내는 서버 판정의 문자열을
+ * 그대로 보이고, 버튼은 위임 권한이 있을 때만 그린다. 위임 체크와 방식 select 는 debounce 저장의 한 칸이다.
+ */
+describe('WbsSpecPanel — 설계 영역·설계 방식', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    getWbsSpec.mockReset().mockResolvedValue(DETAIL)
+    getAgentOrderForItem.mockReset().mockResolvedValue({ ok: true, order: null, priorOrders: [] })
+    getDesignPanel.mockReset().mockResolvedValue(found(panelOf({}, ORDER)))
+    setDelegationAndMode.mockReset().mockResolvedValue({ ok: true })
+    designAccept.mockReset().mockResolvedValue({ ok: true })
+    designConfirm.mockReset().mockResolvedValue({ ok: true })
+    designReopen.mockReset().mockResolvedValue({ ok: true })
+    refresh.mockReset()
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  async function render(detail: Record<string, unknown> = DETAIL, editable = true) {
+    getWbsSpec.mockResolvedValue(detail)
+    await act(async () => { root.render(<WbsSpecPanel itemId="item-1" editable={editable} />) })
+    await act(async () => {})
+    await act(async () => {})
+  }
+  async function openBody() {
+    await act(async () => { q('[data-spec-body-toggle]')!.click() })
+  }
+  /** 본문을 펼치고 편집 토글을 켠다 — 관리자의 위임 체크·방식 select 는 그 안에 있다. */
+  async function openEditing() {
+    await act(async () => { q('[data-spec-body-toggle]')!.click() })
+    await act(async () => { q('[data-spec-edit-toggle]')!.click() })
+  }
+  async function elapse(ms = SAVE_DEBOUNCE_MS) {
+    await act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+  }
+  async function click(el: HTMLElement) {
+    await act(async () => el.click())
+    await act(async () => {})
+  }
+  async function type(el: HTMLElement, value: string) {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(el, value)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  async function chooseMode(value: string) {
+    await act(async () => {
+      const s = q('[data-spec-design-mode]') as HTMLSelectElement
+      s.value = value
+      s.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+  const q = (sel: string) => container.querySelector<HTMLElement>(sel)
+  const text = (sel: string) => q(sel)?.textContent ?? null
+  const delegate = () => q('[data-spec-delegate]') as HTMLInputElement
+  const chip = () => q('[data-pending-save]')
+
+  // 계획서 Review Focus 4 — 팀장·워커가 설계를 되돌린 사유(design_note)가 보여야 사람이 무엇을 고칠지 안다.
+  it.each([
+    ['3절 6행 사람 설계 대기', { mode: 'human', stage: 'as' }, { status: 'ready', designNote: '빠진 절: 테스트 계획' }, 6, '사람 설계 대기', 'confirm'],
+    ['3절 1행 설계 검토 대기', { mode: 'review', stage: 'dd' }, { status: 'claimed', designState: 'review', designNote: '5절 중 테스트 계획 없음' }, 1, '설계 검토 대기', 'accept'],
+  ] as const)('%s — 화면 문구·되돌림 사유·안내를 서버 판정 그대로 보인다', async (_name, item, order, row, label, btn) => {
+    const panel = panelOf(item, order)
+    expect(panel.screen?.row).toBe(row)
+    getDesignPanel.mockResolvedValue(found(panel))
+    await render({ ...DETAIL, designMode: item.mode })
+    expect(getDesignPanel).toHaveBeenCalledWith('item-1')
+    expect(text('[data-spec-design] [data-design-label]')).toBe(label)
+    expect(text('[data-spec-design] [data-design-note]')).toBe(order.designNote)
+    expect(text('[data-spec-design] [data-design-hint]')).toBe(panel.screen?.hint)
+    expect(q(`[data-design-btn="${btn}"]`)).not.toBeNull()
+  })
+
+  it('「설계 승인」 — 서버 액션을 부르고 설계 영역·진행 상황을 다시 읽는다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({ stage: 'dd' }, { status: 'claimed', designState: 'review' })))
+    await render()
+    expect(getDesignPanel).toHaveBeenCalledTimes(1)
+    await click(q('[data-design-btn="accept"]')!)
+    expect(designAccept).toHaveBeenCalledWith('item-1')
+    expect(getDesignPanel).toHaveBeenCalledTimes(2)
+    expect(getAgentOrderForItem).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('버튼의 오류·경고는 설계 영역 안에 보이고, 실패해도 다시 읽는다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({ mode: 'human', stage: 'as' }, { status: 'ready' })))
+    designConfirm.mockResolvedValueOnce({ ok: false, error: '그 사이 상태가 바뀌었습니다 — 화면을 새로 고친 뒤 다시 보세요.' })
+    await render({ ...DETAIL, designMode: 'human' })
+    await click(q('[data-design-btn="confirm"]')!)
+    expect(designConfirm).toHaveBeenCalledWith('item-1')
+    expect(text('[data-spec-design] [role="alert"]')).toContain('그 사이 상태가 바뀌었습니다')
+    expect(getDesignPanel).toHaveBeenCalledTimes(2)
+    designConfirm.mockResolvedValueOnce({ ok: true, warning: '진척 스냅샷을 남기지 못했습니다' })
+    await click(q('[data-design-btn="confirm"]')!)
+    expect(text('[data-spec-design] [role="status"]')).toContain('진척 스냅샷을 남기지 못했습니다')
+    expect(q('[data-spec-design] [role="alert"]')).toBeNull()
+  })
+
+  it('「설계 되돌리기」는 두 단계 — 누르면 사유 칸·제출 버튼이 열리고, 사유를 넘긴다. 비우면 빈 사유(서버 기본 사유). 승인된 설계면 빠져나오기 안내를 보인다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({ stage: 'dd' }, { status: 'claimed', designState: 'accepted' })))
+    await render()
+    expect(text('[data-design-label]')).toContain('구현 대기(설계 승인됨)')
+    expect(text('[data-design-exit-guide]')).toContain('wbs.designExitStep4')
+    expect(q('[data-design-reopen-reason]')).toBeNull()
+    expect(q('[data-design-reopen-submit]')).toBeNull()
+    await click(q('[data-design-btn="reopen"]')!)
+    expect(designReopen).not.toHaveBeenCalled()
+    expect(q('[data-design-reopen-submit]')).not.toBeNull()
+    await type(q('[data-design-reopen-reason]')!, '테스트 계획을 보강한다')
+    await click(q('[data-design-reopen-submit]')!)
+    expect(designReopen).toHaveBeenLastCalledWith('item-1', '테스트 계획을 보강한다')
+    expect(q('[data-design-reopen-submit]')).toBeNull()
+    await click(q('[data-design-btn="reopen"]')!)
+    expect((q('[data-design-reopen-reason]') as HTMLInputElement).value).toBe('')
+    await click(q('[data-design-reopen-submit]')!)
+    expect(designReopen).toHaveBeenLastCalledWith('item-1', '')
+  })
+
+  it('위임 권한이 없으면(canAct=false) 버튼 없이 문구만 보인다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({ stage: 'dd' }, { status: 'claimed', designState: 'review', designNote: '다시 봐 주세요' }), false))
+    await render()
+    expect(text('[data-design-label]')).toBe('설계 검토 대기')
+    expect(text('[data-design-note]')).toBe('다시 봐 주세요')
+    expect(q('[data-design-btn]')).toBeNull()
+    expect(q('[data-design-reopen-reason]')).toBeNull()
+    expect(container.textContent).toContain('wbs.designNoRight')
+  })
+
+  it('조회 실패는 오류로 보인다 — "설계 없음"으로 바꾸지 않는다(에러 3원칙)', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    getDesignPanel.mockResolvedValue({ ok: false, error: '설계 상태를 읽지 못했습니다.' })
+    await render()
+    expect(text('[data-spec-design] [role="alert"]')).toContain('설계 상태를 읽지 못했습니다.')
+    expect(q('[data-design-label]')).toBeNull()
+    expect(log).toHaveBeenCalled()
+  })
+
+  it('서버 액션이 던져도(네트워크) 오류로 보인다', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    getDesignPanel.mockRejectedValue(new Error('network down'))
+    await render()
+    expect(text('[data-spec-design] [role="alert"]')).toContain('network down')
+  })
+
+  it('방식 잠금 — select 를 잠그고 서버가 준 이유(할 일 포함)를 보인다', async () => {
+    const panel = panelOf({ stage: 'ds' }, { status: 'claimed' })
+    expect(panel.modeLock).not.toBeNull()
+    getDesignPanel.mockResolvedValue(found(panel))
+    await render()
+    await openEditing()
+    expect((q('[data-spec-design-mode]') as HTMLSelectElement).disabled).toBe(true)
+    expect(text('[data-design-mode-lock]')).toBe(panel.modeLock)
+  })
+
+  it('승인된 설계로 구현 중이면 agent 브랜치 push 경고를 보인다', async () => {
+    const panel = panelOf({ stage: 'ip' }, { status: 'claimed', designState: 'accepted' })
+    expect(panel.pushWarning).not.toBeNull()
+    getDesignPanel.mockResolvedValue(found(panel))
+    await render()
+    expect(text('[data-design-push-warning]')).toBe(panel.pushWarning)
+  })
+
+  it('위임 체크와 방식 select 는 한 칸이다 — 둘을 바꾸면 setDelegationAndMode 한 번으로 함께 저장한다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({ mode: 'auto', delegated: false }, null)))
+    await render({ ...DETAIL, tags: [], designMode: 'auto' })
+    await openEditing()
+    expect((q('[data-spec-design-mode]') as HTMLSelectElement).value).toBe('auto')
+    await chooseMode('review')
+    await act(async () => delegate().click())
+    expect(chip()?.getAttribute('data-pending-save')).toBe('pending')
+    await elapse()
+    expect(setDelegationAndMode).toHaveBeenCalledTimes(1)
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', true, 'review')
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('위임하지 않은 채 방식만 바꿔도 같은 액션으로 저장한다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({ mode: 'auto', delegated: false }, null)))
+    await render({ ...DETAIL, tags: [], designMode: 'auto' })
+    await openEditing()
+    await chooseMode('human')
+    await elapse()
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', false, 'human')
+  })
+
+  // 부분 성공 — 설계 영역 다시 읽기는 끝나지 않게 두어, 조회 결과가 아니라 저장 결과만으로 화면을 맞추는지 본다.
+  it('켤 때 방식은 저장됐는데 위임만 실패하면(ok:false·modeChanged) 위임은 이전 값으로, 방식은 새 값으로 둔다', async () => {
+    getDesignPanel.mockResolvedValueOnce(found(panelOf({ mode: 'auto', delegated: false }, null)))
+      .mockReturnValue(new Promise(() => {}))
+    setDelegationAndMode.mockResolvedValue({ ok: false, error: '위임하지 못했습니다', modeChanged: true })
+    await render({ ...DETAIL, tags: [], designMode: 'auto' })
+    await openEditing()
+    await chooseMode('review')
+    await act(async () => delegate().click())
+    await elapse()
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', true, 'review')
+    expect(delegate().checked).toBe(false)
+    expect((q('[data-spec-design-mode]') as HTMLSelectElement).value).toBe('review')
+    expect(text('[role="alert"]')).toContain('위임하지 못했습니다')
+  })
+
+  it('끌 때 위임은 풀렸는데 방식 쓰기만 실패하면(ok·warning) 위임은 해제로, 방식은 이전 값으로 두고 경고를 보인다', async () => {
+    getDesignPanel.mockResolvedValueOnce(found(panelOf({}, { status: 'ready' })))
+      .mockReturnValue(new Promise(() => {}))
+    setDelegationAndMode.mockResolvedValue({ ok: true, warning: '위임은 풀었지만 설계 방식을 바꾸지 못했습니다', modeChanged: false })
+    await render()
+    await openEditing()
+    await chooseMode('human')
+    await act(async () => delegate().click())
+    await elapse()
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', false, 'human')
+    expect(delegate().checked).toBe(false)
+    expect((q('[data-spec-design-mode]') as HTMLSelectElement).value).toBe('review')
+    expect(container.textContent).toContain('위임은 풀었지만 설계 방식을 바꾸지 못했습니다')
+  })
+
+  it('설계 상태가 있으면 위임 해제 전에 인라인 확인을 받는다 — 확인을 눌러야 저장 칸이 바뀐다', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    getDesignPanel.mockResolvedValue(found(panelOf({ stage: 'dd' }, { status: 'claimed', designState: 'review' })))
+    await render()
+    await openEditing()
+    await act(async () => delegate().click())
+    expect(text('[data-delegation-confirm]')).toContain('wbs.delegationOffConfirm')
+    expect(delegate().checked).toBe(true)
+    expect(chip()).toBeNull()
+    await elapse()
+    expect(setDelegationAndMode).not.toHaveBeenCalled()
+    expect(q('[data-delegation-confirm] [data-delegation-confirm-ok]')).not.toBeNull()
+    expect(q('[data-delegation-confirm] [data-delegation-confirm-cancel]')).not.toBeNull()
+    await act(async () => q('[data-delegation-confirm] [data-delegation-confirm-cancel]')!.click())
+    expect(q('[data-delegation-confirm]')).toBeNull()
+    expect(delegate().checked).toBe(true)
+    await act(async () => delegate().click())
+    await act(async () => q('[data-delegation-confirm] [data-delegation-confirm-ok]')!.click())
+    expect(q('[data-delegation-confirm]')).toBeNull()
+    expect(delegate().checked).toBe(false)
+    await elapse()
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', false, 'review')
+    expect(confirmSpy).not.toHaveBeenCalled()
+  })
+
+  it('설계 상태가 없으면 확인 없이 끈다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({}, { status: 'ready' })))
+    await render()
+    await openEditing()
+    await act(async () => delegate().click())
+    expect(q('[data-delegation-confirm]')).toBeNull()
+    expect(delegate().checked).toBe(false)
+    await elapse()
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', false, 'review')
+  })
+
+  // D10 — 위임과 방식은 위임 권한(관리자 또는 담당자 본인)으로 바꾼다. 담당자에게는 편집 토글이 없으므로 canAct 로 두 칸을 연다.
+  it('위임 권한이 있는 담당자(관리자 아님)는 편집 토글 없이 위임 체크와 방식 select 로 방식을 바꾼다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({}, { status: 'ready' }), true))
+    await render(DETAIL, false)
+    await openBody()
+    expect(q('[data-spec-edit-toggle]')).toBeNull()
+    expect(q('[data-spec-delegate]')).not.toBeNull()
+    expect(delegate().checked).toBe(true)
+    await chooseMode('human')
+    await elapse()
+    expect(setDelegationAndMode).toHaveBeenCalledWith('item-1', true, 'human')
+  })
+
+  it('위임 권한이 없으면(canAct=false) 위임 체크·방식 select 없이 현재 방식을 글자로 보인다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({}, { status: 'ready' }), false))
+    await render(DETAIL, false)
+    await openBody()
+    expect(q('[data-spec-delegate]')).toBeNull()
+    expect(q('[data-spec-design-mode]')).toBeNull()
+    expect(container.textContent).toContain('wbs.designModeLabel · wbs.designModeReview')
+  })
+
+  it('명세에 designMode 가 없으면 설계 영역·방식 select 를 그리지 않고 조회도 하지 않는다', async () => {
+    const legacy: Record<string, unknown> = { ...DETAIL }
+    delete legacy.designMode
+    await render(legacy)
+    await openEditing()
+    expect(q('[data-spec-design]')).toBeNull()
+    expect(q('[data-spec-design-mode]')).toBeNull()
+    expect(getDesignPanel).not.toHaveBeenCalled()
+  })
+
+  it('보일 것이 없는 완전자동 작업은 설계 영역을 그리지 않는다', async () => {
+    getDesignPanel.mockResolvedValue(found(panelOf({ mode: 'auto', delegated: false }, null)))
+    await render({ ...DETAIL, tags: [], designMode: 'auto' })
+    expect(getDesignPanel).toHaveBeenCalledWith('item-1')
+    expect(q('[data-spec-design]')).toBeNull()
+  })
+})
+```
+
+- [ ] **Step 2: 기존 debounce 테스트를 새 액션으로 고친다**
+
+`tests/components/wbs-spec-debounced-save.test.tsx` 를 고친다. 아래 네 블록을 먼저 바꾸고, 그다음 파일 전체에서 일괄 바꾸기를 한다(순서를 바꾸면 블록의 찾을 텍스트가 맞지 않는다).
+
+**(1) 목 — `setAgentDelegation` 대신 `@/app/actions/designActions` 를 목으로 둔다.** 이 텍스트를 찾아:
+
+```tsx
+const getWbsSpec = vi.fn()
+const updateWbsSpecFields = vi.fn()
+const setAgentDelegation = vi.fn()
+const getAgentOrderForItem = vi.fn()
+const refresh = vi.fn()
+
+vi.mock('@/app/actions/wbsSpec', () => ({
+  getWbsSpec: (...a: unknown[]) => getWbsSpec(...(a as [])),
+  updateWbsSpecFields: (...a: unknown[]) => updateWbsSpecFields(...(a as [])),
+  setAgentDelegation: (...a: unknown[]) => setAgentDelegation(...(a as [])),
+  updateAgentPrompt: vi.fn(),
+  updateWbsSpec: vi.fn(),
+}))
+```
+
+이렇게 바꾼다:
+
+```tsx
+const getWbsSpec = vi.fn()
+const updateWbsSpecFields = vi.fn()
+const setDelegationAndMode = vi.fn()
+const getDesignPanel = vi.fn()
+const getAgentOrderForItem = vi.fn()
+const refresh = vi.fn()
+
+vi.mock('@/app/actions/wbsSpec', () => ({
+  getWbsSpec: (...a: unknown[]) => getWbsSpec(...(a as [])),
+  updateWbsSpecFields: (...a: unknown[]) => updateWbsSpecFields(...(a as [])),
+  updateAgentPrompt: vi.fn(),
+  updateWbsSpec: vi.fn(),
+}))
+// 위임 체크는 설계 방식과 한 칸이라 setDelegationAndMode(설계 상태 스펙 7절)로 저장한다.
+vi.mock('@/app/actions/designActions', () => ({
+  getDesignPanel: (...a: unknown[]) => getDesignPanel(...(a as [])),
+  setDelegationAndMode: (...a: unknown[]) => setDelegationAndMode(...(a as [])),
+  designAccept: vi.fn(), designConfirm: vi.fn(), designReopen: vi.fn(),
+}))
+```
+
+**(2) `DETAIL` 에 `designMode` 를 넣고, 보일 것이 없는 설계 영역 값을 둔다.** 이 텍스트를 찾아:
+
+```tsx
+const DETAIL = {
+  category: 'dev', domain: null, priority: 'high', model: null,
+  tags: ['ui'], depends: [], prdRef: null, entryPoint: null,
+  acceptance: [], spec: null, externalRef: 'mod/TSK-01-01', agentPrompt: null,
+}
+```
+
+이렇게 바꾼다:
+
+```tsx
+const DETAIL = {
+  category: 'dev', domain: null, priority: 'high', model: null,
+  tags: ['ui'], depends: [], prdRef: null, entryPoint: null,
+  acceptance: [], spec: null, externalRef: 'mod/TSK-01-01', agentPrompt: null, designMode: 'auto',
+}
+/** 보일 것이 없는 완전자동 작업 — 설계 영역은 그리지 않고 방식 select 는 잠기지 않는다. */
+const QUIET_DESIGN = {
+  ok: true, canAct: true,
+  panel: { mode: 'auto', designState: null, screen: null, buttons: [], pushWarning: null, modeLock: null },
+}
+```
+
+**(3) `describe` 위 설명 주석.** 이 텍스트를 찾아:
+
+```tsx
+/**
+ * 우선순위 select·위임 체크박스는 debounce 저장이다(2026-09-14). 종전엔 체크 하나마다 서버 액션 +
+ * router.refresh() 가 나가 WBS 페이지 전체가 다시 렌더됐다(스테이징 실측 refresh 1회 ≈ 0.5초).
+ */
+```
+
+이렇게 바꾼다:
+
+```tsx
+/**
+ * 우선순위 select·위임 체크박스는 debounce 저장이다(2026-09-14). 종전엔 체크 하나마다 서버 액션 +
+ * router.refresh() 가 나가 WBS 페이지 전체가 다시 렌더됐다(스테이징 실측 refresh 1회 ≈ 0.5초).
+ * 위임 체크는 설계 방식 select 와 한 칸(delegation)이다 — 방식을 건드리지 않으면 지금 방식(auto)을 그대로 싣는다.
+ */
+```
+
+**(4) `beforeEach` 의 위임 목.** 이 텍스트를 찾아:
+
+```tsx
+    setAgentDelegation.mockReset().mockResolvedValue({ ok: true })
+```
+
+이렇게 바꾼다:
+
+```tsx
+    setDelegationAndMode.mockReset().mockResolvedValue({ ok: true })
+    getDesignPanel.mockReset().mockResolvedValue(QUIET_DESIGN)
+```
+
+**(5) 파일 전체 일괄 바꾸기.** 위 네 블록을 바꾼 뒤 아래를 차례로 모두 바꾼다.
+
+- `order.push('delegate')` → `order.push('delegation')`
+- `['priority', 'delegate']` → `['priority', 'delegation']`
+- `toHaveBeenCalledWith('item-1', true)` → `toHaveBeenCalledWith('item-1', true, 'auto')`
+- `setAgentDelegation` → `setDelegationAndMode`
+
+고친 뒤 파일에 `setAgentDelegation` 이 남지 않아야 한다(`grep -c setAgentDelegation tests/components/wbs-spec-debounced-save.test.tsx` 가 0).
+
+- [ ] **Step 3: 실패 확인**
+
+Run: `npx vitest run tests/components/wbs-design-section.test.tsx tests/components/wbs-spec-debounced-save.test.tsx`
+Expected: FAIL — 설계 영역·방식 select 가 아직 없고, 패널이 위임 저장에 옛 `setAgentDelegation`(이제 목에 없다)을 불러 `setDelegationAndMode` 기대가 깨진다. 새 파일 20건 중 19건, 고친 파일 8건 중 6건이 실패한다. "명세에 designMode 가 없으면"과 debounce 의 "위임 on 뒤 off"·"「지금 저장」"은 구현 전에도 통과한다.
+
+- [ ] **Step 4: 사전 키**
+
+`src/lib/i18n/dict/wbs.ts` 에서 아래 줄을 찾아:
+
+```ts
+  'wbs.specRefSaveFail': '참조 필드를 저장하지 못했습니다.',
+```
+
+그 다음 줄에 넣는다:
+
+```ts
+  // 설계 방식·설계 영역(설계 상태 스펙 3·7절, 0108). 화면 문구·되돌림 사유·안내는 서버 판정(designScreen)의 문자열을
+  // 그대로 보이므로 여기 두지 않는다 — 규칙 원본을 하나로 둔다. 여기는 방식 이름·버튼·고정 안내뿐이다.
+  'wbs.designModeLabel': '설계 방식',
+  'wbs.designModeAuto': '완전자동',
+  'wbs.designModeReview': '설계 검토',
+  'wbs.designModeHuman': '구현자동',
+  'wbs.designModeHint': '완전자동 = 에이전트가 설계부터 구현까지 · 설계 검토 = 에이전트가 쓴 설계를 사람이 승인한 뒤 구현 · 구현자동 = 사람이 올린 설계를 확정하면 에이전트가 구현',
+  'wbs.designSectionTitle': '설계',
+  'wbs.designLoadFail': '설계 상태를 불러오지 못했습니다',
+  'wbs.designNoteLabel': '되돌린 이유',
+  'wbs.designAccept': '설계 승인',
+  'wbs.designConfirm': '설계 확정',
+  'wbs.designReopen': '설계 되돌리기',
+  'wbs.designReopenReason': '되돌리는 이유 (비우면 기본 문구)',
+  'wbs.designNoRight': '설계 버튼은 위임 권한(관리자·담당자 본인)이 있어야 보입니다.',
+  'wbs.designExitTitle': '설계를 지키며 빠져나오기',
+  'wbs.designExitWhen': '승인·확정된 설계가 걸린 작업이 갇혔을 때(점유자가 사라짐 등) 설계를 잃지 않고 빠져나오는 순서입니다.',
+  'wbs.designExitStep1': '에이전트 페이지에서 「중단」을 누릅니다. 주문이 취소되어 설계 방식을 바꿀 수 있게 됩니다.',
+  'wbs.designExitStep2': '다시 위임하고 설계 방식을 「구현자동」으로 고릅니다.',
+  'wbs.designExitStep3': 'agent 브랜치의 design.md 를 개발 브랜치의 <TASKS>/<TSK>/design.md 로 옮깁니다.',
+  'wbs.designExitStep4': '「설계 확정」을 누릅니다.',
+  'wbs.delegationOffConfirm': '설계 상태가 있는 작업입니다. 위임을 해제하면 agent 브랜치에서 고친 설계는 새 주문에 이어지지 않습니다.',
+  'wbs.delegationOffConfirmOk': '위임 해제',
+```
+
+`src/lib/i18n/dict/wbs.en.ts` 에서 아래 줄을 찾아:
+
+```ts
+  'wbs.specRefSaveFail': 'Could not save the reference fields.',
+```
+
+그 다음 줄에 넣는다(en 은 `Record<keyof typeof wbsKo, string>` 이라 키가 하나라도 빠지면 tsc 가 알린다):
+
+```ts
+  // Design mode and design section (design-state spec §3·§7, 0108). Screen labels, reopen reasons and hints are the
+  // server's designScreen strings shown as-is — only mode names, buttons and fixed guidance live here.
+  'wbs.designModeLabel': 'Design mode',
+  'wbs.designModeAuto': 'Full auto',
+  'wbs.designModeReview': 'Design review',
+  'wbs.designModeHuman': 'Build auto',
+  'wbs.designModeHint': 'Full auto = the agent designs and builds · Design review = a person approves the design the agent wrote before the build · Build auto = the agent builds once a person confirms the design they wrote',
+  'wbs.designSectionTitle': 'Design',
+  'wbs.designLoadFail': 'Could not load the design state',
+  'wbs.designNoteLabel': 'Reopen reason',
+  'wbs.designAccept': 'Approve design',
+  'wbs.designConfirm': 'Confirm design',
+  'wbs.designReopen': 'Reopen design',
+  'wbs.designReopenReason': 'Reason (optional — a default is used when empty)',
+  'wbs.designNoRight': 'Design buttons are shown only to people with delegation rights (admins and the assignee).',
+  'wbs.designExitTitle': 'Get out while keeping the design',
+  'wbs.designExitWhen': 'If a task with an approved or confirmed design gets stuck (for example, its runner disappeared), follow these steps to get out without losing the design.',
+  'wbs.designExitStep1': 'Press “Stop” on the agent page. The order is cancelled, so the design mode can be changed.',
+  'wbs.designExitStep2': 'Delegate again and choose the “Build auto” design mode.',
+  'wbs.designExitStep3': 'Move design.md from the agent branch to <TASKS>/<TSK>/design.md on the development branch.',
+  'wbs.designExitStep4': 'Press “Confirm design”.',
+  'wbs.delegationOffConfirm': 'This task has a design state. If you remove the delegation, design edits made on the agent branch will not carry over to a new order.',
+  'wbs.delegationOffConfirmOk': 'Remove delegation',
+```
+
+- [ ] **Step 5: 설계 영역 컴포넌트**
+
+`src/components/wbs/WbsDesignSection.tsx`(새):
+
+```tsx
+'use client'
+
+import { useEffect, useState } from 'react'
+import {
+  designAccept, designConfirm, designReopen, getDesignPanel,
+  type DesignOpResult, type DesignPanelResult,
+} from '@/app/actions/designActions'
+import type { DesignMode } from '@/lib/domain/designGate'
+import { useLocale } from '@/components/providers/LocaleProvider'
+import type { DictKey } from '@/lib/i18n/dict'
+
+/** 설계 방식 이름(사전 키) — 방식 select 와 설계 영역 머리가 같이 쓴다. */
+export const DESIGN_MODE_KEYS: Record<DesignMode, DictKey> = {
+  auto: 'wbs.designModeAuto', review: 'wbs.designModeReview', human: 'wbs.designModeHuman',
+}
+
+/**
+ * 위임 표식과 설계 방식을 debounce 저장의 한 칸으로 묶은 값(설계 상태 스펙 7절 — 한 서버 액션이 둘을 함께 쓴다).
+ * useDebouncedSave 가 값을 Object.is 로 비교하므로 객체가 아니라 문자열로 둔다.
+ */
+export type DelegationValue = `${'on' | 'off'}:${DesignMode}`
+export const packDelegation = (on: boolean, mode: DesignMode): DelegationValue => `${on ? 'on' : 'off'}:${mode}`
+export function unpackDelegation(v: DelegationValue): { on: boolean; mode: DesignMode } {
+  const [flag, mode] = v.split(':') as ['on' | 'off', DesignMode]
+  return { on: flag === 'on', mode }
+}
+
+/**
+ * 설계 영역 조회(getDesignPanel). 방식 select 의 잠금과 위임 해제 확인도 같은 결과를 쓰므로 패널(WbsSpecPanel)이 부르고
+ * 결과를 영역에 넘긴다. enabled 가 거짓이면(명세에 designMode 가 없음) 부르지 않는다. 같은 항목을 다시 읽는 동안에는 앞
+ * 결과를 그대로 두어 깜박이지 않는다. 실패는 { ok: false } 그대로 돌려준다 — "설계 정보 없음"으로 바꾸지 않는다(에러 3원칙).
+ */
+export function useDesignPanel(itemId: string, enabled: boolean, refreshKey: number): DesignPanelResult | null {
+  const [state, setState] = useState<{ itemId: string; res: DesignPanelResult } | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    let alive = true
+    getDesignPanel(itemId)
+      .catch((e: unknown): DesignPanelResult => ({ ok: false, error: e instanceof Error ? e.message : String(e) }))
+      .then(res => {
+        if (!alive) return
+        if (!res.ok) console.error('[WbsDesignSection] 설계 영역 조회 실패:', res.error)
+        setState({ itemId, res })
+      })
+    return () => { alive = false }
+  }, [itemId, enabled, refreshKey])
+  return enabled && state?.itemId === itemId ? state.res : null
+}
+
+/**
+ * WBS 작업 패널의 설계 영역(설계 상태 스펙 3절 화면 판정·7절 화면과 권한). 화면 문구·되돌림 사유·안내는 서버 판정
+ * (designScreen)의 문자열을 그대로 보인다 — 규칙 원본을 하나로 두려는 것이라 번역하지 않는다. 버튼은 위임 권한(canAct)이
+ * 있을 때만 그린다. 버튼 뒤에는 성공·실패와 관계없이 onChanged 로 다시 읽는다 — 실패(화면이 낡음·그 사이 바뀜)도 지금
+ * 상태를 보여야 사람이 다음 행동을 고른다. 보일 것이 없는 완전자동 작업에는 영역을 그리지 않는다(빈 패널에 소음을 더하지 않는다).
+ */
+export function WbsDesignSection({ itemId, res, onChanged }: {
+  itemId: string
+  res: DesignPanelResult | null
+  onChanged: () => void
+}) {
+  const { t } = useLocale()
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [warn, setWarn] = useState<string | null>(null)
+  const [reason, setReason] = useState('')
+  // 「설계 되돌리기」는 두 단계다(반려·재작업과 같은 모양) — 눌러야 사유 칸과 제출 버튼이 열린다.
+  const [reopening, setReopening] = useState(false)
+  useEffect(() => { setErr(null); setWarn(null); setReason(''); setReopening(false) }, [itemId])
+
+  if (res === null) return null // 조회 중 — 늘 있는 영역이 아니라 자리표를 세우지 않는다
+  if (!res.ok) {
+    return (
+      <div data-spec-design className="mt-2 rounded-lg border border-line bg-surface p-2.5">
+        <p className="text-xs font-medium text-delayed" role="alert">{t('wbs.designLoadFail')} — {res.error}</p>
+      </div>
+    )
+  }
+  const { panel, canAct } = res
+  const quiet = panel.mode === 'auto' && panel.screen === null && panel.buttons.length === 0
+    && panel.pushWarning === null && panel.designState === null
+  if (quiet && err === null && warn === null) return null
+
+  async function run(op: () => Promise<DesignOpResult>) {
+    setBusy(true); setErr(null); setWarn(null)
+    try {
+      const r = await op()
+      if (!r.ok) setErr(r.error ?? t('wbs.agentOrderActionFailed'))
+      else { setReason(''); setReopening(false) }
+      setWarn(r.warning ?? null)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t('wbs.agentOrderActionFailed'))
+    } finally {
+      setBusy(false)
+      onChanged()
+    }
+  }
+
+  return (
+    <div data-spec-design className="mt-2 rounded-lg border border-line bg-surface p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold text-ink-muted">{t('wbs.designSectionTitle')}</span>
+        <span className="chip bg-surface-2 text-ink-muted">{t(DESIGN_MODE_KEYS[panel.mode])}</span>
+      </div>
+      {panel.screen && (
+        <div className="mt-1.5 space-y-1">
+          <p data-design-label className="text-xs font-semibold text-ink">{panel.screen.label}</p>
+          {panel.screen.note && (
+            <p className="text-xs text-delayed">
+              <span className="font-semibold">{t('wbs.designNoteLabel')}</span>{' '}
+              <span data-design-note className="whitespace-pre-wrap">{panel.screen.note}</span>
+            </p>
+          )}
+          {panel.screen.hint && <p data-design-hint className="text-[11px] text-ink-subtle">{panel.screen.hint}</p>}
+        </div>
+      )}
+      {panel.pushWarning && (
+        <p data-design-push-warning className="mt-1.5 text-xs font-medium text-accent-warning">{panel.pushWarning}</p>
+      )}
+      {canAct && panel.buttons.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {panel.buttons.includes('accept') && (
+            <button type="button" data-design-btn="accept" className="btn btn-primary h-7 px-2.5 text-xs" disabled={busy}
+              onClick={() => void run(() => designAccept(itemId))}>{t('wbs.designAccept')}</button>
+          )}
+          {panel.buttons.includes('confirm') && (
+            <button type="button" data-design-btn="confirm" className="btn btn-primary h-7 px-2.5 text-xs" disabled={busy}
+              onClick={() => void run(() => designConfirm(itemId))}>{t('wbs.designConfirm')}</button>
+          )}
+          {panel.buttons.includes('reopen') && (reopening ? (
+            <>
+              <input
+                data-design-reopen-reason className="app-input h-7 w-48 text-xs" maxLength={500}
+                aria-label={t('wbs.designReopenReason')} placeholder={t('wbs.designReopenReason')}
+                value={reason} onChange={e => setReason(e.target.value)}
+              />
+              <button type="button" data-design-reopen-submit className="btn h-7 px-2.5 text-xs" disabled={busy}
+                onClick={() => void run(() => designReopen(itemId, reason))}>{t('wbs.designReopen')}</button>
+              <button type="button" className="btn btn-ghost h-7 px-2.5 text-xs" disabled={busy}
+                onClick={() => { setReopening(false); setReason('') }}>{t('common.cancel')}</button>
+            </>
+          ) : (
+            <button type="button" data-design-btn="reopen" className="btn btn-ghost h-7 px-2.5 text-xs" disabled={busy}
+              onClick={() => setReopening(true)}>{t('wbs.designReopen')}</button>
+          ))}
+        </div>
+      )}
+      {!canAct && panel.buttons.length > 0 && (
+        <p className="mt-1.5 text-[11px] text-ink-subtle">{t('wbs.designNoRight')}</p>
+      )}
+      {panel.designState === 'accepted' && (
+        <details data-design-exit-guide className="mt-2">
+          <summary className="cursor-pointer text-[11px] font-semibold text-ink-muted">{t('wbs.designExitTitle')}</summary>
+          <p className="mt-1 text-[11px] text-ink-subtle">{t('wbs.designExitWhen')}</p>
+          <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[11px] text-ink">
+            <li>{t('wbs.designExitStep1')}</li>
+            <li>{t('wbs.designExitStep2')}</li>
+            <li>{t('wbs.designExitStep3')}</li>
+            <li>{t('wbs.designExitStep4')}</li>
+          </ol>
+        </details>
+      )}
+      {err && <p className="mt-1.5 text-xs font-medium text-delayed" role="alert">{err}</p>}
+      {warn && <p className="mt-1.5 text-xs text-ink-muted" role="status">{warn}</p>}
+    </div>
+  )
+}
+```
+
+- [ ] **Step 6: 작업 패널에 잇는다**
+
+`src/components/wbs/WbsSpecPanel.tsx` 를 아홉 군데 고친다. 앞 Task 는 이 파일을 고치지 않는다.
+
+**(1) React import — `useRef` 를 더한다.** 이 텍스트를 찾아:
+
+```tsx
+import { useCallback, useEffect, useMemo, useState } from 'react'
+```
+
+이렇게 바꾼다:
+
+```tsx
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+```
+
+**(2) import — `setAgentDelegation` 을 빼고 설계 액션·방식 목록·설계 영역을 가져온다.** 이 텍스트를 찾아:
+
+```tsx
+import {
+  getWbsSpec, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields,
+  type AgentDelegationResult, type WbsPriority, type WbsSpecDetail,
+} from '@/app/actions/wbsSpec'
+```
+
+이렇게 바꾼다:
+
+```tsx
+import {
+  getWbsSpec, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields,
+  type AgentDelegationResult, type WbsPriority, type WbsSpecDetail,
+} from '@/app/actions/wbsSpec'
+import { setDelegationAndMode } from '@/app/actions/designActions'
+import { DESIGN_MODES, type DesignMode } from '@/lib/domain/designGate'
+import {
+  DESIGN_MODE_KEYS, WbsDesignSection, packDelegation, unpackDelegation, useDesignPanel, type DelegationValue,
+} from './WbsDesignSection'
+```
+
+**(3) `QuickFields` — `delegate` 칸을 `delegation` 한 칸으로 바꾼다.** 이 텍스트를 찾아:
+
+```tsx
+/** debounce 저장으로 묶는 빠른 필드 — 우선순위 select 와 에이전트 위임 체크박스. */
+type QuickFields = { priority: WbsPriority | null; delegate: boolean }
+```
+
+이렇게 바꾼다:
+
+```tsx
+/**
+ * debounce 저장으로 묶는 빠른 필드 — 우선순위 select, 그리고 위임 체크박스와 설계 방식 select 가 함께 쓰는 한 칸(delegation).
+ * 위임과 방식은 한 서버 액션(setDelegationAndMode)이 함께 써야 해서 한 칸이다(설계 상태 스펙 7절).
+ */
+type QuickFields = { priority: WbsPriority | null; delegation: DelegationValue }
+type QuickResult = AgentDelegationResult & { modeChanged?: boolean }
+```
+
+**(4) 위임 해제 확인 상태 — `orderRefreshKey` 선언 다음 줄에 둔다.** 이 텍스트를 찾아:
+
+```tsx
+  const [orderRefreshKey, setOrderRefreshKey] = useState(0)
+```
+
+이렇게 바꾼다:
+
+```tsx
+  const [orderRefreshKey, setOrderRefreshKey] = useState(0)
+  // 위임 해제 인라인 확인(설계 상태 스펙 7절) — 설계 상태가 있으면 체크를 끄기 전에 한 번 묻는다. 브라우저 confirm() 은 쓰지 않는다.
+  const [offConfirm, setOffConfirm] = useState(false)
+```
+
+**(5) 항목이 바뀌면 확인을 닫는다 — `itemId` effect 의 초기화 줄.** 이 텍스트를 찾아:
+
+```tsx
+    setSpecEditing(false); setFieldsEditing(false); setSpecErr(null); setRefErr(null)
+```
+
+이렇게 바꾼다:
+
+```tsx
+    setSpecEditing(false); setFieldsEditing(false); setSpecErr(null); setRefErr(null); setOffConfirm(false)
+```
+
+**(6) debounce 저장 블록 — 설계 영역 조회, 방식 동기화, `delegation` 칸 저장과 부분 성공 처리.** 이 텍스트를 찾아:
+
+```tsx
+  const detail = loaded && loaded !== 'error' ? loaded : null
+  const quickBaseline = useMemo<QuickFields | null>(
+    () => (detail ? { priority: detail.priority, delegate: detail.tags.includes('agent') } : null),
+    [detail],
+  )
+  const quick = useDebouncedSave<QuickFields, AgentDelegationResult>({
+    scope: itemId,
+    baseline: quickBaseline,
+    commit: {
+      priority: priority => updateWbsSpecFields(itemId, { priority }),
+      delegate: delegated => setAgentDelegation(itemId, delegated),
+    },
+    onSaved: (key, value, res) => {
+      if (key === 'priority') {
+        const priority = value as WbsPriority | null
+        setLoaded(prev => (prev && prev !== 'error' ? { ...prev, priority } : prev))
+        return
+      }
+      const delegated = value as boolean
+      // ok 인데 warning — 태그는 바뀌었지만 주문이 안 나갔거나(프로젝트 중지) 진행 중 주문을 회수하지 않은 경우.
+      // 에러 칸에 그대로 보여준다(위장 금지). 다음 조작에서 지워진다.
+      if (res.warning) setRefErr(res.warning)
+      setLoaded(prev => (prev && prev !== 'error'
+        ? { ...prev, tags: delegated ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent') }
+        : prev))
+      // 위임 체크가 주문을 발행·취소하므로 아래 진행 상황 섹션도 다시 읽는다.
+      setOrderRefreshKey(k => k + 1)
+    },
+    onFailed: (_key, _value, error) => setRefErr(error || t('wbs.specRefSaveFail')),
+    onFlushed: () => router.refresh(),
+  })
+```
+
+이렇게 바꾼다:
+
+```tsx
+  const detail = loaded && loaded !== 'error' ? loaded : null
+  // 설계 영역(설계 상태 스펙 3·7절) — 명세에 designMode 가 있을 때만(getWbsSpec 이 늘 채운다). 방식 잠금과 위임 해제 확인도
+  // 이 결과를 쓴다. 위임·설계 버튼이 주문을 바꾸면 orderRefreshKey 로 진행 상황과 함께 다시 읽는다.
+  const designEnabled = detail?.designMode !== undefined
+  const design = useDesignPanel(itemId, designEnabled, orderRefreshKey)
+  // 방식의 서버 값은 설계 영역 조회가 가장 새것이다 — 다시 읽은 방식이 명세 사본과 다르면 사본을 맞춘다(동시 변경·경합의 안전망).
+  useEffect(() => {
+    if (!design?.ok) return
+    const mode = design.panel.mode
+    setLoaded(prev => (prev && prev !== 'error' && prev.designMode !== undefined && prev.designMode !== mode
+      ? { ...prev, designMode: mode }
+      : prev))
+  }, [design])
+  // 저장이 끝난 순간 패널이 아직 그 항목을 보는지 — 분리 flush(항목 변경·닫힘) 뒤에 다른 항목의 명세 사본을 고치지 않게 한다.
+  const itemIdRef = useRef(itemId)
+  useEffect(() => { itemIdRef.current = itemId }, [itemId])
+  const quickBaseline = useMemo<QuickFields | null>(
+    () => (detail
+      ? { priority: detail.priority, delegation: packDelegation(detail.tags.includes('agent'), detail.designMode ?? 'auto') }
+      : null),
+    [detail],
+  )
+  const quick = useDebouncedSave<QuickFields, QuickResult>({
+    scope: itemId,
+    baseline: quickBaseline,
+    commit: {
+      priority: priority => updateWbsSpecFields(itemId, { priority }),
+      delegation: async value => {
+        const { on, mode } = unpackDelegation(value)
+        const res = await setDelegationAndMode(itemId, on, mode)
+        // 켤 때는 방식을 먼저 쓰고 위임을 나중에 쓴다 — 방식은 저장됐는데 위임만 실패하면(ok:false·modeChanged) 실패 되돌림이
+        // 위임만 이전 값으로 돌리도록 명세 사본의 방식을 먼저 새 값으로 둔다. 오류 문구는 onFailed 가 보인다.
+        if (!res.ok && res.modeChanged && itemIdRef.current === itemId) {
+          setLoaded(prev => (prev && prev !== 'error' ? { ...prev, designMode: mode } : prev))
+        }
+        return res
+      },
+    },
+    onSaved: (key, value, res) => {
+      if (key === 'priority') {
+        const priority = value as WbsPriority | null
+        setLoaded(prev => (prev && prev !== 'error' ? { ...prev, priority } : prev))
+        return
+      }
+      const { on, mode } = unpackDelegation(value as DelegationValue)
+      // ok 인데 warning — 태그는 바뀌었지만 주문이 안 나갔거나(프로젝트 중지) 진행 중 주문을 회수하지 않았거나,
+      // 위임은 풀었지만 방식을 바꾸지 못한 경우. 에러 칸에 그대로 보여준다(위장 금지). 다음 조작에서 지워진다.
+      if (res.warning) setRefErr(res.warning)
+      setLoaded(prev => {
+        if (!prev || prev === 'error') return prev
+        // 끌 때는 위임을 먼저 풀고 방식을 쓴다 — 방식 쓰기만 실패하면(modeChanged 없음·경고) 방식은 이전 값 그대로다.
+        const designMode = on || res.modeChanged === true ? mode : (prev.designMode ?? mode)
+        const tags = on ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent')
+        return { ...prev, designMode, tags }
+      })
+      // 위임 체크가 주문을 발행·취소하므로 아래 진행 상황·설계 영역도 다시 읽는다.
+      setOrderRefreshKey(k => k + 1)
+    },
+    onFailed: (key, _value, error) => {
+      setRefErr(error || t('wbs.specRefSaveFail'))
+      // 저장이 실패해도 서버 상태(방식·주문)는 바뀌었을 수 있다 — 진행 상황·설계 영역을 다시 읽는다.
+      if (key === 'delegation') setOrderRefreshKey(k => k + 1)
+    },
+    onFlushed: () => router.refresh(),
+  })
+```
+
+**(7) 낙관 표시값 — 위임·방식, 방식 잠금, 위임 해제 확인 조건, 두 칸을 여는 조건(`canAct`).** 이 텍스트를 찾아:
+
+```tsx
+  const priority = view?.priority ?? null
+  const delegated = view?.delegate ?? false
+```
+
+이렇게 바꾼다:
+
+```tsx
+  const priority = view?.priority ?? null
+  const { on: delegated, mode: designMode } = view ? unpackDelegation(view.delegation) : { on: false, mode: 'auto' as DesignMode }
+  // 방식 잠금(4.1) — 서버 판정. 모르면(조회 중·실패) 잠그지 않는다: 서버가 같은 규칙으로 거부하고 그 사유가 오류 칸에 보인다.
+  const modeLock = design?.ok ? design.panel.modeLock : null
+  // 위임 해제 확인 — 서버에 위임이 켜져 있고, 설계 상태가 있거나 아직 모르면(조회 중·실패) 끄기 전에 묻는다.
+  const offNeedsConfirm = designEnabled && (detail?.tags.includes('agent') ?? false)
+    && !(design?.ok === true && design.panel.designState === null)
+  // 위임 체크·방식 select 를 여는 조건(D10 — 위임 권한은 관리자 또는 담당자 본인). 관리자는 지금처럼 편집 토글 안에서 연다.
+  // 편집 토글이 없는 담당자는 설계 영역 조회의 canAct 로 연다 — 모르면(조회 중·실패) 열지 않는다.
+  const canAct = design?.ok === true && design.canAct
+  const delegationOpen = editable ? fieldsEditing : canAct
+```
+
+**(8) 위임 체크박스 — 위임 권한으로 열고, 인라인 확인·방식 select·읽기 전용 방식을 잇는다.** 이 텍스트를 찾아:
+
+```tsx
+          {fieldsEditing && (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox" data-spec-delegate
+                checked={delegated}
+                onChange={e => { setRefErr(null); quick.set('delegate', e.target.checked) }}
+                className="h-3.5 w-3.5 rounded border-line"
+              />
+              <span className="text-xs font-semibold text-ink">{t('wbs.specAgentDelegateLabel')}</span>
+              <span className="text-[10px] text-ink-subtle">{t('wbs.specAgentDelegateHint')}</span>
+            </label>
+          )}
+```
+
+이렇게 바꾼다:
+
+```tsx
+          {delegationOpen && (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox" data-spec-delegate
+                checked={delegated}
+                onChange={e => {
+                  setRefErr(null)
+                  if (!e.target.checked && offNeedsConfirm) { setOffConfirm(true); return }
+                  setOffConfirm(false)
+                  quick.set('delegation', packDelegation(e.target.checked, designMode))
+                }}
+                className="h-3.5 w-3.5 rounded border-line"
+              />
+              <span className="text-xs font-semibold text-ink">{t('wbs.specAgentDelegateLabel')}</span>
+              <span className="text-[10px] text-ink-subtle">{t('wbs.specAgentDelegateHint')}</span>
+            </label>
+          )}
+          {delegationOpen && offConfirm && (
+            <div data-delegation-confirm className="rounded-md border border-line bg-pending-weak p-2">
+              <p className="text-xs text-ink">{t('wbs.delegationOffConfirm')}</p>
+              <div className="mt-1.5 flex gap-1.5">
+                <button
+                  type="button" data-delegation-confirm-ok className="btn h-7 px-2.5 text-xs"
+                  onClick={() => { setOffConfirm(false); quick.set('delegation', packDelegation(false, designMode)) }}
+                >{t('wbs.delegationOffConfirmOk')}</button>
+                <button
+                  type="button" data-delegation-confirm-cancel className="btn btn-ghost h-7 px-2.5 text-xs"
+                  onClick={() => setOffConfirm(false)}
+                >{t('common.cancel')}</button>
+              </div>
+            </div>
+          )}
+          {delegationOpen && designEnabled && (
+            <div>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.designModeLabel')}</span>
+                <select
+                  data-spec-design-mode value={designMode} disabled={modeLock !== null}
+                  onChange={e => { setRefErr(null); quick.set('delegation', packDelegation(delegated, e.target.value as DesignMode)) }}
+                  className="app-input h-9 text-xs"
+                >
+                  {DESIGN_MODES.map(m => <option key={m} value={m}>{t(DESIGN_MODE_KEYS[m])}</option>)}
+                </select>
+              </label>
+              {modeLock
+                ? <p data-design-mode-lock className="mt-1 text-[11px] font-medium text-delayed">{modeLock}</p>
+                : <p className="mt-1 text-[10px] text-ink-subtle">{t('wbs.designModeHint')}</p>}
+            </div>
+          )}
+          {/* 위임 체크·방식 select 가 닫혀 있으면(위임 권한이 없거나 관리자가 편집 토글을 닫음) 지금 방식을 글자로 보인다. */}
+          {!delegationOpen && designEnabled && (
+            <p className="text-xs text-ink-muted">
+              <span className="font-semibold">{t('wbs.designModeLabel')}</span> · {t(DESIGN_MODE_KEYS[designMode])}
+            </p>
+          )}
+```
+
+**(9) 설계 영역 — 진행 상황 바로 앞.** 이 텍스트를 찾아:
+
+```tsx
+      {/* 진행 상황은 명세 본문 밖이다 — 승인·반려는 사람만 할 수 있고 이 화면이 유일한 자리라,
+          명세 접힘 안쪽에 두면 승인 대기 주문이 두 겹 접힘 뒤로 사라진다. */}
+      <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} stubs={stubs} />
+```
+
+이렇게 바꾼다:
+
+```tsx
+      {/* 설계 영역도 명세 본문 밖이다 — 「설계 승인」·「설계 확정」은 사람만 하는 일이라 접힘 뒤로 숨기지 않는다(진행 상황과 같은 이유). */}
+      {designEnabled && (
+        <WbsDesignSection itemId={itemId} res={design} onChanged={() => { setOrderRefreshKey(k => k + 1); router.refresh() }} />
+      )}
+      {/* 진행 상황은 명세 본문 밖이다 — 승인·반려는 사람만 할 수 있고 이 화면이 유일한 자리라,
+          명세 접힘 안쪽에 두면 승인 대기 주문이 두 겹 접힘 뒤로 사라진다. */}
+      <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} stubs={stubs} />
+```
+
+- [ ] **Step 7: 통과 확인**
+
+Run: `npx vitest run tests/components/wbs-design-section.test.tsx tests/components/wbs-spec-debounced-save.test.tsx tests/components/wbs-spec-collapsed-default.test.tsx tests/components/wbs-spec-agent-prompt.test.tsx tests/components/wbs-spec-edit-toggle.test.tsx tests/components/wbs-agent-order-decisions.test.tsx tests/components/wbs-agent-order-model.test.tsx tests/components/wbs-agent-order-actions.test.tsx && npx tsc --noEmit -p .`
+Expected: PASS — 8개 파일 58건. 패널을 그리는 기존 테스트 6개는 고치지 않고 통과한다(가짜 명세에 designMode 가 없어 설계 영역을 조회하지 않고, 관리자의 편집 토글 구조도 그대로다). tsc 오류 없음.
+
+- [ ] **Step 8: `setAgentDelegation` 을 지우고 그 전용 테스트의 단언을 옮긴다**
+
+먼저 부르는 곳이 남았는지 본다.
+
+Run: `grep -rn "setAgentDelegation" src tests`
+Expected: 정의(`src/app/actions/wbsSpec.ts`), 주석 한 줄(`src/app/actions/agentHub.ts` 의 "자격은 항목마다 setAgentDelegation 과 같다"), 지울 전용 테스트(`tests/actions/wbs-spec-delegation-right.test.ts`), 그리고 `vi.mock('@/app/actions/wbsSpec', …)` 안의 목 키만 나온다(`agent-hub-view`·`wbs-agent-order-actions`·`wbs-agent-order-decisions`·`wbs-agent-order-model`·`wbs-spec-agent-prompt`·`wbs-spec-collapsed-default`·`wbs-spec-edit-toggle` 테스트 — 목 키는 실제 함수를 부르지 않으므로 그대로 둔다). 이 밖에 부르는 곳이 나오면 지우지 말고 멈춘 뒤 알린다.
+
+`src/app/actions/wbsSpec.ts`(Task 24 가 고친 파일)를 고친다.
+
+**(1) 쓰이지 않게 되는 import 두 줄을 지운다.** 이 텍스트를 찾아:
+
+```ts
+import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
+import { createAdminClient } from '@/lib/supabase/admin'
+```
+
+이렇게 바꾼다:
+
+```ts
+import { revalidatePath } from 'next/cache'
+import { createAdminClient } from '@/lib/supabase/admin'
+```
+
+**(2) 위임 모듈 import 를 가드 하나로 줄인다.** 이 텍스트를 찾아:
+
+```ts
+import { applyDelegation, requireDelegationRight, type AgentDelegationResult } from '@/lib/agent/delegation'
+```
+
+이렇게 바꾼다:
+
+```ts
+import { requireDelegationRight } from '@/lib/agent/delegation'
+```
+
+**(3) 함수를 지운다.** 파일 끝의 아래 블록과 그 바로 앞의 빈 줄 하나를 지운다(파일은 `updateAgentPrompt` 의 닫는 `}` 로 끝난다). 재export 줄 `export type { AgentDelegationResult } from '@/lib/agent/delegation'` 은 화면이 쓰므로 남긴다.
+
+```ts
+/**
+ * 에이전트 위임 토글 — 가드만 하고 본체는 src/lib/agent/delegation.ts(applyDelegation). 자격은 관리자 또는 담당자 본인.
+ * 본체를 이 파일('use server')에 두지 않는 이유는 그 파일 상단 주석에 있다.
+ */
+export async function setAgentDelegation(
+  itemId: string,
+  delegated: boolean,
+): Promise<AgentDelegationResult> {
+  if (!isUuidLike(itemId) || typeof delegated !== 'boolean') return { ok: false, error: '잘못된 요청입니다.' }
+  const right = await requireDelegationRight(itemId)
+  if (!right.ok) return { ok: false, error: right.error }
+  const r = await applyDelegation(createAdminClient(), {
+    itemId, projectId: right.projectId, delegated, actorUserId: right.actor.userId, isAdmin: right.isAdmin,
+  })
+  if (r.ok) revalidatePath(`/p/${right.projectId}`, 'layout')
+  // 해제가 진행 중 작업을 멈추고 단계를 as 로 되돌려 실적이 바뀌었으면 진척 스냅샷을 남긴다(wbsAssign 과 같은 규칙).
+  if (r.ok && r.actualChanged) after(() => recordProgressSnapshot(right.projectId))
+  return r
+}
+```
+
+`src/app/actions/agentHub.ts` 의 주석 한 줄도 지운 함수 이름 대신 가드 이름을 가리키게 고친다. 이 텍스트를 찾아:
+
+```ts
+ * 자격은 항목마다 setAgentDelegation 과 같다(허브 스펙 §3): 관리자, 또는 그 항목의 담당자 본인(멤버).
+```
+
+이렇게 바꾼다:
+
+```ts
+ * 자격은 항목마다 위임 권한(requireDelegationRight)과 같다(허브 스펙 §3): 관리자, 또는 그 항목의 담당자 본인(멤버).
+```
+
+`tests/actions/design-actions.test.ts`(Task 24 가 만든 파일)를 고친다. 옮겨 온 단언은 실제 위임 모듈을 `vi.importActual` 로 부르므로, 그 모듈이 기대는 것(`requireProjectAdmin`·`myMemberIds`·`viewerEmail`·`ensureOrder`)을 파일 머리의 목에 더한다. 위쪽 describe 들은 위임 모듈 전체를 목으로 두므로 영향이 없다.
+
+**(1) vitest import 에 `beforeAll` 을 더한다.** 이 텍스트를 찾아:
+
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+```
+
+이렇게 바꾼다:
+
+```ts
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+```
+
+**(2) 목 목록과 authz 목에 `requireProjectAdmin` 등을 더한다.** 이 텍스트를 찾아:
+
+```ts
+  loadDesignTarget: vi.fn(), after: vi.fn(), recordProgressSnapshot: vi.fn(), revalidatePath: vi.fn(),
+}))
+vi.mock('@/lib/authz', () => ({ resolveProjectId: mocks.resolveProjectId, requireProjectMember: mocks.requireProjectMember }))
+```
+
+이렇게 바꾼다:
+
+```ts
+  loadDesignTarget: vi.fn(), after: vi.fn(), recordProgressSnapshot: vi.fn(), revalidatePath: vi.fn(),
+  // 아래 "옮겨 온 단언"이 실제 위임 모듈(importActual)을 부를 때 그 모듈이 기대는 것들
+  requireProjectAdmin: vi.fn(), myMemberIds: vi.fn(), viewerEmail: vi.fn(),
+  ensureAgentProject: vi.fn(), backfillProjectOrders: vi.fn(), ensureOrderForWorkflowLeaf: vi.fn(),
+}))
+vi.mock('@/lib/authz', () => ({
+  resolveProjectId: mocks.resolveProjectId, requireProjectMember: mocks.requireProjectMember, requireProjectAdmin: mocks.requireProjectAdmin,
+}))
+```
+
+**(3) 위임 모듈 목 다음 줄에 세 모듈의 목을 더한다.** 이 텍스트를 찾아:
+
+```ts
+vi.mock('@/lib/agent/delegation', () => ({ requireDelegationRight: mocks.requireDelegationRight, applyDelegation: mocks.applyDelegation }))
+```
+
+이렇게 바꾼다:
+
+```ts
+vi.mock('@/lib/agent/delegation', () => ({ requireDelegationRight: mocks.requireDelegationRight, applyDelegation: mocks.applyDelegation }))
+vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds }))
+vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail, DONE_WINDOW_MS: 0 }))
+vi.mock('@/lib/agent/ensureOrder', () => ({
+  ensureAgentProject: mocks.ensureAgentProject, backfillProjectOrders: mocks.backfillProjectOrders,
+  ensureOrderForWorkflowLeaf: mocks.ensureOrderForWorkflowLeaf,
+}))
+```
+
+**(4) `updateAgentPrompt` 를 가져온다.** 이 텍스트를 찾아:
+
+```ts
+import { designAccept, designConfirm, designReopen, getDesignPanel, setDelegationAndMode } from '@/app/actions/designActions'
+```
+
+이렇게 바꾼다:
+
+```ts
+import { designAccept, designConfirm, designReopen, getDesignPanel, setDelegationAndMode } from '@/app/actions/designActions'
+import { updateAgentPrompt } from '@/app/actions/wbsSpec'
+```
+
+**(5) 파일 끝에 붙인다.** 옮겨 온 권한 단언(위임 가드 8건, 위임 본체의 멤버·관리자 갈래, `updateAgentPrompt` 2건)과 본체 동작 단언이다. 해제 갈래 세 건은 Task 7 의 cancel 사건 기준이라, Task 7 이 옛 파일에서 고친 취소 단언을 대신한다.
+
+```ts
+
+// ── 옮겨 온 단언(Task 25) ────────────────────────────────────────────────────────────────────────
+// setAgentDelegation 을 지우며 tests/actions/wbs-spec-delegation-right.test.ts 에서 옮겼다. 그 파일은 실제 위임 가드
+// (requireDelegationRight)와 위임 본체(applyDelegation)를 검사하던 유일한 곳이다. 위 describe 들은 두 함수를 목으로 두므로
+// 아래는 실제 모듈을 importActual 로 불러 자격 규칙(D10: 관리자 또는 담당자 본인)과 본체의 갈래를 고정한다.
+// 해제 갈래는 공용 취소(Task 7, cancel 사건) 기준이다 — Task 7 이 그 파일에서 고친 취소 단언을 여기서 대신한다.
+
+type Resp = { data?: unknown; error?: { message: string } | null }
+/** 큐 기반 admin 목 — 테이블별 순차 응답 + update/insert payload 캡처 + 호출된 테이블 목록. */
+function queueAdmin(queues: Record<string, Resp[]>) {
+  const captured: Record<string, unknown[]> = {}
+  const calls: string[] = []
+  const client = {
+    from: vi.fn((table: string) => {
+      calls.push(table)
+      const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
+      const b: Record<string, unknown> = {}
+      for (const k of ['select', 'eq', 'in', 'neq', 'order', 'limit']) b[k] = () => b
+      b.update = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
+      b.insert = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
+      b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
+      b.single = b.maybeSingle
+      b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
+      return b
+    }),
+  }
+  mocks.createAdminClient.mockReturnValue(client)
+  return { client, captured, calls }
+}
+const MEMBER = { ok: true, actor: { userId: 'member-1' } }
+const GUARD_DENIED = { ok: false, error: '권한이 없습니다.' }
+const actualDelegation = () => vi.importActual<typeof import('@/lib/agent/delegation')>('@/lib/agent/delegation')
+
+describe('requireDelegationRight — 위임 권한은 관리자 또는 담당자 본인(D10, 실제 가드)', () => {
+  let d: Awaited<ReturnType<typeof actualDelegation>>
+  beforeAll(async () => { d = await actualDelegation() })
+  beforeEach(() => {
+    mocks.requireProjectAdmin.mockResolvedValue(GUARD_DENIED)
+    mocks.requireProjectMember.mockResolvedValue(MEMBER)
+    mocks.viewerEmail.mockResolvedValue('yoo@example.com')
+    mocks.myMemberIds.mockResolvedValue(['m1'])
+  })
+  it('관리자면 멤버 판정·담당자 조회 없이 통과', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: true, actor: { userId: 'admin-1' } })
+    const { calls } = queueAdmin({})
+    expect(await d.requireDelegationRight(W1)).toEqual({ ok: true, actor: { userId: 'admin-1' }, projectId: P1, isAdmin: true })
+    expect(mocks.requireProjectMember).not.toHaveBeenCalled()
+    expect(calls).toEqual([])
+  })
+  it('멤버 + 담당자 본인(로스터 id 일치) → 통과, isAdmin=false', async () => {
+    queueAdmin({ wbs_items: [{ data: { assignee_member_id: 'm1' } }] })
+    expect(await d.requireDelegationRight(W1)).toEqual({ ok: true, actor: { userId: 'member-1' }, projectId: P1, isAdmin: false })
+    expect(mocks.myMemberIds).toHaveBeenCalledWith(expect.anything(), { userId: 'member-1', userEmail: 'yoo@example.com', projectId: P1 })
+  })
+  it('멤버 + 담당자가 남 → 거부(ERR_NOT_ASSIGNEE)', async () => {
+    queueAdmin({ wbs_items: [{ data: { assignee_member_id: 'm9' } }] })
+    expect(await d.requireDelegationRight(W1)).toEqual({ ok: false, error: d.ERR_NOT_ASSIGNEE })
+  })
+  it('멤버 + 담당자 미배정 → 거부', async () => {
+    queueAdmin({ wbs_items: [{ data: { assignee_member_id: null } }] })
+    expect(await d.requireDelegationRight(W1)).toEqual({ ok: false, error: d.ERR_NOT_ASSIGNEE })
+  })
+  it('멤버도 아니면 멤버 가드 오류 그대로', async () => {
+    mocks.requireProjectMember.mockResolvedValue(GUARD_DENIED)
+    expect(await d.requireDelegationRight(W1)).toEqual(GUARD_DENIED)
+  })
+  it('resolveProjectId 실패면 담당자 조회 전에 중단', async () => {
+    mocks.resolveProjectId.mockResolvedValue({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    const { calls } = queueAdmin({})
+    expect(await d.requireDelegationRight(W1)).toEqual({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    expect(calls).toEqual([])
+  })
+  it('뷰어 이메일 조회가 throw 하면 거부(fail-closed)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    queueAdmin({ wbs_items: [{ data: { assignee_member_id: 'm1' } }] })
+    mocks.viewerEmail.mockRejectedValue(new Error('auth down'))
+    expect((await d.requireDelegationRight(W1)).ok).toBe(false)
+    err.mockRestore()
+  })
+  it('잘못된 itemId → 거부', async () => {
+    expect(await d.requireDelegationRight('nope')).toEqual({ ok: false, error: '잘못된 요청입니다.' })
+  })
+})
+
+describe('applyDelegation — 위임 본체(멤버는 등록·활성 프로젝트에서만 켠다, 실제 본체)', () => {
+  let d: Awaited<ReturnType<typeof actualDelegation>>
+  beforeAll(async () => { d = await actualDelegation() })
+  beforeEach(() => {
+    mocks.ensureAgentProject.mockResolvedValue({ ok: true, enabled: true, activated: false, stopped: false })
+    mocks.ensureOrderForWorkflowLeaf.mockResolvedValue({ ok: true, created: true })
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true })
+  })
+  const asMember = (delegated: boolean) => ({ itemId: W1, projectId: P1, delegated, actorUserId: 'member-1', isAdmin: false })
+  const asAdmin = (delegated: boolean) => ({ itemId: W1, projectId: P1, delegated, actorUserId: 'admin-1', isAdmin: true })
+  const offQueues = (status: string) => ({
+    wbs_items: [{ data: { tags: ['agent'], dev_workflow: true } }, { data: [{ id: W1 }] }],
+    agent_work_orders: [{ data: [{ id: 'o1', status }] }],
+  })
+
+  it('멤버가 켜기 — 프로젝트가 등록·활성이면 태그를 붙이고 주문을 보장한다', async () => {
+    const { client, captured } = queueAdmin({
+      wbs_items: [{ data: { tags: [], dev_workflow: true } }, { data: [{ id: W1 }] }],
+      agent_projects: [{ data: { enabled: true } }],
+    })
+    expect((await d.applyDelegation(client as never, asMember(true))).ok).toBe(true)
+    expect((captured.wbs_items?.[0] as { tags: string[] }).tags).toEqual(['agent'])
+    expect(mocks.ensureAgentProject).toHaveBeenCalled()
+    expect(mocks.ensureOrderForWorkflowLeaf).toHaveBeenCalled()
+  })
+  it('멤버가 켜기 — 프로젝트가 등록되지 않았으면 ERR_AGENT_OFF, 태그 쓰기 0, 프로젝트를 켜지 않는다', async () => {
+    const { client, captured } = queueAdmin({ wbs_items: [{ data: { tags: [], dev_workflow: true } }], agent_projects: [{ data: null }] })
+    expect(await d.applyDelegation(client as never, asMember(true))).toEqual({ ok: false, error: d.ERR_AGENT_OFF })
+    expect(captured.wbs_items).toBeUndefined()
+    expect(mocks.ensureAgentProject).not.toHaveBeenCalled()
+  })
+  it('멤버가 켜기 — 프로젝트가 중지(enabled=false)면 ERR_AGENT_OFF', async () => {
+    const { client } = queueAdmin({ wbs_items: [{ data: { tags: [], dev_workflow: true } }], agent_projects: [{ data: { enabled: false } }] })
+    expect(await d.applyDelegation(client as never, asMember(true))).toEqual({ ok: false, error: d.ERR_AGENT_OFF })
+  })
+  it('멤버의 해제는 프로젝트 상태를 보지 않는다 — ready 주문은 cancel 사건 하나로 취소하고 단계는 따로 건드리지 않는다', async () => {
+    const { client, calls } = queueAdmin(offQueues('ready'))
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, prevStatus: 'ready', actualChanged: false })
+    expect(await d.applyDelegation(client as never, asMember(false))).toEqual({ ok: true })
+    expect(calls).not.toContain('agent_projects')
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledTimes(1)
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'cancel', actorUserId: 'member-1', orderId: 'o1' })
+  })
+  it('해제가 claimed 주문을 취소하면 cancelledClaimedIds·actualChanged 를 싣는다 — 단계 되돌리기는 cancel 사건이 한다(D14)', async () => {
+    const { client } = queueAdmin(offQueues('claimed'))
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, prevStatus: 'claimed', actualChanged: true })
+    expect(await d.applyDelegation(client as never, asMember(false))).toEqual({ ok: true, cancelledClaimedIds: ['o1'], actualChanged: true })
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledTimes(1)
+  })
+  it('취소가 경합으로 막히면(conflict) 경고로 알리고, 그 밖의 취소 실패는 오류로 돌려준다', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.applyWorkflowEvent.mockResolvedValueOnce({ ok: false, conflict: true, reason: 'conflict', orderStatus: 'reported', error: 'x' })
+    const r = await d.applyDelegation(queueAdmin(offQueues('claimed')).client as never, asMember(false))
+    expect(r.ok).toBe(true)
+    expect(r.cancelledClaimedIds).toBeUndefined()
+    expect(r.warning).toContain('완료 보고가 이미 올라온 주문은 취소되지 않았습니다')
+    mocks.applyWorkflowEvent.mockResolvedValueOnce({ ok: false, conflict: false, reason: 'rpc_error', orderStatus: null, error: '전이 실패: boom' })
+    expect(await d.applyDelegation(queueAdmin(offQueues('claimed')).client as never, asMember(false)))
+      .toEqual({ ok: false, error: '주문 취소 실패: 전이 실패: boom' })
+    err.mockRestore()
+  })
+  it('관리자 경로는 agent_projects 사전 확인 없이 ensureAgentProject 로 간다(종전 동작)', async () => {
+    const { client, calls } = queueAdmin({ wbs_items: [{ data: { tags: [], dev_workflow: true } }, { data: [{ id: W1 }] }] })
+    expect((await d.applyDelegation(client as never, asAdmin(true))).ok).toBe(true)
+    expect(mocks.ensureAgentProject).toHaveBeenCalled()
+    expect(calls.filter(t => t === 'agent_projects')).toEqual([])
+  })
+  it('dev_workflow 가 꺼져 있던 리프는 켜면서 이력 1건 + 담당자 있고 단계 없으면 assign 사건', async () => {
+    const { client, captured } = queueAdmin({
+      wbs_items: [
+        { data: { tags: [], dev_workflow: false } },                                      // 본체 첫 조회
+        { data: [{ id: W1 }] },                                                            // 태그 update
+        { data: [{ id: W1, assignee_member_id: 'm1', stage: null }] },                     // dev_workflow update
+      ],
+    })
+    expect((await d.applyDelegation(client as never, asAdmin(true))).ok).toBe(true)
+    expect((captured.wbs_items?.[1] as { dev_workflow: boolean }).dev_workflow).toBe(true)
+    expect((captured.change_logs?.[0] as { field: string; new_value: string })).toMatchObject({ field: 'dev_workflow', new_value: 'true', wbs_item_id: W1 })
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'assign', actorUserId: 'admin-1', itemId: W1 })
+  })
+  it('프로젝트가 중지 상태면 태그는 붙고 주문은 안 나가며 warning 에 에이전트 페이지 안내', async () => {
+    mocks.ensureAgentProject.mockResolvedValue({ ok: true, enabled: false, activated: false, stopped: true })
+    const { client } = queueAdmin({ wbs_items: [{ data: { tags: [], dev_workflow: true } }, { data: [{ id: W1 }] }] })
+    const r = await d.applyDelegation(client as never, asAdmin(true))
+    expect(r.ok).toBe(true)
+    expect(r.warning).toContain('에이전트 페이지에서 켜면')
+    expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateAgentPrompt — 자격은 위임 권한과 같다(관리자 또는 담당자 본인)', () => {
+  it('위임 권한이 있으면(담당자 본인 포함) 다듬어 저장한다', async () => {
+    const { captured } = queueAdmin({ wbs_items: [{ data: [{ id: W1 }] }] })
+    expect(await updateAgentPrompt(W1, ' 지시 ')).toEqual({ ok: true })
+    expect(mocks.requireDelegationRight).toHaveBeenCalledWith(W1)
+    expect((captured.wbs_items?.[0] as { agent_prompt: string }).agent_prompt).toBe('지시')
+  })
+  it('위임 권한이 없으면 그 오류로 거부하고 쓰지 않는다', async () => {
+    mocks.requireDelegationRight.mockResolvedValue(DENIED)
+    const { captured } = queueAdmin({})
+    expect(await updateAgentPrompt(W1, 'x')).toEqual(DENIED)
+    expect(captured.wbs_items).toBeUndefined()
+  })
+})
+```
+
+전용 테스트를 지운다(커밋 단계에서 `git rm` 으로 올린다):
+
+```bash
+rm tests/actions/wbs-spec-delegation-right.test.ts
+```
+
+Run: `npx vitest run tests/actions/design-actions.test.ts tests/actions/wbs-spec.test.ts && npx tsc --noEmit -p . && (grep -rn "setAgentDelegation" src || echo 'src 에 없음')`
+Expected: PASS — `design-actions.test.ts` 38건(Task 24 의 19건과 옮겨 온 19건). tsc 오류 없음. 마지막 줄은 `src 에 없음` 이다(주석까지 고쳤으므로 src 에는 이 이름이 남지 않는다).
+
+- [ ] **Step 9: 넓게 확인**
+
+Run: `npx vitest run tests/components tests/ui tests/actions`
+Expected: PASS. `RowDetailPanel` 을 거쳐 패널을 그리는 UI 테스트들은 이제 목 없는 실제 `designActions` 모듈을 import 한다. import 만으로 깨지지 않는지 여기서 본다. tests/actions 는 지운 전용 테스트 없이도 위임 가드·본체 단언이 `design-actions.test.ts` 에서 돈다.
+
+- [ ] **Step 10: 커밋**
+
+```bash
+git add src/components/wbs/WbsDesignSection.tsx src/components/wbs/WbsSpecPanel.tsx \
+  src/lib/i18n/dict/wbs.ts src/lib/i18n/dict/wbs.en.ts src/app/actions/wbsSpec.ts src/app/actions/agentHub.ts \
+  tests/components/wbs-design-section.test.tsx tests/components/wbs-spec-debounced-save.test.tsx tests/actions/design-actions.test.ts
+git rm tests/actions/wbs-spec-delegation-right.test.ts
+git commit -m "feat(design-state): WBS 작업 패널에서 위임과 설계 방식을 함께 고르고, 설계 영역에서 승인·확정·되돌리기를 한다
+
+위임 체크와 방식 select 는 debounce 저장의 한 칸(on:<mode>|off:<mode>)이다. 한 서버 액션(setDelegationAndMode)이 둘을 함께
+써야 하고, 저장 훅이 값을 Object.is 로 비교해 객체를 쓸 수 없어서다. 두 칸은 위임 권한(D10)으로 열어 담당자 본인도 방식을
+바꾼다. 설계 영역의 문구·되돌림 사유·안내는 서버 판정(designScreen)의 문자열을 그대로 보여 규칙 원본을 하나로 둔다.
+화면 호출이 바뀌어 쓰이지 않게 된 setAgentDelegation 을 지우고, 그 전용 테스트가 지키던 위임 가드·본체 단언은
+design-actions 테스트로 옮겼다.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 26: 좌석·허브 — 설계 검토 대기 판정과 설계 버튼
+
+**Files:**
+- Modify: `src/lib/domain/seatState.ts`, `src/lib/domain/seatmap.ts`, `src/lib/domain/waitReason.ts`, `src/lib/data/agentSeatmap.ts`
+- Modify: `src/components/agents/seatOps.ts`, `src/components/agents/Seat.tsx`, `src/components/agents/LaneBoard.tsx`, `src/components/agents/DetailPanel.tsx`, `src/components/agents/RosterBoard.tsx`, `src/lib/domain/officeChatter.ts`
+- Modify: `src/lib/domain/agentHub.ts`, `src/lib/data/agentHub.ts`
+- Modify: `src/components/agent-hub/labels.ts`, `src/components/agent-hub/HubStatusBar.tsx`, `src/components/agent-hub/AgentHubView.tsx`, `src/components/agent-hub/DelegationTable.tsx`
+- Test: `tests/domain/seat-state.test.ts`, `tests/domain/seatmap.test.ts`, `tests/data/agent-seatmap.test.ts`
+- Test: `tests/components/agents-seat-ops.test.ts`, `tests/components/agents-design-wait.test.tsx`, `tests/components/agents-roster-phase.test.ts`
+- Test: `tests/domain/agent-hub.test.ts`, `tests/data/agent-hub.test.ts`, `tests/components/agent-hub-table.test.tsx`, `tests/components/agent-hub-view.test.tsx`
+
+**Interfaces:**
+- Consumes:
+  - Task 1(`src/lib/domain/designGate.ts`): `designScreen`·`predsState`·`workerAlive`·`toDesignMode`·`toDesignState`, 타입 `ItemFacts`·`ScreenOrder`·`DesignScreenRow`·`DesignState`·`DesignButton`. 버튼 목록은 `designScreen` 이 돌려주는 행의 `buttons`(= `designButtons(item, active)`)를 그대로 쓴다.
+  - Task 3: `src/components/agent-hub/labels.ts` 의 `HUMAN_STAGE_CODES` 재수출과 `DelegationTable.tsx` 의 단계 select(`HUMAN_STAGE_CODES.map`). 이 Task 는 그 편집이 끝난 파일을 고친다.
+  - Task 4 의 열: `wbs_items.design_mode`, `agent_work_orders.design_state`·`design_note`·`runner`·`runner_seen_at`.
+  - Task 16: `requestResumeOnOrder` 가 설계 상태 review 인 주문의 재개 요청을 거부한다(좌석 「이어서 시작」 숨김의 서버 쪽).
+  - Task 24(`src/app/actions/agentHub.ts`): `HubProcessOp` 의 `{ kind: 'design_accept'; itemId: string }`·`{ kind: 'design_confirm'; itemId: string }`·`{ kind: 'design_reopen'; itemId: string; note: string }` 와 `runHubProcessOp` 의 반환 `HubProcessResult`(`{ ok: true; hub; hubError?; warning? } | { ok: false; error }`).
+- Produces:
+  - `SeatInput` 의 `designState?: DesignState | null`·`runner?: string | null`·`stage?: string | null`
+  - `isReviewWait(i: Pick<SeatInput, 'status' | 'designState'>): boolean` — `status === 'claimed' && designState === 'review'`. heartbeat phase `wait_review` 는 좌석 판정에 쓰지 않는다(스펙 8절).
+  - `isBuildWait(i: Pick<SeatInput, 'status' | 'designState' | 'runner' | 'stage'>): boolean` — claimed ∧ `designState === 'accepted'` ∧ runner 없음 ∧ `stage === 'dd'`(구현 대기). `deriveSeatState` 는 이 주문을 침묵과 무관하게 WAIT 로 본다.
+  - `OrderRow` 의 `design_state?`·`design_note?`·`runner?`·`runner_seen_at?: string | null`, `ItemRow.design_mode?: string | null`
+  - `Seat.buildWait?: boolean`, `Seat.design?: SeatDesign | null`, `export type SeatDesign = Omit<DesignScreenRow, 'buttons'>`
+  - `screenItemFacts(item, byRef, hasApprovedOrder): ItemFacts`·`screenOrderOf(o: OrderRow, heartbeatPhase?: string | null): ScreenOrder`(`seatmap.ts` — 허브도 쓴다)
+  - `HubItemRow.design_mode?`, `HubRow.order.designState?: DesignState | null`·`HubRow.order.buildWait?: boolean`, `HubRow.design?: DesignScreenRow | null`, `AgentHub.counters.designReview?: number`(조립은 항상 채운다)
+  - `AgentHubRows.approvedItemIds` 의 뜻이 "선행 항목과 설계 판정 대상(위임·설계 방식 human 항목) 중 approved 주문이 있는 항목 id"로 넓어진다.
+  - `seatOps.ts`: `REVIEW_WAIT_OPS = ['stop']`, `BUILD_WAIT_OPS = ['resume', 'stop']`, `SeatOpsInput` 에 `buildWait`
+  - `Seat.tsx`: `BUILD_WAIT_LABEL = '구현 대기'`, `SeatMark` 의 `buildWait` prop(표지 `data-mark-reason="build_wait"`)
+  - `RosterBoard.tsx`: `profilePhaseLabel(seat: Pick<Seat, 'heartbeatPhase' | 'phase' | 'reviewWait'>): string | null`
+  - `labels.ts`: `DESIGN_BTN_LABEL`·`DESIGN_BTN_TITLE: Record<DesignButton, string>`, `DESIGN_REOPEN_PLACEHOLDER`, `designTone(row: number): string`, `BUILD_WAIT_LABEL`·`BUILD_WAIT_TONE`. `hubStateLabel`·`hubStateTone` 이 `buildWait` 를 받는다.
+  - `HubStatusBar` prop `designReview?: number`(없으면 0)
+  - data 속성(공통 지침 7절 그대로, Task 27 의 브라우저 E2E 가 쓴다): `data-hub-design-review`(값 = 건수), `data-hub-design-btn="accept" | "confirm" | "reopen"`, `data-hub-design-reopen-reason`, 되돌리기 입력 줄의 제출 버튼 `data-hub-design-reopen-submit`·취소 버튼 `data-hub-design-reopen-cancel`, `data-seat-design-label`(값 = 3절 행 번호). 이 Task 가 더하는 속성: `data-seat-design-detail`·`data-hub-design-label`(값 = 행 번호), `data-hub-design-text`, `data-hub-design-reopen`(입력 줄 상자).
+
+이 Task 에서 정한 것(구현 전에 읽는다):
+
+- **좌석 문구의 앞선 판정은 좌석 상태가 아니라 "BLOCKED ∨ 살아 있는 워커(`workerAlive`)"다.** 스펙 3절은 "BLOCKED 와 신선한 heartbeat(ACTIVE)를 먼저 본다"고 적는다. 그런데 좌석의 ACTIVE 는 `max(last_heartbeat_at, updated_at)` 로 켜지므로, 사건이 `updated_at` 만 새로 써도 ACTIVE 가 된다. 그래서 좌석 상태가 아니라 heartbeat 기준의 `workerAlive`(신선한 heartbeat 이면서 phase 가 wait_* 가 아님)로 가른다.
+- **승인·확정된 설계가 팀장을 기다리는 주문은 차분한 WAIT(구현 대기)다(메인 결정).** 조건은 claimed ∧ 설계 상태 accepted ∧ 단계 dd ∧ 도는 PC(runner) 없음이다(`isBuildWait`). Task 4 의 `design_accept` 는 `updated_at` 만 새로 쓰고 heartbeat 는 설계 워커의 옛 것(phase wait_review)을 남긴다. 그대로 두면 「설계 승인」 직후 5분은 ACTIVE 로, 그 뒤로는 확인 필요 띠의 무응답·끊김으로 오른다. 구현 워커가 heartbeat 로 runner 를 넘겨받으면(Task 12) 평소 판정으로 돌아가므로, 그 워커가 죽으면 무응답·끊김으로 드러난다. 단계 dd 를 조건에 넣은 까닭은 반려 뒤 재작업(claimed·ip·accepted·runner 없음)을 WAIT 로 덮지 않기 위해서다. 구현 대기 좌석은 결재 대기가 아니므로 레인·카운터·결재 버튼·조르기 대사·허브 상태 칩에서 선행 대기·검토 대기처럼 다룬다(`buildWait` 표식). 「이어서 시작」은 숨기지 않는다(Y10). 문구는 3절 2·3행 그대로다.
+- **좌석은 활성 주문(ready·claimed·reported)만 판정한다.** 승인분(DONE) 좌석은 활성 주문이 없어야 걸리는 9·10행의 대상이 아니다.
+- **선행은 새 조회 없이 구한다.** `agentSeatmap.ts` 의 선행 항목 조회 대상을 "ready 주문 항목 ∪ claimed 주문이면서 단계가 ds·dd 인 항목"으로 넓힌다. 조회 횟수는 그대로다. dd 만 넓히면 안 된다. 12행(claimed·ds·선행 막힘·워커 없음)은 ds 항목의 선행이 필요하고, 읽지 않은 ref 는 "프로젝트에 없음 = 미충족(blocked)"으로 판정되기 때문이다. 그러면 선행이 충족된 멈춘 ds 좌석까지 「선행 대기(설계 중 멈춤)」로 거짓 표시된다.
+- **좌석의 approved 주문 유무는 좌석이 읽은 주문(승인은 7일 창)으로 본다.** 활성 주문이 있는 항목에 승인 주문이 함께 있는 일은 발행 차단(D26, Task 8)과 0108 이전이 막는다.
+- **허브는 approved 주문 조회 대상을 넓힌다.** 기존 조회(선행 항목 id)에 위임 항목과 설계 방식 human 항목의 id 를 더해 200건씩 한 번에 읽는다. 허브의 주문 조회는 승인분을 7일 창만 싣는다. 그래서 이 조회가 없으면 오래전에 정상 완료된 위임 리프(xx·활성 주문 없음)가 모두 10행 「위임 보류(단계가 이미 진행됨)」로 보인다.
+- **허브의 `active` 는 활성 주문일 때만 넘긴다.** `pickOrder` 는 활성 주문이 없으면 최근 approved 주문을 고른다. 그 주문을 `active` 로 넘기면 9·10행이 영영 걸리지 않는다.
+- **설계 버튼은 `HubRow.design.buttons` 에 있고 `canToggle` 일 때만 그린다.** `canToggle` 은 `requireDelegationRight`(관리자 또는 담당자 본인)와 같은 규칙이다. `buttons` 자체는 권한과 따로 싣는다. Task 24 가 `buttons` 와 `canAct` 를 나눈 것과 같다.
+- **설계 문구가 있으면 빈자리 사유(waitReason)는 선행 대기(dependency)일 때만 함께 보인다.** 사람 설계 대기에 "착수 대기 — 집어갈 에이전트가 있습니다"가 같이 보이면 서로 어긋난다. 선행 대기는 선행 목록과 「강제 진행 검토」 링크를 주므로 남긴다.
+- **결재 대기 배지는 그대로 둔다.** 사이드바 배지(`src/lib/data/agentApprovals.ts` 의 `getPendingApprovals`)는 `status = 'reported'` 주문만 센다(스펙 7절 "완료 승인만 센다"). 설계 검토 대기 수는 허브 상태 줄(`HubStatusBar`)의 타일로만 보인다. 사이드바(`src/components/app/*`)는 UI 위험 파일이라 건드리지 않는다.
+- **에이전트 보기의 단계 라벨은 '설계 검토 대기'를 설계 상태가 review 일 때만 말한다(메인 결정).** `RosterBoard.tsx` 는 워커가 보고한 heartbeat phase 를 읽는다. 승인 뒤 남은 phase `wait_review` 는 보고가 없는 것과 같이 다룬다(스펙 8절 413~414행과 같은 까닭). 그 밖의 단계는 지금 규칙 그대로다.
+
+- [ ] **Step 1: 실패하는 테스트 — 좌석의 설계 검토 대기·구현 대기 판정**
+
+**`tests/domain/seat-state.test.ts`** — import 에 `isBuildWait` 를 더하고, 옛 `wait_review` describe 블록 전체를 설계 상태 판정 블록으로 바꾼다.
+
+이 텍스트를 찾아:
+
+```ts
+  isReviewWait, isWatcherAlive, lastSignalMs, pickCharacter, type SeatInput,
+```
+
+이렇게 바꾼다:
+
+```ts
+  isBuildWait, isReviewWait, isWatcherAlive, lastSignalMs, pickCharacter, type SeatInput,
+```
+
+이 텍스트를 찾아:
+
+```ts
+describe('wait_review — 설계 완료·검토 대기(스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5)', () => {
+  it('워커 phase 목록에 있어 서버가 받는다', () => {
+    expect(HEARTBEAT_PHASES).toContain('wait_review')
+  })
+  it('claimed ∧ wait_review 는 침묵 시간과 무관하게 WAIT — STALE·OFFLINE 로 보이지 않는다', () => {
+    const w = (ms: number) => base({ heartbeatPhase: 'wait_review', lastHeartbeatAt: ago(ms), updatedAt: ago(ms) })
+    expect(deriveSeatState(w(1000), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(STALE_MS + 1), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(OFFLINE_MS * 10), NOW)).toBe('WAIT')
+    expect(inferPhase(w(1000))).toBe('wait_review')
+  })
+  it('승인 대기 WAIT 와 구분한다 — isApprovalWait 은 reported 만, isReviewWait 은 claimed ∧ wait_review 만', () => {
+    expect(isApprovalWait(base({ heartbeatPhase: 'wait_review' }))).toBe(false)
+    expect(isReviewWait(base({ heartbeatPhase: 'wait_review' }))).toBe(true)
+    expect(isReviewWait(base({ status: 'reported', heartbeatPhase: 'wait_review' }))).toBe(false)
+    expect(isReviewWait(base({}))).toBe(false)
+  })
+  it('wait_pred 와 wait_review 는 서로 구분된다 — 둘 다 WAIT 지만 isDesignWait·isReviewWait 은 배타적이다', () => {
+    expect(isDesignWait(base({ heartbeatPhase: 'wait_review' }))).toBe(false)
+    expect(isReviewWait(base({ heartbeatPhase: 'wait_pred' }))).toBe(false)
+  })
+})
+```
+
+이렇게 바꾼다:
+
+```ts
+describe('설계 검토 대기·구현 대기 — 주문의 설계 상태로 가른다(설계 상태 스펙 3절 1~3행·8절)', () => {
+  it('heartbeat phase wait_review 는 받아 두되(워커 phase 목록) 좌석 판정에는 쓰지 않는다', () => {
+    expect(HEARTBEAT_PHASES).toContain('wait_review')
+    expect(isReviewWait(base({ heartbeatPhase: 'wait_review' }))).toBe(false)
+    // 「설계 승인」 뒤에도 phase 는 wait_review 로 남는다 — 검토 대기가 아니다. 도는 PC 가 생긴 뒤에는 평소대로 침묵으로 판정한다.
+    const taken = base({ heartbeatPhase: 'wait_review', designState: 'accepted', runner: 'hong/mbp/w2', stage: 'dd', lastHeartbeatAt: ago(OFFLINE_MS + 1), updatedAt: ago(OFFLINE_MS + 1) })
+    expect(isReviewWait(taken)).toBe(false)
+    expect(deriveSeatState(taken, NOW)).toBe('OFFLINE')
+  })
+  it('claimed ∧ 설계 상태 review 는 침묵 시간과 무관하게 WAIT — STALE·OFFLINE 로 보이지 않는다', () => {
+    const w = (ms: number) => base({ heartbeatPhase: 'wait_review', designState: 'review', lastHeartbeatAt: ago(ms), updatedAt: ago(ms) })
+    expect(deriveSeatState(w(1000), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(STALE_MS + 1), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(OFFLINE_MS * 10), NOW)).toBe('WAIT')
+    expect(inferPhase(w(1000))).toBe('wait_review')
+  })
+  it('승인 대기 WAIT 와 구분한다 — isApprovalWait 은 reported 만, isReviewWait 은 claimed ∧ review 만', () => {
+    expect(isApprovalWait(base({ designState: 'review' }))).toBe(false)
+    expect(isReviewWait(base({ designState: 'review' }))).toBe(true)
+    expect(isReviewWait(base({ status: 'reported', designState: 'review' }))).toBe(false)
+    expect(isReviewWait(base({ designState: 'accepted' }))).toBe(false)
+    expect(isReviewWait(base({}))).toBe(false)
+  })
+  it('선행 대기(wait_pred)와 배타적이다 — 둘 다 WAIT 지만 isDesignWait·isReviewWait 은 서로 겹치지 않는다', () => {
+    expect(isDesignWait(base({ heartbeatPhase: 'wait_review', designState: 'review' }))).toBe(false)
+    expect(isReviewWait(base({ heartbeatPhase: 'wait_pred' }))).toBe(false)
+  })
+  it('구현 대기(claimed ∧ accepted ∧ 단계 dd ∧ 도는 PC 없음)는 팀장을 기다리는 정상 대기 — 승인 뒤 10분이 지난 heartbeat 로도 WAIT 다', () => {
+    const w = (ms: number, over: Partial<SeatInput> = {}) =>
+      base({ heartbeatPhase: 'wait_review', designState: 'accepted', runner: null, stage: 'dd', lastHeartbeatAt: ago(ms), updatedAt: ago(ms), ...over })
+    expect(isBuildWait(w(10 * 60_000))).toBe(true)
+    expect(deriveSeatState(w(10 * 60_000), NOW)).toBe('WAIT')
+    expect(deriveSeatState(w(OFFLINE_MS * 3), NOW)).toBe('WAIT')
+    expect(isApprovalWait(w(10 * 60_000))).toBe(false)
+    // 구현 워커가 heartbeat 로 도는 PC 를 넘겨받으면 평소 판정이다 — 그 워커가 죽으면 무응답·끊김으로 드러난다.
+    expect(deriveSeatState(w(10 * 60_000, { runner: 'hong/mbp/w2' }), NOW)).toBe('STALE')
+    // 반려 뒤 재작업(단계 ip)과 검토 대기는 구현 대기가 아니다 — 반려·끊김을 가리지 않는다.
+    expect(isBuildWait(w(1000, { stage: 'ip' }))).toBe(false)
+    expect(isBuildWait(w(1000, { designState: 'review' }))).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 2: 실패 확인**
+
+Run: `npx vitest run tests/domain/seat-state.test.ts`
+Expected: FAIL 3건. `isReviewWait` 가 아직 heartbeat phase 로 판정해서, phase 만 `wait_review` 인 입력을 검토 대기로 보고(true) `designState: 'review'` 만 있는 입력은 검토 대기로 보지 않는다(false). `isBuildWait` 는 아직 없어 구현 대기 테스트가 TypeError 로 실패한다.
+
+- [ ] **Step 3: 구현 — `seatState.ts`**
+
+**`src/lib/domain/seatState.ts`**
+
+`designGate.ts` 는 이 파일에서 `STALE_MS` 를 값으로 가져간다. 여기서는 타입만 가져오므로(`import type`) 실행 시 순환이 생기지 않는다.
+
+이 텍스트의 마지막 줄 다음에:
+
+```ts
+// 좌석표 상태 판정 — IO 없음. 정본: docs/superpowers/specs/2026-09-14-agent-office-v1-design.md §2
+```
+
+이 줄들을 더한다:
+
+```ts
+import type { DesignState } from './designGate'
+```
+
+이 텍스트를 찾아:
+
+```ts
+ *  wait_review = `--scope design`(설계만) 으로 돌다 설계를 마치고 사람의 검토를 기다리며 멈춘다(계약 2.10, 스펙
+ *  2026-09-26-dflow-dev-skill-router-design.md §14.5) — wait_pred 와 같이 WAIT·침묵 무관이지만 사유가 다르다:
+ *  선행이 아니라 사람 검토를 기다린다. wait_pred 로 적으면 팀장의 설계 완료 대기 자동 재개(design-ahead)가
+ *  사람 검토 없이 구현을 시작해 버린다(§14.2). */
+```
+
+이렇게 바꾼다:
+
+```ts
+ *  wait_review = 설계를 마치고 사람의 검토를 기다리며 멈춘 워커가 남기는 phase(계약 2.10, 2.11 에서는 design_done 이
+ *  review 로 끝날 때 서버도 적는다). 받아 두되 좌석 판정에는 쓰지 않는다 — 설계 검토 대기는 주문의 설계 상태(review)로
+ *  가른다(설계 상태 스펙 8절). 「설계 승인」 뒤에도 이 phase 가 남기 때문이다. */
+```
+
+이 텍스트를 찾아:
+
+```ts
+  /** 그 주문의 마지막 completion 보고 판정. 없으면 null. */
+  lastReview: 'approve' | 'reject' | null
+  actualPct: number | null
+}
+```
+
+이렇게 바꾼다:
+
+```ts
+  /** 그 주문의 마지막 completion 보고 판정. 없으면 null. */
+  lastReview: 'approve' | 'reject' | null
+  actualPct: number | null
+  /** 주문의 설계 상태(0108 design_state). 설계 검토 대기·구현 대기 판정의 재료다. 옛 호출부·픽스처는 비워 둔다(없음). */
+  designState?: DesignState | null
+  /** 도는 PC(0108 runner)와 항목 단계 — 구현 대기 판정의 재료다. 옛 호출부·픽스처는 비워 둔다. */
+  runner?: string | null
+  stage?: string | null
+}
+```
+
+이 텍스트를 찾아:
+
+```ts
+/** 설계 완료·검토 대기(스펙 §14.5) — 점유 중이고 마지막 heartbeat 가 wait_review. isDesignWait 과 같은 축(WAIT 이지만
+ *  승인 대기가 아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). */
+export function isReviewWait(i: Pick<SeatInput, 'status' | 'heartbeatPhase'>): boolean {
+  return i.status === 'claimed' && i.heartbeatPhase === 'wait_review'
+}
+```
+
+이렇게 바꾼다:
+
+```ts
+/** 설계 검토 대기(설계 상태 스펙 3절 1행) — 점유 중이고 서버의 설계 상태가 review. isDesignWait 과 같은 축(WAIT 이지만
+ *  승인 대기가 아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). heartbeat phase wait_review 는 보지 않는다 —
+ *  「설계 승인」 뒤에도 그 phase 가 남아 검토 대기로 보이던 결함이 있었다(스펙 8절 "좌석 판정에 쓰지 않는다"). */
+export function isReviewWait(i: Pick<SeatInput, 'status' | 'designState'>): boolean {
+  return i.status === 'claimed' && i.designState === 'review'
+}
+
+/** 구현 대기(설계 상태 스펙 3절 2·3행) — 점유 중이고 승인·확정된 설계가 설계 완료(dd)에서 팀장을 기다린다(도는 PC 없음).
+ *  「설계 승인」은 updated_at 만 새로 쓰고 heartbeat 는 설계 워커의 옛 것이 남는다 — 팀장이 가져갈 때까지 무응답·끊김으로
+ *  보이지 않게 WAIT 로 둔다. 구현 워커가 heartbeat 로 runner 를 넘겨받으면 평소 판정으로 돌아간다. 반려 뒤 재작업(단계 ip)은
+ *  여기 들지 않는다 — 반려·끊김을 가리지 않는다. */
+export function isBuildWait(i: Pick<SeatInput, 'status' | 'designState' | 'runner' | 'stage'>): boolean {
+  return i.status === 'claimed' && i.designState === 'accepted' && (i.runner ?? null) === null && i.stage === 'dd'
+}
+```
+
+이 텍스트를 찾아:
+
+```ts
+/** 승인 대기 — WAIT 중 사람이 결재할 것(reported)만. 설계 완료·선행 대기(isDesignWait)·검토 대기(isReviewWait)는 WAIT 이지만 여기 들지 않는다. */
+```
+
+이렇게 바꾼다:
+
+```ts
+/** 승인 대기 — WAIT 중 사람이 결재할 것(reported)만. 설계 완료·선행 대기(isDesignWait)·검토 대기(isReviewWait)·구현 대기(isBuildWait)는 WAIT 이지만 여기 들지 않는다. */
+```
+
+이 텍스트를 찾아:
+
+```ts
+  // 설계 선행 뒤 선행 대기·검토 대기로 멈춘 주문 — 자동 회수가 없어 heartbeat 가 끊긴 채 남는다. 끊김으로 보이지 않게 침묵 판정보다 먼저.
+  if (isDesignWait(i) || isReviewWait(i)) return 'WAIT'
+```
+
+이렇게 바꾼다:
+
+```ts
+  // 설계 선행 뒤 선행 대기·검토 대기로 멈춘 주문과, 승인·확정된 설계가 팀장을 기다리는 주문(구현 대기) — 자동 회수가 없어
+  // heartbeat 가 끊긴 채 남는다. 끊김으로 보이지 않게 침묵 판정보다 먼저.
+  if (isDesignWait(i) || isReviewWait(i) || isBuildWait(i)) return 'WAIT'
+```
+
+`deriveSeatState` 에서 BLOCKED 가 가장 먼저인 것은 그대로다. 그다음 선행 대기·검토 대기·구현 대기를 침묵 판정보다 먼저 WAIT 로 본다.
+
+- [ ] **Step 4: 통과 확인**
+
+Run: `npx vitest run tests/domain/seat-state.test.ts`
+Expected: PASS. 이 시점에는 옛 판정을 전제한 기존 테스트 2건이 잠시 실패한다. `tests/domain/seatmap.test.ts` 의 "설계 완료·검토 대기(claimed ∧ wait_review…)"와 `tests/domain/agent-hub.test.ts` 의 "설계 완료·검토 대기(claimed ∧ wait_review…)"이다. 조립이 아직 설계 상태를 넘기지 않기 때문이다. Step 5·13 이 두 테스트를 고쳐 쓴다. 타입 검사는 Step 20 에서 한 번에 한다(`seatmap.ts` 의 `isReviewWait({ status, heartbeatPhase })` 호출은 Step 7 이 고친다).
+
+- [ ] **Step 5: 실패하는 테스트 — 좌석 설계 문구와 선행 조회 확장**
+
+**`tests/domain/seatmap.test.ts`** — 기존 검토 대기 좌석 테스트는 주문에 `design_state: 'review'` 를 싣도록 고친다. 파일 끝에 설계 문구 describe 를 더한다.
+
+이 텍스트를 찾아:
+
+```ts
+import { ageLabel, assembleSeatmap, seatmapChannelProjectIds, type LeaseRow, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
+```
+
+이렇게 바꾼다:
+
+```ts
+import { ageLabel, assembleSeatmap, seatmapChannelProjectIds, type ItemRow, type LeaseRow, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
+```
+
+이 텍스트를 찾아:
+
+```ts
+  it('설계 완료·검토 대기(claimed ∧ wait_review, 스펙 §14.5)는 오래 침묵해도 WAIT·설계 검토 대기·실루엣이고, 미충족 선행이 있어도 사유는 바뀌지 않는다', () => {
+    const waitReview = order({ heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 5), updated_at: ago(OFFLINE_MS * 5) })
+```
+
+이렇게 바꾼다:
+
+```ts
+  it('설계 검토 대기(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행)는 오래 침묵해도 WAIT·설계 검토 대기·실루엣이고, 미충족 선행이 있어도 사유는 바뀌지 않는다', () => {
+    const waitReview = order({ design_state: 'review', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 5), updated_at: ago(OFFLINE_MS * 5) })
+```
+
+파일 끝에 더한다:
+
+```ts
+describe('assembleSeatmap — 설계 문구(설계 상태 스펙 3절 화면 판정)', () => {
+  const seatOf = (m: ReturnType<typeof assembleSeatmap>) => m.floors[0].zones[0].seats[0]
+  const item = (over: Partial<ItemRow> = {}): ItemRow => ({
+    id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 20, assignee_member_id: null, tags: ['agent'],
+    stage: 'dd', design_mode: 'review', ...over,
+  })
+  const silent = { last_heartbeat_at: ago(OFFLINE_MS * 2), updated_at: ago(OFFLINE_MS * 2) }
+  it('설계 검토 대기(claimed ∧ review)는 1행 — 문구·되돌림 사유·안내를 싣고, 버튼은 싣지 않는다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ design_state: 'review', design_note: '테스트 계획이 비었습니다', heartbeat_phase: 'wait_review', ...silent })],
+      items: [item()],
+    }), NOW)
+    const s = seatOf(m)
+    expect(s.state).toBe('WAIT')
+    expect(s.reviewWait).toBe(true)
+    expect(s.design).toMatchObject({ row: 1, label: '설계 검토 대기', note: '테스트 계획이 비었습니다' })
+    expect(s.design?.hint).toContain('「설계 승인」')
+    expect(s.design).not.toHaveProperty('buttons') // 좌석에는 설계 버튼이 없다 — WBS 작업 패널·허브가 누른다
+  })
+  it('「설계 승인」 뒤(RPC 모양: accepted·dd·phase wait_review·도는 PC 없음)는 구현 대기 — 차분한 WAIT 와 3행 문구이고, 10분이 지나도 무응답·끊김으로 오르지 않는다', () => {
+    const accepted = (hbAgo: number, upAgo: number) => assembleSeatmap(rows({
+      orders: [order({ design_state: 'accepted', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(hbAgo), updated_at: ago(upAgo) })],
+      items: [item()],
+    }), NOW)
+    const fresh = seatOf(accepted(20 * 60_000, 10_000))
+    expect(fresh.state).toBe('WAIT')
+    expect(fresh.reviewWait).toBe(false) // 승인 뒤 남은 phase 로 검토 대기가 되지 않는다
+    expect(fresh.buildWait).toBe(true)
+    expect(fresh.design).toMatchObject({ row: 3, label: '구현 대기(설계 승인됨)' })
+    const later = accepted(30 * 60_000, 10 * 60_000)
+    expect(seatOf(later).state).toBe('WAIT')
+    expect(seatOf(later).anim).toBe('waiting')
+    expect(later.attention).toEqual([])
+    // 「승인 대기」 타일·구역 요약에 세지 않는다 — 결재할 것이 없다.
+    expect(later.counters).toMatchObject({ idle: 0, offline: 1 })
+    expect(later.floors[0].zones[0].summary).toMatchObject({ wait: 0, ready: 1 })
+  })
+  it('선행이 설계 완료·작업 중뿐이면 승인된 설계는 2행, 확정된 사람 설계는 「설계 확정됨」', () => {
+    const base = { predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'ip', order_approved: false }] }
+    const review = assembleSeatmap(rows({ ...base,
+      orders: [order({ design_state: 'accepted', heartbeat_phase: 'wait_review', ...silent })], items: [item({ depends: ['M/T1'] })] }), NOW)
+    expect(seatOf(review).design).toMatchObject({ row: 2, label: '선행 대기(설계 승인됨)' })
+    const human = assembleSeatmap(rows({ ...base,
+      orders: [order({ status: 'ready', claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_state: 'accepted' })],
+      items: [item({ depends: ['M/T1'], design_mode: 'human' })] }), NOW)
+    expect(seatOf(human).design).toMatchObject({ row: 2, label: '선행 대기(설계 확정됨)' })
+  })
+  it('살아 있는 워커(신선한 heartbeat)와 BLOCKED 좌석에는 싣지 않는다 — 지금 문구가 맞다', () => {
+    // 팀장이 띄운 구현 워커가 준비 중(prepare)이면 단계는 아직 dd 지만 3행 「구현 대기」가 아니다. 워커의 heartbeat 가 도는 PC(runner)를 넘겨받았다.
+    const live = assembleSeatmap(rows({ orders: [order({ design_state: 'accepted', heartbeat_phase: 'prepare', last_heartbeat_at: ago(1000), runner: 'hong/mbp/w2' })], items: [item()] }), NOW)
+    expect(seatOf(live).state).toBe('ACTIVE')
+    expect(seatOf(live).design).toBeNull()
+    const blocked = assembleSeatmap(rows({ orders: [order({ design_state: 'review', heartbeat_phase: 'blocked', ...silent })], items: [item()] }), NOW)
+    expect(seatOf(blocked).state).toBe('BLOCKED')
+    expect(seatOf(blocked).design).toBeNull()
+  })
+  it('승인분(DONE) 좌석은 활성 주문이 아니라 싣지 않는다 — 9·10행(활성 주문 없음)은 허브·WBS 몫이다', () => {
+    const m = assembleSeatmap(rows({ orders: [order({ status: 'approved', updated_at: ago(3600_000) })], items: [item({ stage: 'im' })] }), NOW)
+    expect(seatOf(m).state).toBe('DONE')
+    expect(seatOf(m).design).toBeNull()
+  })
+  it('사람 설계 대기(ready ∧ human ∧ 위임 ∧ as)는 6행 — 되돌림 사유를 싣는다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ status: 'ready', claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, design_note: '빠진 절: 테스트 계획' })],
+      items: [item({ stage: 'as', actual_pct: 0, design_mode: 'human' })],
+    }), NOW)
+    const s = seatOf(m)
+    expect(s.state).toBe('READY')
+    expect(s.design).toMatchObject({ row: 6, label: '사람 설계 대기', note: '빠진 절: 테스트 계획' })
+  })
+  it('claimed ∧ ds 로 멈춘 좌석은 선행이 막혔을 때만 12행이다 — 선행이 충족이면 싣지 않는다', () => {
+    const base = { orders: [order({ heartbeat_phase: 'design', ...silent })], items: [item({ stage: 'ds', actual_pct: 10, design_mode: 'auto', depends: ['M/T1'] })] }
+    const blocked = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'as', order_approved: false }] }), NOW)
+    expect(seatOf(blocked).state).toBe('OFFLINE')
+    expect(seatOf(blocked).design).toMatchObject({ row: 12, label: '선행 대기(설계 중 멈춤)' })
+    const met = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'im', order_approved: false }] }), NOW)
+    expect(seatOf(met).design).toBeNull()
+  })
+})
+```
+
+**`tests/data/agent-seatmap.test.ts`** — `describe('fetchSeatmapRows — 선행 항목(predecessors)')` 안, 마지막 테스트("선행 조회가 error 면 throw") 앞에 두 테스트를 더한다.
+
+이 텍스트의 첫 줄 앞에:
+
+```ts
+  it('선행 조회가 error 면 throw — 미충족으로 위장하지 않는다', async () => {
+```
+
+이 줄들을 더한다:
+
+```ts
+  it('claimed 주문이면서 단계가 ds·dd 인 항목의 depends 도 같은 조회에 넣는다(설계 화면 판정 2·4·12행) — ip 는 넣지 않는다', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const a = admin({
+      agent_work_orders: [{ data: [
+        { ...O, id: 'o-ds', wbs_item_id: 'i-ds' }, { ...O, id: 'o-dd', wbs_item_id: 'i-dd' }, { ...O, id: 'o-ip', wbs_item_id: 'i-ip' },
+      ] }],
+      wbs_items: [{ data: [
+        { ...ITEM, id: 'i-ds', stage: 'ds', depends: ['M/A'] },
+        { ...ITEM, id: 'i-dd', stage: 'dd', depends: ['M/B'] },
+        { ...ITEM, id: 'i-ip', stage: 'ip', depends: ['M/C'] },
+      ] }, { data: [] }],
+    }, calls)
+    await fetchSeatmapRows(a, ['p1'], NOW)
+    // 조회 횟수는 그대로다 — 선행 항목 조회 한 번에 대상만 넓힌다.
+    expect(calls['wbs_items.in']?.[2]).toEqual(['external_ref', ['M/A', 'M/B']])
+    expect(calls['wbs_items.in']?.filter(c => c[0] === 'external_ref')).toHaveLength(1)
+  })
+  it('주문 조회에 설계 상태·되돌림 사유·도는 PC 를, 항목 조회에 설계 방식을 싣는다(화면 판정 재료)', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    await fetchSeatmapRows(admin({ agent_work_orders: [{ data: [O] }], wbs_items: [{ data: [ITEM] }] }, calls), ['p1'], NOW)
+    const orderCols = String(calls['agent_work_orders.select']?.[0]?.[0] ?? '')
+    for (const c of ['design_state', 'design_note', 'runner', 'runner_seen_at']) expect(orderCols).toContain(c)
+    expect(String(calls['wbs_items.select']?.[0]?.[0] ?? '')).toContain('design_mode')
+  })
+```
+
+- [ ] **Step 6: 실패 확인**
+
+Run: `npx vitest run tests/domain/seatmap.test.ts tests/data/agent-seatmap.test.ts`
+Expected: FAIL 10건. 조립이 설계 상태·도는 PC·단계를 좌석 판정에 넘기지 않아 검토 대기·구현 대기(`buildWait`)가 되지 않고, `Seat.design` 도 만들지 않는다(값이 undefined). 로더는 ready 주문 항목의 depends 만 모으고, 새 열을 싣지 않는다.
+
+- [ ] **Step 7: 구현 — `seatmap.ts`·`waitReason.ts`·`agentSeatmap.ts`**
+
+**`src/lib/domain/seatmap.ts`**
+
+이 텍스트를 찾아:
+
+```ts
+  animFor, deriveSeatState, fnv1a32, inferPhase, isDesignWait, isRejected, isReviewWait, isWatcherAlive, lastSignalMs, pickCharacter,
+```
+
+이렇게 바꾼다:
+
+```ts
+  animFor, deriveSeatState, fnv1a32, inferPhase, isBuildWait, isDesignWait, isRejected, isReviewWait, isWatcherAlive, lastSignalMs, pickCharacter,
+```
+
+이 텍스트의 마지막 줄 다음에:
+
+```ts
+import { heavyGauge, seatHeavyOf, type SeatHeavy } from './heavyWork'
+```
+
+이 줄들을 더한다:
+
+```ts
+import {
+  designScreen, predsState, toDesignMode, toDesignState, workerAlive, type DesignScreenRow, type ItemFacts, type ScreenOrder,
+} from './designGate'
+```
+
+이 텍스트를 찾아:
+
+```ts
+  /** 무거운 작업(0106) — 팀장 lease 갱신이 적는다. 적은 팀장(by)의 lease 가 죽었으면 무효(seatHeavyOf). */
+  heartbeat_heavy?: unknown
+}
+```
+
+이렇게 바꾼다:
+
+```ts
+  /** 무거운 작업(0106) — 팀장 lease 갱신이 적는다. 적은 팀장(by)의 lease 가 죽었으면 무효(seatHeavyOf). */
+  heartbeat_heavy?: unknown
+  /** 설계 상태·되돌림 사유·도는 PC(0108). 옛 픽스처·0108 전 행은 비워 둔다(없음). */
+  design_state?: string | null
+  design_note?: string | null
+  runner?: string | null
+  runner_seen_at?: string | null
+}
+```
+
+이 텍스트를 찾아:
+
+```ts
+  stage?: string | null
+  external_ref?: string | null
+}
+```
+
+이렇게 바꾼다:
+
+```ts
+  stage?: string | null
+  external_ref?: string | null
+  /** 설계 방식(0108 design_mode) — 화면 판정 재료. 옛 픽스처는 비워 둔다(auto). */
+  design_mode?: string | null
+}
+```
+
+이 텍스트를 찾아:
+
+```ts
+  /** 설계 완료·검토 대기(claimed ∧ heartbeat wait_review, 스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5).
+   *  designWait 과 같은 축(WAIT 이지만 승인 대기가 아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). 선택 필드(옛 픽스처 = false). */
+  reviewWait?: boolean
+}
+```
+
+이렇게 바꾼다:
+
+```ts
+  /** 설계 검토 대기(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행). designWait 과 같은 축(WAIT 이지만 승인 대기가
+   *  아니다)이지만 사유가 다르다(선행이 아니라 사람 검토). heartbeat wait_review 로 판정하지 않는다(스펙 8절). 선택 필드(옛 픽스처 = false). */
+  reviewWait?: boolean
+  /** 구현 대기(claimed ∧ 설계 상태 accepted ∧ 단계 dd ∧ 도는 PC 없음, 설계 상태 스펙 3절 2·3행) — 승인·확정된 설계가 팀장을
+   *  기다린다. WAIT 이지만 승인 대기가 아니고, 검토 대기와 달리 「이어서 시작」이 있다(Y10). 선택 필드(옛 픽스처 = false). */
+  buildWait?: boolean
+  /** 설계 문구(설계 상태 스펙 3절 화면 판정) — 활성 주문이고 BLOCKED·살아 있는 워커가 아닐 때만 값. 맞는 행이 없으면 null 이고
+   *  화면은 지금 문구를 그대로 보인다. 선택 필드(옛 픽스처), 조립은 항상 채운다. */
+  design?: SeatDesign | null
+}
+/** 좌석의 설계 문구 — 버튼은 싣지 않는다(좌석에는 설계 버튼이 없다. WBS 작업 패널·허브가 누른다). */
+export type SeatDesign = Omit<DesignScreenRow, 'buttons'>
+```
+
+이 텍스트의 첫 줄 앞에:
+
+```ts
+const WORK_STATES: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED']
+```
+
+이 줄들을 더한다:
+
+```ts
+/**
+ * 좌석·허브의 화면 판정 재료(designGate ItemFacts) — 선행은 이미 읽은 행으로 판정한다(새 조회 없음). 읽지 않은 ref 는
+ * 미충족(단계 null → blocked)으로 본다: designFacts 로더·claim 게이트와 같은 fail-closed 다.
+ */
+export function screenItemFacts(
+  item: Pick<ItemRow, 'actual_pct' | 'tags' | 'depends' | 'depends_waived' | 'stage' | 'design_mode'>,
+  byRef: (ref: string) => PredecessorLike | undefined, hasApprovedOrder: boolean,
+): ItemFacts {
+  const unmet = unmetDepends(item.depends ?? null, byRef, item.depends_waived ?? [])
+  return {
+    mode: toDesignMode(item.design_mode), stage: item.stage ?? null, actualPct: item.actual_pct,
+    delegated: (item.tags ?? []).includes(AGENT_TAG), hasApprovedOrder,
+    preds: predsState(unmet.map(u => ({ stage: u.stage ?? null }))),
+  }
+}
+
+/** 주문 행 → designGate ScreenOrder. 0108 전 행·옛 픽스처(열 없음)는 설계 상태·도는 PC·되돌림 사유 없음으로 본다. */
+export function screenOrderOf(o: OrderRow, heartbeatPhase: string | null = o.heartbeat_phase): ScreenOrder {
+  return {
+    status: o.status, designState: toDesignState(o.design_state ?? null), runner: o.runner ?? null,
+    lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase, designNote: o.design_note ?? null,
+  }
+}
+
+/** 활성 주문(0077) — 설계 화면 판정은 이 셋만 본다. */
+const LIVE_STATUSES: ReadonlySet<OrderStatus> = new Set<OrderStatus>(['ready', 'claimed', 'reported'])
+```
+
+이 텍스트를 찾아:
+
+```ts
+  const input = {
+    status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: hbPhase,
+    updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
+  }
+  const state = deriveSeatState(input, nowMs)
+```
+
+이렇게 바꾼다:
+
+```ts
+  const input = {
+    status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: hbPhase,
+    updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
+    designState: toDesignState(o.design_state ?? null), runner: o.runner ?? null, stage: item?.stage ?? null,
+  }
+  const state = deriveSeatState(input, nowMs)
+```
+
+이 텍스트를 찾아:
+
+```ts
+    designWait: isDesignWait(input),
+    reviewWait: isReviewWait(input),
+  }
+}
+```
+
+이렇게 바꾼다:
+
+```ts
+    designWait: isDesignWait(input),
+    reviewWait: isReviewWait(input),
+    buildWait: isBuildWait(input),
+    design: null,
+  }
+}
+```
+
+이 텍스트의 마지막 줄 다음에:
+
+```ts
+export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?: MineFilter; viewer?: SeatmapViewer } = {}): Seatmap {
+  const mine = opts.mine
+```
+
+이 줄들을 더한다:
+
+```ts
+  // 설계 화면 판정의 approved 주문 유무(D26) — 좌석이 읽은 주문(승인은 7일 창)으로 본다. 활성 주문이 있는 항목에 승인 주문이
+  // 함께 있는 일은 발행 차단(D26)과 0108 이전이 막으므로, 활성 좌석만 판정하는 여기서는 창 밖을 따로 읽지 않는다.
+  const approvedItemIds = new Set(rows.orders.filter(o => o.status === 'approved' && o.wbs_item_id !== null).map(o => o.wbs_item_id as string))
+```
+
+이 텍스트를 찾아:
+
+```ts
+    } else if (item && isReviewWait({ status: o.status, heartbeatPhase: seat.heartbeatPhase })) {
+      // 설계 완료·검토 대기(§14.5) — 점유 중이지만 사람 검토를 기다리며 멈췄다. 선행 유무와 무관하다(designWaitReason 과 달리 unmet 을 묻지 않는다).
+      seat.waitReason = reviewWaitReason()
+      seat.anim = 'waiting'
+    }
+```
+
+이렇게 바꾼다:
+
+```ts
+    } else if (item && seat.reviewWait) {
+      // 설계 검토 대기(설계 상태 스펙 3절 1행) — 점유 중이지만 사람 검토를 기다리며 멈췄다. 선행 유무와 무관하다(designWaitReason 과 달리 unmet 을 묻지 않는다).
+      seat.waitReason = reviewWaitReason()
+      seat.anim = 'waiting'
+    } else if (seat.buildWait) {
+      // 구현 대기(설계 상태 스펙 3절 2·3행) — 승인·확정된 설계가 팀장을 기다린다. 올 사람이 정해져 있어 실루엣으로 그린다(사유는 설계 문구가 말한다).
+      seat.anim = 'waiting'
+    }
+    // 설계 문구(설계 상태 스펙 3절 화면 판정) — 활성 주문만 본다: 승인분(DONE)은 활성 주문이 없어야 걸리는 9·10행의 대상이
+    // 아니다. BLOCKED 와 살아 있는 워커(신선한 heartbeat, wait_* 제외 — workerAlive)를 먼저 본다. 좌석 상태(ACTIVE)로 가르지
+    // 않는 까닭: 「설계 승인」은 updated_at 만 새로 써 좌석이 잠시 ACTIVE 로 보이지만 도는 워커는 없다.
+    if (item && LIVE_STATUSES.has(o.status)) {
+      const active = screenOrderOf(o, seat.heartbeatPhase)
+      if (seat.state !== 'BLOCKED' && !workerAlive(active, nowMs)) {
+        const facts = screenItemFacts(item, ref => predByKey.get(`${o.project_id}\u0000${ref}`), approvedItemIds.has(item.id))
+        const row = designScreen({ item: facts, active, lastReview: reviewByOrder.get(o.id)?.review_action ?? null, nowMs })
+        seat.design = row && { row: row.row, label: row.label, note: row.note, hint: row.hint }
+      }
+    }
+```
+
+이 텍스트를 찾아:
+
+```ts
+    // wait 는 화면에서 「승인 대기」다 — 설계 완료·선행 대기·검토 대기는 WAIT 지만 레인처럼 빈자리(대기) 쪽에 센다.
+    else if (seat.state === 'WAIT' && !seat.designWait && !seat.reviewWait) zone.summary.wait++
+```
+
+이렇게 바꾼다:
+
+```ts
+    // wait 는 화면에서 「승인 대기」다 — 설계 완료·선행 대기·검토 대기·구현 대기는 WAIT 지만 레인처럼 빈자리(대기) 쪽에 센다.
+    else if (seat.state === 'WAIT' && !seat.designWait && !seat.reviewWait && !seat.buildWait) zone.summary.wait++
+```
+
+이 텍스트를 찾아:
+
+```ts
+    // idle 타일은 「승인 대기」다 — 설계 완료·선행 대기·검토 대기는 빈자리(대기)와 같이 센다(레인·구역 요약과 같은 규칙).
+    else if (s.state === 'WAIT' && !s.designWait && !s.reviewWait) counters.idle++
+```
+
+이렇게 바꾼다:
+
+```ts
+    // idle 타일은 「승인 대기」다 — 설계 완료·선행 대기·검토 대기·구현 대기는 빈자리(대기)와 같이 센다(레인·구역 요약과 같은 규칙).
+    else if (s.state === 'WAIT' && !s.designWait && !s.reviewWait && !s.buildWait) counters.idle++
+```
+
+**`src/lib/domain/waitReason.ts`** — 검토 대기 사유가 숨겨질 「이어서 시작」을 가리키지 않게 문구를 고친다(이 파일은 다른 Task 가 고치지 않는다).
+
+이 텍스트를 찾아:
+
+```ts
+/**
+ * 설계 완료·검토 대기 좌석(claimed ∧ heartbeat wait_review, 스펙 2026-09-26-dflow-dev-skill-router-design.md §14.5)의
+ * 사유 — 늘 사람 검토 대기다. `--scope design`(설계만) 으로 멈춘 작업이라 선행이 남아 있어도(§14.2 "미충족 선행이 있어도
+ * 같다") 사유는 바뀌지 않는다: 재개를 막는 것은 선행이 아니라 사람 검토이기 때문이다. designWaitReason 과 달리
+ * 미충족 선행 목록을 묻지 않는다 — 검토가 끝나기 전에는 선행이 풀려도 재개하지 않는다.
+ */
+export function reviewWaitReason(): WaitReason {
+  return {
+    kind: 'design_review', label: '설계 검토 대기',
+    text: '설계를 마치고 사람의 검토를 기다립니다. 검토 뒤 좌석의 「이어서 시작」을 누르거나 --scope build 로 구현을 이어 갑니다.',
+  }
+}
+```
+
+이렇게 바꾼다:
+
+```ts
+/**
+ * 설계 검토 대기 좌석(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행)의 사유 — 늘 사람 검토 대기다. 선행이 남아 있어도
+ * 사유는 바뀌지 않는다: 재개를 막는 것은 선행이 아니라 사람 검토이기 때문이다. designWaitReason 과 달리 미충족 선행 목록을
+ * 묻지 않는다. 좌석의 「이어서 시작」은 이 상태에서 숨는다(스펙 12절 Y10) — 풀리는 길은 「설계 승인」 하나다.
+ */
+export function reviewWaitReason(): WaitReason {
+  return {
+    kind: 'design_review', label: '설계 검토 대기',
+    text: '설계를 마치고 사람의 검토를 기다립니다. agent 브랜치의 design.md 를 검토하고(고쳤으면 push 한 뒤) WBS 작업 패널이나 에이전트 허브에서 「설계 승인」을 누르면 팀장이 다음 확인 주기에 구현을 시작합니다.',
+  }
+}
+```
+
+**`src/lib/data/agentSeatmap.ts`**
+
+`ORDER_COLS` 문자열의 끝이다.
+
+이 텍스트를 찾아:
+
+```ts
+heartbeat_model, heartbeat_heavy, resume_requested_at, resume_requested_host'
+```
+
+이렇게 바꾼다:
+
+```ts
+heartbeat_model, heartbeat_heavy, resume_requested_at, resume_requested_host, design_state, design_note, runner, runner_seen_at'
+```
+
+`ITEM_COLS` 문자열의 끝이다.
+
+이 텍스트를 찾아:
+
+```ts
+depends_waived, planned_start, stage, external_ref'
+```
+
+이렇게 바꾼다:
+
+```ts
+depends_waived, planned_start, stage, external_ref, design_mode'
+```
+
+이 텍스트를 찾아:
+
+```ts
+  // 선행 항목 — ready 주문 항목의 depends 만 모아 프로젝트 안 external_ref 로 1회, 그 id 의 reported·approved 주문 1회. ref 가 없으면 0회.
+  // 승인 주문은 위 주문 조회(7일 창)에 없을 수 있어 따로 본다 — 오래전 승인된 선행을 미충족으로 말하면 화면이 거짓말한다.
+  const readyItemIds = new Set(orders.filter(o => o.status === 'ready').map(o => o.wbs_item_id))
+  const refs = [...new Set(items.filter(i => readyItemIds.has(i.id)).flatMap(i => i.depends ?? []))]
+```
+
+이렇게 바꾼다:
+
+```ts
+  // 선행 항목 — ready 주문 항목과, claimed 주문이면서 단계가 설계 중·설계 완료(ds·dd)인 항목의 depends 를 모아 프로젝트 안
+  // external_ref 로 1회, 그 id 의 reported·approved 주문 1회. ref 가 없으면 0회. claimed·ds·dd 는 설계 화면 판정(설계 상태 스펙
+  // 3절 2·4·12행)이 선행을 본다 — 읽지 않은 ref 는 "프로젝트에 없음 = 미충족"으로 판정돼 멈춘 좌석이 거짓 선행 대기로 보인다.
+  // 승인 주문은 위 주문 조회(7일 창)에 없을 수 있어 따로 본다 — 오래전 승인된 선행을 미충족으로 말하면 화면이 거짓말한다.
+  const readyItemIds = new Set(orders.filter(o => o.status === 'ready').map(o => o.wbs_item_id))
+  const claimedItemIds = new Set(orders.filter(o => o.status === 'claimed').map(o => o.wbs_item_id))
+  const predTargets = items.filter(i => readyItemIds.has(i.id) || (claimedItemIds.has(i.id) && (i.stage === 'ds' || i.stage === 'dd')))
+  const refs = [...new Set(predTargets.flatMap(i => i.depends ?? []))]
+```
+
+- [ ] **Step 8: 통과 확인**
+
+Run: `npx vitest run tests/domain/seat-state.test.ts tests/domain/seatmap.test.ts tests/data/agent-seatmap.test.ts tests/domain/seatmap-bottleneck.test.ts tests/domain/seatmap-decisions.test.ts tests/domain/seatmap-stub.test.ts`
+Expected: PASS. 기존 좌석 테스트(선행 대기·병목·결정·스텁)가 그대로 통과해야 한다. 활성 주문의 좌석마다 `design` 이 채워지지만(맞는 행이 없으면 null) 기존 기대는 `design` 을 보지 않는다.
+
+- [ ] **Step 9: 실패하는 테스트 — 좌석 화면(결재 버튼·설계 문구·구현 대기·단계 라벨)**
+
+**`tests/components/agents-seat-ops.test.ts`** — `describe('opsFor — 상태마다 다른 op')` 의 "빈자리에는 아무 것도 없다" 뒤에 더한다.
+
+이 텍스트의 마지막 줄 다음에:
+
+```ts
+  it('빈자리에는 아무 것도 없다', () => {
+    expect(kinds('READY')).toEqual([])
+  })
+```
+
+이 줄들을 더한다:
+
+```ts
+  it('설계 검토 대기는 중단만 — 「이어서 시작」은 설계 상태 review 에서만 숨긴다(설계 상태 스펙 12절 Y10)', () => {
+    expect(opsFor({ state: 'WAIT', ...who(true, false), reviewWait: true }).map(o => o.spec.kind)).toEqual(['stop'])
+    // 구현 대기(승인·확정된 설계가 팀장을 기다림)는 WAIT 지만 결재할 것이 없다 — 「이어서 시작」·중단이다.
+    expect(opsFor({ state: 'WAIT', ...who(true, false), buildWait: true }).map(o => o.spec.kind)).toEqual(['resume', 'stop'])
+    // 승인된 설계를 넘겨받은 워커가 멈추면(무응답·끊김) BY_STATE 대로 「이어서 시작」이 있다.
+    expect(opsFor({ state: 'OFFLINE', ...who(true, false), reviewWait: false }).map(o => o.spec.kind)).toEqual(['resume', 'stop'])
+  })
+```
+
+**`tests/components/agents-design-wait.test.tsx`** — 검토 대기 좌석 픽스처에 설계 문구(1행)를 싣고, 「이어서 시작」이 사라진 기대로 고친다. 파일 끝에 설계 문구 describe 를 더한다.
+
+이 텍스트를 찾아:
+
+```tsx
+import { seatMetaLine, seatStateLabel } from '@/components/agents/Seat'
+```
+
+이렇게 바꾼다:
+
+```tsx
+import { SeatCard, seatMetaLine, seatStateLabel } from '@/components/agents/Seat'
+```
+
+이 텍스트를 찾아:
+
+```tsx
+const REVIEW_REASON = { kind: 'design_review' as const, label: '설계 검토 대기', text: '설계를 마치고 사람의 검토를 기다립니다. 검토 뒤 좌석의 「이어서 시작」을 누르거나 --scope build 로 구현을 이어 갑니다.' }
+const reviewSeat = () => seat({
+  phase: 'wait_review', heartbeatPhase: 'wait_review', waitReason: REVIEW_REASON, designWait: false, reviewWait: true,
+  orderId: 'o3', id8: 'o3', code: 'TSK-04-04',
+})
+```
+
+이렇게 바꾼다:
+
+```tsx
+const REVIEW_REASON = { kind: 'design_review' as const, label: '설계 검토 대기', text: '설계를 마치고 사람의 검토를 기다립니다. agent 브랜치의 design.md 를 검토하고(고쳤으면 push 한 뒤) WBS 작업 패널이나 에이전트 허브에서 「설계 승인」을 누르면 팀장이 다음 확인 주기에 구현을 시작합니다.' }
+const REVIEW_DESIGN = { row: 1, label: '설계 검토 대기', note: null, hint: 'agent 브랜치의 <TASKS>/<TSK>/design.md 를 검토하고, 고쳤으면 push 한 뒤 「설계 승인」을 누르세요.' }
+const reviewSeat = () => seat({
+  phase: 'wait_review', heartbeatPhase: 'wait_review', waitReason: REVIEW_REASON, designWait: false, reviewWait: true, design: REVIEW_DESIGN,
+  orderId: 'o3', id8: 'o3', code: 'TSK-04-04',
+})
+```
+
+이 텍스트를 찾아:
+
+```tsx
+describe('설계 완료·검토 대기 좌석(claimed ∧ heartbeat wait_review, 스펙 §14.5)', () => {
+```
+
+이렇게 바꾼다:
+
+```tsx
+describe('설계 검토 대기 좌석(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행)', () => {
+```
+
+이 텍스트를 찾아:
+
+```tsx
+  it('결재 버튼은 이어서 시작·중단뿐 — 승인·반려를 띄우지 않는다(스펙 §14.4, wait_pred 와 달리 자동 재개가 없어 재개 버튼이 있다)', () => {
+    expect(opsFor(reviewSeat()).map(o => o.spec.kind)).toEqual(['resume', 'stop'])
+  })
+```
+
+이렇게 바꾼다:
+
+```tsx
+  it('결재 버튼은 중단뿐 — 「이어서 시작」은 review 에서 숨기고(설계 상태 스펙 12절 Y10), 승인·반려도 띄우지 않는다', () => {
+    expect(opsFor(reviewSeat()).map(o => o.spec.kind)).toEqual(['stop'])
+  })
+```
+
+이 텍스트를 찾아:
+
+```tsx
+  it('상세 패널 — 설계 칸을 지나온 칸으로, 대기 사유를 그리고, 결재 버튼은 이어서 시작·중단', () => {
+    act(() => root.render(<DetailPanel seat={reviewSeat()} nowMs={NOW} {...OPS} />))
+    const ul = host.querySelector('ul[aria-label="Phase"]')!
+    expect([...ul.querySelectorAll('li[data-done="1"]')].map(l => l.textContent?.match(/^[a-z]+/)?.[0])).toEqual(['design'])
+    expect(host.querySelector('[data-wait-reason="design_review"]')?.textContent).toContain(REVIEW_REASON.text)
+    expect([...host.querySelectorAll('[data-panel-op]')].map(b => (b as HTMLElement).dataset.panelOp)).toEqual(['resume', 'stop'])
+```
+
+이렇게 바꾼다:
+
+```tsx
+  it('상세 패널 — 설계 칸을 지나온 칸으로, 설계 문구와 안내를 그리고(같은 뜻의 대기 사유는 겹쳐 그리지 않는다), 결재 버튼은 중단뿐', () => {
+    act(() => root.render(<DetailPanel seat={reviewSeat()} nowMs={NOW} {...OPS} />))
+    const ul = host.querySelector('ul[aria-label="Phase"]')!
+    expect([...ul.querySelectorAll('li[data-done="1"]')].map(l => l.textContent?.match(/^[a-z]+/)?.[0])).toEqual(['design'])
+    const detail = host.querySelector('[data-seat-design-detail="1"]') as HTMLElement
+    expect(detail.textContent).toContain('설계 검토 대기')
+    expect(detail.textContent).toContain('「설계 승인」')
+    expect(host.querySelector('[data-wait-reason="design_review"]')).toBeNull()
+    expect([...host.querySelectorAll('[data-panel-op]')].map(b => (b as HTMLElement).dataset.panelOp)).toEqual(['stop'])
+```
+
+파일 끝에 더한다:
+
+```tsx
+describe('설계 문구(설계 상태 스펙 3절 화면 판정) — 좌석 카드·레인·상세', () => {
+  const accepted = () => seat({
+    state: 'WAIT', phase: 'wait_review', anim: 'waiting', heartbeatPhase: 'wait_review', waitReason: null, designWait: false, reviewWait: false, buildWait: true,
+    design: { row: 3, label: '구현 대기(설계 승인됨)', note: null, hint: '팀장이 떠 있으면 다음 TICK(기본 30분) 안에 구현을 시작합니다.' },
+    orderId: 'o5', id8: 'o5', code: 'TSK-04-05',
+  })
+  it('설계 문구가 있으면 상태 라벨·메타 줄이 그 문구다 — 없으면 지금 문구 그대로', () => {
+    expect(seatStateLabel(accepted())).toBe('구현 대기(설계 승인됨)')
+    expect(seatMetaLine(accepted(), NOW)).toBe('구현 대기(설계 승인됨)')
+    expect(seatMetaLine(approval(), NOW)).toBe('승인 대기')
+  })
+  it('평면도 좌석·레인 카드의 메타 줄에 data-seat-design-label(행 번호)을 단다', () => {
+    act(() => root.render(<LaneBoard map={map([accepted(), approval()])} selectedId={null} nowMs={NOW} busyOrderId={null} showFloorName={false} onSelect={() => {}} onOp={() => {}} />))
+    expect(host.querySelectorAll('[data-seat-design-label]')).toHaveLength(1)
+    expect(host.querySelector('[data-seat-design-label="3"]')?.textContent).toBe('구현 대기(설계 승인됨)')
+    act(() => root.render(<SeatCard seat={accepted()} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={() => {}} />))
+    expect(host.querySelector('[data-seat-design-label="3"]')?.textContent).toBe('구현 대기(설계 승인됨)')
+  })
+  it('구현 대기(buildWait)는 결재 대기가 아니다 — 「이어서 시작」·중단(Y10), 빈자리·완료 레인, 구현 대기 표지, 승인을 조르지 않는다', () => {
+    expect(opsFor(accepted()).map(o => o.spec.kind)).toEqual(['resume', 'stop'])
+    expect(seatStateLabel({ ...accepted(), design: null })).toBe('구현 대기')
+    act(() => root.render(<LaneBoard map={map([accepted(), approval()])} selectedId={null} nowMs={NOW} busyOrderId={null} showFloorName={false} onSelect={() => {}} onOp={() => {}} />))
+    expect(host.querySelector('[data-lane-n="wait"]')?.textContent).toBe('1')
+    expect(host.querySelector('[data-lane="rest"]')?.textContent).toContain('TSK-04-05')
+    const mark = host.querySelector('[data-lane="rest"] [data-mark="waiting"]') as HTMLElement
+    expect(mark.getAttribute('data-mark-reason')).toBe('build_wait')
+    expect(mark.getAttribute('title')).toBe('구현 대기')
+    const d = { seat: accepted() } as Parameters<typeof memberChatter>[0]
+    expect(Array.from({ length: 30 }, (_, i) => memberChatter(d, NOW + i * 8_000)).every(x => x === null)).toBe(true)
+  })
+  it('상세 패널 — 설계 문구·되돌림 사유·안내를 그리고, 빈자리 사유는 선행 대기(dependency)일 때만 함께 그린다', () => {
+    const human = seat({
+      state: 'READY', phase: 'design', anim: 'empty', agent: null, heartbeatPhase: null, designWait: false,
+      waitReason: { kind: 'pickup', label: '착수 대기', text: '집어갈 수 있는 에이전트가 있습니다.' },
+      design: { row: 6, label: '사람 설계 대기', note: '빠진 절: 테스트 계획', hint: '개발 브랜치의 <TASKS>/<TSK>/design.md 에 필수 5개 절을 모두 쓰고 push 한 뒤 「설계 확정」을 누르세요.' },
+    })
+    act(() => root.render(<DetailPanel seat={human} nowMs={NOW} {...OPS} />))
+    const d = host.querySelector('[data-seat-design-detail="6"]') as HTMLElement
+    expect(d.textContent).toContain('사람 설계 대기')
+    expect(d.textContent).toContain('빠진 절: 테스트 계획')
+    expect(d.textContent).toContain('「설계 확정」')
+    expect(host.querySelector('[data-wait-reason]')).toBeNull() // 착수 대기는 사람 설계 대기와 어긋난다 — 그리지 않는다
+    const dep = seat({
+      state: 'READY', phase: 'design', anim: 'waiting', agent: null, heartbeatPhase: null, designWait: false,
+      waitReason: { kind: 'dependency', label: '선행 대기', text: '선행 작업이 아직 끝나지 않았습니다: X x.' },
+      design: { row: 11, label: '선행 대기', note: null, hint: null },
+    })
+    act(() => root.render(<DetailPanel seat={dep} nowMs={NOW} {...OPS} />))
+    expect(host.querySelector('[data-seat-design-detail="11"]')).not.toBeNull()
+    expect(host.querySelector('[data-wait-reason="dependency"]')?.textContent).toContain('선행 작업이 아직')
+  })
+})
+```
+
+**`tests/components/agents-roster-phase.test.ts`** — `describe('RosterBoard profilePhaseLabel')` 의 마지막 테스트 뒤에 더한다.
+
+이 텍스트의 마지막 줄 다음에:
+
+```ts
+  it('사전에 없는 값은 raw 로 보인다(조용히 삼키지 않는다)', () => {
+    expect(profilePhaseLabel({ heartbeatPhase: 'weird', phase: 'prepare' })).toBe('weird')
+  })
+```
+
+이 줄들을 더한다:
+
+```ts
+  it('설계 검토 대기는 설계 상태가 review 일 때만 — 「설계 승인」 뒤 남은 phase wait_review 만으로는 말하지 않는다(설계 상태 스펙 8절)', () => {
+    expect(profilePhaseLabel({ heartbeatPhase: 'wait_review', phase: 'wait_review', reviewWait: true })).toBe('설계 검토 대기')
+    expect(profilePhaseLabel({ heartbeatPhase: 'wait_review', phase: 'wait_review', reviewWait: false })).toBeNull()
+    expect(profilePhaseLabel({ heartbeatPhase: 'wait_review', phase: 'wait_review' })).toBeNull()
+    // 그 밖의 단계는 지금 규칙 그대로다.
+    expect(profilePhaseLabel({ heartbeatPhase: 'build', phase: 'build', reviewWait: false })).toBe('구현')
+  })
+```
+
+- [ ] **Step 10: 실패 확인**
+
+Run: `npx vitest run tests/components/agents-seat-ops.test.ts tests/components/agents-design-wait.test.tsx`
+Expected: FAIL 7건. `REVIEW_WAIT_OPS` 가 아직 `['resume', 'stop']` 이고, 좌석 라벨·메타 줄이 `design` 을 보지 않으며, `data-seat-design-label`·`data-seat-design-detail` 이 없다. 구현 대기 좌석(`buildWait`)은 결재 버튼·레인·표지가 승인 대기로 다룬다. 에이전트 보기 단계 라벨은 승인 뒤 남은 `wait_review` 를 '설계 검토 대기'로 읽는다.
+
+- [ ] **Step 11: 구현 — `seatOps.ts`·`Seat.tsx`·`LaneBoard.tsx`·`DetailPanel.tsx`·`officeChatter.ts`·`RosterBoard.tsx`**
+
+**`src/components/agents/seatOps.ts`**
+
+이 텍스트를 찾아:
+
+```ts
+/** 설계 완료·검토 대기 좌석의 op — wait_pred 와 달리 자동 재개가 없다(사람 검토가 관문이라 팀장이 대신 판단할 수
+ *  없다). 좌석표 「이어서 시작」이 검토를 마친 한 건만 구현으로 넘기는 손잡이가 된다(스펙 §14.4). 서버
+ *  (requestResumeOnOrder, src/app/actions/agentHub.ts)는 주문이 claimed 이기만 하면 받아 준다 — 상태(STALE·
+ *  OFFLINE)로 좁히지 않는다. */
+const REVIEW_WAIT_OPS: readonly SeatOpKind[] = ['resume', 'stop']
+```
+
+이렇게 바꾼다:
+
+```ts
+/** 설계 검토 대기 좌석(claimed ∧ 설계 상태 review)의 op — 중단만. 「이어서 시작」은 숨긴다(설계 상태 스펙 12절 Y10):
+ *  사람이 「설계 승인」을 누르기 전에는 이어 갈 것이 없고 서버(requestResumeOnOrder)도 거부한다. */
+const REVIEW_WAIT_OPS: readonly SeatOpKind[] = ['stop']
+/** 구현 대기 좌석(승인·확정된 설계가 팀장을 기다림, 설계 상태 스펙 3절 2·3행)의 op — WAIT 이지만 결재할 보고가 없다.
+ *  「이어서 시작」은 숨기지 않는다(Y10): 재개 요청 표식이 걸리면 그 PC 의 팀장이 다음 기상에 가져간다. 승인된 설계를 넘겨받은
+ *  워커가 멈춘 좌석(STALE·OFFLINE)은 BY_STATE 대로 「이어서 시작」이 보인다. */
+const BUILD_WAIT_OPS: readonly SeatOpKind[] = ['resume', 'stop']
+```
+
+이 텍스트를 찾아:
+
+```ts
+  // 설계 완료·선행 대기·검토 대기(스펙 2026-09-26 §6.4, §14.5)는 WAIT 지만 결재할 보고가 없다 — 멈춘 개발을 끄는
+  // 중단(과 검토 대기만 재개)만 있다.
+  const kinds: readonly SeatOpKind[] = seat.designWait ? DESIGN_WAIT_OPS : seat.reviewWait ? REVIEW_WAIT_OPS : BY_STATE[seat.state]
+```
+
+이렇게 바꾼다:
+
+```ts
+  // 설계 완료·선행 대기·설계 검토 대기·구현 대기(스펙 2026-09-26 §6.4, 설계 상태 스펙 3절 1~3행)는 WAIT 지만 결재할
+  // 보고가 없다 — 멈춘 개발을 끄는 중단과, 구현 대기에서만 「이어서 시작」이 있다.
+  const kinds: readonly SeatOpKind[] = seat.designWait ? DESIGN_WAIT_OPS : seat.reviewWait ? REVIEW_WAIT_OPS
+    : seat.buildWait ? BUILD_WAIT_OPS : BY_STATE[seat.state]
+```
+
+이 텍스트를 찾아:
+
+```ts
+export type SeatOpsInput = Pick<Seat, 'state' | 'canManage' | 'assigneeMine' | 'designWait' | 'reviewWait'> & {
+```
+
+이렇게 바꾼다:
+
+```ts
+export type SeatOpsInput = Pick<Seat, 'state' | 'canManage' | 'assigneeMine' | 'designWait' | 'reviewWait' | 'buildWait'> & {
+```
+
+**`src/components/agents/Seat.tsx`**
+
+이 텍스트를 찾아:
+
+```tsx
+/** 좌석 상태 라벨 — 설계 완료·선행 대기(designWait)·검토 대기(reviewWait)는 WAIT 지만 승인 대기가 아니다(스펙 2026-09-26 §6.4, §14.5). */
+export const DESIGN_WAIT_LABEL = '선행 대기'
+export const REVIEW_WAIT_LABEL = '설계 검토 대기'
+export function seatStateLabel(seat: Pick<Seat, 'state' | 'designWait' | 'reviewWait'>): string {
+  if (seat.designWait) return DESIGN_WAIT_LABEL
+  if (seat.reviewWait) return REVIEW_WAIT_LABEL
+  return STATE_LABEL[seat.state]
+}
+```
+
+이렇게 바꾼다:
+
+```tsx
+/** 좌석 상태 라벨 — 설계 문구(설계 상태 스펙 3절 화면 판정)가 있으면 그것이 먼저다. 설계 완료·선행 대기(designWait)·
+ *  검토 대기(reviewWait)·구현 대기(buildWait)는 WAIT 지만 승인 대기가 아니다(스펙 2026-09-26 §6.4, 설계 상태 스펙 3절 1~3행). */
+export const DESIGN_WAIT_LABEL = '선행 대기'
+export const REVIEW_WAIT_LABEL = '설계 검토 대기'
+export const BUILD_WAIT_LABEL = '구현 대기'
+export function seatStateLabel(seat: Pick<Seat, 'state' | 'designWait' | 'reviewWait' | 'buildWait' | 'design'>): string {
+  if (seat.design) return seat.design.label
+  if (seat.designWait) return DESIGN_WAIT_LABEL
+  if (seat.reviewWait) return REVIEW_WAIT_LABEL
+  if (seat.buildWait) return BUILD_WAIT_LABEL
+  return STATE_LABEL[seat.state]
+}
+```
+
+이 텍스트를 찾아:
+
+```tsx
+export function seatMetaLine(seat: Seat, nowMs: number): string {
+  const who = seat.agent ?? '—'
+```
+
+이렇게 바꾼다:
+
+```tsx
+export function seatMetaLine(seat: Seat, nowMs: number): string {
+  // 설계 문구가 있으면 그것 — 조립(assembleSeatmap)이 BLOCKED·살아 있는 워커 좌석에는 싣지 않으므로 지금 문구를 가리지 않는다.
+  if (seat.design) return seat.design.label
+  const who = seat.agent ?? '—'
+```
+
+이 텍스트를 찾아:
+
+```tsx
+      if (seat.reviewWait) return seat.waitReason?.label ?? REVIEW_WAIT_LABEL
+      return '승인 대기'
+```
+
+이렇게 바꾼다:
+
+```tsx
+      if (seat.reviewWait) return seat.waitReason?.label ?? REVIEW_WAIT_LABEL
+      if (seat.buildWait) return BUILD_WAIT_LABEL
+      return '승인 대기'
+```
+
+이 텍스트를 찾아:
+
+```tsx
+export function SeatMark({ state, anim, reviewWait }: { state: SeatState; anim?: AnimName; reviewWait?: boolean }) {
+  // 선행 대기·검토 대기는 상태가 READY(또는 designWait/reviewWait 인 WAIT)라 상태 표로는 못 가른다 —
+  // 좌석 그림(waiting)을 따라 표지를 달되, 검토 대기는 사유가 선행이 아니므로 말이 다르다(스펙 §14.5).
+  if (anim === 'waiting') {
+    return reviewWait
+      ? <span className={css.mark} data-mark="waiting" data-mark-reason="design_review" title="설계 검토 대기"><IconDependency /></span>
+      : <span className={css.mark} data-mark="waiting" data-mark-reason="dependency" title="선행 대기"><IconDependency /></span>
+  }
+```
+
+이렇게 바꾼다:
+
+```tsx
+export function SeatMark({ state, anim, reviewWait, buildWait }: { state: SeatState; anim?: AnimName; reviewWait?: boolean; buildWait?: boolean }) {
+  // 선행 대기·검토 대기·구현 대기는 상태가 READY(또는 designWait/reviewWait/buildWait 인 WAIT)라 상태 표로는 못 가른다 —
+  // 좌석 그림(waiting)을 따라 표지를 달되, 사유가 다르면 말도 다르다(설계 상태 스펙 3절 1~3행).
+  if (anim === 'waiting') {
+    const [reason, title] = reviewWait ? ['design_review', REVIEW_WAIT_LABEL] : buildWait ? ['build_wait', BUILD_WAIT_LABEL] : ['dependency', DESIGN_WAIT_LABEL]
+    return <span className={css.mark} data-mark="waiting" data-mark-reason={reason} title={title}><IconDependency /></span>
+  }
+```
+
+이 텍스트를 찾아:
+
+```tsx
+            <SeatMark state={seat.state} anim={seat.anim} reviewWait={seat.reviewWait} />
+```
+
+이렇게 바꾼다:
+
+```tsx
+            <SeatMark state={seat.state} anim={seat.anim} reviewWait={seat.reviewWait} buildWait={seat.buildWait} />
+```
+
+이 텍스트를 찾아:
+
+```tsx
+          <span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span>
+```
+
+이렇게 바꾼다:
+
+```tsx
+          <span className={css.deskMeta} data-seat-design-label={seat.design ? String(seat.design.row) : undefined}>{seatMetaLine(seat, nowMs)}</span>
+```
+
+**`src/components/agents/LaneBoard.tsx`** — 구현 대기도 빈자리·완료 레인에 세우고, 레인 카드의 메타 줄(`css.cardMeta` 안)과 표지에 같은 속성·표식을 단다.
+
+이 텍스트를 찾아:
+
+```tsx
+/** 좌석이 설 레인 — 설계 완료·선행 대기(designWait)·검토 대기(reviewWait)는 WAIT 지만 결재할 것이 없어 READY 의 선행 대기 곁(빈자리·완료)에 선다. */
+function laneKeyOf(seat: Seat): string | undefined {
+  if (seat.designWait || seat.reviewWait) return 'rest'
+```
+
+이렇게 바꾼다:
+
+```tsx
+/** 좌석이 설 레인 — 설계 완료·선행 대기(designWait)·검토 대기(reviewWait)·구현 대기(buildWait)는 WAIT 지만 결재할 것이 없어 READY 의 선행 대기 곁(빈자리·완료)에 선다. */
+function laneKeyOf(seat: Seat): string | undefined {
+  if (seat.designWait || seat.reviewWait || seat.buildWait) return 'rest'
+```
+
+이 텍스트를 찾아:
+
+```tsx
+<SeatMark state={seat.state} anim={seat.anim} reviewWait={seat.reviewWait} />
+```
+
+이렇게 바꾼다:
+
+```tsx
+<SeatMark state={seat.state} anim={seat.anim} reviewWait={seat.reviewWait} buildWait={seat.buildWait} />
+```
+
+이 텍스트를 찾아:
+
+```tsx
+<span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span>
+```
+
+이렇게 바꾼다:
+
+```tsx
+<span className={css.deskMeta} data-seat-design-label={seat.design ? String(seat.design.row) : undefined}>{seatMetaLine(seat, nowMs)}</span>
+```
+
+**`src/components/agents/DetailPanel.tsx`**
+
+이 텍스트를 찾아:
+
+```tsx
+  // 설계 완료·선행 대기·검토 대기 — 설계 칸까지 지나왔다(WAIT 이므로 칸은 지나온 칸으로 칠해진다).
+  if (seat.designWait || seat.reviewWait) return 'design'
+```
+
+이렇게 바꾼다:
+
+```tsx
+  // 설계 완료·선행 대기·검토 대기·구현 대기 — 설계 칸까지 지나왔다(WAIT 이므로 칸은 지나온 칸으로 칠해진다).
+  if (seat.designWait || seat.reviewWait || seat.buildWait) return 'design'
+```
+
+이 텍스트를 찾아:
+
+```tsx
+      {(seat.state === 'READY' || seat.designWait || seat.reviewWait) && seat.waitReason && (
+```
+
+이렇게 바꾼다:
+
+```tsx
+      {/* 설계 문구(설계 상태 스펙 3절) — 되돌림 사유와 할 일 안내. 설계 버튼은 WBS 작업 패널·허브에 있다(아래 「WBS 에서 열기」). */}
+      {seat.design && (
+        <p className={css.waitReason} data-seat-design-detail={seat.design.row}><b>{seat.design.label}</b>
+          {seat.design.note && <> · 되돌린 이유: {seat.design.note}</>}
+          {seat.design.hint && <> · {seat.design.hint}</>}
+        </p>
+      )}
+      {/* 설계 문구가 있으면 빈자리 사유는 선행 대기일 때만 함께 그린다 — 착수 대기·에이전트 꺼짐은 설계 대기와 어긋난다. */}
+      {(seat.state === 'READY' || seat.designWait || seat.reviewWait) && seat.waitReason && (!seat.design || seat.waitReason.kind === 'dependency') && (
+```
+
+**`src/lib/domain/officeChatter.ts`** — 구현 대기 좌석도 승인을 조르지 않는다.
+
+이 텍스트를 찾아:
+
+```ts
+  // 설계 완료·선행 대기·검토 대기는 WAIT 지만 승인을 조를 것이 없다(스펙 2026-09-26 §6.4, §14.5).
+  if (seat.designWait || seat.reviewWait) return null
+```
+
+이렇게 바꾼다:
+
+```ts
+  // 설계 완료·선행 대기·검토 대기·구현 대기는 WAIT 지만 승인을 조를 것이 없다(스펙 2026-09-26 §6.4, 설계 상태 스펙 3절 1~3행).
+  if (seat.designWait || seat.reviewWait || seat.buildWait) return null
+```
+
+**`src/components/agents/RosterBoard.tsx`** — 보고된 phase 에서 승인 뒤 남은 `wait_review` 를 뺀다. 명찰 툴팁과 프로필 단계 라벨이 같은 함수를 쓴다.
+
+이 텍스트를 찾아:
+
+```tsx
+  const phase = desk.seat?.heartbeatPhase ? PHASE_KO[desk.seat.heartbeatPhase] : undefined
+```
+
+이렇게 바꾼다:
+
+```tsx
+  const reported = desk.seat ? reportedPhase(desk.seat) : null
+  const phase = reported ? PHASE_KO[reported] : undefined
+```
+
+이 텍스트를 찾아:
+
+```tsx
+/**
+ * 프로필 카드 「단계 …」 — 보고된 단계를 한국어로 읽는다. 단계 보고가 없는 착수 좌석(seat.phase=prepare)은 비우지 않고
+ * 「준비」다(2026-09-24: 착수 직후가 구현으로 보이던 문제). 추정 단계만 있는 승인 대기·완료 좌석은 종전대로 비운다.
+ */
+export function profilePhaseLabel(seat: Pick<Seat, 'heartbeatPhase' | 'phase'>): string | null {
+  const key = seat.heartbeatPhase ?? (seat.phase === 'prepare' ? 'prepare' : null)
+  return key ? PHASE_KO[key] ?? key : null
+}
+```
+
+이렇게 바꾼다:
+
+```tsx
+/** 워커가 보고한 단계 — 설계 검토 대기(wait_review)는 서버 설계 상태가 review 일 때만 믿는다. 「설계 승인」 뒤에도 그 phase 가
+ *  남기 때문이다(설계 상태 스펙 8절: heartbeat wait_review 는 좌석 판정에 쓰지 않는다). */
+function reportedPhase(seat: Pick<Seat, 'heartbeatPhase' | 'reviewWait'>): string | null {
+  return seat.heartbeatPhase === 'wait_review' && !seat.reviewWait ? null : seat.heartbeatPhase
+}
+
+/**
+ * 프로필 카드 「단계 …」 — 보고된 단계를 한국어로 읽는다. 단계 보고가 없는 착수 좌석(seat.phase=prepare)은 비우지 않고
+ * 「준비」다(2026-09-24: 착수 직후가 구현으로 보이던 문제). 추정 단계만 있는 승인 대기·완료 좌석은 종전대로 비운다.
+ * 설계 검토 대기는 설계 상태가 review 일 때만 말한다 — 승인 뒤 남은 phase wait_review 는 보고가 없는 것과 같이 다룬다.
+ */
+export function profilePhaseLabel(seat: Pick<Seat, 'heartbeatPhase' | 'phase' | 'reviewWait'>): string | null {
+  const key = reportedPhase(seat) ?? (seat.phase === 'prepare' ? 'prepare' : null)
+  return key ? PHASE_KO[key] ?? key : null
+}
+```
+
+- [ ] **Step 12: 통과 확인**
+
+Run: `npx vitest run tests/components/agents- tests/domain/office-chatter`
+Expected: PASS(`tests/components/agents-` 로 시작하는 좌석 화면 테스트와 오피스 대사 테스트 전부).
+
+- [ ] **Step 13: 실패하는 테스트 — 허브 조립(설계 판정·검토 대기 수)과 로더**
+
+**`tests/domain/agent-hub.test.ts`** — 카운터를 통째로 비교하는 기대에 `designReview` 를 더하고, 검토 대기 테스트를 설계 상태로 고쳐 쓴다. 파일 끝에 설계 판정 describe 를 더한다.
+
+이 텍스트를 찾아:
+
+```ts
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 1, waiting: 1, stuck: 0 })
+```
+
+이렇게 바꾼다:
+
+```ts
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 1, waiting: 1, stuck: 0, designReview: 0 })
+```
+
+이 텍스트를 찾아:
+
+```ts
+    expect(hub.rows.find(r => r.code === 'TSK-A-01')?.order?.state).toBe('WAIT')
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0 })
+  })
+  it('설계 완료·검토 대기(claimed ∧ wait_review, 스펙 §14.5)도 WAIT 이지만 승인 대기(waiting)로 세지 않고, order.reviewWait 이 참이다', () => {
+    const hub = assembleAgentHub(rows({ orders: [
+      order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 3), updated_at: ago(OFFLINE_MS * 3) }),
+    ] }), NOW, VIEWER)
+    const row = hub.rows.find(r => r.code === 'TSK-A-01')
+    expect(row?.order?.state).toBe('WAIT')
+    expect(row?.order?.reviewWait).toBe(true)
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0 })
+  })
+```
+
+이렇게 바꾼다:
+
+```ts
+    expect(hub.rows.find(r => r.code === 'TSK-A-01')?.order?.state).toBe('WAIT')
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0, designReview: 0 })
+  })
+  it('설계 검토 대기(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행)도 WAIT 이지만 승인 대기(waiting)로 세지 않고 designReview 로 센다', () => {
+    const hub = assembleAgentHub(rows({ orders: [
+      order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1', design_state: 'review', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 3), updated_at: ago(OFFLINE_MS * 3) }),
+    ] }), NOW, VIEWER)
+    const row = hub.rows.find(r => r.code === 'TSK-A-01')
+    expect(row?.order?.state).toBe('WAIT')
+    expect(row?.order?.reviewWait).toBe(true)
+    expect(row?.order?.designState).toBe('review')
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 0, waiting: 0, stuck: 0, designReview: 1 })
+  })
+  it('heartbeat wait_review 만 남은 주문(「설계 승인」 뒤)은 검토 대기로 세지 않는다 — 설계 상태로만 가른다(설계 상태 스펙 8절)', () => {
+    const hub = assembleAgentHub(rows({ orders: [
+      order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1', design_state: 'accepted', heartbeat_phase: 'wait_review', last_heartbeat_at: ago(OFFLINE_MS * 3), updated_at: ago(OFFLINE_MS * 3) }),
+    ] }), NOW, VIEWER)
+    expect(hub.rows.find(r => r.code === 'TSK-A-01')?.order?.reviewWait).toBe(false)
+    expect(hub.counters.designReview).toBe(0)
+  })
+```
+
+파일 끝에 더한다:
+
+```ts
+describe('assembleAgentHub — 설계 화면 판정(설계 상태 스펙 3절·7절)', () => {
+  const by = (hub: ReturnType<typeof assembleAgentHub>, c: string) => hub.rows.find(r => r.code === c)!
+  const leaf = (over: Partial<HubItemRow> = {}) => item({
+    id: 'a1', parent_id: 'a', code: 'TSK-A-01', name: '리프1', sort_order: 1, dev_workflow: true, tags: ['agent'], assignee_member_id: 'm1',
+    stage: 'dd', actual_pct: 20, design_mode: 'review', ...over,
+  })
+  const withLeaf = (l: HubItemRow, over: Partial<AgentHubRows> = {}) => rows({ items: [...rows().items.filter(i => i.id !== 'a1'), l], ...over })
+  const silent = { last_heartbeat_at: ago(OFFLINE_MS * 2), updated_at: ago(OFFLINE_MS * 2) }
+  it('설계 검토 대기는 1행 — 「설계 승인」 버튼과 되돌림 사유를 싣는다', () => {
+    const hub = assembleAgentHub(withLeaf(leaf(), { orders: [order({ wbs_item_id: 'a1', design_state: 'review', design_note: '테스트 계획 보강', heartbeat_phase: 'wait_review', ...silent })] }), NOW, VIEWER)
+    expect(by(hub, 'TSK-A-01').design).toMatchObject({ row: 1, label: '설계 검토 대기', note: '테스트 계획 보강', buttons: ['accept'] })
+  })
+  it('승인된 설계는 구현 대기(WAIT)이고 3행과 「설계 되돌리기」 — 버튼은 권한과 따로 싣는다(화면이 canToggle 로 거른다)', () => {
+    const hub = assembleAgentHub(withLeaf(leaf({ assignee_member_id: 'm9' }), { orders: [order({ wbs_item_id: 'a1', design_state: 'accepted', heartbeat_phase: 'wait_review', ...silent })] }), NOW, VIEWER)
+    const r = by(hub, 'TSK-A-01')
+    expect(r.order).toMatchObject({ state: 'WAIT', buildWait: true, reviewWait: false })
+    expect(hub.counters).toMatchObject({ waiting: 0, working: 0, designReview: 0 })
+    expect(r.canToggle).toBe(false)
+    expect(r.design).toMatchObject({ row: 3, label: '구현 대기(설계 승인됨)', buttons: ['reopen'] })
+  })
+  it('사람 설계 대기(human ∧ 위임 ∧ ready ∧ as)는 6행과 「설계 확정」', () => {
+    const ready = order({ wbs_item_id: 'a1', status: 'ready', claimed_by: null, claimed_by_user_id: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null })
+    const hub = assembleAgentHub(withLeaf(leaf({ stage: 'as', actual_pct: 0, design_mode: 'human' }), { orders: [ready] }), NOW, VIEWER)
+    expect(by(hub, 'TSK-A-01').design).toMatchObject({ row: 6, label: '사람 설계 대기', buttons: ['confirm'] })
+  })
+  it('7일 창 밖에서 승인된 위임 리프(xx·활성 주문 없음)는 정상 완료다 — approvedItemIds 로 알아 9·10행에 걸리지 않는다', () => {
+    const done = leaf({ stage: 'xx', actual_pct: 100 })
+    expect(by(assembleAgentHub(withLeaf(done, { orders: [], approvedItemIds: ['a1'] }), NOW, VIEWER), 'TSK-A-01').design).toBeNull()
+    // 승인 주문을 모르면 10행(위임 보류)으로 잘못 보인다 — 로더가 위임 리프의 승인 주문까지 읽는 이유다.
+    expect(by(assembleAgentHub(withLeaf(done, { orders: [], approvedItemIds: [] }), NOW, VIEWER), 'TSK-A-01').design).toMatchObject({ row: 10 })
+  })
+  it('살아 있는 주문이 없으면 pickOrder 의 approved 폴백을 활성 주문으로 넘기지 않는다 — 9행 「위임 보류(승인된 주문 있음)」', () => {
+    const hub = assembleAgentHub(withLeaf(leaf({ stage: 'ip', actual_pct: 30 }), { orders: [order({ wbs_item_id: 'a1', status: 'approved', updated_at: ago(3600_000) })], approvedItemIds: ['a1'] }), NOW, VIEWER)
+    const r = by(hub, 'TSK-A-01')
+    expect(r.order?.status).toBe('approved') // 표의 주문 칸은 종전대로 최근 승인분이다
+    expect(r.design).toMatchObject({ row: 9, label: '위임 보류(승인된 주문 있음)', buttons: [] })
+  })
+  it('맞는 행이 없는 리프와 부모 행은 null — 첫 구현(claimed·ip·accepted)은 「작업 중」 그대로다', () => {
+    const hub = assembleAgentHub(withLeaf(leaf({ stage: 'ip', actual_pct: 30 }), { orders: [order({ wbs_item_id: 'a1', design_state: 'accepted' })] }), NOW, VIEWER)
+    expect(by(hub, 'TSK-A-01').design).toBeNull()
+    expect(by(hub, 'SUB-A').design).toBeNull()
+  })
+})
+```
+
+**`tests/data/agent-hub.test.ts`** — 항목 열·표 목록·승인 주문 조회의 기대를 새 규칙으로 고치고, 대상·나눔·실패 테스트를 더한다.
+
+이 텍스트를 찾아:
+
+```ts
+    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived')
+    expect(rows.approvedItemIds).toEqual([]) // depends 가 없으면 선행 승인 조회도 없다
+    expect(c('agent_work_orders').select).toContain('last_heartbeat_at')
+```
+
+이렇게 바꾼다:
+
+```ts
+    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived, design_mode')
+    // 위임 리프(i1) 자신의 승인 주문도 읽는다(설계 화면 판정 9·10행 — 7일 창 밖의 승인). 응답이 비면 빈 목록.
+    expect(rows.approvedItemIds).toEqual([])
+    expect(c('agent_work_orders').select).toContain('last_heartbeat_at')
+    for (const col of ['design_state', 'design_note', 'runner']) expect(c('agent_work_orders').select).toContain(col)
+```
+
+이 텍스트를 찾아:
+
+```ts
+    expect(calls.map(x => x.table).sort()).toEqual(['agent_projects', 'agent_watchers', 'agent_work_orders', 'agent_work_reports', 'project_members', 'projects', 'wbs_items'])
+```
+
+이렇게 바꾼다:
+
+```ts
+    expect(calls.map(x => x.table).sort()).toEqual(['agent_projects', 'agent_watchers', 'agent_work_orders', 'agent_work_orders', 'agent_work_reports', 'project_members', 'projects', 'wbs_items'])
+```
+
+이 텍스트를 찾아:
+
+```ts
+  it('위임 항목의 depends 가 가리키는 항목 id 로 approved 주문을 1회 더 조회한다', async () => {
+```
+
+이렇게 바꾼다:
+
+```ts
+  it('위임 항목의 depends 가 가리키는 항목과 위임 항목 자신의 id 로 approved 주문을 한 번에 조회한다', async () => {
+```
+
+이 텍스트를 찾아:
+
+```ts
+    expect(orderCalls[1].filters).toEqual([['in', ['wbs_item_id', ['i0']]], ['eq', ['status', 'approved']]])
+```
+
+이렇게 바꾼다:
+
+```ts
+    expect(orderCalls[1].filters).toEqual([['in', ['wbs_item_id', ['i0', 'i1']]], ['eq', ['status', 'approved']]])
+```
+
+이 텍스트를 찾아:
+
+```ts
+  it('depends 가 가리키는 external_ref 가 프로젝트에 없으면 조회하지 않는다', async () => {
+    const { client, calls } = admin({ wbs_items: [{ data: [{ ...base, depends: ['M/T9'] }] }], agent_work_orders: [{ data: [] }] })
+    const rows = await fetchAgentHubRows(client as never, P1, NOW)
+    expect(calls.filter(x => x.table === 'agent_work_orders')).toHaveLength(1)
+    expect(rows.approvedItemIds).toEqual([])
+  })
+```
+
+이렇게 바꾼다:
+
+```ts
+  it('depends 가 가리키는 external_ref 가 프로젝트에 없으면 선행은 빼고, 위임 항목 자신만 조회한다(설계 화면 판정 9·10행)', async () => {
+    const { client, calls } = admin({ wbs_items: [{ data: [{ ...base, depends: ['M/T9'] }] }], agent_work_orders: [{ data: [] }] })
+    const rows = await fetchAgentHubRows(client as never, P1, NOW)
+    const orderCalls = calls.filter(x => x.table === 'agent_work_orders')
+    expect(orderCalls).toHaveLength(2)
+    expect(orderCalls[1].filters[0]).toEqual(['in', ['wbs_item_id', ['i1']]])
+    expect(rows.approvedItemIds).toEqual([])
+  })
+  it('설계 방식이 human 인 항목은 위임 전이어도 대상이고, 위임·human·선행이 모두 아니면 조회하지 않는다', async () => {
+    const { client, calls } = admin({ wbs_items: [{ data: [{ ...base, tags: [], design_mode: 'human' }, { ...base, id: 'i2', tags: [] }] }], agent_work_orders: [{ data: [] }] })
+    await fetchAgentHubRows(client as never, P1, NOW)
+    expect(calls.filter(x => x.table === 'agent_work_orders')[1].filters[0]).toEqual(['in', ['wbs_item_id', ['i1']]])
+    const none = admin({ wbs_items: [{ data: [{ ...base, tags: [] }] }], agent_work_orders: [{ data: [] }] })
+    await fetchAgentHubRows(none.client as never, P1, NOW)
+    expect(none.calls.filter(x => x.table === 'agent_work_orders')).toHaveLength(1)
+  })
+  it('대상이 200건을 넘으면 200건씩 나눠 조회한다(요청 URL 길이) — 항목마다 조회하지 않는다', async () => {
+    const many = Array.from({ length: 201 }, (_, k) => ({ ...base, id: `i${k}` }))
+    const { client, calls } = admin({ wbs_items: [{ data: many }], agent_work_orders: [{ data: [] }, { data: [{ wbs_item_id: 'i0' }] }, { data: [{ wbs_item_id: 'i200' }] }] })
+    const rows = await fetchAgentHubRows(client as never, P1, NOW)
+    const lookups = calls.filter(x => x.table === 'agent_work_orders').slice(1)
+    expect(lookups.map(l => (l.filters[0][1][1] as string[]).length)).toEqual([200, 1])
+    expect(rows.approvedItemIds).toEqual(['i0', 'i200'])
+  })
+  it('승인 주문 조회가 실패하면 throw — 승인 없음으로 위장하지 않는다', async () => {
+    const { client } = admin({ wbs_items: [{ data: [base] }], agent_work_orders: [{ data: [] }, { data: null, error: { message: 'boom' } }] })
+    await expect(fetchAgentHubRows(client as never, P1, NOW)).rejects.toThrow(/승인 주문 조회 실패: boom/)
+  })
+```
+
+- [ ] **Step 14: 실패 확인**
+
+Run: `npx vitest run tests/domain/agent-hub.test.ts tests/data/agent-hub.test.ts`
+Expected: FAIL 16건. 조립이 `counters.designReview`·`order.designState`·`order.buildWait`·`design` 을 만들지 않고, 검토 대기·구현 대기를 설계 상태로 판정하지 않는다. 로더는 `design_mode`·설계 열을 싣지 않고, 승인 주문을 선행 항목에서만 한 번(나눔 없이) 읽는다.
+
+- [ ] **Step 15: 구현 — `src/lib/domain/agentHub.ts`·`src/lib/data/agentHub.ts`**
+
+**`src/lib/domain/agentHub.ts`**
+
+이 텍스트를 찾아:
+
+```ts
+import { deriveSeatState, isApprovalWait, isReviewWait, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
+```
+
+이렇게 바꾼다:
+
+```ts
+import { deriveSeatState, isApprovalWait, isBuildWait, isReviewWait, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
+```
+
+이 텍스트를 찾아:
+
+```ts
+import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
+import { deriveWaitReason, type WaitReason } from './waitReason'
+```
+
+이렇게 바꾼다:
+
+```ts
+import { AGENT_TAG, isSubtreeManagerOf, screenItemFacts, screenOrderOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
+import { deriveWaitReason, type PredecessorLike, type WaitReason } from './waitReason'
+import { designScreen, toDesignState, type DesignScreenRow, type DesignState } from './designGate'
+```
+
+이 텍스트를 찾아:
+
+```ts
+  /** 강제 진행(0103) — stub_for 가 있으면 스텁 제거 하위 Task(구조에 투명), depends_waived 는 면제한 선행 ref. */
+  stub_for?: string | null; depends_waived?: string[] | null
+}
+```
+
+이렇게 바꾼다:
+
+```ts
+  /** 강제 진행(0103) — stub_for 가 있으면 스텁 제거 하위 Task(구조에 투명), depends_waived 는 면제한 선행 ref. */
+  stub_for?: string | null; depends_waived?: string[] | null
+  /** 설계 방식(0108 design_mode) — 화면 판정 재료. 옛 픽스처는 비워 둔다(auto). */
+  design_mode?: string | null
+}
+```
+
+이 텍스트를 찾아:
+
+```ts
+  /** 선행 항목 중 approved 주문이 있는 항목 id — orders 는 7일 창이라 오래전 승인을 따로 본다(착수 대기 사유 스펙 §3). */
+  approvedItemIds: string[]
+```
+
+이렇게 바꾼다:
+
+```ts
+  /** 선행 항목과 설계 판정 대상(위임·설계 방식 human 항목) 중 approved 주문이 있는 항목 id — orders 는 7일 창이라 오래전
+   *  승인을 따로 본다(착수 대기 사유 스펙 §3, 설계 상태 스펙 3절 9·10행). */
+  approvedItemIds: string[]
+```
+
+이 텍스트를 찾아:
+
+```ts
+    /** 설계 완료·검토 대기(claimed ∧ heartbeat wait_review, 스펙 §14.5) — WAIT 이지만 선행 대기(wait_pred)와 다른 라벨(§14.5)로
+     *  보여야 해서 hubStateLabel/hubStateTone 이 이 값을 본다. 선택 필드(옛 픽스처 = undefined → 선행 대기로 접힌다). */
+    reviewWait?: boolean
+  } | null
+```
+
+이렇게 바꾼다:
+
+```ts
+    /** 설계 검토 대기(claimed ∧ 설계 상태 review, 설계 상태 스펙 3절 1행) — WAIT 이지만 선행 대기(wait_pred)와 다른 라벨로
+     *  보여야 해서 hubStateLabel/hubStateTone 이 이 값을 본다. 선택 필드(옛 픽스처 = undefined → 선행 대기로 접힌다). */
+    reviewWait?: boolean
+    /** 구현 대기(claimed ∧ 설계 상태 accepted ∧ 단계 dd ∧ 도는 PC 없음) — WAIT 이지만 결재할 것이 아니다. 선택 필드(옛 픽스처 = 없음). */
+    buildWait?: boolean
+    /** 주문의 설계 상태(0108). 선택 필드(옛 픽스처 = 없음). */
+    designState?: DesignState | null
+  } | null
+```
+
+이 텍스트를 찾아:
+
+```ts
+  /** 스텁 잔존(강제 진행 스펙 F13) — 승인 비활성·배지 재료. 선택 필드(옛 픽스처 호환), 조립은 항상 채운다. */
+  stubPending?: StubPendingEntry[]
+}
+export interface HubQueueEntry {
+```
+
+이렇게 바꾼다:
+
+```ts
+  /** 스텁 잔존(강제 진행 스펙 F13) — 승인 비활성·배지 재료. 선택 필드(옛 픽스처 호환), 조립은 항상 채운다. */
+  stubPending?: StubPendingEntry[]
+  /** 설계 화면 판정(설계 상태 스펙 3절) — 리프만. 맞는 행이 없거나 부모 행이면 null(화면은 지금 문구 그대로). buttons 는
+   *  권한과 따로 싣는다 — 화면이 canToggle(requireDelegationRight 와 같은 규칙)로 거른다. 선택 필드(옛 픽스처), 조립은 항상 채운다. */
+  design?: DesignScreenRow | null
+}
+export interface HubQueueEntry {
+```
+
+이 텍스트를 찾아:
+
+```ts
+  counters: { delegated: number; ready: number; working: number; waiting: number; stuck: number }
+```
+
+이렇게 바꾼다:
+
+```ts
+  counters: {
+    delegated: number; ready: number; working: number; waiting: number; stuck: number
+    /** 설계 검토 대기(claimed ∧ 설계 상태 review) 주문 수 — 결재 대기(waiting, 완료 승인)와 따로 센다(설계 상태 스펙 7절).
+     *  선택 필드(옛 픽스처), 조립은 항상 채운다. */
+    designReview?: number
+  }
+```
+
+이 텍스트를 찾아:
+
+```ts
+  const hubRows: HubRow[] = []
+  const counters = { delegated: 0, ready: 0, working: 0, waiting: 0, stuck: 0 }
+```
+
+이렇게 바꾼다:
+
+```ts
+  const hubRows: HubRow[] = []
+  const counters = { delegated: 0, ready: 0, working: 0, waiting: 0, stuck: 0, designReview: 0 }
+  // 선행 행 — 착수 대기 사유와 설계 화면 판정이 같은 판정을 쓴다.
+  const predOf = (ref: string): PredecessorLike | undefined => {
+    const p = byRef.get(ref)
+    return p ? { external_ref: ref, code: p.code, name: p.name, stage: p.stage, order_approved: approved.has(p.id), actual_pct: p.actual_pct } : undefined
+  }
+```
+
+이 텍스트를 찾아:
+
+```ts
+      const input = {
+        status: picked.status, lastHeartbeatAt: picked.last_heartbeat_at, heartbeatPhase: picked.heartbeat_phase,
+        updatedAt: picked.updated_at, lastReview: latestReport.get(picked.id)?.review_action ?? null, actualPct: item.actual_pct,
+      }
+```
+
+이렇게 바꾼다:
+
+```ts
+      const designState = toDesignState(picked.design_state ?? null)
+      const input = {
+        status: picked.status, lastHeartbeatAt: picked.last_heartbeat_at, heartbeatPhase: picked.heartbeat_phase,
+        updatedAt: picked.updated_at, lastReview: latestReport.get(picked.id)?.review_action ?? null, actualPct: item.actual_pct,
+        designState, runner: picked.runner ?? null, stage: item.stage,
+      }
+```
+
+이 텍스트를 찾아:
+
+```ts
+        reviewWait: isReviewWait(input),
+      }
+      if (state === 'READY') counters.ready++
+      // 승인 대기만 센다 — 설계 완료·선행 대기(claimed ∧ wait_pred)·검토 대기(claimed ∧ wait_review)도 WAIT 지만 결재할 것이 아니다.
+      else if (state === 'WAIT' && isApprovalWait(input)) counters.waiting++
+      else if (WORKING.includes(state)) counters.working++
+    }
+```
+
+이렇게 바꾼다:
+
+```ts
+        reviewWait: isReviewWait(input),
+        buildWait: isBuildWait(input),
+        designState,
+      }
+      if (state === 'READY') counters.ready++
+      // 승인 대기만 센다 — 설계 완료·선행 대기(claimed ∧ wait_pred)·설계 검토 대기(claimed ∧ review)도 WAIT 지만 결재할 것이 아니다.
+      else if (state === 'WAIT' && isApprovalWait(input)) counters.waiting++
+      else if (WORKING.includes(state)) counters.working++
+      // 설계 검토 대기는 결재 대기와 따로 센다(설계 상태 스펙 7절) — 허브 상태 줄의 「설계 검토 대기」 타일.
+      if (isReviewWait(input)) counters.designReview++
+    }
+```
+
+이 텍스트를 찾아:
+
+```ts
+          predecessorByRef: ref => { const p = byRef.get(ref); return p ? { external_ref: ref, code: p.code, name: p.name, stage: p.stage, order_approved: approved.has(p.id), actual_pct: p.actual_pct } : undefined },
+```
+
+이렇게 바꾼다:
+
+```ts
+          predecessorByRef: predOf,
+```
+
+이 텍스트의 마지막 줄 다음에:
+
+```ts
+    if (waitReason !== null && (waitReason.kind === 'dependency' || waitReason.kind === 'agent_off')) counters.stuck++
+```
+
+이 줄들을 더한다:
+
+```ts
+    // 설계 화면 판정(설계 상태 스펙 3절) — 리프만. 활성 주문만 active 로 넘긴다: pickOrder 의 approved 폴백은 활성 주문이
+    // 아니다(활성 주문이 없어야 걸리는 9·10행이 그 경우를 본다).
+    const live = picked !== null && LIVE.includes(picked.status) ? picked : null
+    const design = isLeaf
+      ? designScreen({
+          item: screenItemFacts(item, predOf, approved.has(item.id)),
+          active: live ? screenOrderOf(live) : null,
+          lastReview: live ? (latestReport.get(live.id)?.review_action ?? null) : null,
+          nowMs,
+        })
+      : null
+```
+
+이 텍스트를 찾아:
+
+```ts
+      waitReason,
+      stubPending: stubsByItem.get(item.id) ?? [],
+    })
+```
+
+이렇게 바꾼다:
+
+```ts
+      waitReason,
+      stubPending: stubsByItem.get(item.id) ?? [],
+      design,
+    })
+```
+
+**`src/lib/data/agentHub.ts`**
+
+이 텍스트를 찾아:
+
+```ts
+export const HUB_ITEM_COLS = 'id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived'
+const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note'
+```
+
+이렇게 바꾼다:
+
+```ts
+export const HUB_ITEM_COLS = 'id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived, design_mode'
+const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note, design_state, design_note, runner'
+/** 승인 주문 조회의 in 목록 크기 — 요청 URL 길이 때문에 나눈다(designFacts 와 같은 값). */
+const IN_CHUNK = 200
+```
+
+이 텍스트를 찾아:
+
+```ts
+  // 선행 승인 여부 — 위임 항목의 depends 가 가리키는 항목 id 로 approved 주문을 1회(주문 조회는 7일 창이라 오래전 승인이 빠진다). 선행이 없으면 생략.
+  const refs = new Set(items.filter(i => (i.tags ?? []).includes('agent')).flatMap(i => i.depends ?? []))
+  const predIds = items.filter(i => i.external_ref !== null && refs.has(i.external_ref)).map(i => i.id)
+  const approvedItemIds = predIds.length
+    ? must<Array<{ wbs_item_id: string }>>('선행 승인 주문', await admin.from('agent_work_orders').select('wbs_item_id').in('wbs_item_id', predIds).eq('status', 'approved')).map(r => r.wbs_item_id)
+    : []
+```
+
+이렇게 바꾼다:
+
+```ts
+  // 승인 주문 — 선행 항목(위임 항목의 depends 가 가리키는 것)과 설계 화면 판정 대상(위임 항목·설계 방식 human 항목)의 id 로
+  // approved 주문을 읽는다. 주문 조회는 7일 창이라 오래전 승인이 빠진다 — 선행을 미충족으로, 오래전에 끝난 위임 리프를
+  // 「위임 보류」(설계 상태 스펙 3절 10행)로 거짓 표시하게 된다. 200건씩 나눠 읽고(항목마다 읽지 않는다), 대상이 없으면 생략.
+  const delegated = (i: HubItemRow) => (i.tags ?? []).includes('agent')
+  const refs = new Set(items.filter(delegated).flatMap(i => i.depends ?? []))
+  const predIds = items.filter(i => i.external_ref !== null && refs.has(i.external_ref)).map(i => i.id)
+  const designIds = items.filter(i => delegated(i) || i.design_mode === 'human').map(i => i.id)
+  const lookupIds = [...new Set([...predIds, ...designIds])]
+  const approvedItemIds: string[] = []
+  for (let k = 0; k < lookupIds.length; k += IN_CHUNK) {
+    const part = must<Array<{ wbs_item_id: string }>>('승인 주문', await admin.from('agent_work_orders').select('wbs_item_id')
+      .in('wbs_item_id', lookupIds.slice(k, k + IN_CHUNK)).eq('status', 'approved'))
+    for (const r of part) approvedItemIds.push(r.wbs_item_id)
+  }
+```
+
+- [ ] **Step 16: 통과 확인**
+
+Run: `npx vitest run tests/domain/agent-hub tests/data/agent-`
+Expected: PASS(허브 조립·스텁, 허브·좌석 로더, 결재 배지 로더 `tests/data/agent-approvals*` 포함 — 배지 로더는 이 Task 가 고치지 않는다).
+
+- [ ] **Step 17: 실패하는 테스트 — 허브 화면(설계 문구·설계 버튼·검토 대기 타일)**
+
+**`tests/components/agent-hub-table.test.tsx`** — 파일 끝에 더한다.
+
+파일 끝에 더한다:
+
+```tsx
+describe('DelegationTable — 설계 문구·설계 버튼(설계 상태 스펙 3절·7절)', () => {
+  const HINT_REVIEW = 'agent 브랜치의 <TASKS>/<TSK>/design.md 를 검토하고, 고쳤으면 push 한 뒤 「설계 승인」을 누르세요.'
+  const DESIGN_ROWS: HubRow[] = [
+    row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
+    row({ itemId: 'rv', code: 'TSK-RV', name: '검토 대기', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, devWorkflow: true, stage: 'dd',
+      order: { id: 'orv', status: 'claimed', state: 'WAIT', agent: 'hong/mbp/w1', lastSignalAt: null, reviewWait: true, designState: 'review' },
+      design: { row: 1, label: '설계 검토 대기', note: '테스트 계획 보강', hint: HINT_REVIEW, buttons: ['accept'] } }),
+    row({ itemId: 'hm', code: 'TSK-HM', name: '사람 설계', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, devWorkflow: true, stage: 'as',
+      order: { id: 'ohm', status: 'ready', state: 'READY', agent: null, lastSignalAt: null },
+      waitReason: { kind: 'pickup', label: '착수 대기', text: '집어갈 수 있는 에이전트가 있습니다.' },
+      design: { row: 6, label: '사람 설계 대기', note: null, hint: '개발 브랜치의 <TASKS>/<TSK>/design.md 에 필수 5개 절을 모두 쓰고 push 한 뒤 「설계 확정」을 누르세요.', buttons: ['confirm'] } }),
+    row({ itemId: 'ac', code: 'TSK-AC', name: '승인됨', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, devWorkflow: true, stage: 'dd',
+      order: { id: 'oac', status: 'claimed', state: 'WAIT', agent: 'hong/mbp/w1', lastSignalAt: null, designState: 'accepted', buildWait: true },
+      design: { row: 3, label: '구현 대기(설계 승인됨)', note: null, hint: '팀장이 떠 있으면 다음 TICK(기본 30분) 안에 구현을 시작합니다.', buttons: ['reopen'] } }),
+    // 위임 권한이 없는 행(담당자 아님·관리자 아님) — 서버(requireDelegationRight)가 거부할 버튼은 그리지 않는다.
+    row({ itemId: 'ot', code: 'TSK-OT', name: '남의 것', depth: 1, parentId: 'root', canToggle: false, delegated: true, devWorkflow: true, stage: 'dd',
+      order: { id: 'oot', status: 'claimed', state: 'WAIT', agent: 'x', lastSignalAt: null, reviewWait: true, designState: 'review' },
+      design: { row: 1, label: '설계 검토 대기', note: null, hint: HINT_REVIEW, buttons: ['accept'] } }),
+  ]
+  const dbtn = (id: string, kind: string) => host.querySelector(`[data-hub-row="${id}"] [data-hub-design-btn="${kind}"]`) as HTMLButtonElement | null
+  const typeReason = (v: string) => act(async () => {
+    const ta = host.querySelector('[data-hub-design-reopen-reason]') as HTMLTextAreaElement
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(ta, v); ta.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+
+  it('설계 문구는 사유 칸의 칩이고, 누르면 되돌림 사유·안내가 펼쳐진다 — 설계 문구가 있으면 선행 대기가 아닌 빈자리 사유는 그리지 않는다', async () => {
+    render({ rows: DESIGN_ROWS })
+    const chip = host.querySelector('[data-hub-row="rv"] [data-hub-design-label="1"]') as HTMLButtonElement
+    expect(chip.textContent).toBe('설계 검토 대기')
+    await click(chip)
+    const txt = text('[data-hub-row-extra="rv"] [data-hub-design-text]')
+    expect(txt).toContain('되돌린 이유: 테스트 계획 보강')
+    expect(txt).toContain('「설계 승인」')
+    expect(text('[data-hub-row="hm"] [data-hub-design-label="6"]')).toBe('사람 설계 대기')
+    expect(host.querySelector('[data-hub-row="hm"] [data-wait-reason]')).toBeNull()
+  })
+  it('구현 대기 행의 상태 칩은 승인 대기도 선행 대기도 아니라 구현 대기다', () => {
+    render({ rows: DESIGN_ROWS })
+    const ac = host.querySelector('[data-hub-row="ac"]') as HTMLElement
+    expect([...ac.querySelectorAll('.chip')].map(c => c.textContent)).toContain('구현 대기')
+    expect(ac.textContent).not.toContain('승인 대기')
+    expect(ac.textContent).not.toContain('선행 대기')
+  })
+  it('설계 버튼은 design.buttons 에 있고 위임 권한(canToggle)이 있을 때만 그린다 — 문구는 설계 승인·설계 확정·설계 되돌리기', () => {
+    render({ rows: DESIGN_ROWS })
+    expect(dbtn('rv', 'accept')?.textContent).toBe('설계 승인')
+    expect(dbtn('hm', 'confirm')?.textContent).toBe('설계 확정')
+    expect(dbtn('ac', 'reopen')?.textContent).toBe('설계 되돌리기')
+    expect(host.querySelector('[data-hub-row="ot"] [data-hub-design-btn]')).toBeNull()
+  })
+  it('설계 승인·설계 확정 → runHubProcessOp(p1, {design_accept|design_confirm, itemId}) → 응답의 허브로 교체', async () => {
+    runHubProcessOp.mockResolvedValue({ ok: true, hub: HUB })
+    const { onHub } = render({ rows: DESIGN_ROWS })
+    await click(dbtn('rv', 'accept')!)
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'design_accept', itemId: 'rv' })
+    await click(dbtn('hm', 'confirm')!)
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'design_confirm', itemId: 'hm' })
+    expect(onHub).toHaveBeenCalledWith(HUB)
+  })
+  it('설계 되돌리기는 사유 입력 줄을 먼저 연다 — 비워도 보낼 수 있고(서버 기본 사유) 채우면 다듬어 보내며, 성공하면 닫힌다', async () => {
+    runHubProcessOp.mockResolvedValue({ ok: true, hub: HUB })
+    render({ rows: DESIGN_ROWS })
+    await click(dbtn('ac', 'reopen')!)
+    expect(runHubProcessOp).not.toHaveBeenCalled()
+    const submit = host.querySelector('[data-hub-row-extra="ac"] [data-hub-design-reopen-submit]') as HTMLButtonElement
+    expect(submit.disabled).toBe(false)
+    await click(submit)
+    expect(runHubProcessOp).toHaveBeenLastCalledWith('p1', { kind: 'design_reopen', itemId: 'ac', note: '' })
+    expect(host.querySelector('[data-hub-design-reopen-reason]')).toBeNull()
+    await click(dbtn('ac', 'reopen')!)
+    await typeReason('  선행 설계가 바뀜  ')
+    await click(host.querySelector('[data-hub-design-reopen-submit]') as HTMLButtonElement)
+    expect(runHubProcessOp).toHaveBeenLastCalledWith('p1', { kind: 'design_reopen', itemId: 'ac', note: '선행 설계가 바뀜' })
+  })
+  it('입력 줄의 사유 칸·제출·취소는 data-hub-design-reopen-reason·-submit·-cancel 이다(Task 27 E2E 가 누른다) — 취소는 보내지 않고 닫는다', async () => {
+    render({ rows: DESIGN_ROWS })
+    await click(dbtn('ac', 'reopen')!)
+    const box = host.querySelector('[data-hub-row-extra="ac"] [data-hub-design-reopen]') as HTMLElement
+    expect(box.querySelector('textarea[data-hub-design-reopen-reason]')).not.toBeNull()
+    expect(box.querySelector('button[data-hub-design-reopen-submit]')?.textContent).toBe('설계 되돌리기 확정')
+    const cancel = box.querySelector('button[data-hub-design-reopen-cancel]') as HTMLButtonElement
+    expect(cancel.textContent).toBe('취소')
+    await click(cancel)
+    expect(host.querySelector('[data-hub-design-reopen]')).toBeNull()
+    expect(runHubProcessOp).not.toHaveBeenCalled()
+  })
+  it('실패는 그 행 아래 오류로 보이고, 되돌리기 입력 줄은 닫지 않는다', async () => {
+    runHubProcessOp.mockResolvedValueOnce({ ok: false, error: '설계 상태가 바뀌었습니다. 새로 고친 뒤 다시 누르세요.' })
+    render({ rows: DESIGN_ROWS })
+    await click(dbtn('ac', 'reopen')!)
+    await click(host.querySelector('[data-hub-design-reopen-submit]') as HTMLButtonElement)
+    expect(text('[data-hub-row-extra="ac"] [data-hub-error]')).toContain('설계 상태가 바뀌었습니다')
+    expect(host.querySelector('[data-hub-design-reopen-reason]')).not.toBeNull()
+  })
+})
+```
+
+**`tests/components/agent-hub-view.test.tsx`** — `describe('AgentHubView')` 의 "갱신 실패는 마지막 데이터를 유지하고…" 앞에 더한다.
+
+이 텍스트의 첫 줄 앞에:
+
+```tsx
+  it('갱신 실패는 마지막 데이터를 유지하고 상단에 실패 시각·문구', async () => {
+```
+
+이 줄들을 더한다:
+
+```tsx
+  it('상태 줄에 「설계 검토 대기」 타일 — 결재 대기와 따로 세고, 0건이어도 그린다(옛 허브 = 0)', () => {
+    act(() => root.render(<AgentHubView initial={hub({ counters: { delegated: 2, ready: 0, working: 0, waiting: 1, stuck: 0, designReview: 2 } })} wbs={wbs()} />))
+    const tile = host.querySelector('[data-hub-design-review]') as HTMLElement
+    expect(tile.getAttribute('data-hub-design-review')).toBe('2')
+    expect(tile.textContent).toContain('설계 검토 대기')
+    expect(tile.textContent).toContain('2')
+    act(() => root.unmount()); root = createRoot(host)
+    act(() => root.render(<AgentHubView initial={hub()} wbs={wbs()} />))
+    expect(host.querySelector('[data-hub-design-review]')?.getAttribute('data-hub-design-review')).toBe('0')
+  })
+```
+
+- [ ] **Step 18: 실패 확인**
+
+Run: `npx vitest run tests/components/agent-hub-table.test.tsx tests/components/agent-hub-view.test.tsx`
+Expected: FAIL 8건. 표에 설계 칩(`data-hub-design-label`)·설계 버튼(`data-hub-design-btn`)·되돌리기 입력 줄(`data-hub-design-reopen-reason`·`data-hub-design-reopen-submit`·`data-hub-design-reopen-cancel`)이 없고, 구현 대기 행의 상태 칩이 '선행 대기'로 보인다. 상태 줄에는 `data-hub-design-review` 타일이 없다.
+
+- [ ] **Step 19: 구현 — `labels.ts`·`HubStatusBar.tsx`·`AgentHubView.tsx`·`DelegationTable.tsx`**
+
+**`src/components/agent-hub/labels.ts`**
+
+이 텍스트의 마지막 줄 다음에:
+
+```ts
+export const REVIEW_WAIT_LABEL = '설계 검토 대기'
+export const REVIEW_WAIT_TONE = 'bg-pending-weak text-pending'
+```
+
+이 줄들을 더한다:
+
+```ts
+/** 구현 대기(claimed ∧ 설계 상태 accepted ∧ 단계 dd ∧ 도는 PC 없음, 설계 상태 스펙 3절 2·3행) — 승인·확정된 설계가 팀장을
+ *  기다린다. 같은 축(WAIT 이지만 승인 대기가 아니다)이다. */
+export const BUILD_WAIT_LABEL = '구현 대기'
+export const BUILD_WAIT_TONE = 'bg-pending-weak text-pending'
+```
+
+이 텍스트를 찾아:
+
+```ts
+/** reviewWait 이 없으면(옛 픽스처·wait_pred) 선행 대기로 접는다 — 둘 다 표시 축은 같고 라벨만 다르다. */
+export function hubStateLabel(order: { state: HubOrderState; status: string; reviewWait?: boolean }): string {
+  if (order.state !== 'WAIT' || order.status === 'reported') return STATE_LABEL[order.state]
+  return order.reviewWait ? REVIEW_WAIT_LABEL : DESIGN_WAIT_LABEL
+}
+export function hubStateTone(order: { state: HubOrderState; status: string; reviewWait?: boolean }): string {
+  if (order.state !== 'WAIT' || order.status === 'reported') return STATE_TONE[order.state]
+  return order.reviewWait ? REVIEW_WAIT_TONE : DESIGN_WAIT_TONE
+}
+```
+
+이렇게 바꾼다:
+
+```ts
+/** reviewWait·buildWait 이 없으면(옛 픽스처·wait_pred) 선행 대기로 접는다 — 셋 다 표시 축은 같고 라벨만 다르다. */
+export function hubStateLabel(order: { state: HubOrderState; status: string; reviewWait?: boolean; buildWait?: boolean }): string {
+  if (order.state !== 'WAIT' || order.status === 'reported') return STATE_LABEL[order.state]
+  return order.reviewWait ? REVIEW_WAIT_LABEL : order.buildWait ? BUILD_WAIT_LABEL : DESIGN_WAIT_LABEL
+}
+export function hubStateTone(order: { state: HubOrderState; status: string; reviewWait?: boolean; buildWait?: boolean }): string {
+  if (order.state !== 'WAIT' || order.status === 'reported') return STATE_TONE[order.state]
+  return order.reviewWait ? REVIEW_WAIT_TONE : order.buildWait ? BUILD_WAIT_TONE : DESIGN_WAIT_TONE
+}
+```
+
+이 텍스트의 마지막 줄 다음에:
+
+```ts
+import type { WaitReasonKind } from '@/lib/domain/waitReason'
+```
+
+이 줄들을 더한다:
+
+```ts
+import type { DesignButton } from '@/lib/domain/designGate'
+```
+
+이 텍스트를 찾아:
+
+```ts
+export const NOTE_PLACEHOLDER = { reject: '반려 사유 (필수)', rework: '재작업 사유 (필수)' } as const
+```
+
+이렇게 바꾼다:
+
+```ts
+export const NOTE_PLACEHOLDER = { reject: '반려 사유 (필수)', rework: '재작업 사유 (필수)' } as const
+
+/** 설계 버튼(설계 상태 스펙 7절) — 완료 승인(OP_LABEL)과 다른 동작이다. 문구는 WBS 작업 패널의 설계 영역과 같게 둔다. */
+export const DESIGN_BTN_LABEL: Record<DesignButton, string> = { accept: '설계 승인', confirm: '설계 확정', reopen: '설계 되돌리기' }
+export const DESIGN_BTN_TITLE: Record<DesignButton, string> = {
+  accept: '에이전트가 쓴 설계를 승인합니다 — 팀장이 다음 확인 주기(기본 30분 안)에 같은 설계로 구현을 시작합니다',
+  confirm: '개발 브랜치의 사람 설계(design.md)를 확정합니다 — 팀장이 띄우기 전에 필수 5개 절을 확인합니다',
+  reopen: '승인·확정한 설계를 되돌립니다 — 설계 검토·완전자동은 설계 검토 대기로, 구현자동은 사람 설계 대기로 돌아갑니다',
+}
+export const DESIGN_REOPEN_PLACEHOLDER = '되돌리는 이유 (비우면 기본 문구)'
+/** 설계 문구 칩 색 — 사람이 움직여야 풀리는 행(검토·재작업·사람 설계·위임 보류)은 사람 차례 색, 그 밖(선행·구현 대기)은 기계 차례 색. */
+const DESIGN_HUMAN_ROWS: ReadonlySet<number> = new Set([1, 5, 6, 7, 8, 9, 10])
+export function designTone(row: number): string {
+  return DESIGN_HUMAN_ROWS.has(row) ? 'bg-delayed-weak text-delayed' : 'bg-pending-weak text-pending'
+}
+```
+
+**`src/components/agent-hub/HubStatusBar.tsx`**
+
+이 텍스트를 찾아:
+
+```tsx
+// 허브 조작 줄 — 켜짐/중지(관리자 토글), 감시 중 에이전트, 내 토큰 링크. 공통 헤더(AgentFrame) 아래 고정 줄에 얹는다.
+```
+
+이렇게 바꾼다:
+
+```tsx
+// 허브 조작 줄 — 켜짐/중지(관리자 토글), 설계 검토 대기 수, 감시 중 에이전트, 내 토큰 링크. 공통 헤더(AgentFrame) 아래 고정 줄에 얹는다.
+```
+
+이 텍스트를 찾아:
+
+```tsx
+  isAdmin: boolean
+  onChanged: () => Promise<void> | void
+}
+```
+
+이렇게 바꾼다:
+
+```tsx
+  isAdmin: boolean
+  /** 설계 검토 대기 주문 수(hub.counters.designReview) — 결재 대기(완료 승인)와 따로 센다(설계 상태 스펙 7절). 없으면 0. */
+  designReview?: number
+  onChanged: () => Promise<void> | void
+}
+```
+
+이 텍스트를 찾아:
+
+```tsx
+export function HubStatusBar({ projectId, registered, enabled, watchers, isAdmin, onChanged }: Props) {
+```
+
+이렇게 바꾼다:
+
+```tsx
+export function HubStatusBar({ projectId, registered, enabled, watchers, isAdmin, designReview = 0, onChanged }: Props) {
+```
+
+이 텍스트를 찾아:
+
+```tsx
+        {isAdmin && !registered && <span className="text-[11px] text-ink-subtle">첫 위임 때 켜집니다</span>}
+      </div>
+```
+
+이렇게 바꾼다:
+
+```tsx
+        {isAdmin && !registered && <span className="text-[11px] text-ink-subtle">첫 위임 때 켜집니다</span>}
+        {/* 설계 검토 대기 — 사람이 「설계 승인」을 눌러야 풀린다. 0건이어도 그린다(자리 고정). 사이드바 배지(src/components/app)는
+            UI 위험 파일이라 건드리지 않고 이 줄에 둔다. 컴팩트 화면에서도 보이는 고정 줄이다. */}
+        <span data-hub-design-review={designReview}
+          title="에이전트가 설계를 마치고 사람의 「설계 승인」을 기다리는 작업 수입니다. 결재 대기(완료 승인)와 따로 셉니다."
+          className={`chip ${designReview > 0 ? 'bg-delayed-weak text-delayed' : 'bg-surface-2 text-ink-subtle'}`}>
+          설계 검토 대기 <b className="ml-1 tabular-nums">{designReview}</b>
+        </span>
+      </div>
+```
+
+**`src/components/agent-hub/AgentHubView.tsx`**
+
+이 텍스트를 찾아:
+
+```tsx
+        watchers={hub.watchers} isAdmin={hub.viewer.isAdmin} onChanged={refresh} />
+```
+
+이렇게 바꾼다:
+
+```tsx
+        watchers={hub.watchers} isAdmin={hub.viewer.isAdmin} designReview={c.designReview ?? 0} onChanged={refresh} />
+```
+
+**`src/components/agent-hub/DelegationTable.tsx`**
+
+`./labels` 에서 가져오는 import 목록에 `DESIGN_BTN_LABEL`, `DESIGN_BTN_TITLE`, `DESIGN_REOPEN_PLACEHOLDER`, `designTone` 네 이름을 더한다. Task 3 이 같은 목록에 `HUMAN_STAGE_CODES` 를 더했으므로 줄 텍스트가 아니라 이름으로 더한다. 나머지 편집은 아래와 같다.
+
+이 텍스트를 찾아:
+
+```tsx
+// 1건으로 끝나고 응답의 허브로 교체한다(스펙 §11). 페이지 전체 refresh 금지(스펙 §7).
+//
+```
+
+이렇게 바꾼다:
+
+```tsx
+// 1건으로 끝나고 응답의 허브로 교체한다(스펙 §11). 페이지 전체 refresh 금지(스펙 §7).
+// 설계 버튼(설계 승인·설계 확정·설계 되돌리기, 설계 상태 스펙 7절)은 위임 권한(canToggle — requireDelegationRight 와 같은
+// 규칙)이 있을 때 HubRow.design.buttons 대로 그리고, 같은 runHubProcessOp 1건으로 보낸다. 되돌리기 사유는 인라인 입력이다.
+//
+```
+
+이 텍스트의 마지막 줄 다음에:
+
+```tsx
+  const [confirmOp, setConfirmOp] = useState<{ itemId: string; orderId: string; kind: 'stop' } | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+```
+
+이 줄들을 더한다:
+
+```tsx
+  // 「설계 되돌리기」 사유 입력 줄을 연 행(한 번에 하나). 사유는 비워도 된다 — 서버가 기본 사유를 쓴다.
+  const [reopenOp, setReopenOp] = useState<string | null>(null)
+  const [reopenDraft, setReopenDraft] = useState('')
+```
+
+이 텍스트를 찾아:
+
+```tsx
+      if (confirmOp?.itemId === r.itemId) setConfirmOp(null)
+      if (res.hub) onHub(res.hub)
+```
+
+이렇게 바꾼다:
+
+```tsx
+      if (confirmOp?.itemId === r.itemId) setConfirmOp(null)
+      if (reopenOp === r.itemId) { setReopenOp(null); setReopenDraft('') }
+      if (res.hub) onHub(res.hub)
+```
+
+이 텍스트를 찾아:
+
+```tsx
+              const showReason = reasonOpen === r.itemId && r.waitReason !== null
+```
+
+이렇게 바꾼다:
+
+```tsx
+              const showReason = reasonOpen === r.itemId && (r.waitReason !== null || r.design != null)
+              // 설계 문구가 있으면 빈자리 사유는 선행 대기(dependency)일 때만 함께 보인다 — 착수 대기·에이전트 꺼짐은 설계 대기와 어긋난다.
+              const reason = r.waitReason && (!r.design || r.waitReason.kind === 'dependency') ? r.waitReason : null
+              // 설계 버튼은 서버 가드(requireDelegationRight — 관리자 또는 담당자 본인)와 같은 canToggle 일 때만 그린다.
+              const designBtns = r.canToggle ? (r.design?.buttons ?? []) : []
+              const reopenOpen = reopenOp === r.itemId
+```
+
+이 텍스트를 찾아:
+
+```tsx
+                    {r.waitReason && (
+                      <button type="button" data-hub-depends data-wait-reason={r.waitReason.kind}
+                        aria-expanded={showReason} title={r.waitReason.text}
+                        onClick={() => setReasonOpen(v => v === r.itemId ? null : r.itemId)}
+                        className={`chip whitespace-nowrap ${REASON_TONE[r.waitReason.kind]}`}>{r.waitReason.label}</button>
+                    )}
+```
+
+이렇게 바꾼다:
+
+```tsx
+                    {r.design && (
+                      <button type="button" data-hub-design-label={r.design.row} aria-expanded={showReason}
+                        title={[r.design.note ? `되돌린 이유: ${r.design.note}` : null, r.design.hint].filter(Boolean).join('\n') || r.design.label}
+                        onClick={() => setReasonOpen(v => v === r.itemId ? null : r.itemId)}
+                        className={`chip whitespace-nowrap ${designTone(r.design.row)}`}>{r.design.label}</button>
+                    )}
+                    {reason && (
+                      <button type="button" data-hub-depends data-wait-reason={reason.kind}
+                        aria-expanded={showReason} title={reason.text}
+                        onClick={() => setReasonOpen(v => v === r.itemId ? null : r.itemId)}
+                        className={`chip whitespace-nowrap ${REASON_TONE[reason.kind]}`}>{reason.label}</button>
+                    )}
+```
+
+이 텍스트를 찾아:
+
+```tsx
+                    {ops.length > 0 && (
+                      <span className="flex flex-nowrap gap-1">
+                        {ops.map(b => (
+```
+
+이렇게 바꾼다:
+
+```tsx
+                    {(designBtns.length > 0 || ops.length > 0) && (
+                      <span className="flex flex-nowrap gap-1">
+                        {designBtns.map(b => (
+                          <button key={b} type="button" data-hub-design-btn={b} disabled={isBusy} title={DESIGN_BTN_TITLE[b]}
+                            aria-expanded={b === 'reopen' ? reopenOpen : undefined}
+                            onClick={() => {
+                              if (b === 'reopen') { setReopenOp(reopenOpen ? null : r.itemId); setReopenDraft(''); setNoteOp(null); setConfirmOp(null); return }
+                              void runOp(r, { kind: b === 'accept' ? 'design_accept' : 'design_confirm', itemId: r.itemId })
+                            }}
+                            className={`btn h-6 shrink-0 whitespace-nowrap px-2 text-[11px] ${b === 'reopen' ? 'btn-ghost' : 'btn-primary'}`}>{DESIGN_BTN_LABEL[b]}</button>
+                        ))}
+                        {ops.map(b => (
+```
+
+중단 확인 줄·사유 줄을 열 때 되돌리기 입력 줄을 닫는다(입력 줄은 표에 하나만 연다).
+
+이 텍스트를 찾아:
+
+```tsx
+                              if (b.confirm && b.kind === 'stop') { setConfirmOp(confirmOpen ? null : { itemId: r.itemId, orderId, kind: b.kind }); setNoteOp(null); return }
+                              if (b.note) { setNoteOp(noteOpen?.kind === b.note ? null : { itemId: r.itemId, orderId, kind: b.note }); setNoteDraft(''); setConfirmOp(null); return }
+```
+
+이렇게 바꾼다:
+
+```tsx
+                              if (b.confirm && b.kind === 'stop') { setConfirmOp(confirmOpen ? null : { itemId: r.itemId, orderId, kind: b.kind }); setNoteOp(null); setReopenOp(null); return }
+                              if (b.note) { setNoteOp(noteOpen?.kind === b.note ? null : { itemId: r.itemId, orderId, kind: b.note }); setNoteDraft(''); setConfirmOp(null); setReopenOp(null); return }
+```
+
+이 텍스트를 찾아:
+
+```tsx
+                (editing === r.itemId || noteOpen || confirmOpen || showReason || err || warn) ? (
+```
+
+이렇게 바꾼다:
+
+```tsx
+                (editing === r.itemId || noteOpen || confirmOpen || reopenOpen || showReason || err || warn) ? (
+```
+
+이 텍스트를 찾아:
+
+```tsx
+                      {showReason && r.waitReason && (
+                        <p data-hub-reason-text className="mb-1 text-[11px] leading-relaxed text-ink-muted">{r.waitReason.text}</p>
+                      )}
+```
+
+이렇게 바꾼다:
+
+```tsx
+                      {showReason && r.design && (
+                        <p data-hub-design-text className="mb-1 text-[11px] leading-relaxed text-ink-muted">
+                          {r.design.note && <>되돌린 이유: {r.design.note} · </>}{r.design.hint ?? r.design.label}
+                        </p>
+                      )}
+                      {showReason && reason && (
+                        <p data-hub-reason-text className="mb-1 text-[11px] leading-relaxed text-ink-muted">{reason.text}</p>
+                      )}
+```
+
+이 텍스트의 첫 줄 앞에:
+
+```tsx
+                      {err && <span data-hub-error className="block text-[11px] text-accent-warning">{err}</span>}
+```
+
+이 줄들을 더한다:
+
+```tsx
+                      {reopenOpen && (
+                        <div data-hub-design-reopen className="flex flex-col gap-1">
+                          <textarea data-hub-design-reopen-reason value={reopenDraft} onChange={e => setReopenDraft(e.target.value)} rows={2}
+                            className="app-input w-full text-xs" placeholder={DESIGN_REOPEN_PLACEHOLDER} />
+                          <div className="flex gap-2">
+                            <button type="button" data-hub-design-reopen-submit disabled={isBusy}
+                              onClick={() => { void runOp(r, { kind: 'design_reopen', itemId: r.itemId, note: reopenDraft.trim() }) }}
+                              className="btn btn-primary h-7 px-2 text-xs">{DESIGN_BTN_LABEL.reopen} 확정</button>
+                            <button type="button" data-hub-design-reopen-cancel onClick={() => { setReopenOp(null); setReopenDraft('') }}
+                              className="btn btn-ghost h-7 px-2 text-xs">취소</button>
+                          </div>
+                        </div>
+                      )}
+```
+
+허브의 설계 버튼은 다른 조정과 같은 `runOp`(요청 1건 → 응답의 허브로 교체, 실패는 그 행의 오류 줄)를 탄다. 되돌리기 사유는 `trim()` 한 값을 보내고, 비었으면 빈 문자열을 보낸다(Task 24 가 서버 기본 사유를 쓴다). 브라우저 `confirm()`·`prompt()` 는 쓰지 않는다.
+
+- [ ] **Step 20: 통과 확인·회귀·타입 검사**
+
+Run: `npx vitest run tests/domain/seat tests/domain/agent-hub tests/domain/office-chatter tests/data/agent- tests/components/agents- tests/components/agent-hub- tests/actions/agent- tests/actions/wbs-spec-delegation-right tests/actions/wbs-dev-workflow && npx tsc --noEmit -p .`
+Expected: PASS, 타입 오류 없음. 좌석·허브의 기존 테스트(오피스 대사·레인·상세 패널·명찰·결정 칩·허브 큐·허브 뷰)가 모두 그대로 통과해야 한다. 허브·좌석 로더를 부르는 서버 액션 테스트(`tests/actions/agent-*` 등)도 함께 돌려, 로더가 승인 주문을 더 읽어도 목 응답 큐가 어긋나지 않는지 본다. `tests/components/agent-hub-queue.test.tsx` 는 `HubStatusBar` 를 `designReview` 없이 그린다 — prop 이 선택(기본 0)이라 그대로 컴파일된다.
+
+- [ ] **Step 21: 커밋**
+
+```bash
+git add src/lib/domain/seatState.ts src/lib/domain/seatmap.ts src/lib/domain/waitReason.ts src/lib/data/agentSeatmap.ts \
+  src/components/agents/seatOps.ts src/components/agents/Seat.tsx src/components/agents/LaneBoard.tsx src/components/agents/DetailPanel.tsx \
+  src/components/agents/RosterBoard.tsx src/lib/domain/officeChatter.ts \
+  src/lib/domain/agentHub.ts src/lib/data/agentHub.ts \
+  src/components/agent-hub/labels.ts src/components/agent-hub/HubStatusBar.tsx src/components/agent-hub/AgentHubView.tsx src/components/agent-hub/DelegationTable.tsx \
+  tests/domain/seat-state.test.ts tests/domain/seatmap.test.ts tests/data/agent-seatmap.test.ts \
+  tests/components/agents-seat-ops.test.ts tests/components/agents-design-wait.test.tsx tests/components/agents-roster-phase.test.ts \
+  tests/domain/agent-hub.test.ts tests/data/agent-hub.test.ts tests/components/agent-hub-table.test.tsx tests/components/agent-hub-view.test.tsx
+git commit -m "feat(design-state): 좌석·허브가 설계 상태로 검토 대기를 가르고 설계 문구·설계 버튼을 보인다
+
+좌석의 설계 검토 대기를 heartbeat wait_review 가 아니라 주문의 설계 상태(review)로 가른다. 「설계 승인」 뒤에도
+그 phase 가 남아 검토 대기로 보이던 결함 때문이다(스펙 8절). 좌석·허브는 3절 화면 판정(designScreen)을 같은 재료로
+쓰고, 좌석은 BLOCKED 와 살아 있는 워커를 먼저 본다. 「이어서 시작」은 검토 대기에서만 숨긴다(Y10).
+승인·확정된 설계가 팀장을 기다리는 주문(구현 대기)은 무응답·끊김으로 오르지 않게 차분한 WAIT 로 두고, 에이전트 보기의
+단계 라벨도 승인 뒤 남은 phase 로 '설계 검토 대기'를 말하지 않는다.
+허브는 설계 검토 대기 수를 결재 대기와 따로 세고(7절), 위임 권한이 있는 행에 설계 승인·확정·되돌리기를 둔다.
+선행과 승인 주문은 기존 일괄 조회의 대상만 넓혀 구한다(항목마다 조회하지 않는다).
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
+## Task 27: 전체 검증과 staging 반영
+
+**Files:** 없음(staging 머지 커밋만 만든다). 검사 출력·확인 SQL·E2E 재료는 모두 `<SCRATCH>` 에 두고 리포에 넣지 않는다.
+- 스크래치: `<SCRATCH>/design-state-final.log`·`design-state-build.log`(검사 출력), `<SCRATCH>/precheck-0108.sql`·`live-leads.sql`(스테이징 확인 SQL), `<SCRATCH>/e2e/`(가짜 원격·두 PC 클론·CLI 래퍼·업로드 스크립트)
+
+**Interfaces:**
+- Consumes:
+  - Task 0 Step 3 의 전체 테스트 기준선 `<SCRATCH>/design-state-baseline.txt`
+  - Task 4·5: `supabase/migrations/0108_design_state.sql`, 스테이징 DB 의 0108(칸 `wbs_items.design_mode`·`agent_work_orders.runner`, 12인자 `apply_workflow_event`, 단계 CHECK 의 `dd`), Task 5 Step 5 의 `<SCRATCH>/verify.sql`(끝 문장 `VERIFY_OK 8/8`)
+  - Task 16: `GET /work/{id}?agent=<라벨>` 응답의 `order.design_mode`·`design_state`·`design_note`·`claim_scope`·`runner`·`action`·`mine`·`item.stage`, `GET /work/mine` 의 같은 칸
+  - Task 17: 계약 2.11(`dflow.sh contract-ge 2.11`)
+  - Task 18: `dflow.sh claim <ref> --scope full|design|build`(성공 출력 `CLAIM_SCOPE <scope>`), `build-start <ref> --scope full|build|rework`, `design-done <ref>`(출력 `design-done <id8> <review|accepted|none>`), `list` 끝 두 열 `action`·`mine`, `show` 의 요청 라벨, exit 11(stderr 끝줄 `DESIGN_GATE <code>[ <reason>]`), exit 12(stderr 끝줄 `RUNNER_ACTIVE <runner>`)
+  - Task 25 의 data 속성: `data-spec-design`·`data-spec-design-mode`·`data-design-label`·`data-design-note`·`data-design-hint`·`data-design-btn`·`data-design-reopen-reason`·`data-design-reopen-submit`(되돌리기 제출)·`data-design-mode-lock`·`data-design-push-warning`·`data-delegation-confirm`·`data-delegation-confirm-ok`(위임 해제 확인)·`data-design-exit-guide`. 지금 코드에 있는 `data-spec-body-toggle`·`data-spec-edit-toggle`·`data-spec-delegate`·`data-pending-save`·`data-pending-save-now` 도 쓴다(`data-spec-delegate` 는 Task 25 뒤에도 그대로다).
+  - Task 26 의 data 속성: `data-hub-design-review`·`data-hub-design-btn`·`data-seat-design-label`. 지금 코드에 있는 좌석 op 속성 `data-seat-op`·`data-panel-op` 도 쓴다.
+- Produces:
+  - `origin/staging` 에 `Merge feat/design-state: …` 머지 커밋(feat/design-state 전부 포함)
+  - dflow-staging.vercel.app 이 계약 2.11 로 돈다
+  - 사용자 보고: 검증 결과, E2E 시나리오 결과, 정리 결과
+
+**이 Task 의 규칙.**
+- 반영은 staging 까지다. main 과 dflow-kit 반영은 하지 않고 제안하지도 않는다. 보고에는 "킷을 다시 빌드할 때 PC 마다 훅을 다시 설치해야 한다(Task 20 이 `kit/hooks/heartbeat.sh` 를 바꿨다)"는 사실만 적는다.
+- 본 체크아웃 `~/project/wbs-web` 은 여러 세션이 함께 쓰고 `staging` 이 체크아웃되어 있다. 그래서 워크트리에서는 `staging` 을 체크아웃할 수 없다(런북 2절의 `git switch staging` 을 그대로 쓸 수 없다).
+  - 머지는 워크트리의 임시 브랜치(`origin/staging` 기준)에서 만들고 `git push origin HEAD:staging` 으로 올린다. 이전 staging 반영도 이렇게 했다: `1a243d74`(origin/main 을 `HEAD` 에 back-merge) → `9474997c`(기능 브랜치 머지).
+  - 머지 커밋 제목은 최근 관례(`6234f21d Merge feat/wait-review: …`)를 따라 `Merge feat/<브랜치>: <한국어 요약>` 으로 쓴다.
+  - 본 체크아웃은 pull 하지 않는다. dmes 가 본 체크아웃의 스킬을 심볼릭 링크로 쓰므로, dmes-standard-87 세션이 확인해 준 뒤에 pull 한다(이 Task 밖).
+- `git push --force` 와 `SKIP_GUARD=1` 을 쓰지 않는다. push 가 거절되면 fetch 한 뒤 다시 머지한다.
+- DB 는 `npm run db:apply -- <file> --target staging` 로만 다룬다(`supabase db push` 금지).
+  - `db:apply` 는 조회 결과를 출력하지 않는다. 성공하면 `✓ staging 적용 완료` 한 줄뿐이다. 그래서 이 Task 의 확인 SQL 은 조건이 틀리면 `raise exception` 으로 끝나게 쓴다.
+  - scratchpad 에 남아 있을 수 있는 조회 스크립트(`stq.mjs`·`pq.mjs`)는 쓰지 않는다. `pq.mjs` 는 운영 DB 를 겨눈다.
+- `staging:sync` 는 스테이징 데이터를 지우므로 쓰지 않는 것이 원칙이다. 쓸 수밖에 없으면 실행 직전에 사용자에게 명시적으로 동의를 받는다.
+- `git add -A` 를 쓰지 않는다. `.dflow.local`·`.env.local` 은 커밋하지 않는다(둘 다 gitignore 대상이다).
+- **운영을 겨누지 않는다.** 워크트리와 본 체크아웃의 `.dflow` 는 `api_base=https://wbs-web.vercel.app`(운영)이다.
+  - E2E 의 CLI·curl 호출은 모두 Step 5 의 래퍼 `<SCRATCH>/e2e/dflow`·`<SCRATCH>/e2e/st` 와 업로드 스크립트 `<SCRATCH>/e2e/import.sh` 로만 한다. 셋은 `DFLOW_API_BASE=https://dflow-staging.vercel.app` 를 env 로 고정한다.
+  - E2E 중에는 `dflow.sh` 를 직접 부르지 않는다.
+- 브라우저는 ego-browser 스킬(`~/.claude/skills/ego-browser/SKILL.md`)로만 다룬다. Playwright MCP 와 claude-in-chrome 은 쓰지 않는다.
+  - 로그인이 필요하면 `task.handOff()` 로 사용자에게 넘긴다.
+  - 확인 창(브라우저 dialog)을 띄우는 동작은 하지 않는다. 이 화면들은 인라인 확인을 쓴다. 동작의 receipt 에 `dialog` 가 보이면 `page.dismissDialog()` 로 닫고 결함으로 보고한다.
+- 테스트 데이터는 스테이징에만, 이 Task 가 새로 만드는 E2E 프로젝트에만 만든다.
+- 보고는 완전한 한국어 문장으로 쓰고 시나리오로 풀어 쓴다.
+
+- [ ] **Step 1: 작업 트리와 커밋을 확인한다**
+
+```bash
+cd ~/project/wbs-web-design-state
+git switch feat/design-state
+git status --short                                   # 비어 있어야 한다
+git fetch origin main staging
+git merge-base --is-ancestor d9b5bd0b HEAD && echo "Task 0 의 staging 머지 포함"
+git log --oneline origin/staging..HEAD | wc -l       # 이 계획의 커밋 수
+git ls-files | grep -E '(^|/)\.(dflow|env)\.local$' || echo "비밀 파일 추적 없음"
+```
+
+Expected: `git status` 출력이 없다. `Task 0 의 staging 머지 포함` 이 나온다. 커밋 수는 0 보다 크다. `비밀 파일 추적 없음` 이 나온다.
+
+다르면:
+- `git status` 에 파일이 보이면 멈추고 사용자에게 목록을 보인다. 이 계획의 파일이면 그 파일을 소유한 Task 의 커밋 단계로 돌아가 파일 이름을 지정해 커밋한다. 모르는 파일은 건드리지 않는다.
+- `.dflow.local`·`.env.local` 이 추적되고 있으면 멈추고 사용자에게 알린다. 추적 해제(`git rm --cached`)는 사용자 확인 뒤에 한다.
+
+- [ ] **Step 2: 전체 테스트를 돌린다**
+
+```bash
+cd ~/project/wbs-web-design-state
+npx vitest run > <SCRATCH>/design-state-final.log 2>&1; echo "vitest_rc=$?"
+tail -8 <SCRATCH>/design-state-final.log
+grep -oE 'FAIL +tests/[^ ]+' <SCRATCH>/design-state-final.log | sed -E 's/^FAIL +//' | sort -u > <SCRATCH>/final-fails.txt
+grep -oE 'FAIL +tests/[^ ]+' <SCRATCH>/design-state-baseline.txt | sed -E 's/^FAIL +//' | sort -u > <SCRATCH>/base-fails.txt
+comm -23 <SCRATCH>/final-fails.txt <SCRATCH>/base-fails.txt   # 기준선에 없던 실패
+```
+
+Expected: `vitest_rc=0` 이고 끝 요약이 `Test Files  N passed (N)` 이다. 마지막 `comm` 은 아무것도 내지 않는다.
+
+다르면:
+- 실패 파일이 전체 실행 때만 흔들리는 넷 가운데 있으면 그 파일만 단독으로 돌린다. 단독으로 통과하면 흔들림으로 기록하고 넘어간다.
+
+  ```bash
+  npx vitest run tests/skills/heartbeat-hook.test.ts
+  npx vitest run tests/skills/dflow-lead-lease.test.ts
+  npx vitest run tests/skills/dflow-lead-worktree.test.ts
+  npx vitest run tests/skills/dflow-done-decisions.test.ts
+  ```
+
+- 기준선에도 있던 실패는 이 계획과 무관하다. 파일 이름만 보고에 적는다.
+- 기준선 파일이 이 세션의 scratchpad 에 없으면(Task 0 을 다른 세션에서 돌렸다) 모든 실패를 새 실패로 보고 아래처럼 원인을 본다.
+- 그 밖의 새 실패가 있으면 멈춘다.
+  - superpowers:systematic-debugging 으로 원인을 찾고, 원인 파일을 소유한 Task 의 규칙대로 고친다.
+  - 고친 파일만 이름을 지정해 커밋하고(`fix(design-state): <무엇을 왜>`, 끝 줄 `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`) Step 2 를 처음부터 다시 돈다.
+  - 마이그레이션을 고쳐야 하면 코드와 다른 커밋으로 한다. 스테이징 DB 에 다시 적용해야 하므로 사용자에게 먼저 알린다.
+
+- [ ] **Step 3: lint·타입 검사·빌드를 돌린다**
+
+```bash
+cd ~/project/wbs-web-design-state
+npm run lint 2>&1 | tail -3
+files=$(git diff --name-only --diff-filter=AM origin/staging...HEAD -- '*.ts' '*.tsx'); [ -z "$files" ] || npx eslint $files
+npx tsc --noEmit -p .; echo "tsc_rc=$?"
+```
+
+Expected:
+- `npm run lint` 끝줄이 `✖ N problems (0 errors, N warnings)` 이거나 출력이 없다. 오류는 0 건이다.
+- 이 계획이 바꾼 파일만 돌린 `eslint` 는 아무것도 내지 않는다.
+- `tsc_rc=0` 이고 tsc 출력이 없다.
+
+다르면:
+- lint 오류가 있거나 이 계획의 파일에 경고가 있으면 고친다. 고친 파일만 커밋한다(`chore(design-state): lint 경고 정리 — <무엇>`, 끝 줄 Co-Authored-By). 기존 파일의 경고(기준선 8건)는 그대로 둔다.
+- tsc 오류가 있으면 오류 파일을 소유한 Task 로 돌아가 고친다. 커밋한 뒤 Step 2 부터 다시 한다.
+
+빌드는 스테이징 env 로 돌린다. 워크트리에는 `.env.local` 이 없다. 그래서 본 체크아웃의 스테이징 env 파일을 복사해 쓰고, 복사했다는 표식을 남긴다(Step 15 에서 지운다):
+
+```bash
+cd ~/project/wbs-web-design-state
+[ -f .env.local ] || { cp ~/project/wbs-web/.env.local.staging .env.local && touch <SCRATCH>/env-copied; }
+node scripts/check-env-target.mjs                  # dev 대상: staging
+git check-ignore -q .env.local && echo "gitignore 대상"
+npm run build > <SCRATCH>/design-state-build.log 2>&1; echo "build_rc=$?"
+tail -25 <SCRATCH>/design-state-build.log
+```
+
+Expected: `dev 대상: staging` 과 `gitignore 대상` 이 나온다. `build_rc=0` 이고 로그 끝에 라우트 표가 있다.
+
+다르면:
+- `dev 대상: prod` 가 나오면 곧바로 `rm .env.local` 로 지우고 멈춘다. 운영 키를 워크트리에 두지 않는다. 사용자에게 스테이징 env 파일이 어디 있는지 묻는다.
+- `.env.local 대상 판독 불가` 가 나오면 그 파일이 운영도 스테이징도 가리키지 않는 것이다(값을 채우지 않은 템플릿). 빌드는 DB 에 붙지 않으므로 그대로 진행하고, 그 사실을 보고에 적는다.
+- 빌드가 실패하면 로그의 첫 오류로 원인 Task 를 찾아 고친다. 커밋한 뒤 Step 2 부터 다시 한다.
+- 환경 변수 누락만으로 실패하면(예: `supabaseUrl is required`) 그 문장을 보고에 남긴다. 이 경우 빌드 판정은 Step 8 의 Vercel 빌드로 한다.
+
+- [ ] **Step 4: 임시 브랜치에서 staging 머지를 만든다**
+
+```bash
+cd ~/project/wbs-web-design-state
+git fetch origin main staging
+git switch -c tmp/design-state-staging origin/staging
+git merge --no-edit origin/main
+git merge --no-ff feat/design-state \
+  -m "Merge feat/design-state: 설계 방식·설계 상태·구현자동(계약 2.11)" \
+  -m "작업마다 설계 방식(완전자동·설계 검토·구현자동)을 고르고, 서버가 설계 상태와 단계 dd(설계 완료)를 기록해 승인되지 않은 설계로 구현하지 않고 같은 작업을 두 PC 가 구현하지 않게 한다. 스테이징 DB 에는 0108 이 먼저 적용되어 있다(Staging-verified 트레일러는 마이그레이션 커밋에 있다)." \
+  -m "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
+git log --oneline -3
+git diff --quiet feat/design-state HEAD && echo "트리 같음" || echo "트리 다름"
+```
+
+Expected:
+- `origin/main` 머지는 `Already up to date.` 로 끝나거나, 충돌 없이 `Merge remote-tracking branch 'origin/main' into tmp/design-state-staging` 커밋을 만든다. 2026-09-27 기준으로 origin/main 은 origin/staging 에 모두 들어 있어 보통 `Already up to date.` 다.
+- feat 머지는 충돌 없이 위 제목의 머지 커밋을 만든다.
+- 마지막 줄은 `트리 같음` 이다(feat/design-state 가 origin/staging 과 origin/main 을 이미 품고 있다).
+
+다르면:
+- 충돌이 나면 임의로 풀지 않는다. G1 이 머지 커밋의 자체 변경을 검사하고, 충돌에 UI 위험 파일이 끼면 화면 확인이 필요하기 때문이다.
+  - `git merge --abort`, `git switch feat/design-state`, `git branch -D tmp/design-state-staging` 순서로 되돌린다.
+  - 멈추고 사용자에게 충돌 파일 목록을 보인다.
+  - 지시를 받으면 feat/design-state 에서 `git merge origin/staging`(또는 `origin/main`)으로 충돌을 풀고 Step 2 부터 다시 한다.
+- `트리 다름` 이면 Task 0 뒤에 origin/staging 이나 origin/main 에 새 커밋이 들어온 것이다. 임시 브랜치에서 `npx tsc --noEmit -p .` 와 Step 2 의 전체 테스트를 다시 돌린다.
+  - 둘 다 통과해야 다음 Step 으로 간다.
+  - 실패하면 `git switch feat/design-state` 로 돌아가 `git branch -D tmp/design-state-staging` 로 임시 브랜치를 지운다. `git merge origin/staging` 으로 받은 뒤 고치고 Step 2 부터 다시 한다.
+
+- [ ] **Step 5: CLI E2E 도구를 준비한다(스테이징에 고정)**
+
+반영 흐름과는 무관한 준비다. Step 8 의 배포 확인이 이 래퍼를 쓰므로 push 전에 해 둔다.
+- 두 PC 는 클론마다 다른 `.dflow-agent` 라벨(`e2e/pca/w1`·`e2e/pcb/w1`)로 흉내 낸다. 서버는 라벨의 둘째 칸을 PC 로 본다(`pcOfLabel`). 그래서 `pca` 와 `pcb` 는 서로 다른 PC 다. 실제 PC 이름은 쓰지 않는다.
+- 가짜 원격 `origin.git` 의 `dev` 가 E2E 프로젝트의 개발 브랜치 노릇을 한다. 여기에 구현자동 항목(TSK-01-01)의 사람 설계 `design.md` 를 필수 5개 절로 준비한다.
+- 스크래치 클론 안에 `docs/tasks/*/state.json` 을 만들지 않는다. 이 PC 의 heartbeat 훅이 그 파일을 보면 E2E 주문에 신호를 보내 runner·phase 를 흐린다.
+
+```bash
+E2E=<SCRATCH>/e2e
+mkdir -p "$E2E/cache"
+git init -q --bare "$E2E/origin.git"
+git init -q -b main "$E2E/pca"
+git -C "$E2E/pca" remote add origin "$E2E/origin.git"
+printf '# 설계 상태 E2E 가짜 리포(스테이징 전용)\n' > "$E2E/pca/README.md"
+git -C "$E2E/pca" add README.md
+git -C "$E2E/pca" commit -qm "E2E 시작"
+git -C "$E2E/pca" push -q -u origin main
+git -C "$E2E/pca" switch -q -c dev
+mkdir -p "$E2E/pca/docs/tasks/TSK-01-01"
+cat > "$E2E/pca/docs/tasks/TSK-01-01/design.md" <<'MD'
+# TSK-01-01 E2E-H 구현자동 — 사람 설계
+
+## 1. 접근 방식
+설계 상태 E2E 전용 항목이다. 구현하지 않고, 사람이 쓴 설계가 개발 브랜치에 있다는 사실만 보인다.
+
+## 2. 변경 파일 목록
+- 없음(E2E 전용 항목)
+
+## 3. 테스트 전략
+- 스테이징 E2E 가 「설계 확정」·「설계 되돌리기」·build 범위 claim 을 화면과 CLI 로 확인한다.
+
+## 4. 수용 기준 매핑
+- 「설계 확정」과 「설계 되돌리기」가 화면과 CLI 에 같게 보인다 ↔ 스테이징 E2E 시나리오 1
+
+## 5. 불변 규칙 — 이 작업에서 바꾸면 안 되는 것
+- 운영 데이터를 바꾸지 않는다 ↔ 대상 테스트 없음(스테이징 전용)
+MD
+git -C "$E2E/pca" add docs/tasks/TSK-01-01/design.md
+git -C "$E2E/pca" commit -qm "TSK-01-01 사람 설계(E2E)"
+git -C "$E2E/pca" push -q -u origin dev
+printf 'e2e/pca/w1\n' > "$E2E/pca/.dflow-agent"
+git clone -q -b dev "$E2E/origin.git" "$E2E/pcb"
+printf 'e2e/pcb/w1\n' > "$E2E/pcb/.dflow-agent"
+```
+
+`<SCRATCH>/e2e/dflow`(래퍼):
+
+```sh
+#!/bin/sh
+# 스테이징 CLI E2E 래퍼 — 사용: dflow <pca|pcb> <dflow.sh 인자…>
+# API 는 env 로 스테이징에 고정한다. 설정 파일(.dflow)의 api_base 는 운영이라 이 래퍼 없이 부르면 운영을 겨눈다.
+# 토큰은 dflow.sh 가 설정 파일에서 읽는다(출력하지 않는다). cfg/.dflow.local 이 있으면 그것(E2E 전용 PAT), 없으면 본 체크아웃 설정을 읽기만 한다.
+E2E=$(cd "$(dirname "$0")" && pwd)
+pc=${1:-}
+case "$pc" in pca|pcb) shift ;; *) echo "사용법: dflow <pca|pcb> <인자…>" >&2; exit 2 ;; esac
+cd "$E2E/$pc" || exit 2
+export DFLOW_API_BASE=https://dflow-staging.vercel.app
+if [ -f "$E2E/cfg/.dflow.local" ]; then export DFLOW_CONFIG_DIR="$E2E/cfg"; else export DFLOW_CONFIG_DIR="$HOME/project/wbs-web"; fi
+if [ -s "$E2E/pid" ]; then DFLOW_PROJECT_ID=$(cat "$E2E/pid"); export DFLOW_PROJECT_ID; fi
+export XDG_CACHE_HOME="$E2E/cache"
+exec sh "$HOME/project/wbs-web-design-state/.claude/skills/dflow-work/scripts/dflow.sh" "$@"
+```
+
+`<SCRATCH>/e2e/st`(주문 요약 한 줄):
+
+```sh
+#!/bin/sh
+# 주문 요약 한 줄 — 사용: st <H|R> [pca|pcb]. 요청 라벨의 PC 로 계산한 action·mine 을 함께 본다.
+E2E=$(cd "$(dirname "$0")" && pwd)
+"$E2E/dflow" "${2:-pca}" show "$(cat "$E2E/$1.order")" \
+  | jq -c '.order | {status, stage: .item.stage, design_mode, design_state, design_note, claim_scope, runner, action, mine}'
+```
+
+`<SCRATCH>/e2e/import.sh`(E2E 항목 업로드):
+
+```sh
+#!/bin/sh
+# 스테이징 E2E 항목 업로드(POST /api/v1/wbs/import, 계약 v2.1). 토큰은 설정 파일에서 env 로만 읽고 출력하지 않는다.
+E2E=$(cd "$(dirname "$0")" && pwd)
+export DFLOW_API_BASE=https://dflow-staging.vercel.app
+if [ -f "$E2E/cfg/.dflow.local" ]; then export DFLOW_CONFIG_DIR="$E2E/cfg"; else export DFLOW_CONFIG_DIR="$HOME/project/wbs-web"; fi
+. "$HOME/project/wbs-web-design-state/.claude/skills/dflow-work/scripts/dflow-config.sh"
+dflow_config_load || exit 2
+_toks=${DFLOW_PATS:-${DFLOW_PAT:-}}
+if [ -n "${DFLOW_AS:-}" ]; then
+  PAT=$(printf '%s' "$_toks" | tr ',' '\n' | awk -F_ -v p="$DFLOW_AS" '$3 == p' | head -n 1)
+else
+  PAT=$(printf '%s' "$_toks" | cut -d, -f1)
+fi
+[ -n "$PAT" ] || { echo "토큰 없음 — 설정 파일의 pats 를 확인하라" >&2; exit 2; }
+curl -sS -X POST "$DFLOW_API_BASE/api/v1/wbs/import" \
+  -H "Authorization: Bearer $PAT" -H 'Content-Type: application/json' --data @"$E2E/import.json"
+echo
+```
+
+세 파일을 쓴 뒤 실행 권한을 주고 스테이징을 겨누는지 확인한다:
+
+```bash
+E2E=<SCRATCH>/e2e
+chmod +x "$E2E/dflow" "$E2E/st" "$E2E/import.sh"
+"$E2E/dflow" pca config api_base
+"$E2E/dflow" pca config --source
+"$E2E/dflow" pca doctor | head -3
+"$E2E/dflow" pca contract-ge 2.11; echo "ge211=$?"
+```
+
+Expected:
+- `config api_base` 는 `https://dflow-staging.vercel.app` 다.
+- `config --source` 의 `local=` 은 본 체크아웃의 `.dflow.local` 경로다(값은 나오지 않는다).
+- `doctor` 첫 줄은 `base: https://dflow-staging.vercel.app` 이고, 프로필 줄의 계약은 2.10 이다(push 전).
+- `ge211=1` 이다.
+
+다르면:
+- `config api_base` 가 운영 URL 이면 곧바로 멈춘다. 래퍼가 env 를 싣지 못한 것이다. 이 상태로는 어떤 CLI 도 부르지 않는다.
+- `doctor` 가 exit 3(인증)이면 본 체크아웃의 토큰이 스테이징에 없다. 스테이징이 그 토큰을 발급하기 전에 복제된 것이다. Step 9-4 의 PAT 대체 절차를 지금 한다(Step 8 의 배포 확인도 PAT 가 있어야 돈다). 아직 ego-browser 라운드를 시작하기 전이므로, 사용자가 자기 브라우저로 스테이징 `/account` 에 들어가 발급한다. E2E 프로젝트는 9-2 에서야 생기므로 토큰의 프로젝트는 「전체」로 한다.
+- `ge211=0` 이면 누군가 이미 2.11 을 스테이징에 올렸다. `git log --oneline -5 origin/staging` 을 보고 사용자에게 알린다.
+
+- [ ] **Step 6: push 직전 — 스테이징 DB 에 0108 이 살아 있는지 본다**
+
+다른 세션의 `staging:sync` 가 스테이징을 운영 복제로 덮으면 0108 이 사라진다. 이 상태에서 2.11 앱을 올리면 스테이징 화면이 `design_mode` 칸을 찾지 못해 깨진다. 그래서 push 할 때마다 바로 앞에서 이 확인을 한다(Step 7 의 재시도 전에도 다시 한다).
+
+`<SCRATCH>/precheck-0108.sql`:
+
+```sql
+-- 스테이징 스키마에 0108 이 살아 있는지 본다. db:apply 는 조회 결과를 출력하지 않으므로 빠진 것이 있으면 오류로 끝낸다.
+do $$
+declare
+  missing text[] := '{}';
+begin
+  if not exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'wbs_items' and column_name = 'design_mode') then
+    missing := array_append(missing, 'wbs_items.design_mode');
+  end if;
+  if not exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'agent_work_orders' and column_name = 'runner') then
+    missing := array_append(missing, 'agent_work_orders.runner');
+  end if;
+  if to_regprocedure('public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid, text, jsonb, text, text, text)') is null then
+    missing := array_append(missing, 'apply_workflow_event 12인자');
+  end if;
+  if position('''dd''' in coalesce((select pg_get_constraintdef(oid) from pg_constraint
+                                    where conname = 'wbs_items_stage_check' limit 1), '')) = 0 then
+    missing := array_append(missing, 'wbs_items_stage_check 의 dd');
+  end if;
+  if cardinality(missing) > 0 then
+    raise exception 'SCHEMA_0108_MISSING %', array_to_string(missing, ', ');
+  end if;
+end $$;
+```
+
+```bash
+cd ~/project/wbs-web-design-state
+npm run db:apply -- <SCRATCH>/precheck-0108.sql --target staging
+```
+
+Expected: `대상:` 줄의 ref 가 `abtyahghvvkcriawffty`(스테이징)이고, 마지막 줄이 `✓ staging 적용 완료 …` 다. 0108 이 살아 있다는 뜻이다.
+
+다르면(오류 문장에 `SCHEMA_0108_MISSING` 이 보이면):
+- push 하지 않는다.
+- 사용자에게 이렇게 묻고 명시적 동의를 받는다: "스테이징 DB 에서 0108 이 사라졌습니다(`<빠진 것>`). 다른 세션의 staging:sync 가 운영 복제로 덮은 것으로 보입니다. 0108 을 스테이징에 다시 적용해도 될까요?"
+- 동의하면 살아 있는 팀장이 없는지부터 본다. `<SCRATCH>/live-leads.sql`:
+
+  ```sql
+  -- 스테이징에서 팀장·감시자가 돌고 있으면 오류로 끝낸다(0108 을 다시 적용하기 전에 본다).
+  do $$
+  declare w int; l int;
+  begin
+    select count(*) into w from public.agent_watchers where last_seen_at > now() - interval '70 minutes';
+    select count(*) into l from public.agent_lead_leases where expires_at > now();
+    if w > 0 or l > 0 then raise exception 'LIVE_LEADS watchers=% leases=%', w, l; end if;
+  end $$;
+  ```
+
+- 이어서 다음 명령을 순서대로 돌린다:
+
+  ```bash
+  cd ~/project/wbs-web-design-state
+  npm run db:apply -- <SCRATCH>/live-leads.sql --target staging                   # ✓ 적용 완료
+  npm run db:apply -- supabase/migrations/0108_design_state.sql --target staging   # ✓ 적용 완료
+  npm run db:apply -- <SCRATCH>/verify.sql --target staging                       # 오류 문장에 VERIFY_OK 8/8
+  npm run db:apply -- <SCRATCH>/precheck-0108.sql --target staging                # ✓ 적용 완료
+  ```
+
+- 각 결과를 이렇게 판정한다.
+  - `LIVE_LEADS` 가 나오면 멈추고 그 숫자를 사용자에게 보인 뒤 지시를 받는다.
+  - `<SCRATCH>/verify.sql` 은 Task 5 Step 5 의 파일이다. 이 세션의 scratchpad 에 없으면 Task 5 Step 5 의 SQL 블록을 글자 그대로 옮겨 만든다.
+  - `VERIFY_SKIP` 이 나오면 후보 ready 주문이 없는 것이다. 이 Task 의 E2E 시나리오 2·4 가 그 검증을 대신한다고 보고에 적는다.
+  - `VERIFY_FAIL` 이 나오면 멈추고 그 줄을 보고한다.
+- Task 5 의 건수 표(Step 3·6)는 되풀이하지 않는다. `db:apply` 가 조회 결과를 출력하지 않기 때문이다. 이 사실을 보고에 적는다.
+- `Staging-verified` 트레일러는 새로 달지 않는다. 마이그레이션 커밋에 이미 있고, staging push 에는 G4 가 돌지 않는다.
+
+- [ ] **Step 7: staging 으로 push 한다**
+
+```bash
+cd ~/project/wbs-web-design-state
+git branch --show-current                  # tmp/design-state-staging
+git push origin HEAD:staging
+```
+
+Expected: pre-push 훅이 조용히 통과하고 `<이전>..<새>  HEAD -> staging` 이 나온다.
+- staging push 에는 G1(마이그레이션·코드 혼합)과 G3(반응형 안전망)만 돈다. G2·G4 는 main push 에만 건다.
+- 0108 커밋에는 `src/` 가 없으므로 G1 을 지난다.
+
+다르면:
+- `rejected (fetch first)` 나 `non-fast-forward` 면 그 사이 누가 staging 에 올린 것이다. `--force` 를 쓰지 않고 다음을 한다:
+
+  ```bash
+  cd ~/project/wbs-web-design-state
+  git fetch origin staging
+  git merge --no-edit origin/staging
+  npx tsc --noEmit -p .; echo "tsc_rc=$?"
+  npx vitest run > <SCRATCH>/design-state-final.log 2>&1; echo "vitest_rc=$?"
+  ```
+
+  - 충돌이 나면 Step 4 의 충돌 처리대로 한다.
+  - tsc·vitest 는 Step 2·3 과 같은 기준으로 판정한다.
+  - 통과하면 Step 6 의 확인 SQL 을 다시 돌린 뒤 다시 push 한다.
+- G1 이 막으면 마이그레이션과 코드가 한 커밋에 섞인 것이다. 앞 Task 의 커밋 실수다. 멈추고 사용자에게 그 커밋을 보인다. `SKIP_GUARD` 로 넘기지 않는다.
+- G3 이 막으면 `npx vitest run tests/css/breakpoint-safety-net.test.ts` 로 원인을 본다. 이 계획은 `globals.css` 를 건드리지 않으므로 상류 변경이다. 멈추고 보고한다.
+- push 가 끝난 뒤에도 본 체크아웃(`~/project/wbs-web`)은 pull 하지 않는다.
+
+- [ ] **Step 8: 스테이징 배포가 계약 2.11 로 바뀌었는지 본다**
+
+Vercel 은 staging push 를 받아 dflow-staging.vercel.app 을 다시 배포한다. 새 배포가 뜨면 `/agent/me` 의 계약 버전이 2.11 이 된다. Claude Code 에서는 foreground `sleep` 이 막혀 있으므로 이 루프를 `run_in_background` 로 돌리거나 Monitor 의 until 루프로 기다린다.
+
+```bash
+E2E=<SCRATCH>/e2e
+for i in $(seq 1 30); do "$E2E/dflow" pca contract-ge 2.11 2>/dev/null && { echo "스테이징 계약 2.11"; break; }; sleep 30; done
+curl -s -o /dev/null -w 'login=%{http_code}\n' https://dflow-staging.vercel.app/login
+```
+
+Expected: 15분 안에 `스테이징 계약 2.11` 이 나오고, `login=200` 이다.
+
+다르면:
+- 15분이 지나도 2.11 이 아니면 사용자에게 Vercel 대시보드(dflow-staging → Deployments)에서 staging 빌드 상태를 봐 달라고 한다. `vercel` 명령으로 다시 배포하지 않는다.
+- 빌드가 실패했으면 로그의 원인을 feat/design-state 에서 고쳐 커밋하고 Step 2 부터 다시 한다.
+- 배포가 끝나기 전에는 E2E 를 시작하지 않는다. 스테이징 앱이 아직 2.10 이기 때문이다.
+
+- [ ] **Step 9: E2E 준비 — 로그인, E2E 프로젝트, 항목, 주문 id**
+
+**왜 새 프로젝트인가.** 어떤 프로젝트에서 처음 위임을 켜면, 그 프로젝트의 에이전트가 자동으로 켜지고 dev_workflow 리프 전부에 주문이 백필된다(`applyDelegation` → `ensureAgentProject`·`backfillProjectOrders`). 복제된 실제 프로젝트에서 하면 E2E 와 무관한 주문이 생긴다. 그래서 E2E 전용 프로젝트를 새로 만든다.
+- 앱에는 프로젝트 삭제 기능이 없다. 이 프로젝트는 정리 뒤에도 스테이징에 남고, 다음 `staging:sync` 때 사라진다.
+- 항목에는 담당자를 두지 않는다. 담당자가 있으면 그 담당자만 claim 할 수 있다(403 `not_assignee`).
+
+**브라우저 라운드.** 브라우저 라운드는 모두 `ego-browser nodejs <<'EOF' … EOF` 로 돌린다. 라운드마다 Node 프로세스가 새로 뜨므로 변수는 남지 않는다. 그래서 공간 id·페이지 라벨·프로젝트 id·주문 id 는 `<SCRATCH>/e2e/` 의 파일로 넘긴다.
+
+9-1. 스테이징을 연다(첫 라운드):
+
+```bash
+ego-browser nodejs <<'EOF'
+const fs = await import('node:fs/promises')
+const E2E = '<SCRATCH>/e2e'
+const task = await taskSpace('설계 상태 E2E(스테이징)')
+const page = task.page('p1')
+await fs.writeFile(`${E2E}/space`, String(task.spaceId))
+await fs.writeFile(`${E2E}/page`, page.label)
+await page.goto('https://dflow-staging.vercel.app/projects')
+console.log({ spaceId: task.spaceId, url: await page.url() })
+console.log(await page.snapshot())
+EOF
+```
+
+Expected: URL 이 `/projects` 이고 스냅샷에 「새 프로젝트」 버튼이 있다.
+
+다르면:
+- URL 이 `/login` 이면 이 라운드로 브라우저를 사용자에게 넘기고 끝낸다. 사용자에게 "ego-browser 창에서 스테이징(dflow-staging.vercel.app)에 슈퍼유저 계정으로 로그인해 주세요"라고 부탁한다.
+
+  ```bash
+  ego-browser nodejs <<'EOF'
+  const fs = await import('node:fs/promises')
+  const task = await taskSpace(Number((await fs.readFile('<SCRATCH>/e2e/space', 'utf8')).trim()))
+  await task.handOff()
+  EOF
+  ```
+
+- 사용자가 마쳤다고 하면 이 라운드로 이어받는다:
+
+  ```bash
+  ego-browser nodejs <<'EOF'
+  const fs = await import('node:fs/promises')
+  const E2E = '<SCRATCH>/e2e'
+  const task = await takeOverTaskSpace(Number((await fs.readFile(`${E2E}/space`, 'utf8')).trim()))
+  let page = task.userPage()
+  if (!page.label) page = await task.adopt(page)
+  await fs.writeFile(`${E2E}/page`, page.label)
+  await page.goto('https://dflow-staging.vercel.app/projects')
+  console.log({ page: page.label, url: await page.url() })
+  console.log(await page.snapshot())
+  EOF
+  ```
+
+- 로그인했는데도 「새 프로젝트」가 없으면 슈퍼유저가 아니다. 멈추고 사용자에게 알린다.
+
+**라운드 머리.** 9-2 부터 모든 브라우저 라운드의 맨 앞에 이 머리를 붙인다:
+
+```js
+// ── 라운드 머리 — 변수는 라운드 사이에 남지 않는다. 모든 라운드의 맨 앞에 붙인다. ──
+const fs = await import('node:fs/promises')
+const E2E = '<SCRATCH>/e2e'
+const BASE = 'https://dflow-staging.vercel.app'
+const read = async (f) => (await fs.readFile(`${E2E}/${f}`, 'utf8')).trim()
+const task = await taskSpace(Number(await read('space')))
+const page = task.page(await read('page'))
+// WBS 작업 패널을 연다 — ?focus=<항목>&open=1 이 사이드바까지 연다. 명세 본문이 접혀 있으면 편다.
+const openItem = async (k) => {
+  await page.goto(`${BASE}/p/${await read('pid')}/wbs?focus=${await read(`${k}.item`)}&open=1`)
+  await page.waitForSelector('[data-spec-body-toggle]', { state: 'visible', timeout: 30000 })
+  if (await page.evaluate(() => document.querySelector('[data-spec-body-toggle]')?.getAttribute('aria-expanded') === 'false')) {
+    await page.click('[data-spec-body-toggle]', { label: '작업 명세 펼치기' })
+  }
+  await page.waitForSelector('[data-spec-design]', { state: 'visible', timeout: 30000 })
+}
+// 위임 체크박스·방식 select 는 편집 모드에서 보인다.
+const editOn = async () => {
+  if (await page.evaluate(() => document.querySelector('[data-spec-edit-toggle]')?.getAttribute('aria-pressed') === 'false')) {
+    await page.click('[data-spec-edit-toggle]', { label: '명세 편집 켜기' })
+  }
+  await page.waitForSelector('[data-spec-delegate]', { state: 'visible', timeout: 10000 })
+}
+// 지연 저장(5초)을 「지금 저장」으로 당기고 대기 표시가 사라질 때까지 기다린다.
+const flush = async () => {
+  if (await page.evaluate(() => !!document.querySelector('[data-pending-save-now]'))) {
+    await page.click('[data-pending-save-now]', { label: '지금 저장' })
+  }
+  await page.waitForFunction(() => !document.querySelector('[data-pending-save]'), undefined, { timeout: 30000 })
+}
+// 설계 영역을 한 번에 읽는다.
+const readDesign = () => page.evaluate(() => {
+  const q = (s) => document.querySelector(s)
+  const txt = (s) => q(s)?.textContent?.replace(/\s+/g, ' ').trim() ?? null
+  const mode = q('[data-spec-design-mode]')
+  return {
+    label: txt('[data-design-label]'), note: txt('[data-design-note]'), hint: txt('[data-design-hint]'),
+    buttons: [...document.querySelectorAll('[data-design-btn]')].map((b) => b.getAttribute('data-design-btn')),
+    modeLock: txt('[data-design-mode-lock]'), pushWarning: txt('[data-design-push-warning]'),
+    exitGuide: !!q('[data-design-exit-guide]'),
+    mode: mode ? mode.value : null, modeDisabled: mode ? mode.disabled : null,
+    delegated: q('[data-spec-delegate]')?.checked ?? null,
+  }
+})
+// 새로 열어 서버 상태를 읽는다. 위임 체크박스(와 방식 select)는 편집 모드에서만 그려지므로 편집을 켠 뒤 읽는다.
+const look = async (k) => { await openItem(k); await editOn(); return readDesign() }
+```
+
+`[data-spec-delegate]`·편집 토글·저장 칩은 지금 코드의 속성이다. 되돌리기 제출(`[data-design-reopen-submit]`)과 위임 해제 확인(`[data-delegation-confirm-ok]`)은 Task 25 가 붙이는 고정 속성이다. 설계 버튼은 모두 이 속성으로 누르고 스냅샷에서 고르지 않는다.
+
+9-2. E2E 프로젝트를 만든다. 이름은 `E2E 설계 상태 <날짜> <시각>`(한국 시각)이다.
+- 9-1 의 스냅샷에서 「새 프로젝트」 버튼 하나의 ref 를 골라 `@REF` 자리에 넣는다. 사이드바와 목록 머리에 같은 글자가 있을 수 있어 글자 셀렉터를 쓰지 않는다.
+- 이름 칸에 이름을 넣고 「프로젝트 생성」을 누른다. 목록에 그 이름이 보이면 눌러서 들어간다. 들어간 URL 에서 프로젝트 id 를 뽑아 파일로 남긴다.
+
+```js
+// (라운드 머리)
+const NAME = `E2E 설계 상태 ${new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 16)}`
+await page.click('@REF', { label: '새 프로젝트' })
+await page.waitForSelector('input[placeholder="예: ERP 고도화 프로젝트"]', { state: 'visible', timeout: 10000 })
+await page.fill('input[placeholder="예: ERP 고도화 프로젝트"]', NAME)
+await page.click('text="프로젝트 생성"', { label: '프로젝트 생성' })
+await page.waitForSelector(`text="${NAME}" >> nth=0`, { state: 'visible', timeout: 30000 })
+await page.click(`text="${NAME}" >> nth=0`, { label: 'E2E 프로젝트 열기' })
+await page.waitForFunction(() => /\/p\/[0-9a-f-]{36}(\/|$)/.test(location.pathname), undefined, { timeout: 30000 })
+const pid = /\/p\/([0-9a-f-]{36})(\/|$|\?)/.exec(await page.url())[1]
+await fs.writeFile(`${E2E}/pid`, pid)
+await fs.writeFile(`${E2E}/name`, NAME)
+console.log({ pid, name: NAME })
+```
+
+Expected: 36자 UUID 가 `<SCRATCH>/e2e/pid` 에, 프로젝트 이름이 `<SCRATCH>/e2e/name` 에 남는다.
+
+다르면: 모달이 뜨지 않았으면 고른 ref 가 사이드바 링크였던 것이다. 스냅샷에서 목록 머리의 「새 프로젝트」를 골라 다시 한다. 프로젝트가 만들어졌는데 목록에 이름이 안 보이면 새로 고친 뒤 이름을 찾는다. 같은 이름으로 두 번 만들지 않는다.
+
+9-3. 프로젝트 에이전트를 켠다. 켜기 전에는 import 가 404 를 내고, PAT 목록에도 이 프로젝트가 보이지 않는다.
+
+```js
+// (라운드 머리)
+await page.goto(`${BASE}/p/${await read('pid')}/agents`)
+await page.waitForSelector('text="재개"', { state: 'visible', timeout: 30000 })
+await page.click('text="재개"', { label: '에이전트 재개' })
+await page.waitForSelector('text="에이전트 활성"', { state: 'visible', timeout: 30000 })
+console.log('에이전트 활성')
+```
+
+Expected: 칩이 「아직 위임 없음」에서 「에이전트 활성」으로 바뀐다.
+
+9-4. PAT 가 E2E 프로젝트를 보는지 확인한다:
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pca me | jq -e --arg p "$(cat "$E2E/pid")" '[.projects[].id] | index($p) != null' && echo "PAT 가 E2E 프로젝트를 본다"
+```
+
+Expected: `true` 와 `PAT 가 E2E 프로젝트를 본다` 가 나온다.
+
+다르면(`false`, 또는 exit 3·5): 본 체크아웃의 PAT 가 다른 프로젝트 전용이거나 스테이징에 없는 것이다. PAT 대체 절차로 간다.
+1. Claude 는 빈 설정 파일만 만든다:
+
+   ```bash
+   E2E=<SCRATCH>/e2e
+   mkdir -p "$E2E/cfg" && touch "$E2E/cfg/.dflow.local" && chmod 600 "$E2E/cfg/.dflow.local"
+   ```
+
+2. 사용자에게 다음을 부탁한다.
+   - 스테이징 `/account` 의 토큰 영역에서 새 토큰을 발급한다. 이름은 `e2e-design-state`, 프로젝트는 「전체」, 만료는 1일로 한다. 만료가 1일이라 범위를 넓혀도 오래 남지 않고, Step 5 에서 이 절차를 먼저 할 때는 E2E 프로젝트가 아직 없기 때문이다.
+   - 발급된 평문을 `<SCRATCH>/e2e/cfg/.dflow.local` 에 `pats=<토큰>` 한 줄로 넣는다.
+   - Claude 는 이 파일을 읽거나 출력하지 않는다.
+3. 사용자가 마쳤다고 하면 위 확인을 다시 돌린다. 래퍼와 업로드 스크립트는 이 파일이 있으면 그것을 쓴다.
+
+9-5. E2E 항목 둘을 올린다. 항목은 E2E-H(구현자동에 쓴다)와 E2E-R(설계 검토에 쓴다)이다.
+- `spec_sections` 는 여섯 키를 모두 싣는다. 서버의 명세 조립이 배열 칸의 길이를 읽기 때문이다.
+- 우선순위는 `critical`(주문 priority 100)로 둔다. 슈퍼유저 PAT 의 `list --scope available` 은 접근 가능한 모든 프로젝트의 ready 주문을 priority 내림차순으로 100건까지만 돌려준다. 스테이징은 운영 복제라 다른 프로젝트의 ready 주문이 많을 수 있다. 우선순위를 높여 E2E 주문이 잘리지 않게 한다.
+
+```bash
+E2E=<SCRATCH>/e2e
+jq -n --arg p "$(cat "$E2E/pid")" '
+  def spec($d): { requirements: ["설계 상태 E2E 전용 항목이다 — 구현하지 않는다"], test_criteria: [], constraints: [],
+                  api_spec: null, data_model: null, description: $d };
+  { project_id: $p, module: "E2E",
+    nodes: [
+      { id: "WP-01", parent_id: null, kind: "wp", title: "E2E 설계 상태" },
+      { id: "TSK-01-01", parent_id: "WP-01", kind: "task", title: "E2E-H 구현자동", category: "dev", domain: "fullstack",
+        priority: "critical", depends: [], acceptance: ["「설계 확정」과 「설계 되돌리기」가 화면과 CLI 에 같게 보인다"],
+        spec_sections: spec("구현자동(human) 흐름 확인용") },
+      { id: "TSK-01-02", parent_id: "WP-01", kind: "task", title: "E2E-R 설계 검토", category: "dev", domain: "fullstack",
+        priority: "critical", depends: [], acceptance: ["「설계 승인」 뒤 claim_scope 가 build 로 바뀐다"],
+        spec_sections: spec("설계 검토(review) 흐름 확인용") }
+    ] }' > "$E2E/import.json"
+sh "$E2E/import.sh"
+```
+
+Expected: `{"ok":true,"upserted":3,"skipped":0,"unmatched_assignees":[],"non_leaf_skipped":[],"orders_created":2}`
+
+다르면:
+- `orders_created` 가 0 이면 9-3 의 「재개」가 먹지 않은 것이다. 허브 칩이 「에이전트 활성」인지 보고 다시 켠 뒤 같은 업로드를 다시 보낸다. 업로드는 멱등이라 항목이 겹치지 않는다.
+- 404 면 프로젝트가 켜지지 않았거나 PAT 범위 밖이다. 9-3 과 9-4 를 다시 본다.
+- 403 `forbidden_role` 이면 PAT 신원이 관리자가 아니다. 멈추고 사용자에게 알린다.
+- 400 이면 응답 문장을 그대로 보고하고, 이 절의 JSON 과 비교한다.
+
+9-6. 주문 id 와 항목 id 를 파일로 남긴다:
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pca list --scope available | tee "$E2E/list0.tsv"
+for k in H R; do
+  id8=$(awk -F'\t' -v n="E2E-$k " 'index($5, n) == 1 { print $4 }' "$E2E/list0.tsv")
+  [ -n "$id8" ] || { echo "E2E-$k 주문을 목록에서 찾지 못했다" >&2; exit 1; }
+  "$E2E/dflow" pca show "$id8" > "$E2E/$k.json" || exit 1
+  jq -r '.order.id' "$E2E/$k.json" > "$E2E/$k.order"
+  jq -r '.order.wbs_item_id' "$E2E/$k.json" > "$E2E/$k.item"
+done
+"$E2E/st" H; "$E2E/st" R
+"$E2E/dflow" pca taskdir "$(cat "$E2E/H.order")"
+```
+
+Expected:
+- 목록에 `RD 100 … E2E-H 구현자동 full 1` 과 `RD 100 … E2E-R 설계 검토 full 1` 이 있다(방식이 아직 auto 다).
+- `st` 두 줄은 `"status":"ready"`·`"design_mode":"auto"`·`"design_state":null`·`"action":"full"`·`"mine":true` 다. `stage` 는 null 이거나 `"as"` 다.
+- `taskdir` 는 `docs/tasks/TSK-01-01` 이다. Step 5 의 design.md 경로와 같다.
+
+다르면(목록이 잘려 stderr 에 `LIST_TRUNCATED` 가 보이고 E2E 줄을 찾지 못하면): id 를 스테이징 DB 에서 직접 뽑는다. `db:apply` 는 조회 결과를 출력하지 않으므로 id 를 오류 문장에 실어 낸다. `<SCRATCH>/e2e/ids.sql.in`:
+
+```sql
+-- E2E 항목·주문 id 를 오류 문장으로 낸다(db:apply 는 조회 결과를 출력하지 않는다). __PID__ 는 sed 로 바꾼다.
+do $$
+declare h_item uuid; h_order uuid; r_item uuid; r_order uuid;
+begin
+  select i.id, o.id into h_item, h_order from public.wbs_items i
+    join public.agent_work_orders o on o.wbs_item_id = i.id and o.status = 'ready'
+   where i.project_id = '__PID__' and i.external_ref = 'E2E/TSK-01-01';
+  select i.id, o.id into r_item, r_order from public.wbs_items i
+    join public.agent_work_orders o on o.wbs_item_id = i.id and o.status = 'ready'
+   where i.project_id = '__PID__' and i.external_ref = 'E2E/TSK-01-02';
+  raise exception 'E2E_IDS H=% % R=% %', h_item, h_order, r_item, r_order;
+end $$;
+```
+
+```bash
+E2E=<SCRATCH>/e2e
+sed "s/__PID__/$(cat "$E2E/pid")/g" "$E2E/ids.sql.in" > "$E2E/ids.sql"
+(cd ~/project/wbs-web-design-state && npm run db:apply -- "$E2E/ids.sql" --target staging) 2>&1 \
+  | grep -oE 'E2E_IDS H=[0-9a-f-]{36} [0-9a-f-]{36} R=[0-9a-f-]{36} [0-9a-f-]{36}' | head -n 1 > "$E2E/ids.txt"
+set -- $(sed -E 's/^E2E_IDS H=//; s/ R=/ /' "$E2E/ids.txt")
+printf '%s\n' "$1" > "$E2E/H.item"; printf '%s\n' "$2" > "$E2E/H.order"
+printf '%s\n' "$3" > "$E2E/R.item"; printf '%s\n' "$4" > "$E2E/R.order"
+"$E2E/st" H; "$E2E/st" R
+```
+
+이 경우 뒤 Step 의 목록 확인(`list … | awk`)에서도 E2E 줄이 잘릴 수 있다. 그때는 `st` 의 `action`·`mine` 으로 판정한다.
+
+- [ ] **Step 10: 시나리오 1 — 구현자동(human)**
+
+사람이 구현자동 작업에 위임을 켜면 「사람 설계 대기」와 「설계 확정」이 보여야 한다. 확정하면 단계가 설계 완료(dd)가 되고 「설계 되돌리기」가 보여야 한다. 사유를 넣어 되돌리면 사람 설계 대기로 돌아가고 그 사유가 화면에 보여야 한다(Review Focus 4).
+
+10-1. H 에 위임을 켜고 방식을 human 으로 고른다. 위임과 방식은 한 저장 칸이라 한 번에 저장된다.
+
+```js
+// (라운드 머리)
+await openItem('H')
+await editOn()
+if (!(await page.evaluate(() => document.querySelector('[data-spec-delegate]').checked))) {
+  await page.click('[data-spec-delegate]', { label: '에이전트 위임 켜기' })
+}
+await page.selectOption('[data-spec-design-mode]', 'human')
+await flush()
+console.log(await look('H'))
+```
+
+Expected: `label` 이 「사람 설계 대기」, `buttons` 가 `["confirm"]`, `hint` 에 `design.md` 가 있다. `note` 는 null, `mode` 는 `human`, `delegated` 는 true, `modeLock` 은 null 이다.
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/st" H
+```
+
+Expected: `"status":"ready"`, `"design_mode":"human"`, `"design_state":null`, `"action":"skip"`, `"mine":true`
+
+다르면:
+- `mode` 가 auto 로 남았으면 저장이 거부된 것이다. 스냅샷에서 오류 문구를 찾아 보고한다.
+- `label` 이 「사람 설계 대기(위임 안 됨)」이면 주문이 없다. 허브 칩이 「에이전트 활성」인지 본다.
+
+10-2. 확정 전의 build 범위 claim 은 막혀야 한다(시나리오 4 의 exit 11 — claim):
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pca claim "$(cat "$E2E/H.order")" --scope build 2> "$E2E/err.txt"; echo "exit=$?"; tail -n 1 "$E2E/err.txt"
+"$E2E/st" H
+```
+
+Expected: `exit=11`, 끝줄 `DESIGN_GATE design_not_accepted`. `st` 는 10-1 과 같다(주문이 바뀌지 않았다).
+
+10-3. 사람 설계가 개발 브랜치에 있는지 본다. 이것이 CLI 쪽 준비다(Step 5 가 `dev` 에 올렸다):
+
+```bash
+git -C <SCRATCH>/e2e/pca show origin/dev:docs/tasks/TSK-01-01/design.md | grep -c '^## '
+```
+
+Expected: `5`
+
+10-4. 「설계 확정」을 누른다:
+
+```js
+// (라운드 머리)
+await openItem('H')
+await page.click('[data-design-btn="confirm"]', { label: '설계 확정' })
+await page.waitForFunction(() => (document.querySelector('[data-design-label]')?.textContent ?? '').includes('구현 대기'), undefined, { timeout: 30000 })
+console.log(await look('H'))
+```
+
+`waitForFunction` 이 시간 초과로 끝나면 스냅샷을 찍어 화면에 뜬 문구를 그대로 보고한다.
+
+Expected: `label` 이 「구현 대기(설계 확정됨)」, `buttons` 가 `["reopen"]`, `exitGuide` 가 true 다. `modeLock` 은 「설계가 확정·검토 중입니다」로 시작한다.
+
+```bash
+"<SCRATCH>/e2e/st" H
+```
+
+Expected: `"status":"ready"`, `"stage":"dd"`, `"design_state":"accepted"`, `"action":"build"`, `"mine":true`
+
+10-5. 사유를 넣어 「설계 되돌리기」를 누른다. 사유 입력이 아직 없으면 `[data-design-btn="reopen"]` 을 눌러 연 뒤, 사유를 넣고 `[data-design-reopen-submit]` 으로 보낸다:
+
+```js
+// (라운드 머리)
+await openItem('H')
+if (!(await page.evaluate(() => !!document.querySelector('[data-design-reopen-reason]')))) {
+  await page.click('[data-design-btn="reopen"]', { label: '설계 되돌리기 열기' })
+  await page.waitForSelector('[data-design-reopen-reason]', { state: 'visible', timeout: 10000 })
+}
+await page.fill('[data-design-reopen-reason]', 'E2E 되돌림 — 테스트 전략 절을 보강한다')
+await page.click('[data-design-reopen-submit]', { label: '되돌리기 사유 보내기' })
+await page.waitForFunction(() => (document.querySelector('[data-design-label]')?.textContent ?? '').includes('사람 설계 대기'), undefined, { timeout: 30000 })
+console.log(await look('H'))
+```
+
+Expected: `label` 이 「사람 설계 대기」, `note` 에 `E2E 되돌림 — 테스트 전략 절을 보강한다` 가 있고, `buttons` 가 `["confirm"]` 이다.
+
+```bash
+"<SCRATCH>/e2e/st" H
+```
+
+Expected: `"status":"ready"`, `"stage":"as"`, `"design_state":null`, `"design_note":"E2E 되돌림 — 테스트 전략 절을 보강한다"`, `"action":"skip"`
+
+다르면(10-1~10-5 공통): 화면과 CLI 가 어긋나면 둘 다 기록하고 다음 시나리오로 넘어가지 않는다. 먼저 사용자에게 보고한다. 화면만 틀리면 Task 25, CLI 가 틀리면 Task 16·24 가 원인 후보다.
+
+- [ ] **Step 11: 시나리오 2·3 — 설계 검토(review)와 방식 잠금(시나리오 4 의 exit 11 포함)**
+
+에이전트가 설계만 하고 멈추면 좌석과 WBS 에 「설계 검토 대기」가 보여야 한다. 좌석에서는 「이어서 시작」이 숨고, 허브에는 설계 검토 대기 수가 보여야 한다. 「설계 승인」을 누르면 설계 상태가 accepted, claim_scope 가 build 가 되고, 서버 판단이 wait 에서 build 로 바뀌어야 한다.
+
+**이 Step 동안 지킬 것.**
+- pca 로 heartbeat 를 보내지 않는다. 워커 heartbeat 는 runner 를 넘겨받고(P6) phase 를 바꿔 좌석과 판단을 흐린다.
+- 11-5·11-6 은 R 이 설계 검토 대기일 때만 성립한다. design-done 과 「설계 승인」 사이에서 한다.
+
+11-1. R 에 위임을 켜고 방식을 review 로 고른다:
+
+```js
+// (라운드 머리)
+await openItem('R')
+await editOn()
+if (!(await page.evaluate(() => document.querySelector('[data-spec-delegate]').checked))) {
+  await page.click('[data-spec-delegate]', { label: '에이전트 위임 켜기' })
+}
+await page.selectOption('[data-spec-design-mode]', 'review')
+await flush()
+console.log(await look('R'))
+```
+
+Expected: `mode` 가 `review`, `delegated` 가 true, `buttons` 가 `[]`, `modeLock` 이 null 이다. `label` 은 null 이다(화면 판정 행이 없어 단계 문구가 그대로 보인다).
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/st" R
+"$E2E/dflow" pca list --scope available | awk -F'\t' '$5 ~ /^E2E-R/ { print $2, $6, $7 }'
+```
+
+Expected: `st` 가 `"design_mode":"review"`·`"action":"design"`·`"mine":true` 다. 목록 줄은 `RD design 1` 이다.
+
+11-2. pca 가 설계 범위로 claim 한다:
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pca claim "$(cat "$E2E/R.order")" --scope design; echo "exit=$?"
+"$E2E/st" R
+```
+
+Expected: 출력에 `claimed <id8>` 와 `CLAIM_SCOPE design` 이 있고 `exit=0` 이다. `st` 는 `"status":"claimed"`·`"stage":"ds"`·`"claim_scope":"design"`·`"runner":"e2e/pca/w1"`·`"action":"design"`·`"mine":true` 다.
+
+11-3. 시나리오 3 — 주문이 claimed 인 동안 방식을 바꾸려 하면 잠금 이유가 보여야 한다:
+
+```js
+// (라운드 머리)
+console.log(await look('R'))
+```
+
+Expected: `modeLock` 이 「에이전트가 작업 중입니다 — 「중단」 뒤에 바꾸세요.」이고 `mode` 는 `review` 다.
+- `modeDisabled` 가 true 면 여기서 끝이다(select 가 잠겨 바꿀 수 없다).
+- `modeDisabled` 가 false 면 실제로 바꿔 본다:
+  - `await page.selectOption('[data-spec-design-mode]', 'human'); await flush()` 를 돌린 뒤 스냅샷에서 거부 문구를 찾는다.
+  - `look('R')` 의 `mode` 가 `review` 인지 본다.
+  - `"<SCRATCH>/e2e/st" R` 의 `design_mode` 도 `review` 여야 한다.
+
+다르면: 방식이 human 으로 바뀌었으면 결함이다(방식 잠금 실패). 멈추고 보고한다.
+
+11-4. pca 가 설계를 마치고 멈춘다:
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pca design-done "$(cat "$E2E/R.order")"; echo "exit=$?"
+"$E2E/st" R
+```
+
+Expected: `design-done <id8> review` 와 `exit=0` 이다. `st` 는 `"status":"claimed"`·`"stage":"dd"`·`"design_state":"review"`·`"runner":null`·`"action":"wait"`·`"mine":true` 다.
+
+11-5. 시나리오 4 의 exit 11 — 설계 검토 대기일 때의 build-start 는 막혀야 한다:
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pca build-start "$(cat "$E2E/R.order")" --scope build 2> "$E2E/err.txt"; echo "exit=$?"; tail -n 1 "$E2E/err.txt"
+"$E2E/dflow" pca build-start "$(cat "$E2E/R.order")" --scope full 2> "$E2E/err.txt"; echo "exit=$?"; tail -n 1 "$E2E/err.txt"
+"$E2E/st" R
+```
+
+Expected:
+- 첫 줄은 `exit=11` 에 `DESIGN_GATE design_not_accepted` 다. 승인 전에 누가 build 범위로 손으로 돌려도 서버가 거부한다.
+- 둘째 줄은 `exit=11` 에 `DESIGN_GATE design_gate` 다(review 방식은 full 로 구현을 시작할 수 없다).
+- `st` 는 11-4 와 같다.
+
+11-6. WBS·좌석·허브에서 설계 검토 대기를 본다. WBS 먼저:
+
+```js
+// (라운드 머리)
+console.log(await look('R'))
+```
+
+Expected: `label` 이 「설계 검토 대기」, `buttons` 가 `["accept"]`, `hint` 에 `agent 브랜치` 가 있다. `modeLock` 은 「설계가 확정·검토 중입니다」로 시작한다. 누르지 않는다.
+
+좌석(오피스):
+
+```js
+// (라운드 머리)
+await page.goto(`${BASE}/p/${await read('pid')}/agents/office`)
+try {
+  await page.waitForSelector('[data-seat-design-label]', { state: 'visible', timeout: 30000 })
+} catch {
+  console.log('기본 보기에 설계 문구가 없다 — 스냅샷에서 다른 보기(평면도·상태 레인·에이전트)를 고른다')
+}
+console.log(await page.evaluate(() => ({
+  labels: [...document.querySelectorAll('[data-seat-design-label]')].map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+  resume: document.querySelectorAll('[data-seat-op="resume"], [data-panel-op="resume"]').length,
+  stop: document.querySelectorAll('[data-seat-op="stop"], [data-panel-op="stop"]').length,
+})))
+console.log(await page.snapshot())
+```
+
+- 좌석(`e2e/pca/w1`)을 스냅샷에서 골라 눌러 상세를 연다.
+- 같은 `evaluate` 를 다시 찍어 상세의 `[data-panel-op]` 도 본다.
+- 「중단」은 누르지 않는다.
+
+Expected: `labels` 에 「설계 검토 대기」가 있다. `resume` 은 0 이고 `stop` 은 1 이상이다(「이어서 시작」이 숨고 「중단」만 있다).
+
+허브:
+
+```js
+// (라운드 머리)
+await page.goto(`${BASE}/p/${await read('pid')}/agents`)
+await page.waitForSelector('[data-hub-design-review]', { state: 'visible', timeout: 30000 })
+console.log(await page.evaluate(() => ({
+  tile: document.querySelector('[data-hub-design-review]')?.textContent?.replace(/\s+/g, ' ').trim(),
+  accept: document.querySelectorAll('[data-hub-design-btn="accept"]').length,
+})))
+```
+
+Expected: `tile` 에 `1` 이 있고, `accept` 는 1 이다.
+
+11-7. 허브에서 「설계 승인」을 누른다:
+
+```js
+// (라운드 머리)
+await page.goto(`${BASE}/p/${await read('pid')}/agents`)
+await page.waitForSelector('[data-hub-design-btn="accept"]', { state: 'visible', timeout: 30000 })
+await page.click('[data-hub-design-btn="accept"]', { label: '설계 승인' })
+await page.waitForFunction(() => document.querySelectorAll('[data-hub-design-btn="accept"]').length === 0, undefined, { timeout: 30000 })
+console.log(await page.evaluate(() => document.querySelector('[data-hub-design-review]')?.textContent?.replace(/\s+/g, ' ').trim() ?? '타일 없음'))
+```
+
+`waitForFunction` 이 시간 초과로 끝나면 스냅샷을 찍어 허브에 뜬 문구를 그대로 보고한다.
+
+Expected: 「설계 승인」 버튼이 사라지고, 타일은 `0` 이거나 사라진다.
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/st" R
+"$E2E/dflow" pca list --scope claimed | awk -F'\t' '$5 ~ /^E2E-R/ { print $2, $6, $7 }'
+```
+
+Expected: `st` 는 `"status":"claimed"`·`"stage":"dd"`·`"design_state":"accepted"`·`"claim_scope":"build"`·`"runner":null`·`"action":"build"`·`"mine":true` 다. 목록 줄은 `CL build 1` 이다. 서버 판단이 wait 에서 build 로 바뀌었다.
+
+WBS 에서도 본다:
+
+```js
+// (라운드 머리)
+console.log(await look('R'))
+```
+
+Expected: `label` 이 「구현 대기(설계 승인됨)」, `buttons` 가 `["reopen"]`, `exitGuide` 가 true 다. 「설계를 지키며 빠져나오기」 안내가 승인된 설계에서 보인다는 뜻이다.
+
+- [ ] **Step 12: 시나리오 4 — 두 PC 와 exit 12**
+
+A PC(pca)가 구현을 시작한 뒤, B PC(pcb)는 이 작업의 신호도 완료 보고도 보낼 수 없어야 한다.
+- 12-2 는 12-1 직후 30분 안에 한다. 30분이 지나면 B 가 heartbeat 로 정당하게 넘겨받는다(D25).
+- 완료 보고는 30분과 무관하게 도는 PC 에서만 받는다.
+- 이 Step 에서 주문이 `reported` 가 되면 안 된다. `reported` 주문은 위임 해제로 취소되지 않는다.
+
+12-1. pca 가 build 범위로 구현을 시작한다:
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pca build-start "$(cat "$E2E/R.order")" --scope build; echo "exit=$?"
+"$E2E/st" R
+"$E2E/st" R pcb
+"$E2E/dflow" pca list --scope claimed | awk -F'\t' '$5 ~ /^E2E-R/ { print "pca", $2, $6, $7 }'
+"$E2E/dflow" pcb list --scope claimed | awk -F'\t' '$5 ~ /^E2E-R/ { print "pcb", $2, $6, $7 }'
+```
+
+Expected:
+- `build-started <id8>` 와 `exit=0` 이다.
+- `st R` 은 `"stage":"ip"`·`"runner":"e2e/pca/w1"`·`"action":"skip"`·`"mine":true` 다. `st R pcb` 는 `"mine":false` 다.
+- 목록은 `pca CL skip 1` 과 `pcb CL skip 0` 이다.
+
+12-2. pcb 의 heartbeat 와 완료 보고는 exit 12 로 끝나야 한다:
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pcb heartbeat "$(cat "$E2E/R.order")" --phase build --agent e2e/pcb/w1 2> "$E2E/err.txt"; echo "exit=$?"; tail -n 1 "$E2E/err.txt"
+```
+
+Expected: `exit=12`, 끝줄 `RUNNER_ACTIVE e2e/pca/w1`. **exit 가 12 가 아니면 다음 명령(done)을 부르지 않는다.** B 가 runner 를 넘겨받았을 수 있고, 그러면 done 이 성공해 주문이 `reported` 가 된다. `"<SCRATCH>/e2e/st" R` 의 runner 를 기록하고 결함으로 보고한다.
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pcb done "$(cat "$E2E/R.order")" "E2E: 다른 PC 의 완료 보고는 거부돼야 한다" 2> "$E2E/err.txt"; echo "exit=$?"; tail -n 1 "$E2E/err.txt"
+"$E2E/st" R
+```
+
+Expected: `exit=12`, 끝줄 `RUNNER_ACTIVE e2e/pca/w1`. `st` 는 여전히 `"status":"claimed"`·`"runner":"e2e/pca/w1"` 다(보고되지 않았다).
+
+다르면:
+- done 이 exit 2 면 pcb 클론의 `dev` 가 원격과 다르다. `git -C <SCRATCH>/e2e/pcb status -sb` 를 보고 맞춘 뒤 다시 한다.
+- 주문이 `reported` 가 됐으면 멈추고 보고한다. 정리는 허브에서 반려로 claimed 로 되돌린 뒤 Step 14 로 한다.
+
+12-3. 구현 중에는 WBS 에 push 경고가 보여야 한다:
+
+```js
+// (라운드 머리)
+console.log(await look('R'))
+```
+
+Expected: `pushWarning` 이 「구현 중에는 agent 브랜치에 push 하지 마세요」로 시작하고, `buttons` 는 `[]` 다.
+
+- [ ] **Step 13: 구현자동의 build 범위 claim(시나리오 1 이어서)**
+
+좌석·허브 확인을 마친 뒤에 한다. H 를 다시 확정하면, 확정된 사람 설계를 build 범위로 가져갈 수 있어야 한다.
+
+13-1. H 의 「설계 확정」을 다시 누른다. 10-4 의 라운드를 그대로 돌린다.
+
+Expected: `label` 이 「구현 대기(설계 확정됨)」다.
+
+13-2. pca 가 build 범위로 claim 한다:
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pca claim "$(cat "$E2E/H.order")" --scope build; echo "exit=$?"
+"$E2E/st" H
+ls "$E2E/pca/docs/tasks/TSK-01-01"
+```
+
+Expected:
+- 출력에 `claimed <id8>` 와 `CLAIM_SCOPE build` 가 있고 `exit=0` 이다.
+- `st` 는 `"status":"claimed"`·`"stage":"dd"`·`"design_state":"accepted"`·`"claim_scope":"build"`·`"runner":"e2e/pca/w1"`·`"action":"build"`·`"mine":true` 다.
+- 폴더에 `design.md`(개발 브랜치의 사람 설계)와 `spec.md`(claim 의 명세 사본)가 있다.
+
+- [ ] **Step 14: 시나리오 5 — 정리**
+
+E2E 주문을 취소하고 두 항목을 위임 전 상태(위임 없음, 방식 auto)로 되돌린다. 그다음 프로젝트 에이전트를 끈다.
+
+14-1. R 과 H 의 위임을 해제한다. 한 항목씩 같은 라운드를 돌린다(`K` 를 `'R'`, 그다음 `'H'` 로 바꾼다).
+- 위임을 끄면 인라인 확인(`[data-delegation-confirm]`)이 뜬다. 문구를 찍은 뒤 `[data-delegation-confirm-ok]` 로 확인한다. 취소(`[data-delegation-confirm-cancel]`)는 누르지 않는다.
+- 저장한 뒤 방식을 auto 로 되돌린다. 저장 전에는 설계 상태가 있어 방식이 잠겨 있으므로, 새로 연 뒤에 고른다.
+
+```js
+// (라운드 머리)
+const K = 'R'                      // 두 번째에는 'H'
+await openItem(K)
+await editOn()
+await page.click('[data-spec-delegate]', { label: '에이전트 위임 끄기' })
+await page.waitForSelector('[data-delegation-confirm]', { state: 'visible', timeout: 10000 })
+console.log(await page.evaluate(() => document.querySelector('[data-delegation-confirm]')?.textContent?.replace(/\s+/g, ' ').trim()))
+await page.click('[data-delegation-confirm-ok]', { label: '위임 해제 확인' })
+await flush()
+let d = await look(K)
+if (d.mode !== 'auto' && d.modeDisabled === false) {
+  await page.selectOption('[data-spec-design-mode]', 'auto')
+  await flush()
+  d = await look(K)
+}
+console.log(d)
+```
+
+Expected:
+- 먼저 찍힌 확인 문구에 「agent 브랜치에서 고친 설계는 새 주문에 이어지지 않는다」는 경고가 있다. R 과 H 모두 이때 설계 상태가 있다.
+- 마지막 결과는 `delegated` 가 false, `mode` 가 `auto`, `modeLock` 이 null 이다.
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/st" R; "$E2E/st" H
+"$E2E/dflow" pca list --scope all | grep 'E2E-' || echo "E2E 주문 없음"
+```
+
+Expected: 두 줄 모두 `"status":"cancelled"`·`"stage":"as"`·`"design_mode":"auto"`·`"design_state":null`·`"runner":null` 이다. 목록 확인은 `E2E 주문 없음` 이다. 목록 확인은 14-2 전에 한다. 에이전트를 끄면 목록과 `me` 에서 이 프로젝트가 빠져 확인할 수 없다.
+
+다르면:
+- 주문이 `reported` 로 남았으면 허브에서 반려해 claimed 로 되돌린 뒤 위임 해제를 다시 한다.
+- 위임을 끈 상태에서 방식 select 가 잠겨 있고(`modeDisabled` 가 true, `modeLock` 이 null) 방식이 human·review 로 남으면, 방식은 그대로 두고 그 사실을 보고에 적는다. 위임이 없고 주문이 취소되어 항목은 더 움직이지 않는다.
+
+14-2. 허브에서 에이전트를 끈다:
+
+```js
+// (라운드 머리)
+await page.goto(`${BASE}/p/${await read('pid')}/agents`)
+await page.waitForSelector('text="전체 중지"', { state: 'visible', timeout: 30000 })
+await page.click('text="전체 중지"', { label: '에이전트 전체 중지' })
+await page.waitForSelector('text="에이전트 중지"', { state: 'visible', timeout: 30000 })
+console.log('에이전트 중지')
+```
+
+```bash
+E2E=<SCRATCH>/e2e
+"$E2E/dflow" pca me | jq -e --arg p "$(cat "$E2E/pid")" '[.projects[].id] | index($p) == null' && echo "E2E 프로젝트가 PAT 목록에서 빠졌다"
+```
+
+Expected: 칩이 「에이전트 중지」로 바뀌고, 마지막 줄이 `true` 와 `E2E 프로젝트가 PAT 목록에서 빠졌다` 다.
+
+14-3. PAT 대체 절차(9-4)로 E2E 전용 토큰을 발급했다면 폐기한다.
+- 스테이징 `/account` 에서 `e2e-design-state` 토큰의 「폐기」를 누른다. 앱 안의 확인 상자에서 확인한다.
+- `rm -f <SCRATCH>/e2e/cfg/.dflow.local` 로 파일을 지운다.
+
+14-4. 브라우저 작업을 닫고 스크래치를 지운다. 지우기 전에 프로젝트 이름을 적어 둔다(보고에 쓴다):
+
+```js
+// (라운드 머리)
+await task.finish({ keep: [] })
+```
+
+```bash
+cat <SCRATCH>/e2e/name
+rm -rf <SCRATCH>/e2e
+```
+
+E2E 프로젝트(「E2E 설계 상태 …」)는 스테이징에 남는다. 에이전트는 꺼져 있고 주문은 모두 취소된 상태다. 앱에 삭제 기능이 없고, SQL 로 지우면 여러 표를 건드리므로 지우지 않는다. 다음 `staging:sync` 가 스테이징을 운영 복제로 되돌릴 때 사라진다.
+
+- [ ] **Step 15: 임시 브랜치를 지우고 사용자에게 보고한다**
+
+```bash
+cd ~/project/wbs-web-design-state
+git fetch origin staging
+git merge-base --is-ancestor tmp/design-state-staging origin/staging && echo "임시 브랜치가 staging 에 들어 있다"
+git switch feat/design-state
+git branch -D tmp/design-state-staging
+[ -f <SCRATCH>/env-copied ] && rm -f .env.local <SCRATCH>/env-copied
+git status --short
+git rev-list --count staging..origin/staging        # 본 체크아웃의 staging 이 뒤처진 커밋 수 — pull 하지 않는다
+```
+
+Expected: `임시 브랜치가 staging 에 들어 있다` 가 나온 뒤에만 임시 브랜치를 지운다. `git status` 출력이 없다. 마지막 수는 0 보다 크다. 본 체크아웃의 로컬 `staging` 이 origin/staging 보다 뒤에 있다는 뜻이고, 이 Task 는 그것을 pull 하지 않는다(워크트리는 브랜치 ref 를 함께 쓰므로 이 명령은 본 체크아웃을 건드리지 않고 읽기만 한다).
+
+다르면: `merge-base` 확인이 실패하면 임시 브랜치를 지우지 않는다. push 가 되지 않은 것이므로 Step 7 로 돌아간다.
+
+사용자 보고는 완전한 한국어 문장으로 쓴다. 시나리오는 사람이 겪는 순서로 풀어 쓰고, 아래 틀의 `<…>` 를 실제 값으로 채운다. main 반영과 킷 재빌드는 제안하지 않는다:
+
+```text
+설계 상태·구현자동을 staging 까지 반영했습니다.
+
+검증: 전체 테스트 <N>개 파일, <M>건이 통과했습니다. <기준선에 있던 실패가 있으면: 기준선부터 실패하던 <파일>은 이 작업과 무관합니다.> lint 오류는 0건, 타입 검사 오류는 0건이고 빌드도 성공했습니다.
+
+반영: origin/staging 에 머지 커밋 <sha>(Merge feat/design-state)를 올렸고, 스테이징 서버가 계약 2.11 로 바뀐 것을 확인했습니다. push 직전에 스테이징 DB 에 0108(design_mode 칸)이 살아 있는 것도 확인했습니다. <다시 적용했다면: 그 사이 다른 세션의 staging:sync 로 0108 이 사라져, 동의를 받고 다시 적용했습니다. 검증 SQL 은 VERIFY_OK 8/8 이었고, 적용 전후 건수 표는 db:apply 가 조회 결과를 출력하지 않아 남기지 못했습니다.> <Task 5 의 리허설 검증이 VERIFY_SKIP 이었다면: 리허설에서 건너뛴 전이 RPC 검증(claim·방식 잠금·design_done·design_accept·build_start·완료 보고)은 아래 시나리오 2·4 가 실제 스테이징에서 대신했습니다.>
+
+시나리오 1(구현자동): 사람이 작업에 위임을 켜고 방식을 구현자동으로 고르자 「사람 설계 대기」와 「설계 확정」이 보였습니다. 확정 전에 build 범위로 claim 하자 서버가 exit 11(design_not_accepted)로 거부했습니다. 「설계 확정」을 누르자 단계가 설계 완료(dd)가 되고 「설계 되돌리기」가 나타났습니다. 사유를 넣어 되돌리자 「사람 설계 대기」로 돌아갔고, 그 사유가 화면과 CLI 에 똑같이 보였습니다. 다시 확정한 뒤에는 build 범위 claim 이 받아들여졌습니다.
+
+시나리오 2(설계 검토): 에이전트가 설계만 하고 design-done 을 보내자 WBS 와 좌석에 「설계 검토 대기」가 보였습니다. 좌석에서는 「이어서 시작」이 숨고 「중단」만 남았고, 허브에는 설계 검토 대기 1건이 보였습니다. 이때 build-start 는 exit 11 로 막혔습니다. 허브에서 「설계 승인」을 누르자 설계 상태가 accepted, claim 범위가 build 가 되었고, CLI 의 서버 판단도 wait 에서 build 로 바뀌었습니다.
+
+시나리오 3(방식 잠금): 에이전트가 작업 중인 동안에는 방식 칸에 「에이전트가 작업 중입니다」가 보였고 방식이 바뀌지 않았습니다.
+
+시나리오 4(두 PC): A PC 가 구현을 시작한 뒤 B PC 의 heartbeat 와 완료 보고는 모두 exit 12(RUNNER_ACTIVE, A PC 의 라벨)로 거부되었습니다. 주문은 보고되지 않은 채 A PC 의 작업으로 남았습니다.
+
+정리: E2E 주문 두 건은 위임 해제로 취소했고, 두 항목은 위임 없음·방식 auto 로 되돌렸습니다. E2E 프로젝트의 에이전트는 전체 중지했습니다. 프로젝트 「<이름>」은 스테이징에 남아 있고, 다음 staging:sync 때 사라집니다.
+
+본 체크아웃(~/project/wbs-web)은 pull 하지 않았습니다. dmes 가 본 체크아웃의 스킬을 쓰므로, dmes-standard-87 세션이 확인해 준 뒤에 pull 합니다.
+
+킷을 다시 빌드해 배포할 때는 PC 마다 훅을 다시 설치해야 합니다(kit/install.sh --hooks). Task 20 이 heartbeat 훅을 바꿨기 때문입니다.
 ```
 
 ---
