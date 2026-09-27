@@ -173,6 +173,17 @@ describe('WbsAssigneeStagePanel', () => {
     expect(container.querySelector('[data-stage-locked]')?.textContent).toBe('wbs.stageLockedByOrder')
   })
 
+  // dd(설계 완료)는 사람이 고를 수 없어 STAGES(HUMAN_STAGE_CODES) 옵션에 없다. 옵션에 없는 값을 select 의
+  // value 로 주면 브라우저는 선택 없음("미착수"처럼) 으로 그린다 — 표시=로깅 원칙 위반(리뷰 1회차 지적).
+  it('(c-1-2) 잠긴 dd(설계 완료)는 select 에 disabled 옵션으로 현재 값을 보인다 — 미착수로 위장하지 않는다', async () => {
+    await mount({ resolved: { assigneeMemberId: null, stage: 'dd', devWorkflow: true, delegated: true } })
+    expect(stageSelect().value).toBe('dd')
+    const ddOption = stageOptions().find(o => o.value === 'dd')!
+    expect(ddOption).toBeTruthy()
+    expect(ddOption.disabled).toBe(true)
+    expect(ddOption.textContent).toBe('wbs.stageDd')
+  })
+
   it('(c) devWorkflow=true 면 stage 셀렉트가 활성이고 값 변경 시 SAVE_DEBOUNCE_MS 뒤 setWbsStage 가 호출된다', async () => {
     await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: true } })
     expect(stageSelect().disabled).toBe(false)

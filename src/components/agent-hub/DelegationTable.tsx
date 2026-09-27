@@ -455,6 +455,13 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                               : '단계 직접 조정 — 실적은 그 단계의 크레딧으로 지정됩니다'}
                             onChange={e => changeStage(r, e.target.value)} className="app-input h-6 min-w-0 shrink py-0 text-[11px]">
                             <option value="">{STAGE_NONE_LABEL}</option>
+                            {/* 사람이 고를 수 없는 현재 값(dd 등, HUMAN_STAGE_CODES 밖)은 아래 옵션에 없어 select
+                                value 가 안 맞으면 미착수처럼 보인다(위장 금지). canStage 는 stageLocked 를 보지
+                                않아 잠긴 행도 select 로 뜨므로, 다시 고르지는 못하게 disabled 옵션으로만 현재
+                                값을 보인다(리뷰 1회차 지적). */}
+                            {stageShown !== null && !(HUMAN_STAGE_CODES as readonly string[]).includes(stageShown) && (
+                              <option value={stageShown} disabled>{stageLabelKo(stageShown)}</option>
+                            )}
                             {HUMAN_STAGE_CODES.map(c => <option key={c} value={c}>{stageLabelKo(c)}</option>)}
                           </select>
                         : r.isLeaf && !r.milestone

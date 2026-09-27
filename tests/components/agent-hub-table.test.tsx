@@ -338,6 +338,17 @@ describe('DelegationTable — 개발 프로세스 조정·단계 직접 조정(�
     expect(stageSel('lk')!.title).toContain('위임을 끄세요')
     expect(stageSel('hm')!.disabled).toBe(false)
   })
+  // dd(설계 완료)는 HUMAN_STAGE_CODES 옵션에 없다 — canStage 는 stageLocked 를 보지 않아 관리자·서브트리
+  // 관리자에게는 select 가 그대로 뜨는데, value 가 어느 option 과도 안 맞으면 미착수처럼 보인다(리뷰 1회차 지적).
+  it('단계 select: 잠긴 dd(설계 완료)는 미착수로 위장하지 않고 disabled 옵션으로 현재 값을 보인다', () => {
+    render({ rows: [row({ itemId: 'dd1', code: 'TSK-DD', name: '설계 완료', isLeaf: true, devWorkflow: true, delegated: true, stageLocked: true, stage: 'dd', order: { id: 'odd', status: 'claimed', state: 'ACTIVE', agent: 'a', lastSignalAt: null } })], isAdmin: true })
+    const sel = stageSel('dd1')!
+    expect(sel.value).toBe('dd')
+    const opt = [...sel.options].find(o => o.value === 'dd')!
+    expect(opt).toBeTruthy()
+    expect(opt.disabled).toBe(true)
+    expect(opt.textContent).toBe('설계 완료')
+  })
   it('단계 select: dev_workflow 가 꺼진 리프에는 select 를 두지 않는다', () => {
     render({ rows: [row({ itemId: 'nw', code: 'TSK-NW', name: '레거시', isLeaf: true, devWorkflow: false })], isAdmin: true })
     expect(stageSel('nw')).toBeNull()
