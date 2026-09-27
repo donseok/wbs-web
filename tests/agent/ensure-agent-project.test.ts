@@ -60,7 +60,8 @@ describe('ensureAgentProject — 자동 활성(위임 체크 = 발행)', () => {
 describe('backfillProjectOrders — 활성 시점 소급 발행', () => {
   it('dev_workflow 리프마다 주문 보장 — 생성 수 집계, 개별 실패는 failed 로 모으고 계속', async () => {
     // wbs_items: 백필 대상 3건. 이후 ensureOrderForWorkflowLeaf 가 항목마다
-    // agent_projects→wbs_items→wbs_items(child)→agent_work_orders(approved, D26)→agent_work_orders(활성)→insert 순으로 읽는다.
+    // agent_projects→wbs_items→wbs_items(child)→agent_work_orders(활성)→agent_work_orders(approved, D26)→insert
+    // 순으로 읽는다(리뷰 수정 1회차 — not_leaf·active_exists 가 progressed 보다 먼저).
     const { client } = admin({
       wbs_items: [
         { data: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] },
@@ -72,7 +73,7 @@ describe('backfillProjectOrders — 활성 시점 소급 발행', () => {
         { data: { name: 'C', priority: null, external_ref: 'm/C', assignee_member_id: null, dev_workflow: true } }, { data: { id: 'child' } },
       ],
       agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }, { data: { enabled: true } }],
-      // a 만 리프 검증을 통과해 agent_work_orders 를 읽는다: approved 없음(D26) → 활성 없음 → insert.
+      // a 만 리프 검증을 통과해 agent_work_orders 를 읽는다: 활성 없음 → approved 없음(D26) → insert.
       agent_work_orders: [{ data: null }, { data: null }, { data: { id: 'o-a' } }],
     })
     const r = await backfillProjectOrders(client, { projectId: P1, actorUserId: 'u1' })

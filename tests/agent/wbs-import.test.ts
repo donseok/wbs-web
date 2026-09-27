@@ -173,11 +173,11 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — T-A·T-B 모두 활성 주문 없음
-        { data: null }, // ensureOrder(T-A): approved 없음(D26)
-        { data: null }, // ensureOrder(T-A): 활성 주문 없음
+        { data: null }, // ensureOrder(T-A): 활성 주문 없음(리뷰 수정 1회차 — active_exists 가 먼저)
+        { data: null }, // ensureOrder(T-A): approved 없음(D26, 그다음)
         { data: { id: 'order-1' } }, // ensureOrder(T-A): insert
-        { data: null }, // ensureOrder(T-B): approved 없음(D26)
-        { data: null }, // ensureOrder(T-B): 활성 주문 없음
+        { data: null }, // ensureOrder(T-B): 활성 주문 없음(리뷰 수정 1회차 — active_exists 가 먼저)
+        { data: null }, // ensureOrder(T-B): approved 없음(D26, 그다음)
         { data: { id: 'order-2' } }, // ensureOrder(T-B): insert
       ],
     }, [{ data: { upserted: 3, skipped: 0, ids: { 'MES/WP-01': 'id-wp', 'MES/T-A': 'id-a', 'MES/T-B': 'id-b' }, new_refs: ['MES/T-A'] } }])
@@ -257,8 +257,8 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — 활성 주문 없음
-        { data: null }, // ensureOrder: approved 없음(D26)
-        { data: null }, // ensureOrder: 활성 주문 없음
+        { data: null }, // ensureOrder: 활성 주문 없음(리뷰 수정 1회차 — active_exists 가 먼저)
+        { data: null }, // ensureOrder: approved 없음(D26, 그다음)
         { data: { id: 'order-1' } }, // insert
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: ['MES/T-A'] } }])
@@ -367,8 +367,8 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — 활성 주문 없음(RPC 는 기존 행도 dev_workflow=true 로 갱신하는데 주문은 없던 상태)
-        { data: null }, // ensureOrder: approved 없음(D26)
-        { data: null }, // ensureOrder: 활성 주문 없음
+        { data: null }, // ensureOrder: 활성 주문 없음(리뷰 수정 1회차 — active_exists 가 먼저)
+        { data: null }, // ensureOrder: approved 없음(D26, 그다음)
         { data: { id: 'order-new' } }, // insert
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } }]) // 이미 존재 — 신규 없음
@@ -456,8 +456,8 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — 활성 주문 없음
-        { data: null }, // ensureOrder: approved 없음(D26)
-        { data: null }, // ensureOrder: 활성 주문 없음
+        { data: null }, // ensureOrder: 활성 주문 없음(리뷰 수정 1회차 — active_exists 가 먼저)
+        { data: null }, // ensureOrder: approved 없음(D26, 그다음)
         { data: { id: 'order-1' } }, // insert
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: ['MES/T-A'] } }])
@@ -492,8 +492,8 @@ describe('POST /wbs/import', () => {
       ],
       agent_work_orders: [
         { data: [] }, // 갭 판정 — T-A 만 대상(T-B 는 후보에서 이미 제외됐다)
-        { data: null }, // ensureOrder(T-A): approved 없음(D26)
-        { data: null }, // ensureOrder(T-A): 활성 주문 없음
+        { data: null }, // ensureOrder(T-A): 활성 주문 없음(리뷰 수정 1회차 — active_exists 가 먼저)
+        { data: null }, // ensureOrder(T-A): approved 없음(D26, 그다음)
         { data: { id: 'order-1' } }, // insert
       ],
     }, [{ data: { upserted: 2, skipped: 0, ids: { 'MES/T-A': 'id-a', 'MES/T-B': 'id-b' }, new_refs: ['MES/T-A', 'MES/T-B'] } }])
