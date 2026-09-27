@@ -1,6 +1,6 @@
 #!/bin/sh
 # poll.sh — D'Flow ready 작업 감시 루프 (dflow-poll 스킬 전용).
-# ready 발견 시 stdout 에 "순번<TAB>id8<TAB>이름" 을 줄 단위로 내고 종료한다.
+# ready 발견 시 stdout 에 "순번<TAB>id8<TAB>이름<TAB>action" 을 줄 단위로 내고 종료한다(action 은 계약 2.11 서버 판단 — 옛 서버면 빈 값).
 # 승인 감지 시 stdout 에 "TSK<TAB>order-id" 를 줄 단위로 내고 exit 9 — 세션이 머지 스윕을 돌린다.
 # 반려 감지 시 stdout 에 "TSK<TAB>order-id<TAB>review_note" 를 내고 exit 10 — 세션이 재작업에 들어간다.
 # exit: 0 ready 발견 / 2 사용법·설정 / 3 인증 / 5 권한 / 7 기능꺼짐 (dflow.sh 코드 전파)
@@ -33,9 +33,11 @@ TAG_CACHE_CYCLES=3 # 필터(--require-tag·--wp)에서 떨어진 후보의 show 
 WP=""             # 쉼표 구분 WP 목록(WP-02 또는 모듈/WP-02). 지정 시 그 WP 의 Task 만 감지.
                   # WP 는 external_ref 의 TSK 번호 첫 칸(TSK-02-05 → WP-02)으로 가린다. WBS ID 규칙상
                   # Task ID 의 첫 칸이 WP 번호다. list 응답에는 external_ref 가 없어 show 를 쓴다.
+ACTIONS="full,design,build"  # 고를 서버 판단(계약 2.11). /dflow-poll 단독은 full 만 — review·human 은 팀장·사람 몫(설계 상태 스펙 7절).
+LEAD=""           # 1 이면 list 에 --lead(팀장 요청: claimed 의 mine 에 팀원 라벨 요구). 팀장 아래에서 켠다.
 NET_FAIL_MAX=3
 
-usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM|\"YYYY-MM-DD HH:MM\"|none] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--exclude-wait id8,id8] [--wait-cycles N] [--require-tag 태그] [--wp WP-02,모듈/WP-03] [--tag-cache-cycles N]" >&2; exit 2; }
+usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM|\"YYYY-MM-DD HH:MM\"|none] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--exclude-wait id8,id8] [--wait-cycles N] [--require-tag 태그] [--wp WP-02,모듈/WP-03] [--tag-cache-cycles N] [--actions full,design,build] [--lead]" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -49,6 +51,8 @@ while [ $# -gt 0 ]; do
     --require-tag)    REQUIRE_TAG="${2:-}"; shift 2 || usage ;;
     --wp)             WP="${2:-}"; shift 2 || usage ;;
     --tag-cache-cycles) TAG_CACHE_CYCLES="${2:-}"; shift 2 || usage ;;
+    --actions)        ACTIONS="${2:-}"; shift 2 || usage ;;
+    --lead)           LEAD=1; shift ;;
     *) usage ;;
   esac
 done
@@ -72,6 +76,7 @@ esac
 case "$RECHECK_CYCLES" in ''|*[!0-9]*) usage ;; esac
 case "$WAIT_CYCLES"    in ''|*[!0-9]*) usage ;; esac
 case "$TAG_CACHE_CYCLES" in ''|*[!0-9]*) usage ;; esac
+for _a in $(printf '%s' "$ACTIONS" | tr ',' ' '); do case "$_a" in full|design|build) ;; *) usage ;; esac; done
 # --wp 형식 검사와 정규화: 항목마다 WP-<숫자> 또는 <모듈>/WP-<숫자>. 오타가 조용히 "감지 0건" 이 되지 않게
 # 막는다. 번호는 앞의 0 을 떼어 적는다(WP-2 와 WP-02 를 같게 보고, TSK-02-05 의 02 도 같은 방식으로 뗀다).
 if [ -n "$WP" ]; then
@@ -207,12 +212,18 @@ EOF
   # 반려는 승인 다음 — 머지가 후속을 해금하는 게 먼저고, 반려는 재작업이라 급하지 않다.
   [ -n "$reject_hits" ] && { printf '%s' "$reject_hits"; exit 10; }
 
-  out=$("$DFLOW" list --scope assigned 2>&1); rc=$?
+  set -- list --scope assigned
+  [ -z "$REQUIRE_TAG" ] || set -- "$@" --require-tag "$REQUIRE_TAG"
+  [ -z "$WP" ] || set -- "$@" --wp "$WP"
+  [ -z "$LEAD" ] || set -- "$@" --lead
+  out=$("$DFLOW" "$@" 2>&1); rc=$?
   case "$rc" in
     0)
       net_fail=0
-      ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE,$EXCLUDE_TEMP,$EXCLUDE_WAIT," \
-        '$2=="RD" && index(ex, ","$4",")==0 {print $1"\t"$4"\t"$5}')
+      # 새 서버(계약 2.11)는 6열 action·7열 mine 을 준다 — action ∈ ACTIONS ∧ mine=1 인 RD 만(Y4). 서버가 태그·WP 거르기를 이미
+      # 반영했으므로 아래 show 거르기는 건너뛴다. 옛 서버(6열 빈 값)는 종전 규칙(show 로 거르기)을 그대로 탄다.
+      ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE,$EXCLUDE_TEMP,$EXCLUDE_WAIT," -v acts=",$ACTIONS," \
+        '$2=="RD" && index(ex, ","$4",")==0 && ($6=="" || (index(acts, ","$6",") > 0 && $7=="1")) {l = $1"\t"$4"\t"$5; if ($6 != "") l = l"\t"$6; print l}')
       # 위임 플래그 필터: --require-tag 지정 시 태그가 있는 작업만 남긴다.
       # 태그 없는 ready 는 수동 몫이므로 감지 대상이 아니다(통지는 세션이 한다).
       # WP 필터: --wp 지정 시 그 WP 의 Task 만 남긴다. 두 필터는 같은 show 1회로 판정한다.
@@ -221,6 +232,9 @@ EOF
       if [ -n "$ready" ] && { [ -n "$REQUIRE_TAG" ] || [ -n "$WP" ]; }; then
         _kept=''
         while IFS= read -r _line; do
+          # 새 서버 행(4번째 칸 action 이 있다)은 서버가 거르기를 반영했다 — show 없이 남긴다.
+          if [ -n "$(printf '%s' "$_line" | cut -f4)" ]; then _kept="${_kept}${_line}
+"; continue; fi
           [ -n "$_line" ] || continue
           _id=$(printf '%s' "$_line" | cut -f2)
           if [ -n "$TAG_CACHE" ] && [ -f "$TAG_CACHE" ]; then
