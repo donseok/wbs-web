@@ -37,6 +37,7 @@ case "$url" in
   *"/agent/work/${WORK_ID}/claim")
     case "\${FAKE_CLAIM:-ok}" in
       ok) code=200; body='{"ok":true,"status":"claimed","item":{},"depends_evidence":[],"claim_scope":"design"}' ;;
+      nocs) code=200; body='{"ok":true,"status":"claimed","item":{},"depends_evidence":[]}' ;;
       gate) code=409; body='{"error":"x","code":"design_gate"}' ;;
       na) code=409; body='{"error":"x","code":"design_not_accepted"}' ;;
     esac ;;
@@ -45,15 +46,21 @@ case "$url" in
       ok) code=200; body='{"ok":true,"stage":"ip","runner":"hong/mbp/w1"}' ;;
       changed) code=409; body='{"error":"x","code":"design_gate","reason":"order_changed"}' ;;
       runner) code=409; body='{"error":"x","code":"runner_active","runner":"kim/pc2/w1"}' ;;
+      runner_missing) code=409; body='{"error":"x","code":"runner_active"}' ;;
+      runner_null) code=409; body='{"error":"x","code":"runner_active","runner":null}' ;;
       conflict) code=409; body='{"error":"x","code":"conflict"}' ;;
     esac ;;
   *"/agent/work/${WORK_ID}/design-done")
     case "\${FAKE_DD:-ok}" in
       ok) code=200; body='{"ok":true,"status":"claimed","stage":"dd","design_state":"review"}' ;;
       auto) code=200; body='{"ok":true,"status":"claimed","stage":"dd","design_state":null}' ;;
-      old) code=404; body='<html>404</html>' ;;
+      old) code=404; body='<html><body>이것은 Next.js 404 페이지 전체를 흉내낸 긴 본문이다 DESIGN_STATE_UNSUPPORTED_TRAP</body></html>' ;;
     esac ;;
-  *"/agent/work/${WORK_ID}/design-reopen") code=200; body='{"ok":true,"status":"ready","stage":"as","design_state":null}' ;;
+  *"/agent/work/${WORK_ID}/design-reopen")
+    case "\${FAKE_DR:-ok}" in
+      ok) code=200; body='{"ok":true,"status":"ready","stage":"as","design_state":null}' ;;
+      old) code=404; body='<html><body>이것은 Next.js 404 페이지 전체를 흉내낸 긴 본문이다 DESIGN_STATE_UNSUPPORTED_TRAP</body></html>' ;;
+    esac ;;
   *"/agent/work/${WORK_ID}/heartbeat") code=409; body='{"error":"x","code":"runner_active","runner":"kim/pc2/w1"}' ;;
   *"/agent/work/${WORK_ID}"*) code=200; body='{"order":{"id":"${WORK_ID}","item":{}},"depends_evidence":[]}' ;;
   *"/agent/watch") code=200; body='{"ok":true,"expires_at":"x","resume_requests":[],"build_ready":[]}' ;;
@@ -108,7 +115,13 @@ describe('exit 11·12(계약 2.11)', () => {
     const r = run(['build-start', WORK_ID, '--scope', 'full'], { FAKE_BS: 'runner' })
     expect(r.status).toBe(12)
     expect(r.stderr.trim().split('\n').pop()).toBe('RUNNER_ACTIVE kim/pc2/w1')
-    expect(run(['heartbeat', WORK_ID, '--phase', 'build']).status).toBe(12)
+    const hb = run(['heartbeat', WORK_ID, '--phase', 'build'])
+    expect(hb.status).toBe(12)
+    expect(hb.stderr.trim().split('\n').pop()).toBe('RUNNER_ACTIVE kim/pc2/w1')
+  })
+  it('runner 칸이 없거나 null 이면 stderr 끝줄 RUNNER_ACTIVE -', () => {
+    expect(run(['build-start', WORK_ID], { FAKE_BS: 'runner_missing' }).stderr.trim().split('\n').pop()).toBe('RUNNER_ACTIVE -')
+    expect(run(['build-start', WORK_ID], { FAKE_BS: 'runner_null' }).stderr.trim().split('\n').pop()).toBe('RUNNER_ACTIVE -')
   })
   it('다른 409(conflict)는 종전대로 exit 4', () => {
     expect(run(['build-start', WORK_ID], { FAKE_BS: 'conflict' }).status).toBe(4)
@@ -128,6 +141,17 @@ describe('claim·build-start 범위(D21)', () => {
     expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1', scope: 'design' })
     expect(r.stdout).toContain('CLAIM_SCOPE design')
   })
+  it('CLAIM_SCOPE 는 요청값이 아니라 서버 응답값이다(D21) — --scope full 을 보내도 서버가 design 이라 하면 그걸 찍는다', () => {
+    const r = run(['claim', WORK_ID, '--scope', 'full'])
+    expect(r.status).toBe(0)
+    expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1', scope: 'full' })
+    expect(r.stdout).toContain('CLAIM_SCOPE design')
+  })
+  it('응답에 claim_scope 가 없으면 CLAIM_SCOPE 줄도 없다(옛 서버·레거시 응답)', () => {
+    const r = run(['claim', WORK_ID], { FAKE_CLAIM: 'nocs' })
+    expect(r.status).toBe(0)
+    expect(r.stdout).not.toContain('CLAIM_SCOPE')
+  })
   it('claim 은 --design-first 와 --scope 를 순서와 무관하게 받는다', () => {
     expect(run(['claim', WORK_ID, '--design-first', '--scope', 'full']).status).toBe(0)
     expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1', scope: 'full', design_first: true })
@@ -140,6 +164,11 @@ describe('claim·build-start 범위(D21)', () => {
     expect(run(['build-start', WORK_ID, '--scope', 'rework']).status).toBe(0)
     expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1', scope: 'rework' })
   })
+  it('build-start 에 --scope 가 없으면 본문에 scope 키가 없다', () => {
+    const r = run(['build-start', WORK_ID])
+    expect(r.status).toBe(0)
+    expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1' })
+  })
 })
 
 describe('design-done·design-reopen', () => {
@@ -149,10 +178,11 @@ describe('design-done·design-reopen', () => {
     expect(r.stdout.trim()).toBe('design-done 99999999 review')
     expect(run(['design-done', WORK_ID], { FAKE_DD: 'auto' }).stdout.trim()).toBe('design-done 99999999 none')
   })
-  it('옛 서버(404, 계약 < 2.11)면 DESIGN_STATE_UNSUPPORTED 에 exit 7', () => {
+  it('옛 서버(404, 계약 < 2.11)면 DESIGN_STATE_UNSUPPORTED 에 exit 7 — 404 본문(HTML 일 수 있다)은 stderr 에 쏟지 않는다', () => {
     const r = run(['design-done', WORK_ID], { FAKE_DD: 'old', FAKE_ME: '2.9' })
     expect(r.status).toBe(7)
     expect(r.stderr).toContain('DESIGN_STATE_UNSUPPORTED')
+    expect(r.stderr).not.toContain('DESIGN_STATE_UNSUPPORTED_TRAP')
   })
   it('design-reopen 은 --reason 이 없으면 exit 2, 있으면 본문에 reason', () => {
     expect(run(['design-reopen', WORK_ID]).status).toBe(2)
@@ -160,6 +190,12 @@ describe('design-done·design-reopen', () => {
     expect(r.status).toBe(0)
     expect(sent().at(-1)).toEqual({ agent: 'hong/mbp/w1', reason: '테스트 계획 절 없음' })
     expect(r.stdout.trim()).toBe('design-reopened 99999999 ready none')
+  })
+  it('design-reopen 도 옛 서버(404, 계약 < 2.11)면 DESIGN_STATE_UNSUPPORTED 에 exit 7 — 404 본문은 쏟지 않는다', () => {
+    const r = run(['design-reopen', WORK_ID, '--reason', '사유'], { FAKE_DR: 'old', FAKE_ME: '2.9' })
+    expect(r.status).toBe(7)
+    expect(r.stderr).toContain('DESIGN_STATE_UNSUPPORTED')
+    expect(r.stderr).not.toContain('DESIGN_STATE_UNSUPPORTED_TRAP')
   })
 })
 

@@ -29,7 +29,8 @@ usage() {
   키 선택: --as → .dflow.local 의 as(레거시 .env 의 DFLOW_AS, prefix 만) → 첫 토큰. 한 계정에 키가 둘이면 email 로는 갈리지 않는다
   me                     현재 프로필 신원·접근 프로젝트
   list [--all] [--scope available|claimed|assigned|all] [--any-project] [--require-tag t] [--wp WP-02,…] [--lead]
-                         기본은 이 리포에 바인딩된 프로젝트의 주문만. 끝의 두 열은 서버 판단 action·mine(1/0) — 옛 서버면 빈 값(계약 2.11).
+                         기본은 이 리포에 바인딩된 프로젝트의 주문만. --any-project 는 필터를 끈다(진단용).
+                         끝의 두 열은 서버 판단 action·mine(1/0) — 옛 서버면 빈 값(계약 2.11).
                          --require-tag·--wp 는 서버가 mine 을 계산할 거르기, --lead 는 팀장 요청(claimed 의 mine 에 팀원 라벨 요구)
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
   taskdir <ref>          주문의 작업 폴더(<DOCS_DIR>/tasks/<TSK>, 리포 최상위 기준)
@@ -40,7 +41,8 @@ usage() {
                          DESIGN_FIRST_UNMET <JSON 배열> 한 줄을 더 낸다. 너무 이른 선행이면 exit 4 + stderr DESIGN_FIRST_TOO_EARLY
   build-start <ref> [--scope full|build|rework]
                          설계를 마치고 구현으로 넘긴다(ds·dd→ip). 선행 미충족이면 exit 4, 설계 관문이면 exit 11, 다른 PC 가 돌면 exit 12.
-                         404 는 서버 계약이 2.9 미만일 때만 stderr BUILD_START_UNSUPPORTED 에 exit 0, 2.9 이상이면 exit 7
+                         404 는 서버 계약이 2.9 미만일 때만 stderr BUILD_START_UNSUPPORTED 에 exit 0, 2.9 이상이면 exit 7,
+                         계약 버전을 확인하지 못하면 그 조회의 exit(실패로 본다)
   design-done <ref>      설계를 마치고 멈춘다(계약 2.11) — 출력 design-done <id8> <review|accepted|none>. 옛 서버는 DESIGN_STATE_UNSUPPORTED·exit 7
   design-reopen <ref> --reason "<이유>"
                          설계를 사람에게 되돌린다(계약 2.11) — 출력 design-reopened <id8> <status> <design_state|none>
@@ -465,11 +467,17 @@ cmd_build_start() {
 
 # 옛 서버(계약 < 2.11)에는 두 동사가 없다 — 404 면 계약 버전을 보고 표식을 남긴 뒤 exit 7(기능 꺼짐).
 # 스킬은 contract-ge 2.11 로 먼저 가르므로 여기 닿는 것은 판단이 어긋났을 때뿐이다(설계 상태 스펙 8절).
+# $1=이 요청의 stderr 캡처 파일(404 본문) — 옛 서버가 확정되면 본문(HTML 일 수 있다)을 버리고 표식만 낸다
+# (build-start 의 BUILD_START_UNSUPPORTED 와 같은 관례). 확정하지 못했으면(새 서버의 뜻밖의 404·버전 조회 실패)
+# 표식 없이 본문을 그대로 보여준다 — 그 404 는 원인 불명이라 디버그 단서를 지우면 안 된다.
 design_state_404() {
   _cv=$(server_contract_version); _vrc=$?
   if [ "$_vrc" -eq 0 ] && ! version_ge "$_cv" 2.11; then
+    rm -f "$1"
     printf 'DESIGN_STATE_UNSUPPORTED 서버 계약 %s < 2.11 — 이 동사가 없다\n' "$_cv" >&2
+    exit 7
   fi
+  cat "$1" >&2; rm -f "$1"
   exit 7
 }
 
@@ -479,8 +487,8 @@ cmd_design_done() {
   _err="$CACHE_DIR/dflow_dd_err.$$"; mkdir -p "$CACHE_DIR"
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/design-done" \
     "$(jq -nc --arg a "$(agent_id_default)" '{agent:$a}')" 2>"$_err"); _rc=$?
+  [ "$_rc" -ne 7 ] || design_state_404 "$_err"
   cat "$_err" >&2; rm -f "$_err"
-  [ "$_rc" -ne 7 ] || design_state_404
   [ "$_rc" -eq 0 ] || exit "$_rc"
   printf 'design-done %s %s\n' "$(printf '%s' "$_id" | cut -c1-8)" "$(printf '%s' "$_body" | jq -r '.design_state // "none"')"
 }
@@ -499,8 +507,8 @@ cmd_design_reopen() {
   _err="$CACHE_DIR/dflow_dr_err.$$"; mkdir -p "$CACHE_DIR"
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/design-reopen" \
     "$(jq -nc --arg a "$(agent_id_default)" --arg r "$_reason" '{agent:$a, reason:$r}')" 2>"$_err"); _rc=$?
+  [ "$_rc" -ne 7 ] || design_state_404 "$_err"
   cat "$_err" >&2; rm -f "$_err"
-  [ "$_rc" -ne 7 ] || design_state_404
   [ "$_rc" -eq 0 ] || exit "$_rc"
   printf 'design-reopened %s %s %s\n' "$(printf '%s' "$_id" | cut -c1-8)" \
     "$(printf '%s' "$_body" | jq -r '.status // "-"')" "$(printf '%s' "$_body" | jq -r '.design_state // "none"')"
