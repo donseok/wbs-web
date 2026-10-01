@@ -1,5 +1,7 @@
 #!/bin/sh
-# kit-build.sh — wbs-web 정본(.claude/skills/dflow-*)에서 dflow-kit 배포 킷을 조립한다.
+# kit-build.sh — dflow-* 스킬로 dflow-kit 배포 킷을 조립한다.
+# 스킬 정본은 dmes-standard/.claude/skills/dflow-* 이고(2026-10-01), 여기 .claude/skills/dflow-* 는 그곳으로 가는 링크다.
+# 링크가 아니라 링크 대상의 실제 파일을 복사한다(cp -R 은 링크 자체를 복사하므로 경로/. 로 내용을 복사).
 # 사용법: scripts/kit-build.sh <출력 폴더>   (예: ~/dflow-kit — 그 폴더가 git 리포면 커밋·push 는 사람이)
 # 출력: <출력>/skills/dflow-* · install.sh · README.md · VERSION
 set -eu
@@ -11,9 +13,11 @@ mkdir -p "$OUT/skills"
 
 SKILLS="dflow-work dflow-dev dflow-poll dflow-merge dflow-team dflow-export dflow-wbs-nlevel"
 for s in $SKILLS; do
-  [ -d "$ROOT/.claude/skills/$s" ] || { echo "정본 스킬 없음: $s" >&2; exit 2; }
+  [ -d "$ROOT/.claude/skills/$s" ] || { echo "정본 스킬 없음(링크 대상 확인): $s" >&2; exit 2; }
+  SRC=$(cd "$ROOT/.claude/skills/$s" && pwd -P)
   rm -rf "$OUT/skills/$s"
-  cp -R "$ROOT/.claude/skills/$s" "$OUT/skills/$s"
+  mkdir -p "$OUT/skills/$s"
+  cp -R "$SRC/." "$OUT/skills/$s/"
   find "$OUT/skills/$s" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
   find "$OUT/skills/$s" -name '.pytest_cache' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 done
@@ -24,7 +28,9 @@ cp "$ROOT/kit/worker-allow.json" "$OUT/worker-allow.json"
 cp "$ROOT/kit/README.md" "$OUT/README.md"
 mkdir -p "$OUT/hooks" && cp "$ROOT/kit/hooks/heartbeat.sh" "$OUT/hooks/heartbeat.sh" && chmod +x "$OUT/hooks/heartbeat.sh"
 mkdir -p "$OUT/gradle" && cp "$ROOT/kit/gradle/dflow-test-jvm.gradle" "$OUT/gradle/dflow-test-jvm.gradle"
-printf 'source: wbs-web %s\nbuilt: %s\nskills: %s\n' \
+SKILLS_REPO=$(cd "$ROOT/.claude/skills/dflow-work" && git rev-parse --show-toplevel)
+printf 'source: %s %s (kit: wbs-web %s)\nbuilt: %s\nskills: %s\n' \
+  "$(basename "$SKILLS_REPO")" "$(git -C "$SKILLS_REPO" rev-parse --short HEAD)" \
   "$(git -C "$ROOT" rev-parse --short HEAD)" "$(date +%Y-%m-%d)" "$SKILLS" > "$OUT/VERSION"
 
 # 킷 밖을 가리키는 경로가 남아 있으면 빌드 실패 — 다른 PC 에서 깨진다.

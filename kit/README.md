@@ -3,8 +3,9 @@
 D'Flow(작업 관리) 와 Claude Code 를 잇는 스킬 묶음. **wbs-web 리포 없이** 어느 PC·어느 프로젝트 리포에서든
 `/dflow-dev`, `/dflow-poll`, `/dflow-merge`, `/dflow-team`, `/dflow-wbs-nlevel`, `/dflow-export` 를 쓸 수 있게 한다.
 
-정본은 wbs-web 리포 `.claude/skills/dflow-*` 이고 이 킷은 `scripts/kit-build.sh` 가 만든 산출물이다.
-킷에서 스킬을 고치지 말 것 — 다음 빌드에 덮인다. 고칠 건 wbs-web 에.
+정본은 dmes-standard 리포 `.claude/skills/dflow-*` 다(2026-10-01). wbs-web 의 `.claude/skills/dflow-*` 는 그곳으로 가는
+상대 링크(`../../../dmes-standard/...`, 두 리포가 같은 폴더에 있어야 함)이고, 이 킷은 wbs-web `scripts/kit-build.sh` 가 만든 산출물이다.
+킷에서 스킬을 고치지 말 것 — 다음 빌드에 덮인다. 고칠 건 dmes-standard 에.
 
 ## 설치 (PC 마다 1회, 프로젝트 리포마다 1회)
 
@@ -88,7 +89,7 @@ Gradle 리포(`gradlew` 또는 `settings.gradle(.kts)` 가 있는 폴더 — inc
    ./install.sh ~/project/<내 리포> --gradle-pc   # 리포 설치와 함께
    ./install.sh --gradle-pc                       # 단독 — ~/.gradle 안전망만 설치
    ```
-   **심링크 배포 리포**(`.claude/skills/dflow-*` 가 다른 리포를 가리키는 심링크)에서는 **반드시 단독 형태**를 쓴다.
+   **정본 리포(dmes-standard)와 심링크 배포 리포**(`.claude/skills/dflow-*` 가 다른 리포를 가리키는 심링크, 예: wbs-web)에서는 **반드시 단독 형태**를 쓴다.
    `./install.sh <리포>` 는 그 리포의 `.claude/skills/dflow-*` 를 `rm -rf` 뒤 `cp -R` 로 갱신하므로, 심링크에 걸면
    심링크가 평범한 폴더로 바뀌어 버린다. 단독 형태는 스킬 복사·`.dflow` 초안·`settings.json` 병합을 전혀 하지 않고
    `~/.gradle` 만 건드린다.
