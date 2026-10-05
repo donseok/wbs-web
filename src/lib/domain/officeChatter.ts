@@ -248,3 +248,28 @@ export function awayBubble(deskKey: string, nowMs: number): string | null {
   if ((slotOf(nowMs) + fnv1a32(deskKey)) % MEMBER_TALK_EVERY !== 0) return null
   return awayReason(deskKey, nowMs)
 }
+
+/**
+ * 조정 팀장(coord:) 말풍선 — 레인 수·작업 중 수만으로 정하는 상황 대사다. 빈 책상 한탄·잔소리 묶음은 쓰지 않는다
+ * (조정 세션은 팀원 책상을 거느리지 않는다).
+ */
+export function coordBubble(w: { slots: number | null; busy: number | null } | null): { tone: 'nag' | 'praise' | 'empty'; text: string } {
+  if (!w || w.slots == null) return { tone: 'empty', text: '레인을 조정하는 중이다.' }
+  const busy = w.busy ?? 0
+  if (w.slots === 0) return { tone: 'empty', text: '맡길 레인이 아직 없다.' }
+  if (busy === 0) return { tone: 'empty', text: `레인 ${w.slots}개가 모두 쉬는 중이다.` }
+  if (busy >= w.slots) return { tone: 'praise', text: `레인 ${w.slots}개 모두 작업 중이다.` }
+  return { tone: 'nag', text: `레인 ${w.slots}개 중 ${busy}개가 작업 중이다.` }
+}
+
+/** 임시 팀원 말풍선 — 상태 라벨(작업 중·대기·머지 중·끝)과 지시 요약에 맞춘다. 빈자리 문구는 쓰지 않는다. */
+export function tempBubble(temp: { lane: string; summary: string } | undefined, untilLabel: string | null | undefined): { tone: 'nag' | 'praise' | 'empty'; text: string } {
+  const what = temp?.summary.trim() ? `「${temp.summary.trim()}」` : '맡은 일'
+  switch (untilLabel?.trim()) {
+    case '작업 중': return { tone: 'nag', text: `${what} 작업 중이다.` }
+    case '대기': return { tone: 'empty', text: `${what} 결과를 기다리는 중이다.` }
+    case '머지 중': return { tone: 'nag', text: `${what} 머지 중이다.` }
+    case '끝': return { tone: 'praise', text: `${what} 끝냈다.` }
+    default: return { tone: 'empty', text: untilLabel?.trim() ? `${what} ${untilLabel.trim()}.` : `${what} 상태를 기다리는 중이다.` }
+  }
+}
