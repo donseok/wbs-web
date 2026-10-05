@@ -9,7 +9,7 @@ import Link from 'next/link'
 import type { Seat, Seatmap } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName } from '@/lib/domain/seatState'
-import { assembleRoster, coordLine, modelBadge, tempStatusKind, TIER_NAME, type ModelTier, type TempStatusKind, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
+import { assembleRoster, coordLine, isCoordSlot, parseCoordSlot, modelBadge, tempStatusKind, TIER_NAME, type ModelTier, type TempStatusKind, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
@@ -39,11 +39,11 @@ const TEMP_TONE: Record<TempStatusKind, string> = { working: '#5DB1E5', wait: '#
 /** 책상 이름 — 팀장·단독 감시·조정 세션·팀원 N·임시 팀원(레인). 규칙 밖 감시자(label '감시')는 종전대로 「팀장」이다. */
 function deskTitle(d: RosterDesk): string {
   if (d.kind !== 'lead') return d.label
-  return d.slot === 'coord' ? d.label : d.slot === 'poll' ? '단독 감시' : '팀장'
+  return isCoordSlot(d.slot) ? d.label : d.slot === 'poll' ? '단독 감시' : '팀장'
 }
 function deskTone(d: RosterDesk): Tone {
   if (d.kind === 'temp') return { label: d.watcher?.untilLabel?.trim() || '상태 미상', color: TEMP_TONE[tempStatusKind(d.watcher?.untilLabel)] }
-  if (d.kind === 'lead') return d.slot === 'coord' ? TONE.COORD : TONE.LEAD
+  if (d.kind === 'lead') return isCoordSlot(d.slot) ? TONE.COORD : TONE.LEAD
   if (d.kind === 'empty' || !d.seat) return TONE.EMPTY
   return TONE[d.seat.state] ?? TONE.EMPTY
 }
@@ -59,7 +59,7 @@ function deskLine(d: RosterDesk, host: RosterHost, nowMs: number, chatter: boole
   if (d.kind === 'temp') return d.temp?.summary || '지시 요약 없음'
   if (d.kind === 'lead') {
     const w = d.watcher
-    if (d.slot === 'coord') return coordLine(w)
+    if (isCoordSlot(d.slot)) return coordLine(w, parseCoordSlot(d.slot)?.runId ?? null)
     const seats = w?.slots != null ? `팀원 ${w.slots}명 배정` : '감시'
     return w?.untilLabel ? `${seats} · ${w.untilLabel} 까지` : seats
   }
@@ -236,7 +236,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
  */
 function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number, chatter: boolean): React.ReactNode {
   // 조정 세션·임시 팀원은 표시 전용이라 대사를 하지 않는다 — 팀원 책상(잡담 재료)이 아니다.
-  if (desk.kind === 'temp' || (desk.kind === 'lead' && desk.slot === 'coord')) return null
+  if (desk.kind === 'temp' || (desk.kind === 'lead' && isCoordSlot(desk.slot))) return null
   if (desk.kind === 'lead') {
     // 팀장 대사(잔소리·칭찬·한탄·혼잣말)는 전부 잡담이다 — 끄면 팀장 머리 위는 비운다.
     if (!chatter) return null
@@ -435,9 +435,9 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
       )}
       {desk.kind === 'lead' && desk.watcher && (
         <section className="flex flex-col gap-1 text-sm text-ink-muted">
-          <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">{desk.slot === 'coord' ? '조정' : '감시'}</h3>
-          {desk.slot === 'coord'
-            ? <p>{coordLine(desk.watcher)}</p>
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">{isCoordSlot(desk.slot) ? '조정' : '감시'}</h3>
+          {isCoordSlot(desk.slot)
+            ? <p>{coordLine(desk.watcher, parseCoordSlot(desk.slot)?.runId ?? null)}</p>
             : <p>자리 {desk.watcher.busy ?? 0}/{desk.watcher.slots ?? '—'}{desk.watcher.untilLabel ? ` · ${desk.watcher.untilLabel} 까지` : ''}</p>}
         </section>
       )}

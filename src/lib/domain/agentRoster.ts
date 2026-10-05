@@ -73,9 +73,19 @@ export function parseTempSlot(slot: string): TempSlot | null {
   return { lane: lane || '레인 미상', summary: i < 0 ? '' : rest.slice(i + 1).trim() }
 }
 
-/** 표시 전용 보조 자리 — 조정 세션(coord)과 임시 팀원. 작업을 집지 않으므로 감시자 집계에서 뺀다. */
+/** 조정 세션 슬롯 — `coord`(옛 킷) 또는 `coord:<run-id>`. 접두만 같은 다른 토큰(coordinator)은 아니다. run-id 가 비면 null. */
+export function parseCoordSlot(slot: string): { runId: string | null } | null {
+  if (slot === 'coord') return { runId: null }
+  if (!slot.startsWith('coord:')) return null
+  return { runId: slot.slice('coord:'.length).trim() || null }
+}
+export function isCoordSlot(slot: string): boolean {
+  return parseCoordSlot(slot) !== null
+}
+
+/** 표시 전용 보조 자리 — 조정 세션(coord · coord:<run-id>)과 임시 팀원. 작업을 집지 않으므로 감시자 집계에서 뺀다. */
 export function isAuxSlot(slot: string): boolean {
-  return slot === 'coord' || slot.startsWith(TEMP_PREFIX)
+  return isCoordSlot(slot) || slot.startsWith(TEMP_PREFIX)
 }
 export function isAuxWatcherAgent(agent: string): boolean {
   const id = parseAgentId(agent)
@@ -94,9 +104,10 @@ export function tempStatusKind(label: string | null | undefined): TempStatusKind
   }
 }
 
-/** 조정 세션 한 줄 — slots=레인 수, busy=작업 중 레인 수(팀원 자리 수가 아니다). */
-export function coordLine(w: { slots: number | null; busy: number | null } | null): string {
-  return w?.slots != null ? `레인 ${w.slots}개 · 작업 중 ${w.busy ?? 0}` : '조정 중'
+/** 조정 세션 한 줄 — slots=레인 수, busy=작업 중 레인 수(팀원 자리 수가 아니다). run-id 가 있으면 회차를 붙인다. */
+export function coordLine(w: { slots: number | null; busy: number | null } | null, runId: string | null = null): string {
+  const base = w?.slots != null ? `레인 ${w.slots}개 · 작업 중 ${w.busy ?? 0}` : '조정 중'
+  return runId ? `${base} · 회차 ${runId}` : base
 }
 
 export function slotLabel(slot: string): string {
@@ -104,7 +115,7 @@ export function slotLabel(slot: string): string {
   if (m) return `팀원 ${Number(m[1])}`
   if (slot === 'lead') return '팀장'
   if (slot === 'poll') return '단독 감시'
-  if (slot === 'coord') return '팀장(조정)'
+  if (isCoordSlot(slot)) return '팀장(조정)'
   return parseTempSlot(slot)?.lane ?? slot
 }
 

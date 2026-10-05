@@ -1,6 +1,6 @@
 // 조정자 킷의 표시 전용 감시자 — 조정 세션(coord)·임시 팀원(임시:<레인>·<요약>) — 이름 읽기·책상·정렬·집계 제외.
 import { describe, expect, it } from 'vitest'
-import { assembleRoster, coordLine, isAuxSlot, isAuxWatcherAgent, parseTempSlot, slotLabel, tempStatusKind } from '@/lib/domain/agentRoster'
+import { assembleRoster, coordLine, isAuxSlot, isCoordSlot, parseCoordSlot, isAuxWatcherAgent, parseTempSlot, slotLabel, tempStatusKind } from '@/lib/domain/agentRoster'
 import { assembleSeatmap, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
 import { assembleAgentHub, type AgentHubRows } from '@/lib/domain/agentHub'
 import type { Floor, Seat, Watcher } from '@/lib/domain/seatmap'
@@ -24,6 +24,20 @@ describe('parseTempSlot · slotLabel', () => {
     expect(slotLabel('lead')).toBe('팀장')
     expect(slotLabel('poll')).toBe('단독 감시')
     expect(slotLabel('mystery')).toBe('mystery')
+  })
+  it('조정 슬롯 — coord · coord:<run-id> 만 인정하고 coordinator 같은 접두 오인은 아니다', () => {
+    expect(parseCoordSlot('coord')).toEqual({ runId: null })
+    expect(parseCoordSlot('coord:widget-2026-10-05')).toEqual({ runId: 'widget-2026-10-05' })
+    expect(parseCoordSlot('coord:')).toEqual({ runId: null })
+    for (const s of ['coordinator', 'coordx', 'lead', 'w1', '임시:coord·x']) { expect(parseCoordSlot(s)).toBeNull(); expect(isCoordSlot(s)).toBe(false) }
+    expect(slotLabel('coord:r1')).toBe('팀장(조정)')
+    expect(slotLabel('coordinator')).toBe('coordinator')
+    expect(isAuxSlot('coord:r1')).toBe(true)
+    expect(isAuxSlot('coordinator')).toBe(false)
+    expect(isAuxWatcherAgent('jji/mac/coord:r1')).toBe(true)
+    expect(isAuxWatcherAgent('jji/mac/coordinator')).toBe(false)
+    expect(coordLine({ slots: 2, busy: 1 }, 'r1')).toBe('레인 2개 · 작업 중 1 · 회차 r1')
+    expect(coordLine(null, 'r1')).toBe('조정 중 · 회차 r1')
   })
   it('보조 자리 판정 — coord·임시만 true, 일반 감시자·규칙 밖 신원은 false', () => {
     expect(isAuxSlot('coord')).toBe(true)
@@ -65,6 +79,17 @@ describe('assembleRoster — 임시 팀원·조정 세션 책상', () => {
     expect(h.desks.map(d => `${d.kind}:${d.label}`)).toEqual(['lead:팀장(조정)', 'member:팀원 1'])
     expect(h.slots).toBeNull()
     expect(r.tiles.empty).toBe(0)
+  })
+  it('coord:<run-id> 도 팀장(조정) 책상이고 행 감시자·좌석 수에서 빠진다', () => {
+    const r = assembleRoster({ floors: [floor([], [watcher('jji/mac/coord:r1', { slots: 5, busy: 1 })])] })
+    expect(r.hosts[0].desks.map(d => `${d.kind}:${d.label}`)).toEqual(['lead:팀장(조정)'])
+    expect(r.hosts[0].watcher).toBeNull()
+    expect(r.tiles.empty).toBe(0)
+  })
+  it('접두만 같은 coordinator 는 일반 감시자처럼 다룬다(회귀)', () => {
+    const r = assembleRoster({ floors: [floor([], [watcher('jji/mac/coordinator', { slots: 2 })])] })
+    expect(r.hosts[0].watcher?.agent).toBe('jji/mac/coordinator')
+    expect(r.tiles.empty).toBe(2)
   })
   it('일반 감시자와 같이 있어도 행의 감시자·좌석 수는 일반 감시자 기준(회귀)', () => {
     const r = assembleRoster({ floors: [floor([], [
@@ -122,10 +147,10 @@ describe('assembleSeatmap — 표시 전용 감시자 제외', () => {
   it('STANDBY 는 일반 감시자(lead·poll·w<N>)만 센다 — coord·임시 팀원은 층 watchers 에는 실리되 세지 않는다', () => {
     const m = assembleSeatmap(rows([
       wrow('jji/mac/lead'), wrow('jji/mac/poll'), wrow('jji/mac/w1'),
-      wrow('jji/mac/coord', { slots: 4, busy: 2 }), wrow('jji/mac/임시:a·x', { until_label: '작업 중' }), wrow('jji/mac/임시:b·y', { until_label: '끝' }),
+      wrow('jji/mac/coord', { slots: 4, busy: 2 }), wrow('jji/mac/coord:r1'), wrow('jji/mac/임시:a·x', { until_label: '작업 중' }), wrow('jji/mac/임시:b·y', { until_label: '끝' }),
     ]), NOW)
     expect(m.counters.standby).toBe(3)
-    expect(m.floors[0].watchers).toHaveLength(6) // 에이전트 보기가 책상으로 그린다
+    expect(m.floors[0].watchers).toHaveLength(7) // 에이전트 보기가 책상으로 그린다
   })
   it('일반 감시자만 있을 때는 종전과 같다(회귀)', () => {
     const m = assembleSeatmap(rows([wrow('hong/mbp/lead'), wrow('kim/air/lead')]), NOW)
@@ -136,7 +161,7 @@ describe('assembleSeatmap — 표시 전용 감시자 제외', () => {
     expect(m.counters.standby).toBe(1)
   })
   it('빈자리 대기 사유는 조정 세션·임시 팀원을 「집어갈 에이전트」로 세지 않는다', () => {
-    const only = assembleSeatmap(rows([wrow('jji/mac/coord'), wrow('jji/mac/임시:a·x')]), NOW)
+    const only = assembleSeatmap(rows([wrow('jji/mac/coord'), wrow('jji/mac/coord:r1'), wrow('jji/mac/임시:a·x')]), NOW)
     expect(only.floors[0].zones[0].seats[0].waitReason?.kind).toBe('agent_off')
     const withLead = assembleSeatmap(rows([wrow('jji/mac/coord'), wrow('jji/mac/lead')]), NOW)
     expect(withLead.floors[0].zones[0].seats[0].waitReason?.kind).toBe('pickup')
@@ -154,7 +179,7 @@ describe('assembleAgentHub — 표시 전용 감시자 제외', () => {
   it('허브 감시자 목록에서 coord·임시 팀원을 뺀다', () => {
     const hubRows: AgentHubRows = {
       project: { id: 'p1', name: 'mes' }, agentProject: null, items: [], orders: [], reports: [], approvedItemIds: [],
-      members: [], watchers: [wrow('jji/mac/lead'), wrow('jji/mac/coord'), wrow('jji/mac/임시:a·x')],
+      members: [], watchers: [wrow('jji/mac/lead'), wrow('jji/mac/coord'), wrow('jji/mac/coord:r1'), wrow('jji/mac/임시:a·x')],
     } as unknown as AgentHubRows
     const hub = assembleAgentHub(hubRows, NOW, { userId: 'u1', isAdmin: false } as never)
     expect(hub.watchers.map(w => w.agent)).toEqual(['jji/mac/lead'])

@@ -34,6 +34,7 @@ describe('FloorCard — 「감시 중」 문자열', () => {
     renderFloor(floor([
       watcher('hong/mbp/lead', { slots: 3, busy: 1 }),
       watcher('hong/mbp/coord', { slots: 4, busy: 2 }),
+      watcher('hong/mbp/coord:r1', { slots: 4, busy: 2 }),
       watcher('hong/mbp/임시:a·x', { untilLabel: '작업 중' }),
     ]))
     expect(watchText()).toBe('감시 중 · hong/mbp/lead 1/3')
@@ -78,6 +79,14 @@ describe('RosterBoard — 임시 팀원·조정 세션 책상', () => {
     expect(d.querySelector('b')?.textContent).toBe('팀장(조정)')
     expect(d.textContent).toContain('레인 5개 · 작업 중 2')
     expect(d.textContent).not.toContain('팀원 5명 배정')
+  })
+  it('coord:<run-id> 는 팀장(조정) 책상에 회차를 작게 보이고, 접두만 같은 coordinator 는 일반 감시 책상이다', () => {
+    render([watcher('hong/mbp/coord:widget-2026-10-05', { slots: 5, busy: 2 })])
+    expect(desks()[0].querySelector('b')?.textContent).toBe('팀장(조정)')
+    expect(desks()[0].textContent).toContain('회차 widget-2026-10-05')
+    render([watcher('hong/mbp/coordinator')])
+    expect(desks()[0].querySelector('b')?.textContent).toBe('팀장')
+    expect(desks()[0].textContent).not.toContain('회차')
   })
   it('일반 팀장(lead)·단독 감시(poll) 표시는 종전 그대로', () => {
     render([watcher('hong/mbp/lead', { slots: 2, untilLabel: '18:00' }), watcher('hong/mbp/poll')])
