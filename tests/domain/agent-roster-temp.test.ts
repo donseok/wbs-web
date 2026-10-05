@@ -86,6 +86,21 @@ describe('assembleRoster — 임시 팀원·조정 세션 책상', () => {
     expect(r.hosts[0].watcher).toBeNull()
     expect(r.tiles.empty).toBe(0)
   })
+  it('실제 키 형태 — coord:<run-id> 1 + 임시:<레인>·<요약> 3 이면 한 PC 행에 팀장 1·임시 팀원 3', () => {
+    const base = 'jongik-jang/jangjong-ig-ui-macbookair-813'
+    const r = assembleRoster({ floors: [floor([], [
+      watcher(`${base}/coord:rule-set-subset-call-2026-10-06`, { slots: 3, busy: 3 }),
+      watcher(`${base}/임시:eng·SET 노드 엔진 계약·흐름·실행·cactus 미리 받기`, { untilLabel: '작업 중' }),
+      watcher(`${base}/임시:srv·서버 저장`, { untilLabel: '작업 중' }),
+      watcher(`${base}/임시:ui·화면`, { untilLabel: '작업 중' }),
+    ])] })
+    expect(r.hosts).toHaveLength(1)
+    const d = r.hosts[0].desks
+    expect(d.filter(x => x.kind === 'lead')).toHaveLength(1)
+    expect(d.filter(x => x.kind === 'temp').map(x => x.label)).toEqual(['eng', 'srv', 'ui'])
+    expect(d.find(x => x.label === 'eng')?.temp?.summary).toBe('SET 노드 엔진 계약·흐름·실행·cactus 미리 받기')
+    expect(d).toHaveLength(4)
+  })
   it('접두만 같은 coordinator 는 일반 감시자처럼 다룬다(회귀)', () => {
     const r = assembleRoster({ floors: [floor([], [watcher('jji/mac/coordinator', { slots: 2 })])] })
     expect(r.hosts[0].watcher?.agent).toBe('jji/mac/coordinator')
