@@ -4,6 +4,8 @@
 // 신원 문자열은 규칙이 셋이다 — heartbeat_agent 는 <신원>/<host>/w<N>, 감시자는 <신원>/<host>/lead|poll,
 // claimed_by 는 claude-<host> · pat-<runner8>(슬래시 거부). 앞의 둘만 작업 PC 로 묶을 수 있고, 나머지는
 // 자기 이름 그대로 한 행이 된다(묶을 근거가 없는데 묶으면 화면이 거짓말한다).
+// 조정자 킷(2026-10-06)은 같은 감시자 행으로 표시 전용 보조 자리 둘을 더 쓴다 — 조정 세션 <신원>/<host>/coord,
+// 임시 팀원 <신원>/<host>/임시:<레인>·<지시 요약>. 둘은 작업을 집지 않으므로 감시(STANDBY)·착수 대기 사유에 세지 않는다.
 import type { LeadLease, Seat, Seatmap, Watcher } from './seatmap'
 import type { SeatState } from './seatState'
 
@@ -15,7 +17,7 @@ const OCCUPIED: readonly SeatState[] = ['ACTIVE', 'REJECTED', 'BLOCKED', 'STALE'
  *  팀장이면 칩끼리 구분할 근거)을 같이 들고 다닌다. */
 export interface RosterLease extends LeadLease { projectId: string; floorName: string }
 
-export type DeskKind = 'lead' | 'member' | 'empty' | 'external'
+export type DeskKind = 'lead' | 'member' | 'empty' | 'external' | 'temp'
 export interface RosterDesk {
   key: string
   /** 원래 자리 토큰(lead · poll · w2 …) 또는 규칙 밖 신원 전체. */
@@ -29,6 +31,8 @@ export interface RosterDesk {
   /** 이 책상(팀장·단독 감시)이 쥔 팀장 lease — 한 PC 가 여러 프로젝트의 팀장일 수 있어 목록이다.
    *  팀장·단독 감시가 아닌 책상은 항상 []. 스펙 §7: 오피스 화면의 팀장 좌석에 lease 를 보인다. */
   leads: RosterLease[]
+  /** kind='temp'(임시 팀원) 책상만 — 슬롯 토큰에서 읽은 레인·지시 요약. 상태 라벨은 watcher.untilLabel 이다. */
+  temp?: TempSlot
 }
 export interface RosterHost {
   key: string
@@ -56,18 +60,67 @@ export function parseAgentId(raw: string): { owner: string; host: string; slot: 
   return { owner: p[0], host: p[1], slot: p[2] }
 }
 
+/** 임시 팀원 슬롯 토큰 접두어 — `임시:<레인>·<지시 요약>`. */
+const TEMP_PREFIX = '임시:'
+export interface TempSlot { lane: string; summary: string }
+
+/** 슬롯 `임시:<레인>·<요약>` 읽기 — 첫 `·` 만 레인과 요약의 경계다(요약에 `·` 가 더 있어도 요약으로 둔다). 임시 슬롯이 아니면 null. */
+export function parseTempSlot(slot: string): TempSlot | null {
+  if (!slot.startsWith(TEMP_PREFIX)) return null
+  const rest = slot.slice(TEMP_PREFIX.length)
+  const i = rest.indexOf('·')
+  const lane = (i < 0 ? rest : rest.slice(0, i)).trim()
+  return { lane: lane || '레인 미상', summary: i < 0 ? '' : rest.slice(i + 1).trim() }
+}
+
+/** 표시 전용 보조 자리 — 조정 세션(coord)과 임시 팀원. 작업을 집지 않으므로 감시자 집계에서 뺀다. */
+export function isAuxSlot(slot: string): boolean {
+  return slot === 'coord' || slot.startsWith(TEMP_PREFIX)
+}
+export function isAuxWatcherAgent(agent: string): boolean {
+  const id = parseAgentId(agent)
+  return id !== null && isAuxSlot(id.slot)
+}
+
+/** 임시 팀원 상태 라벨(until_label)의 종류 — 배지 색을 고르는 재료. 킷이 보내는 넷 밖의 값은 other 로 두고 원문을 그대로 보인다. */
+export type TempStatusKind = 'working' | 'wait' | 'merge' | 'done' | 'other'
+export function tempStatusKind(label: string | null | undefined): TempStatusKind {
+  switch (label?.trim()) {
+    case '작업 중': return 'working'
+    case '대기': return 'wait'
+    case '머지 중': return 'merge'
+    case '끝': return 'done'
+    default: return 'other'
+  }
+}
+
+/** 조정 세션 한 줄 — slots=레인 수, busy=작업 중 레인 수(팀원 자리 수가 아니다). */
+export function coordLine(w: { slots: number | null; busy: number | null } | null): string {
+  return w?.slots != null ? `레인 ${w.slots}개 · 작업 중 ${w.busy ?? 0}` : '조정 중'
+}
+
 export function slotLabel(slot: string): string {
   const m = /^w(\d+)$/.exec(slot)
   if (m) return `팀원 ${Number(m[1])}`
   if (slot === 'lead') return '팀장'
   if (slot === 'poll') return '단독 감시'
-  return slot
+  if (slot === 'coord') return '팀장(조정)'
+  return parseTempSlot(slot)?.lane ?? slot
 }
 
 function slotRank(d: RosterDesk): number {
   if (d.kind === 'lead') return -1
+  if (d.kind === 'temp') return 20_000 // 팀원 번호(w<N>)와 단독 감시·외부 뒤
   const m = /^w(\d+)$/.exec(d.slot)
   return m ? Number(m[1]) : 10_000
+}
+
+/** 한 PC 행 안의 책상 순서 — 팀장 먼저, w<N> 번호순, 임시 팀원은 레인 이름순(숫자는 수로)·요약순으로 맨 뒤. */
+function deskOrder(a: RosterDesk, b: RosterDesk): number {
+  const byLane = a.temp && b.temp
+    ? a.temp.lane.localeCompare(b.temp.lane, undefined, { numeric: true }) || a.temp.summary.localeCompare(b.temp.summary)
+    : 0
+  return slotRank(a) - slotRank(b) || byLane || a.key.localeCompare(b.key)
 }
 
 export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
@@ -105,9 +158,11 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     const id = parseAgentId(w.agent)
     const h = id ? ensure(`${id.owner}/${id.host}`, `${id.owner} / ${id.host}`, true) : ensure(w.agent, w.agent, false)
     // 한 PC 에 감시자가 둘이면(팀장 + 단독 감시) 최근 신호 쪽의 좌석 수를 행 정보로 쓴다.
-    if (!h.watcher || Date.parse(w.lastSeenAt) > Date.parse(h.watcher.lastSeenAt)) { h.watcher = w; h.slots = w.slots }
+    // 조정 세션·임시 팀원은 행의 감시자·좌석 수가 아니다(slots 가 레인 수라 빈 팀원 책상을 지어내고, 집지 않는데 "감시 중" 이 된다).
+    if (!(id && isAuxSlot(id.slot)) && (!h.watcher || Date.parse(w.lastSeenAt) > Date.parse(h.watcher.lastSeenAt))) { h.watcher = w; h.slots = w.slots }
     const slot = id?.slot ?? 'lead'
-    h.desks.push({ key: `watch:${w.agent}`, slot, label: id ? slotLabel(slot) : '감시', kind: 'lead', seat: null, watcher: w, raw: w.agent, leads: leadsByAgent.get(w.agent) ?? [] })
+    const temp = parseTempSlot(slot)
+    h.desks.push({ key: `watch:${w.agent}`, slot, label: id ? slotLabel(slot) : '감시', kind: temp ? 'temp' : 'lead', seat: null, watcher: w, raw: w.agent, leads: leadsByAgent.get(w.agent) ?? [], ...(temp ? { temp } : {}) })
   }
   for (const [agent, leases] of leadsByAgent) if (!watchers.has(agent)) unmatchedLeads.push(...leases)
 
@@ -139,9 +194,9 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
       h.desks.push({ key: `empty:${h.key}:${slot}`, slot, label: slotLabel(slot), kind: 'empty', seat: null, watcher: null, raw: null, leads: [] })
       empty++
     }
-    h.desks.sort((a, b) => slotRank(a) - slotRank(b) || a.key.localeCompare(b.key))
+    h.desks.sort(deskOrder)
   }
-  for (const h of hosts.values()) if (h.slots === null) h.desks.sort((a, b) => slotRank(a) - slotRank(b) || a.key.localeCompare(b.key))
+  for (const h of hosts.values()) if (h.slots === null || h.slots <= 0) h.desks.sort(deskOrder)
 
   const tiles: RosterTiles = { working: 0, blocked: 0, stale: 0, offline: 0, empty }
   for (const s of seats) {

@@ -9,7 +9,7 @@ import Link from 'next/link'
 import type { Seat, Seatmap } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName } from '@/lib/domain/seatState'
-import { assembleRoster, modelBadge, TIER_NAME, type ModelTier, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
+import { assembleRoster, coordLine, modelBadge, tempStatusKind, TIER_NAME, type ModelTier, type TempStatusKind, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
@@ -29,23 +29,37 @@ const TONE: Record<string, Tone> = {
   STALE: { label: '무응답', color: '#D8563E' },
   OFFLINE: { label: '끊김', color: '#6b7580' },
   LEAD: { label: '감시 중', color: '#3F8F58' },
+  COORD: { label: '조정 중', color: '#3F8F58' },
   EMPTY: { label: '빈자리', color: '#b7bfba' },
 }
 
+/** 임시 팀원 상태 배지 색 — 라벨은 킷이 보낸 until_label 그대로(「까지」 없이)다. */
+const TEMP_TONE: Record<TempStatusKind, string> = { working: '#5DB1E5', wait: '#F0B068', merge: '#8B6FD6', done: '#3F8F58', other: '#6b7580' }
+
+/** 책상 이름 — 팀장·단독 감시·조정 세션·팀원 N·임시 팀원(레인). 규칙 밖 감시자(label '감시')는 종전대로 「팀장」이다. */
+function deskTitle(d: RosterDesk): string {
+  if (d.kind !== 'lead') return d.label
+  return d.slot === 'coord' ? d.label : d.slot === 'poll' ? '단독 감시' : '팀장'
+}
 function deskTone(d: RosterDesk): Tone {
-  if (d.kind === 'lead') return TONE.LEAD
+  if (d.kind === 'temp') return { label: d.watcher?.untilLabel?.trim() || '상태 미상', color: TEMP_TONE[tempStatusKind(d.watcher?.untilLabel)] }
+  if (d.kind === 'lead') return d.slot === 'coord' ? TONE.COORD : TONE.LEAD
   if (d.kind === 'empty' || !d.seat) return TONE.EMPTY
   return TONE[d.seat.state] ?? TONE.EMPTY
 }
+const TEMP_ANIM: Record<TempStatusKind, AnimName> = { working: 'typing', wait: 'waiting', merge: 'verify', done: 'done', other: 'idle_look' }
 function deskLook(d: RosterDesk): { character: CharacterName; anim: AnimName } {
+  if (d.kind === 'temp') return { character: pickCharacter(d.raw ?? d.key), anim: TEMP_ANIM[tempStatusKind(d.watcher?.untilLabel)] }
   if (d.kind === 'lead') return { character: pickCharacter(d.raw ?? d.key), anim: 'idle_look' }
   if (d.seat) return { character: d.seat.character, anim: d.seat.anim }
   return { character: 'cat', anim: 'empty' }
 }
 /** 책상 한 줄 설명 — 무엇을 하고 있는지. */
 function deskLine(d: RosterDesk, host: RosterHost, nowMs: number, chatter: boolean): string {
+  if (d.kind === 'temp') return d.temp?.summary || '지시 요약 없음'
   if (d.kind === 'lead') {
     const w = d.watcher
+    if (d.slot === 'coord') return coordLine(w)
     const seats = w?.slots != null ? `팀원 ${w.slots}명 배정` : '감시'
     return w?.untilLabel ? `${seats} · ${w.untilLabel} 까지` : seats
   }
@@ -53,13 +67,13 @@ function deskLine(d: RosterDesk, host: RosterHost, nowMs: number, chatter: boole
   if (d.kind === 'empty') return chatter ? `자리 비움 · ${awayReason(d.key, nowMs)}` : host.watcher ? '빈자리 — 다음 위임을 기다립니다' : '빈자리'
   return d.seat ? `${d.seat.code} ${d.seat.name}` : ''
 }
-/** 책상의 계정 명찰 — 팀장은 감시자 계정, 팀원은 주문을 잡은 계정. 빈자리는 null. */
+/** 책상의 계정 명찰 — 팀장·임시 팀원은 감시자 계정, 팀원은 주문을 잡은 계정. 빈자리는 null. */
 function deskOwner(d: RosterDesk): OwnerLabel | null {
-  if (d.kind === 'lead') return d.watcher ? watcherOwnerLabel(d.watcher) : null
+  if (d.kind === 'lead' || d.kind === 'temp') return d.watcher ? watcherOwnerLabel(d.watcher) : null
   return d.seat ? ownerLabel(d.seat) : null
 }
 function signalAt(d: RosterDesk): string | null {
-  return d.kind === 'lead' ? d.watcher?.lastSeenAt ?? null : d.seat?.lastSignalAt ?? null
+  return d.kind === 'lead' || d.kind === 'temp' ? d.watcher?.lastSeenAt ?? null : d.seat?.lastSignalAt ?? null
 }
 
 /** 에이전트 보기일 때 공통 헤더에 얹는 타일·요약. */
@@ -190,7 +204,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
         </span>
         <span className={`flex flex-col gap-1 px-3 pb-3 pt-2 ${mine ? 'bg-brand-weak' : ''}`}>
           <span className="flex items-center gap-2">
-            <b className="text-sm text-ink">{desk.kind === 'lead' ? (desk.slot === 'poll' ? '단독 감시' : '팀장') : desk.label}</b>
+            <b className="text-sm text-ink">{deskTitle(desk)}</b>
             <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: tone.color === '#b7bfba' ? 'var(--color-ink-subtle)' : tone.color }}>
               <i className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: tone.color }} />{tone.label}
             </span>
@@ -202,7 +216,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
           </span>
           <span className="line-clamp-2 min-h-[2.5em] text-xs text-ink-muted">{deskLine(desk, host, nowMs, chatter)}</span>
           {desk.seat && <Progress pct={desk.seat.progress} color={tone.color} />}
-          <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `신호 ${ageLabel(sig, nowMs)}` : ' '}</span>
+          <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `${desk.kind === 'temp' ? '갱신' : '신호'} ${ageLabel(sig, nowMs)}` : ' '}</span>
         </span>
       </button>
       {/* 책상 카드에서도 바로 WBS 로 간다(2026-09-24 사용자 요청) — 카드가 <button> 이라 안에 링크를 넣지 못해
@@ -221,6 +235,8 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
  * 대사 고르기는 officeChatter(순수)가 한다. 보고가 식으면(10분) 단계 말풍선으로 돌아간다.
  */
 function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number, chatter: boolean): React.ReactNode {
+  // 조정 세션·임시 팀원은 표시 전용이라 대사를 하지 않는다 — 팀원 책상(잡담 재료)이 아니다.
+  if (desk.kind === 'temp' || (desk.kind === 'lead' && desk.slot === 'coord')) return null
   if (desk.kind === 'lead') {
     // 팀장 대사(잔소리·칭찬·한탄·혼잣말)는 전부 잡담이다 — 끄면 팀장 머리 위는 비운다.
     if (!chatter) return null
@@ -247,10 +263,15 @@ function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number, chatter: b
 function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg' }) {
   const pos = size === 'sm' ? 'relative' : ''
   const text = size === 'sm' ? 'text-[11px]' : 'text-xs'
+  if (desk.kind === 'temp') {
+    return (
+      <span data-nameplate="temp" className={`${pos} z-[1] inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#4a5563] px-2.5 py-1 font-bold text-white ${text}`}>임시 팀원</span>
+    )
+  }
   if (desk.kind === 'lead') {
     return (
       <span data-nameplate="lead" className={`${pos} z-[1] inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#2f6e44] px-2.5 py-1 font-bold text-white shadow-[0_6px_14px_-8px_#1b3a26] ${text}`}>
-        <span aria-hidden className="text-[#ffd76a]">★</span>{desk.slot === 'poll' ? '단독 감시' : '팀장'}
+        <span aria-hidden className="text-[#ffd76a]">★</span>{deskTitle(desk)}
       </span>
     )
   }
@@ -358,7 +379,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
   const chatter = useOfficeChatter()
   const tone = deskTone(desk)
   const look = deskLook(desk)
-  const title = desk.kind === 'lead' ? (desk.slot === 'poll' ? '단독 감시' : '팀장') : desk.label
+  const title = deskTitle(desk)
   const seat = desk.seat
   const stepLabel = seat ? profilePhaseLabel(seat) : null
   const owner = deskOwner(desk)
@@ -374,7 +395,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           <h2 className="text-xl font-extrabold text-ink">{title}</h2>
           {desk.raw && <p className="truncate font-mono text-xs text-ink-subtle" title={desk.raw}>{desk.raw}</p>}
           {owner && <span className="mt-1 flex min-w-0"><OwnerTag owner={owner} /></span>}
-          {desk.kind !== 'lead' && desk.kind !== 'empty' && (
+          {desk.kind !== 'lead' && desk.kind !== 'empty' && desk.kind !== 'temp' && (
             <span className="mt-1.5 flex flex-wrap items-center gap-2">
               <Nameplate desk={desk} size="lg" />
               {(() => {
@@ -414,8 +435,17 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
       )}
       {desk.kind === 'lead' && desk.watcher && (
         <section className="flex flex-col gap-1 text-sm text-ink-muted">
-          <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">감시</h3>
-          <p>자리 {desk.watcher.busy ?? 0}/{desk.watcher.slots ?? '—'}{desk.watcher.untilLabel ? ` · ${desk.watcher.untilLabel} 까지` : ''}</p>
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">{desk.slot === 'coord' ? '조정' : '감시'}</h3>
+          {desk.slot === 'coord'
+            ? <p>{coordLine(desk.watcher)}</p>
+            : <p>자리 {desk.watcher.busy ?? 0}/{desk.watcher.slots ?? '—'}{desk.watcher.untilLabel ? ` · ${desk.watcher.untilLabel} 까지` : ''}</p>}
+        </section>
+      )}
+      {desk.kind === 'temp' && (
+        <section data-roster-temp="" className="flex flex-col gap-1 text-sm text-ink-muted">
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">지시</h3>
+          <p className="whitespace-pre-wrap text-ink">{desk.temp?.summary || '지시 요약 없음'}</p>
+          <p className="text-[11px] text-ink-subtle">조정 세션이 맡긴 임시 작업입니다 — 표시 전용이며 WBS 진척·좌석 집계에는 들어가지 않습니다.</p>
         </section>
       )}
       {desk.kind === 'empty' && (
@@ -426,8 +456,8 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
       )}
 
       <section className="flex flex-col gap-1.5">
-        <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">마지막 신호 · {signalAt(desk) ? ageLabel(signalAt(desk), nowMs) : '—'}</h3>
-        <SignalGauge at={signalAt(desk)} nowMs={nowMs} lead={desk.kind === 'lead'} />
+        <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">{desk.kind === 'temp' ? '마지막 갱신' : '마지막 신호'} · {signalAt(desk) ? ageLabel(signalAt(desk), nowMs) : '—'}</h3>
+        <SignalGauge at={signalAt(desk)} nowMs={nowMs} lead={desk.kind === 'lead' || desk.kind === 'temp'} />
       </section>
 
       <p className="border-t border-line pt-3 text-[11px] leading-relaxed text-ink-subtle">

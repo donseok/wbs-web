@@ -2,6 +2,7 @@
 'use client'
 import { useState } from 'react'
 import type { Floor, Zone } from '@/lib/domain/seatmap'
+import { isAuxWatcherAgent } from '@/lib/domain/agentRoster'
 import { ZoneBlock } from './ZoneBlock'
 import type { SeatOpHandler } from './SeatOpsBar'
 import { IconBlocked, IconFolded, IconWait } from './icons'
@@ -35,7 +36,8 @@ export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = fa
   // 모든 구역은 기본 펼침이다(folded 에 든 것만 접힘) — 빈 구역도 책상을 그린다(2026-09-19, 모두 펼치기가 기본).
   // 선택된 좌석이 든 구역은 접혀 있어도 펼친다.
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
-  const w = floor.watchers
+  // 조정 세션·임시 팀원(표시 전용)은 「감시 중」 문자열에 섞지 않는다 — 에이전트 보기 책상으로만 그린다.
+  const w = floor.watchers.filter(x => !isAuxWatcherAgent(x.agent))
   const watchLabel = w.length === 0 ? '감시 없음'
     : w.map(x => `${x.agent}${x.slots != null ? ` ${x.busy ?? 0}/${x.slots}` : ''}${x.untilLabel ? ` ~${x.untilLabel}` : ''}`).join(' · ')
   const shown: Zone[] = [], icons: Zone[] = []

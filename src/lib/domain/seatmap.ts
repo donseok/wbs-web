@@ -8,6 +8,7 @@ import {
   DEFAULT_BOTTLENECK, blockedSinceMs, bottleneckText, findBottlenecks, lastRefSegment, stubPendingByItem,
   type BlockedSuccessor, type BottleneckSettings, type StubPendingEntry,
 } from './forceProgress'
+import { isAuxWatcherAgent } from './agentRoster'
 import { heavyGauge, seatHeavyOf, type SeatHeavy } from './heavyWork'
 import {
   designScreen, predsState, toDesignMode, toDesignState, workerAlive, type DesignScreenRow, type ItemFacts, type ScreenOrder,
@@ -389,7 +390,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   // 착수 대기 사유 재료 — 담당자 로스터 행, 프로젝트 안 선행 항목, 이 층을 보는 살아 있는 감시자.
   const memberById = new Map(rows.members.map(m => [m.id, m]))
   const predByKey = new Map(rows.predecessors.map(p => [`${p.project_id}\u0000${p.external_ref}`, p]))
-  const aliveRows = rows.watchers.filter(w => isWatcherAlive(w.last_seen_at, nowMs))
+  // 조정 세션·임시 팀원(표시 전용)은 작업을 집지 않으므로 「이 층을 보는 감시자」에서 뺀다 — 넣으면 담당자 에이전트가 꺼져 있어도 착수 대기로 읽힌다.
+  const aliveRows = rows.watchers.filter(w => isWatcherAlive(w.last_seen_at, nowMs) && !isAuxWatcherAgent(w.agent))
   const watchersOf = (pid: string) => aliveRows.filter(w => w.project_id === null || w.project_id === pid)
 
   // 살아 있는 팀장 lease — 층 머리 칩과, 좌석의 무거운 작업 값을 믿을지(적은 팀장이 살아 있나)에 쓴다.
@@ -518,7 +520,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     }
   }).sort((a, b) => a.name.localeCompare(b.name))
 
-  const counters = { active: 0, standby: aliveWatchers.length, idle: 0, offline: 0 }
+  // 감시 중(STANDBY)은 일반 감시자(lead·poll·w<N>)만 센다 — 조정 세션·임시 팀원은 표시 전용이다.
+  const counters = { active: 0, standby: aliveWatchers.filter(w => !isAuxWatcherAgent(w.agent)).length, idle: 0, offline: 0 }
   const attention: Attention[] = []
   for (const f of floors) for (const z of f.zones) for (const s of z.seats) {
     // 머지 충돌은 승인 대기·승인 좌석에서 난다 — DONE 을 건너뛰기 전에 띠에 넣는다(카운터에는 넣지 않는다).

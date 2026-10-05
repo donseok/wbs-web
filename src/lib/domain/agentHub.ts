@@ -3,6 +3,7 @@
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
 import { deriveSeatState, isApprovalWait, isBuildWait, isReviewWait, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, LIVE_ORDER_STATUSES, isSubtreeManagerOf, screenItemFacts, screenOrderOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
+import { isAuxWatcherAgent } from './agentRoster'
 import { deriveWaitReason, type PredecessorLike, type WaitReason } from './waitReason'
 import { designScreen, toDesignState, type DesignScreenRow, type DesignState } from './designGate'
 import { parseDecisions, stageLockedForHuman, type DecisionsParse } from './agentWork'
@@ -154,7 +155,7 @@ function pickOrder(list: OrderRow[]): OrderRow | null {
 /** 층이 없을 때(위임 주문 0)도 감시 중인 에이전트는 보여야 한다 — seatmap.ts 의 층 감시자 규칙과 같다(프로젝트 일치 또는 전역, TTL 안, agent 순). */
 function watchersFor(watchers: WatcherRow[], projectId: string, nowMs: number): Watcher[] {
   return watchers
-    .filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (w.project_id === null || w.project_id === projectId))
+    .filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (w.project_id === null || w.project_id === projectId) && !isAuxWatcherAgent(w.agent))
     .map(w => ({ agent: w.agent, host: w.host, slots: w.slots, busy: w.busy, untilLabel: w.until_label, lastSeenAt: w.last_seen_at, projectId: w.project_id }))
     .sort((a, b) => a.agent.localeCompare(b.agent))
 }
@@ -188,7 +189,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
   // 착수 대기 사유 재료 — 담당자 로스터 행(user_id 포함)과 이 프로젝트를 보는 살아 있는 감시자.
   // hub.watchers(Watcher[])를 재사용하지 않는다 — 그 형에는 user_id 가 없어 담당자 자격 판정이 전부 거짓이 된다.
   const memberById = new Map(rows.members.map(m => [m.id, m]))
-  const hubWatchers = rows.watchers.filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (w.project_id === null || w.project_id === projectId))
+  const hubWatchers = rows.watchers.filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (w.project_id === null || w.project_id === projectId) && !isAuxWatcherAgent(w.agent))
   const hubRows: HubRow[] = []
   const counters = { delegated: 0, ready: 0, working: 0, waiting: 0, stuck: 0, designReview: 0 }
   // 선행 행 — 착수 대기 사유와 설계 화면 판정이 같은 판정을 쓴다.
