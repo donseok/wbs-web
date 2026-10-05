@@ -13,7 +13,7 @@ import { assembleRoster, coordLine, isCoordSlot, parseCoordSlot, modelBadge, tem
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
-import { awayBubble, awayReason, leadChatter } from '@/lib/domain/officeChatter'
+import { awayBubble, awayReason, coordBubble, leadChatter, tempBubble } from '@/lib/domain/officeChatter'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { OwnerTag, ownerLabel, teamOwnerLabel, watcherOwnerLabel, type OwnerLabel } from './OwnerTag'
 import { LeadChip } from './LeadChip'
@@ -235,8 +235,12 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
  * 대사 고르기는 officeChatter(순수)가 한다. 보고가 식으면(10분) 단계 말풍선으로 돌아간다.
  */
 function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number, chatter: boolean): React.ReactNode {
-  // 조정 세션·임시 팀원은 표시 전용이라 대사를 하지 않는다 — 팀원 책상(잡담 재료)이 아니다.
-  if (desk.kind === 'temp' || (desk.kind === 'lead' && isCoordSlot(desk.slot))) return null
+  //   // 조정 팀장은 레인 수·작업 중 수, 임시 팀원은 상태 라벨·지시 요약으로 말한다(빈 책상 대사는 쓰지 않는다).
+  if (desk.kind === 'temp' || (desk.kind === 'lead' && isCoordSlot(desk.slot))) {
+    if (!chatter) return null
+    const c = desk.kind === 'temp' ? tempBubble(desk.temp, desk.watcher?.untilLabel) : coordBubble(desk.watcher ?? null)
+    return <ChatBubble key={c.text} kind={c.tone} text={c.text} className="max-w-full" />
+  }
   if (desk.kind === 'lead') {
     // 팀장 대사(잔소리·칭찬·한탄·혼잣말)는 전부 잡담이다 — 끄면 팀장 머리 위는 비운다.
     if (!chatter) return null

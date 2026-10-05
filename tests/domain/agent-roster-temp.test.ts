@@ -200,3 +200,31 @@ describe('assembleAgentHub — 표시 전용 감시자 제외', () => {
     expect(hub.watchers.map(w => w.agent)).toEqual(['jji/mac/lead'])
   })
 })
+
+import { coordBubble, tempBubble, EMPTY_LINES, NAG_LINES } from '@/lib/domain/officeChatter'
+describe('조정 팀장·임시 팀원 말풍선', () => {
+  const t = { lane: 'eng', summary: 'SET 노드 엔진' }
+  it('임시 팀원은 상태 라벨과 지시 요약에 맞는 말이고 빈자리 대사가 아니다', () => {
+    for (const label of ['작업 중', '대기', '머지 중', '끝', null, '기타']) {
+      const b = tempBubble(t, label)
+      expect(b.text).toContain('SET 노드 엔진')
+      expect(EMPTY_LINES).not.toContain(b.text)
+      expect(b.text).not.toContain('빈 의자')
+    }
+    expect(tempBubble(t, '작업 중').text).toContain('작업 중')
+    expect(tempBubble(t, '대기').text).toContain('기다리는')
+    expect(tempBubble(t, '머지 중').text).toContain('머지')
+    expect(tempBubble(undefined, '작업 중').text).toContain('맡은 일')
+  })
+  it('조정 팀장은 레인 수·작업 중 수에 맞는 말이다', () => {
+    expect(coordBubble({ slots: 3, busy: 3 }).text).toBe('레인 3개 모두 작업 중이다.')
+    expect(coordBubble({ slots: 3, busy: 1 }).text).toBe('레인 3개 중 1개가 작업 중이다.')
+    expect(coordBubble({ slots: 3, busy: 0 }).text).toContain('쉬는')
+    expect(coordBubble(null).text).toContain('조정')
+    for (const w of [null, { slots: 3, busy: 3 }, { slots: 0, busy: 0 }]) {
+      const x = coordBubble(w).text
+      expect(EMPTY_LINES).not.toContain(x)
+      expect(NAG_LINES).not.toContain(x)
+    }
+  })
+})
