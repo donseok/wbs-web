@@ -2,7 +2,7 @@
 'use client'
 import { useState } from 'react'
 import type { Floor, Zone } from '@/lib/domain/seatmap'
-import { isAuxWatcherAgent } from '@/lib/domain/agentRoster'
+import { isAuxWatcherAgent, watcherUntilSuffix } from '@/lib/domain/agentRoster'
 import { ZoneBlock } from './ZoneBlock'
 import type { SeatOpHandler } from './SeatOpsBar'
 import { IconBlocked, IconFolded, IconWait } from './icons'
@@ -39,7 +39,7 @@ export function FloorCard({ floor, selectedId, nowMs, busyOrderId, withDone = fa
   // 조정 세션·임시 팀원(표시 전용)은 「감시 중」 문자열에 섞지 않는다 — 에이전트 보기 책상으로만 그린다.
   const w = floor.watchers.filter(x => !isAuxWatcherAgent(x.agent))
   const watchLabel = w.length === 0 ? '감시 없음'
-    : w.map(x => `${x.agent}${x.slots != null ? ` ${x.busy ?? 0}/${x.slots}` : ''}${x.untilLabel ? ` ~${x.untilLabel}` : ''}`).join(' · ')
+    : w.map(x => `${x.agent}${x.slots != null ? ` ${x.busy ?? 0}/${x.slots}` : ''}${watcherUntilSuffix(x.untilLabel)}`).join(' · ')
   const shown: Zone[] = [], icons: Zone[] = []
   for (const z of floor.zones) {
     const holdsSelected = selectedId != null && z.seats.some(s => s.orderId === selectedId)
