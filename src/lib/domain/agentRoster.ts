@@ -92,12 +92,31 @@ export function isAuxWatcherAgent(agent: string): boolean {
   return id !== null && isAuxSlot(id.slot)
 }
 
-/** 임시 팀원 상태 라벨(until_label)의 종류 — 배지 색을 고르는 재료. 킷이 보내는 넷 밖의 값은 other 로 두고 원문을 그대로 보인다. */
-export type TempStatusKind = 'working' | 'wait' | 'merge' | 'done' | 'other'
+/** 사람의 답을 기다린다는 상태 라벨(until_label) — 조정 팀장(`조정 중`·`답 대기`)과 임시 팀원 모두 쓴다(조정자 계약 §4, 2026-10-06). */
+export const ANSWER_WAIT_LABEL = '답 대기'
+export function isAnswerWait(label: string | null | undefined): boolean {
+  return label?.trim() === ANSWER_WAIT_LABEL
+}
+/** 감시자 줄 표기(`agent busy/slots ~until`)의 until 꼬리 — FloorCard·허브 상태 줄이 같이 쓴다. 「답 대기」는 `~` 없이 그대로. */
+export function watcherUntilSuffix(label: string | null | undefined): string {
+  const t = label?.trim()
+  if (!t) return ''
+  return t === ANSWER_WAIT_LABEL ? ` ${t}` : ` ~${t}`
+}
+/** 일반 팀장(lead·poll) until 의 한 줄 표기 — 보통은 시각이라 「18:00 까지」, 정확히 「답 대기」면 그대로. 없으면 null. */
+export function leadUntilText(label: string | null | undefined): string | null {
+  const t = label?.trim()
+  if (!t) return null
+  return t === ANSWER_WAIT_LABEL ? t : `${t} 까지`
+}
+
+/** 임시 팀원 상태 라벨(until_label)의 종류 — 배지 색을 고르는 재료. 킷이 보내는 값 밖은 other 로 두고 원문을 그대로 보인다. */
+export type TempStatusKind = 'working' | 'wait' | 'answer' | 'merge' | 'done' | 'other'
 export function tempStatusKind(label: string | null | undefined): TempStatusKind {
   switch (label?.trim()) {
     case '작업 중': return 'working'
     case '대기': return 'wait'
+    case ANSWER_WAIT_LABEL: return 'answer'
     case '머지 중': return 'merge'
     case '끝': return 'done'
     default: return 'other'
