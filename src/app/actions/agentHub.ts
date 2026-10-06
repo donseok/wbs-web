@@ -8,7 +8,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { getAgentHub } from '@/lib/data/agentHub'
 import { fetchConsoleSeatOwners, fetchConsoleSeats, viewerEmail, type ConsoleSeatOwner } from '@/lib/data/agentSeatmap'
-import { CONSOLE_ISSUE_TEXT, consoleTargetKey, consoleTargetOfAgent, consoleTextIssue, normalizeConsoleText } from '@/lib/domain/agentConsole'
+import { CONSOLE_ISSUE_TEXT, type ConsoleInputRequestView, type ConsoleKey, type ConsoleKeysRequest, consoleTargetKey, consoleTargetOfAgent, consoleTextIssue, normalizeConsoleText } from '@/lib/domain/agentConsole'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { applyDelegation, ERR_NOT_ASSIGNEE } from '@/lib/agent/delegation'
 import { cancelOrders } from '@/lib/agent/cancelOrder'
@@ -353,6 +353,17 @@ export type ConsoleSendResult =
   | { ok: true; id: string }
   | { ok: false; code: 'unauthorized' | 'bad_target' | 'empty' | 'bang_in_text' | 'too_long' | 'target_unknown' | 'not_owner' | 'rate_limited' | 'queue_full' | 'error'; error: string }
 
+/** 키 입력 보내기 결과 — 보내기 결과에 입력 요청 대조 사유가 더해진다. */
+export type ConsoleKeysResult =
+  | { ok: true; id: string }
+  | { ok: false; code: 'unauthorized' | 'bad_target' | 'bad_keys' | 'target_unknown' | 'not_owner' | 'no_request' | 'not_answerable' | 'prompt_changed' | 'already_sent' | 'rate_limited' | 'queue_full' | 'error'; error: string }
+
+/** (자리 표시) 구현은 office-tally-3 의 서버 전담 작업이 채운다. */
+export async function sendConsoleKeys(seatKey: string, req: ConsoleKeysRequest, keys: readonly ConsoleKey[]): Promise<ConsoleKeysResult> {
+  void seatKey; void req; void keys
+  return { ok: false, code: 'error', error: '아직 구현되지 않았습니다.' }
+}
+
 const CONSOLE_SEND_ERR = {
   target_unknown: '이 세션이 지금 오피스에 없습니다 — 세션이 다시 신호를 보내면 보낼 수 있습니다.',
   not_owner: '보내기는 이 세션의 주인 본인만 할 수 있습니다.',
@@ -419,6 +430,9 @@ export type ConsoleViewResult =
       /** canView 일 때만. null 은 올라온 화면이 없음. */
       screen?: { lines: string[]; capturedAt: string } | null
       screenError?: string
+      /** canView 일 때만 — 지금 떠 있는 입력 요청(발췌·해시 포함). null 은 입력 요청 없음. */
+      inputRequest?: ConsoleInputRequestView | null
+      inputRequestError?: string
     }
   | { ok: false; error: string }
 

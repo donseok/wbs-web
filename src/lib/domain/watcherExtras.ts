@@ -134,6 +134,15 @@ export interface InputRequest {
   sha: string
 }
 
+/**
+ * 좌석표(모든 열람자)에 싣는 입력 요청 — 발췌·해시는 뺀다. 발췌는 터미널 화면의 일부라 콘솔 화면 보기와 같은 권한(세션 주인·그 프로젝트 관리자)만
+ * 콘솔 보기 액션으로 읽는다. 종류·시각·처리 여부는 배지(입력 대기 n분)를 그리는 데 쓴다.
+ */
+export type InputRequestMeta = Omit<InputRequest, 'excerpt' | 'sha'>
+export function inputRequestMeta(r: InputRequest | null): InputRequestMeta | null {
+  return r ? { v: 1, kind: r.kind, since: r.since, handled: r.handled } : null
+}
+
 /** 해시 재료 — 줄을 `\n` 으로 이은 UTF-8. PC 폴러가 재판정할 때도 같은 규칙으로 계산한다. */
 export function excerptMaterial(lines: readonly string[]): string { return lines.join('\n') }
 

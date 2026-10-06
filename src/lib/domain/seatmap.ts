@@ -10,7 +10,7 @@ import {
 } from './forceProgress'
 import { isAuxWatcherAgent } from './agentRoster'
 import { readLaneSummary, type LaneSummary } from './laneSummary'
-import { readInputRequest, readLeadSummary, type InputRequest, type LeadSummary } from './watcherExtras'
+import { inputRequestMeta, readInputRequest, readLeadSummary, type InputRequestMeta, type LeadSummary } from './watcherExtras'
 import { heavyGauge, seatHeavyOf, type SeatHeavy } from './heavyWork'
 import {
   designScreen, predsState, toDesignMode, toDesignState, workerAlive, type DesignScreenRow, type ItemFacts, type ScreenOrder,
@@ -149,7 +149,8 @@ export interface Watcher {
   /** 레인 요약(임시 팀원)·팀장 자리 요약(조정 팀장)·입력 요청 — 없거나 형식이 깨졌으면 null. 표시 전용이다. */
   summary?: LaneSummary | null
   leadSummary?: LeadSummary | null
-  inputRequest?: InputRequest | null
+  /** 발췌·해시 없는 입력 요청 — 발췌는 콘솔 보기 액션이 권한을 보고 따로 준다. */
+  inputRequest?: InputRequestMeta | null
   /** 다른 계정의 감시자면 그 계정의 로스터 이름(없으면 null). */
   ownerName?: string | null
 }
@@ -480,7 +481,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     .map(w => {
       const owner = ownerOf(w.user_id, viewerId, ownerName(w.project_id))
       return { agent: w.agent, host: w.host, slots: w.slots, busy: w.busy, untilLabel: w.until_label, lastSeenAt: w.last_seen_at, projectId: w.project_id, mine: owner.mine, ownerName: owner.name,
-        summary: readLaneSummary(w.summary), leadSummary: readLeadSummary(w.lead_summary), inputRequest: readInputRequest(w.input_request) }
+        summary: readLaneSummary(w.summary), leadSummary: readLeadSummary(w.lead_summary), inputRequest: inputRequestMeta(readInputRequest(w.input_request)) }
     })
     .sort((a, b) => a.agent.localeCompare(b.agent))
 

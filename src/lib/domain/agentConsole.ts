@@ -93,6 +93,21 @@ export function consoleTargetKey(t: Pick<ConsoleTarget, 'kind' | 'ref' | 'host'>
 
 export type ConsoleAckResult = 'sent' | 'refused' | 'retry'
 export const CONSOLE_ACK_REASONS = ['compacting', 'stale', 'target-not-found', 'ambiguous', 'bang-in-text', 'prompt-open', 'draft-in-input', 'error'] as const
+
+// ── 키 입력(kind:'keys') — 입력 요청(permission·question·choice) 창에 웹이 키로 답한다(계약 lane-summary-contract (C)). ──
+/** 허용 키 — 숫자 1~9·Enter·Esc·위/아래 화살표·Tab 만. 서버가 목록 밖을 거절한다. */
+export const CONSOLE_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Enter', 'Esc', 'Up', 'Down', 'Tab'] as const
+export type ConsoleKey = typeof CONSOLE_KEYS[number]
+/** 한 번에 보내는 키 수 상한 — 같은 화면 상태(해시)로는 한 번만 보낼 수 있으므로 여러 키는 한 요청에 묶는다. */
+export const CONSOLE_KEYS_MAX = 4
+/** 웹으로 답할 수 있는 입력 요청 종류 — usage-limit·trust 는 조정자가 자동 처리하고, message 는 터미널 창이 없다. */
+export const CONSOLE_ANSWERABLE_KINDS = ['permission', 'question', 'choice'] as const
+/** 답하기 요청이 대조할 입력 요청 — 화면이 본 값 그대로(since·kind·발췌 sha). 서버는 저장된 값과 다시 맞춰 본다. */
+export interface ConsoleKeysRequest { kind: string; since: string; sha: string }
+/** 콘솔 보기가 열람 권한이 있는 사람에게만 주는 입력 요청 — 발췌와 해시 포함. */
+export interface ConsoleInputRequestView {
+  kind: string; since: string; handled: { by: 'coordinator' | 'auto'; at: string } | null; excerpt: string[]; sha: string
+}
 export const CONSOLE_SENT_DETAILS = ['turn_started', 'submitted', 'accepted'] as const
 
 /** ack 본문 검사 — 함수(agent_console_ack)와 같은 규칙을 먼저 본다. 문제가 없으면 null, 있으면 사유 문장. */
