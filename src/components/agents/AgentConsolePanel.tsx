@@ -89,10 +89,12 @@ export function AgentConsolePanel({
                 onClick={() => onSend?.(normalized)}>
                 {sending ? '보내는 중…' : '보내기'}
               </button>
-              <span id={hintId} data-console-hint="" aria-live="polite"
+              <span id={hintId} data-console-hint=""
                 className={shownIssue ? 'text-[11px] text-critical' : 'text-[11px] text-ink-subtle'}>
                 {shownIssue ?? `${consoleTextLength(normalized).toLocaleString()}/${CONSOLE_TEXT_MAX.toLocaleString()}자 · 줄바꿈은 공백으로 바뀝니다 · 바쁜 세션에도 바로 넣습니다`}
               </span>
+              {/* 낭독은 문제 문구가 바뀔 때만 — 글자 수까지 live 영역에 두면 한 글자마다 읽힌다. */}
+              <span data-console-issue-live="" aria-live="polite" className="sr-only">{shownIssue ?? ''}</span>
             </div>
           </>
         ) : (

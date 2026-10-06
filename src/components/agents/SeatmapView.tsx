@@ -10,6 +10,7 @@ import { AttentionBand } from './AttentionBand'
 import { FloorCard } from './FloorCard'
 import { LaneBoard } from './LaneBoard'
 import { DetailPanel, type NoteDraft } from './DetailPanel'
+import { ConsoleDraftProvider } from './AgentConsole'
 import { opSpec, type SeatOpKind } from './seatOps'
 import { SeatmapRealtime } from './SeatmapRealtime'
 import { IconAgentView, IconApprove, IconChat, IconFloorView, IconLaneView } from './icons'
@@ -331,7 +332,10 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
       tools={<div className={css.toolsLight}>{tools}</div>}>
       <div className={css.root}>
         {realtime}
-        <OfficeChatterContext.Provider value={chatter}>{body}</OfficeChatterContext.Provider>
+        <OfficeChatterContext.Provider value={chatter}>
+          {/* 콘솔 초안 — 좌석 키별. 폴링·보기 전환·자리 바꾸기가 쓰던 프롬프트를 지우지 않게 오피스 바깥 틀에서 쥔다. */}
+          <ConsoleDraftProvider>{body}</ConsoleDraftProvider>
+        </OfficeChatterContext.Provider>
       </div>
     </AgentFrame>
   )
