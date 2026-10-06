@@ -2,8 +2,10 @@
 // 오피스 콘솔 — 팀장·팀원 세션에 프롬프트를 보내고, 전달 상태와 최근 화면(끝 40줄)을 본다(2026-10-06).
 // 표시 전용 틀이다: 초안(draft)은 부모가 쥔다 — 30초 폴링과 RosterBoard 의 자리 다시 고르기가 작성 중인 글을 지우지 않게.
 // 보내기는 세션 주인 본인만, 화면 보기는 본인과 프로젝트 관리자만이다. 여기의 canSend·canView 는 어포던스이고 최종 판정은 서버가 한다.
-import { useId } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { ageLabel } from '@/lib/domain/seatmap'
+import { SCREEN_HEIGHT, clampScreenHeight } from '@/lib/domain/panelSize'
+import { ResizeHandle } from './ResizeHandle'
 import { showableTerminalLine } from '@/lib/domain/safeDisplay'
 import css from './seatmap.module.css'
 import {
@@ -72,12 +74,19 @@ export function AgentConsolePanel({
   screenError?: string | null
 }) {
   const hintId = useId()
+  const screenRef = useRef<HTMLPreElement>(null)
+  const [screenHeight, setScreenHeight] = useState<number | null>(null)
+  // 높이를 정하기 전의 실제 높이(내용 높이, 최대 320px) — 손잡이의 aria-valuenow 가 거짓이 되지 않게 잰다.
+  const [naturalHeight, setNaturalHeight] = useState<number>(SCREEN_HEIGHT.default)
   const normalized = normalizeConsoleText(draft)
   const issue = consoleTextIssue(normalized)
   // 비어 있을 때는 경고하지 않는다 — 아직 쓰지 않은 것뿐이다.
   const shownIssue = issue && issue !== 'empty' ? CONSOLE_ISSUE_TEXT[issue] : null
   const lines = screen ? screen.lines.slice(-CONSOLE_SCREEN_LINES) : []
   const showScreen = canView && !screenError
+  useEffect(() => {
+    if (screenHeight === null && screenRef.current) setNaturalHeight(screenRef.current.offsetHeight)
+  }, [screenHeight, lines.length, screen])
   return (
     <section data-console={target.kind} data-console-target={target.key} className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
@@ -151,10 +160,19 @@ export function AgentConsolePanel({
               : !screen || lines.length === 0
                 ? <p data-console-screen-empty="" className="text-xs text-ink-subtle">아직 올라온 화면이 없습니다 — 로컬 폴러가 30초마다 올립니다.</p>
                 : (
-                  <pre data-console-screen="" tabIndex={0} role="region" aria-label={`${target.label} 최근 화면`}
-                    className={`${css.termPre} max-h-80 overflow-auto rounded-xl border border-line bg-canvas p-2 font-mono text-[11px] leading-snug text-ink`}>
-                    {lines.map(showableTerminalLine).join('\n')}
-                  </pre>
+                  <>
+                    {/* 높이를 정하기 전에는 종전처럼 내용 높이에 max-h-80 상한이고, 정한 뒤에는 그 높이로 고정한다. */}
+                    <pre ref={screenRef} data-console-screen="" tabIndex={0} role="region" aria-label={`${target.label} 최근 화면`}
+                      className={`${css.termPre} ${screenHeight === null ? 'max-h-80' : ''} overflow-auto rounded-xl border border-line bg-canvas p-2 font-mono text-[11px] leading-snug text-ink`}
+                      style={screenHeight === null ? undefined : { height: screenHeight }}>
+                      {lines.map(showableTerminalLine).join('\n')}
+                    </pre>
+                    <ResizeHandle grow="down" value={screenHeight ?? naturalHeight} min={SCREEN_HEIGHT.min}
+                      max={clampScreenHeight(Infinity, typeof window === 'undefined' ? 800 : window.innerHeight)} step={SCREEN_HEIGHT.step}
+                      label="최근 화면 높이 조절" getStart={() => screenRef.current?.offsetHeight ?? SCREEN_HEIGHT.default}
+                      onChange={next => setScreenHeight(next)} onReset={() => setScreenHeight(null)}
+                      className="-mt-0.5 h-2 cursor-row-resize rounded-full" />
+                  </>
                 )}
       </div>
     </section>
