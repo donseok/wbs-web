@@ -241,13 +241,32 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     else tiles.working++ // ACTIVE · REJECTED(재작업 중)
   }
 
+  // 보조 책상 — WBS 좌석은 아니지만 조정 세션이 돌리는 일이므로 상단 집계(타일·에이전트 수)에는 센다.
+  // 조정 팀장은 답 대기면 blocked, 그 밖은 working. 임시 팀원은 상태 라벨대로 나누고 「끝」은 세지 않는다.
+  let auxAgents = 0
+  for (const h of hosts.values()) for (const d of h.desks) {
+    const label = d.watcher?.untilLabel
+    if (d.kind === 'lead' && isCoordSlot(d.slot)) {
+      auxAgents++
+      if (isAnswerWait(label)) tiles.blocked++
+      else tiles.working++
+    } else if (d.kind === 'temp') {
+      const k = tempStatusKind(label)
+      if (k === 'done') continue
+      auxAgents++
+      if (k === 'answer') tiles.blocked++
+      else if (k === 'wait') tiles.empty++
+      else tiles.working++ // 작업 중 · 머지 중 · 그 밖의 라벨
+    }
+  }
+
   for (const h of hosts.values()) h.mine = h.desks.some(d => d.watcher?.mine === true || d.seat?.agentMine === true)
 
   // 내 팀 먼저, 그다음 규칙을 따르는 작업 PC(감시 중인 곳 먼저), 규칙 밖 한 줄짜리는 뒤로.
   const list = [...hosts.values()].sort((a, b) =>
     Number(b.mine) - Number(a.mine) || Number(b.conforming) - Number(a.conforming) || Number(b.watcher !== null) - Number(a.watcher !== null) || a.label.localeCompare(b.label))
   unmatchedLeads.sort((a, b) => (a.agent ?? '').localeCompare(b.agent ?? '') || a.floorName.localeCompare(b.floorName))
-  return { hosts: list, tiles, agentCount: seats.length, unmatchedLeads }
+  return { hosts: list, tiles, agentCount: seats.length + auxAgents, unmatchedLeads }
 }
 
 /** 명찰에 쓰는 모델 표기 — 제조사 표식·색과 짧은 이름. 모르는 값은 원문을 그대로 둔다(추측해 바꾸지 않는다). */

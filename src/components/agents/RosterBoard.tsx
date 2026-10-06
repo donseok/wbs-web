@@ -483,7 +483,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
         <section data-roster-temp="" className="flex flex-col gap-1 text-sm text-ink-muted">
           <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">지시</h3>
           <p className="whitespace-pre-wrap text-ink">{desk.temp?.summary || '지시 요약 없음'}</p>
-          <p className="text-[11px] text-ink-subtle">조정 세션이 맡긴 임시 작업입니다 — 표시 전용이며 WBS 진척·좌석 집계에는 들어가지 않습니다.</p>
+          <p className="text-[11px] text-ink-subtle">조정 세션이 맡긴 임시 작업입니다 — WBS 진척에는 들어가지 않고 상단 집계에만 셉니다.</p>
         </section>
       )}
       {desk.kind === 'empty' && (
