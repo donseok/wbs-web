@@ -1,6 +1,6 @@
 // tests/domain/agent-console.test.ts — 콘솔 대상 해석·ack·화면 항목 규칙(계약 §2.12).
 import { describe, expect, it } from 'vitest'
-import { consoleAckIssue, consoleTargetOfAgent, parseConsoleScreenItem } from '@/lib/domain/agentConsole'
+import { CONSOLE_KEYS, CONSOLE_KEYS_MAX, consoleAckIssue, consoleKeysLabel, consoleTargetOfAgent, parseConsoleKeys, parseConsoleScreenItem } from '@/lib/domain/agentConsole'
 
 describe('consoleTargetOfAgent', () => {
   it('네 종류를 읽는다 — lead · w<N> · coord:<세션8> · 임시:<레인>·<요약>', () => {
@@ -29,6 +29,37 @@ describe('consoleAckIssue', () => {
     expect(consoleAckIssue({ result: 'sent', detail: 'typed' })).not.toBeNull()
     expect(consoleAckIssue({ result: 'refused', reason: 'error', detail: 'accepted' })).not.toBeNull()
     expect(consoleAckIssue({ result: 'ok' })).not.toBeNull()
+  })
+})
+
+describe('consoleAckIssue — prompt_changed(키 입력 재판정 거절)', () => {
+  it('refused 와는 쓸 수 있고, sent·retry 와는 쓸 수 없다', () => {
+    expect(consoleAckIssue({ result: 'refused', reason: 'prompt_changed' })).toBeNull()
+    expect(consoleAckIssue({ result: 'sent', reason: 'prompt_changed' })).not.toBeNull()
+    expect(consoleAckIssue({ result: 'retry', reason: 'prompt_changed' })).not.toBeNull()
+  })
+})
+
+describe('parseConsoleKeys — 허용 키만 1~4개', () => {
+  it('허용 키 열네 개를 모두 받고 복사본을 돌려준다', () => {
+    expect([...CONSOLE_KEYS]).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Enter', 'Esc', 'Up', 'Down', 'Tab'])
+    for (const k of CONSOLE_KEYS) expect(parseConsoleKeys([k])).toEqual([k])
+    const src = ['1', 'Enter']
+    const out = parseConsoleKeys(src)
+    expect(out).toEqual(['1', 'Enter'])
+    expect(out).not.toBe(src)
+    expect(parseConsoleKeys(['Down', 'Down', 'Down', 'Enter'])).toHaveLength(CONSOLE_KEYS_MAX)
+  })
+  it('목록 밖·대소문자 변형·공백·객체·중첩·빈 배열·상한 초과는 null', () => {
+    const bad: unknown[] = [
+      undefined, null, 'Enter', {}, [], ['0'], ['10'], ['enter'], ['ENTER'], ['Enter '], [' 1'], ['esc'], ['up'], ['Left'], ['F5'], ['ctrl+c'], ['C-c'],
+      ['\n'], ['1\n'], [1], [null], [undefined], [['1']], [{ toString: () => '1' }], ['1', 'x'], ['1', '2', '3', '4', '5'],
+      [, '1'],
+    ]
+    for (const b of bad) expect(parseConsoleKeys(b), JSON.stringify(b)).toBeNull()
+  })
+  it('전달 상태 표의 표기', () => {
+    expect(consoleKeysLabel(['1', 'Enter'])).toBe('키: 1 Enter')
   })
 })
 

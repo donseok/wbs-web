@@ -9,6 +9,8 @@ import { apiNotFound, consoleCall, hashClaimToken, rejectProjectLimited, rpcInpu
  * ack — 폴러가 집은 프롬프트의 결과를 돌려준다(계약 §2.12). sent·refused 는 최종, retry 는 만료 전이면 pending 으로 되돌린다.
  * 토큰 불일치·남의 행은 404(존재 비구분), claimed 가 아닌 행에 다른 결과는 409 conflict, 같은 결과를 다시 ack 하면 200 already.
  * 120초가 지난 claimed 는 함수가 먼저 unknown 으로 닫는다 — 늦은 ack 는 409 이고 되살리지 않는다.
+ * 키 입력 행(0111)은 보내기 직전 재판정에서 입력 창이 바뀌었으면 보내지 않고 refused + reason prompt_changed 로 ack 한다
+ * (사유 검사는 consoleAckIssue 와 agent_console_ack 가 같은 규칙으로 한다 — prompt_changed 는 refused 와만).
  */
 export const dynamic = 'force-dynamic'
 

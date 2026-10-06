@@ -92,7 +92,8 @@ export function consoleTargetKey(t: Pick<ConsoleTarget, 'kind' | 'ref' | 'host'>
 }
 
 export type ConsoleAckResult = 'sent' | 'refused' | 'retry'
-export const CONSOLE_ACK_REASONS = ['compacting', 'stale', 'target-not-found', 'ambiguous', 'bang-in-text', 'prompt-open', 'draft-in-input', 'error'] as const
+/** prompt_changed: 키 행 전용 — 보내기 직전 재판정에서 입력 창의 종류·발췌 해시가 요청과 달라졌다(창이 바뀌었거나 사라졌다). refused 와만 쓴다. */
+export const CONSOLE_ACK_REASONS = ['compacting', 'stale', 'target-not-found', 'ambiguous', 'bang-in-text', 'prompt-open', 'draft-in-input', 'error', 'prompt_changed'] as const
 
 // ── 키 입력(kind:'keys') — 입력 요청(permission·question·choice) 창에 웹이 키로 답한다(계약 lane-summary-contract (C)). ──
 /** 허용 키 — 숫자 1~9·Enter·Esc·위/아래 화살표·Tab 만. 서버가 목록 밖을 거절한다. */
@@ -108,6 +109,22 @@ export interface ConsoleKeysRequest { kind: string; since: string; sha: string }
 export interface ConsoleInputRequestView {
   kind: string; since: string; handled: { by: 'coordinator' | 'auto'; at: string } | null; excerpt: string[]; sha: string
 }
+
+/**
+ * 보낼 키 목록 검사 — 배열이고 1~CONSOLE_KEYS_MAX 개이며 모든 항목이 CONSOLE_KEYS 의 정확한 문자열이어야 한다(대소문자 변형·공백·객체·중첩 배열 불허).
+ * 통과하면 키 배열(복사본), 아니면 null. 서버 액션이 최종 판정하고 DB 함수가 다시 막는다.
+ */
+export function parseConsoleKeys(raw: unknown): ConsoleKey[] | null {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > CONSOLE_KEYS_MAX) return null
+  const out: ConsoleKey[] = []
+  for (const k of raw) {
+    if (typeof k !== 'string' || !(CONSOLE_KEYS as readonly string[]).includes(k)) return null
+    out.push(k as ConsoleKey)
+  }
+  return out
+}
+/** 전달 상태 표에 보이는 키 행의 text 표기 — DB 함수(agent_console_enqueue_keys)가 같은 모양으로 채운다. */
+export function consoleKeysLabel(keys: readonly ConsoleKey[]): string { return `키: ${keys.join(' ')}` }
 export const CONSOLE_SENT_DETAILS = ['turn_started', 'submitted', 'accepted'] as const
 
 /** ack 본문 검사 — 함수(agent_console_ack)와 같은 규칙을 먼저 본다. 문제가 없으면 null, 있으면 사유 문장. */
@@ -118,6 +135,7 @@ export function consoleAckIssue(b: { result: unknown; reason?: unknown; detail?:
   if (reason !== null && !(CONSOLE_ACK_REASONS as readonly unknown[]).includes(reason)) return 'reason 이 계약 목록에 없습니다.'
   if (b.result !== 'sent' && reason === null) return `${b.result} 에는 reason 이 필요합니다.`
   if (b.result === 'retry' && reason !== 'compacting') return 'retry 의 reason 은 compacting 뿐입니다.'
+  if (reason === 'prompt_changed' && b.result !== 'refused') return 'prompt_changed 는 refused 와만 쓸 수 있습니다.'
   if (detail !== null && (b.result !== 'sent' || !(CONSOLE_SENT_DETAILS as readonly unknown[]).includes(detail))) return 'detail 은 sent 에서 turn_started·submitted·accepted 중 하나입니다.'
   return null
 }
