@@ -97,6 +97,12 @@ export const ANSWER_WAIT_LABEL = '답 대기'
 export function isAnswerWait(label: string | null | undefined): boolean {
   return label?.trim() === ANSWER_WAIT_LABEL
 }
+/** 일반 팀장(lead·poll) until 의 한 줄 표기 — 보통은 시각이라 「18:00 까지」, 정확히 「답 대기」면 그대로. 없으면 null. */
+export function leadUntilText(label: string | null | undefined): string | null {
+  const t = label?.trim()
+  if (!t) return null
+  return t === ANSWER_WAIT_LABEL ? t : `${t} 까지`
+}
 
 /** 임시 팀원 상태 라벨(until_label)의 종류 — 배지 색을 고르는 재료. 킷이 보내는 값 밖은 other 로 두고 원문을 그대로 보인다. */
 export type TempStatusKind = 'working' | 'wait' | 'answer' | 'merge' | 'done' | 'other'

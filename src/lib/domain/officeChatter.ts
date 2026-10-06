@@ -262,6 +262,11 @@ function answerBubble(lines: readonly string[], seed: string, nowMs: number): Si
   return { tone: 'nag', text: lines[(hash(seed) + slotOf(nowMs)) % lines.length], alert: true }
 }
 
+/** 일반 팀장(dflow-team …/lead)이 답을 기다릴 때 — 조정 팀장과 같은 사장님 재촉 문구다. */
+export function leadAnswerBubble(seed: string, nowMs: number): SituationBubble {
+  return answerBubble(COORD_ANSWER_LINES, seed, nowMs)
+}
+
 /**
  * 조정 팀장(coord:) 말풍선 — 레인 수·작업 중 수만으로 정하는 상황 대사다. 빈 책상 한탄·잔소리 묶음은 쓰지 않는다
  * (조정 세션은 팀원 책상을 거느리지 않는다). 상태 라벨이 「답 대기」면 사장님을 재촉한다.

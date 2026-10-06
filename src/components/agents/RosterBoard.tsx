@@ -9,11 +9,11 @@ import Link from 'next/link'
 import type { Seat, Seatmap } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName } from '@/lib/domain/seatState'
-import { assembleRoster, coordLine, isAnswerWait, isCoordSlot, parseCoordSlot, modelBadge, tempStatusKind, TIER_NAME, type ModelTier, type TempStatusKind, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
+import { assembleRoster, coordLine, isAnswerWait, isCoordSlot, leadUntilText, parseCoordSlot, modelBadge, tempStatusKind, TIER_NAME, type ModelTier, type TempStatusKind, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
-import { awayBubble, awayReason, coordBubble, leadChatter, tempBubble } from '@/lib/domain/officeChatter'
+import { awayBubble, awayReason, coordBubble, leadAnswerBubble, leadChatter, tempBubble } from '@/lib/domain/officeChatter'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { OwnerTag, ownerLabel, teamOwnerLabel, watcherOwnerLabel, type OwnerLabel } from './OwnerTag'
 import { LeadChip } from './LeadChip'
@@ -55,14 +55,14 @@ function deskTitle(d: RosterDesk): string {
 }
 function deskTone(d: RosterDesk): Tone {
   if (d.kind === 'temp') return { label: d.watcher?.untilLabel?.trim() || '상태 미상', color: TEMP_TONE[tempStatusKind(d.watcher?.untilLabel)] }
-  if (d.kind === 'lead') return isCoordSlot(d.slot) ? (isAnswerWait(d.watcher?.untilLabel) ? TONE.ANSWER : TONE.COORD) : TONE.LEAD
+  if (d.kind === 'lead') return isAnswerWait(d.watcher?.untilLabel) ? TONE.ANSWER : isCoordSlot(d.slot) ? TONE.COORD : TONE.LEAD
   if (d.kind === 'empty' || !d.seat) return TONE.EMPTY
   return TONE[d.seat.state] ?? TONE.EMPTY
 }
 const TEMP_ANIM: Record<TempStatusKind, AnimName> = { working: 'typing', wait: 'waiting', answer: 'waiting', merge: 'verify', done: 'done', other: 'idle_look' }
-/** 사람의 답을 기다리는 책상 — 조정 팀장·임시 팀원만 이 라벨을 쓴다(일반 팀장의 until 은 시각이다). */
+/** 사람의 답을 기다리는 책상 — 팀장(조정·dflow-team)과 임시 팀원. 일반 팀장의 until 은 보통 시각이고 정확히 「답 대기」일 때만이다. */
 function deskAwaitsAnswer(d: RosterDesk): boolean {
-  return (d.kind === 'temp' || (d.kind === 'lead' && isCoordSlot(d.slot))) && isAnswerWait(d.watcher?.untilLabel)
+  return (d.kind === 'temp' || d.kind === 'lead') && isAnswerWait(d.watcher?.untilLabel)
 }
 function deskLook(d: RosterDesk): { character: CharacterName; anim: AnimName } {
   if (d.kind === 'temp') return { character: pickCharacter(d.raw ?? d.key), anim: TEMP_ANIM[tempStatusKind(d.watcher?.untilLabel)] }
@@ -77,7 +77,8 @@ function deskLine(d: RosterDesk, host: RosterHost, nowMs: number, chatter: boole
     const w = d.watcher
     if (isCoordSlot(d.slot)) return coordLine(w, parseCoordSlot(d.slot)?.runId ?? null)
     const seats = w?.slots != null ? `팀원 ${w.slots}명 배정` : '감시'
-    return w?.untilLabel ? `${seats} · ${w.untilLabel} 까지` : seats
+    const until = leadUntilText(w?.untilLabel)
+    return until ? `${seats} · ${until}` : seats
   }
   // 잡담이 켜져 있으면 부재 사유(농담)를 붙인다 — 끄면 사실만 남는다.
   if (d.kind === 'empty') return chatter ? `자리 비움 · ${awayReason(d.key, nowMs)}` : host.watcher ? '빈자리 — 다음 위임을 기다립니다' : '빈자리'
@@ -163,7 +164,7 @@ function HostCard({ host, nowMs, selectedKey, onSelect, onReleaseLead }: {
   const sub = !host.conforming
     ? '신원이 <신원>/<PC> 규칙을 따르지 않아 작업 PC 를 알 수 없습니다'
     : w
-      ? `감시 중 · 신호 ${ageLabel(w.lastSeenAt, nowMs)}${w.untilLabel ? ` · ${w.untilLabel} 까지` : ''}`
+      ? `감시 중 · 신호 ${ageLabel(w.lastSeenAt, nowMs)}${leadUntilText(w.untilLabel) ? ` · ${leadUntilText(w.untilLabel)}` : ''}`
       : '감시자 없음 — 이 PC 는 새 작업을 집지 않습니다'
   // 팀(작업 PC 행) 명찰 — 팀장 계정이 먼저고, 팀장이 없는 행은 앉아 있는 에이전트의 계정을 쓴다.
   const teamOwner = teamOwnerLabel(host.mine, w?.ownerName ?? host.desks.find(d => d.seat?.agentOwnerName)?.seat?.agentOwnerName ?? null)
@@ -267,6 +268,11 @@ function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number, chatter: b
     return <ChatBubble key={c.text} kind={c.tone} text={c.text} className="max-w-full" />
   }
   if (desk.kind === 'lead') {
+    // 답 대기 재촉은 알림이라 잡담을 꺼도 띄운다(조정 팀장과 같은 사장님 문구).
+    if (isAnswerWait(desk.watcher?.untilLabel)) {
+      const a = leadAnswerBubble(desk.key, nowMs)
+      return <ChatBubble key={a.text} kind={a.tone} text={a.text} className="max-w-full" />
+    }
     // 팀장 대사(잔소리·칭찬·한탄·혼잣말)는 전부 잡담이다 — 끄면 팀장 머리 위는 비운다.
     if (!chatter) return null
     const c = leadChatter(host, nowMs, desk)
@@ -469,7 +475,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">{isCoordSlot(desk.slot) ? '조정' : '감시'}</h3>
           {isCoordSlot(desk.slot)
             ? <p>{coordLine(desk.watcher, parseCoordSlot(desk.slot)?.runId ?? null)}</p>
-            : <p>자리 {desk.watcher.busy ?? 0}/{desk.watcher.slots ?? '—'}{desk.watcher.untilLabel ? ` · ${desk.watcher.untilLabel} 까지` : ''}</p>}
+            : <p>자리 {desk.watcher.busy ?? 0}/{desk.watcher.slots ?? '—'}{leadUntilText(desk.watcher.untilLabel) ? ` · ${leadUntilText(desk.watcher.untilLabel)}` : ''}</p>}
         </section>
       )}
       {desk.kind === 'temp' && (

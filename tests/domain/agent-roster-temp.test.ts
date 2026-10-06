@@ -202,7 +202,7 @@ describe('assembleAgentHub — 표시 전용 감시자 제외', () => {
 })
 
 import { coordBubble, tempBubble, EMPTY_LINES, NAG_LINES, COORD_ANSWER_LINES, TEMP_ANSWER_LINES, ROTATE_MS } from '@/lib/domain/officeChatter'
-import { isAnswerWait } from '@/lib/domain/agentRoster'
+import { isAnswerWait, leadUntilText } from '@/lib/domain/agentRoster'
 describe('조정 팀장·임시 팀원 말풍선', () => {
   const t = { lane: 'eng', summary: 'SET 노드 엔진' }
   it('임시 팀원은 상태 라벨과 지시 요약에 맞는 말이고 빈자리 대사가 아니다', () => {
@@ -260,5 +260,11 @@ describe('조정 팀장·임시 팀원 말풍선', () => {
     expect(isAnswerWait('대기')).toBe(false)
     expect(isAnswerWait(null)).toBe(false)
     expect(tempStatusKind('답 대기')).toBe('answer')
+  })
+  it('일반 팀장 until 표기 — 시각은 「까지」, 답 대기는 그대로, 비면 null', () => {
+    expect(leadUntilText('18:00')).toBe('18:00 까지')
+    expect(leadUntilText(' 답 대기 ')).toBe('답 대기')
+    expect(leadUntilText('  ')).toBeNull()
+    expect(leadUntilText(null)).toBeNull()
   })
 })

@@ -40,6 +40,10 @@ describe('FloorCard — 「감시 중」 문자열', () => {
     ]))
     expect(watchText()).toBe('감시 중 · hong/mbp/lead 1/3')
   })
+  it('일반 감시자의 until 이 「답 대기」면 「~」 없이 그대로 쓴다', () => {
+    renderFloor(floor([watcher('hong/mbp/lead', { slots: 3, busy: 1, untilLabel: '답 대기' })]))
+    expect(watchText()).toBe('감시 중 · hong/mbp/lead 1/3 답 대기')
+  })
   it('보조 감시자뿐이면 「감시 없음」', () => {
     renderFloor(floor([watcher('hong/mbp/coord', { slots: 4, busy: 2 }), watcher('hong/mbp/임시:a·x')]))
     expect(watchText()).toBe('감시 없음')
@@ -118,12 +122,24 @@ describe('RosterBoard — 임시 팀원·조정 세션 책상', () => {
     expect(d.querySelector('[data-answer-wait]')?.textContent).toBe('답 대기')
     expect(d.querySelector('[data-chat-bubble]')?.textContent).toContain('팀장님')
   })
-  it('답 대기가 아니면 배지가 없고, 일반 팀장은 until 이 「답 대기」여도 배지를 달지 않는다', () => {
+  it('답 대기가 아니면 배지가 없다', () => {
     render([watcher('hong/mbp/coord:abcd1234', { slots: 3, busy: 1, untilLabel: '조정 중' })])
     expect(desks()[0].querySelector('[data-answer-wait]')).toBeNull()
     expect(desks()[0].textContent).toContain('조정 중')
+  })
+  it('dflow-team 팀장(lead)도 until 이 정확히 「답 대기」면 배지·사장님 재촉이고 「까지」를 붙이지 않는다', () => {
     render([watcher('hong/mbp/lead', { slots: 1, untilLabel: '답 대기' })])
+    const d = desks()[0]
+    expect(d.querySelector('b')?.textContent).toBe('팀장')
+    expect(d.querySelector('[data-answer-wait]')?.textContent).toBe('답 대기')
+    expect(d.querySelector('[data-chat-bubble]')?.textContent).toContain('사장님')
+    expect(host.textContent).not.toContain('답 대기 까지')
+    expect(d.textContent).toContain('팀원 1명 배정 · 답 대기')
+  })
+  it('dflow-team 팀장의 until 이 시각이면 종전대로 「까지」이고 배지가 없다', () => {
+    render([watcher('hong/mbp/lead', { slots: 1, untilLabel: '18:00' })])
     expect(host.querySelector('[data-answer-wait]')).toBeNull()
+    expect(desks()[0].textContent).toContain('18:00 까지')
   })
   it('잡담을 꺼도 답 대기 말풍선은 뜨고, 다른 조정 말풍선은 사라진다', () => {
     const off = (watchers: Watcher[]) => act(() => root.render(
