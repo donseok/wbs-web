@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
 import { HOLDER_RE } from '@/lib/agent/leadLease'
+import { isAuxWatcherAgent } from '@/lib/domain/agentRoster'
 import { leadSummaryWire, parseInputRequest, parseLeadSummary } from '@/lib/domain/watcherExtras'
 import { parseLaneSummary, toWire } from '@/lib/domain/laneSummary'
 import {
@@ -273,7 +274,9 @@ export async function POST(req: NextRequest) {
     const { error: upErr } = await admin
       .from('agent_watchers')
       .upsert({
-        user_id: principal.userId, project_id: projectId, agent, host, slots, busy,
+        // 조정 팀장·임시 팀원은 프로젝트에 묶이지 않는 자리다 — 프로젝트 한정 PAT 로 project_id 를 바꿔 그 프로젝트 관리자에게
+        // 레인 화면·입력 요청 발췌가 열리게 하는 일을 막는다(콘솔 화면 보기는 project_id 가 있는 감시자만 관리자에게 연다).
+        user_id: principal.userId, project_id: isAuxWatcherAgent(agent) ? null : projectId, agent, host, slots, busy,
         until_label: until, last_seen_at: now.toISOString(),
         summary: display.summary, lead_summary: display.lead_summary, input_request: display.input_request,
       }, { onConflict: 'user_id,agent' })

@@ -402,4 +402,21 @@ describe('POST /agent/watch — 표시 전용 요약 칸(0110)', () => {
     expect(body.summary_error).toMatch(/input_request/)
     expect(upsertOf(calls).input_request).toBeNull()
   })
+  it('프로젝트 한정 PAT 로 보조 감시자(임시·coord)를 올려도 project_id 는 null 로 저장한다(관리자 열람 확대 방지)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues({ ...RUNNER, project_id: P1 }), calls)
+    const res = await post({ agent: 'hong/mbp/임시:eng·x' })
+    expect(res.status).toBe(200)
+    expect(upsertOf(calls).project_id).toBeNull()
+    const calls2: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues({ ...RUNNER, project_id: P1 }), calls2)
+    await post({ agent: 'hong/mbp/coord:abcd1234' })
+    expect(upsertOf(calls2).project_id).toBeNull()
+  })
+  it('일반 감시자(lead)는 종전대로 한정된 프로젝트로 저장한다(회귀)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues({ ...RUNNER, project_id: P1 }), calls)
+    await post({ agent: 'hong/mbp/lead' })
+    expect(upsertOf(calls).project_id).toBe(P1)
+  })
 })
