@@ -75,7 +75,7 @@ function deskLine(d: RosterDesk, host: RosterHost, nowMs: number, chatter: boole
   if (d.kind === 'temp') return d.temp?.summary || '지시 요약 없음'
   if (d.kind === 'lead') {
     const w = d.watcher
-    if (isCoordSlot(d.slot)) return coordLine(w, parseCoordSlot(d.slot)?.runId ?? null)
+    if (isCoordSlot(d.slot)) return coordLine(w, parseCoordSlot(d.slot)?.sessionId ?? null)
     const seats = w?.slots != null ? `팀원 ${w.slots}명 배정` : '감시'
     const until = leadUntilText(w?.untilLabel)
     return until ? `${seats} · ${until}` : seats
@@ -474,7 +474,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
         <section className="flex flex-col gap-1 text-sm text-ink-muted">
           <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">{isCoordSlot(desk.slot) ? '조정' : '감시'}</h3>
           {isCoordSlot(desk.slot)
-            ? <p>{coordLine(desk.watcher, parseCoordSlot(desk.slot)?.runId ?? null)}</p>
+            ? <p>{coordLine(desk.watcher, parseCoordSlot(desk.slot)?.sessionId ?? null)}</p>
             : <p>자리 {desk.watcher.busy ?? 0}/{desk.watcher.slots ?? '—'}{leadUntilText(desk.watcher.untilLabel) ? ` · ${leadUntilText(desk.watcher.untilLabel)}` : ''}</p>}
         </section>
       )}

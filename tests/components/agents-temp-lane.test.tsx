@@ -88,10 +88,11 @@ describe('RosterBoard — 임시 팀원·조정 세션 책상', () => {
     expect(d.textContent).toContain('레인 5개 · 작업 중 2')
     expect(d.textContent).not.toContain('팀원 5명 배정')
   })
-  it('coord:<run-id> 는 팀장(조정) 책상에 회차를 작게 보이고, 접두만 같은 coordinator 는 일반 감시 책상이다', () => {
+  it('옛 키 coord:<run-id> 도 팀장(조정) 책상이고 식별자는 세션으로 보인다, 접두만 같은 coordinator 는 일반 감시 책상이다', () => {
     render([watcher('hong/mbp/coord:widget-2026-10-05', { slots: 5, busy: 2 })])
     expect(desks()[0].querySelector('b')?.textContent).toBe('팀장(조정)')
-    expect(desks()[0].textContent).toContain('회차 widget-2026-10-05')
+    expect(desks()[0].textContent).toContain('세션 widget-2026-10-05')
+    expect(desks()[0].textContent).not.toContain('회차')
     render([watcher('hong/mbp/coordinator')])
     expect(desks()[0].querySelector('b')?.textContent).toBe('팀장')
     expect(desks()[0].textContent).not.toContain('회차')
@@ -153,5 +154,16 @@ describe('RosterBoard — 임시 팀원·조정 세션 책상', () => {
     expect(desks()[0].querySelector('[data-chat-bubble]')?.textContent).toContain('사장님')
     off([watcher('hong/mbp/coord:abcd1234', { slots: 3, busy: 1, untilLabel: '조정 중' })])
     expect(desks()[0].querySelector('[data-chat-bubble]')).toBeNull()
+  })
+  it('새 키 coord:<세션8> — 같은 PC 의 두 세션은 팀장(조정) 둘로 따로 보이고 합치지 않는다', () => {
+    render([
+      watcher('hong/mbp/coord:0f8a8f92', { slots: 3, busy: 1 }),
+      watcher('hong/mbp/coord:aa11bb22', { slots: 2, busy: 2 }),
+    ])
+    const ds = desks()
+    expect(ds.map(d => d.querySelector('b')?.textContent)).toEqual(['팀장(조정)', '팀장(조정)'])
+    expect(ds.map(d => d.textContent?.includes('세션 0f8a8f92') || d.textContent?.includes('세션 aa11bb22'))).toEqual([true, true])
+    expect(host.textContent).toContain('레인 3개 · 작업 중 1 · 세션 0f8a8f92')
+    expect(host.textContent).toContain('레인 2개 · 작업 중 2 · 세션 aa11bb22')
   })
 })

@@ -73,11 +73,15 @@ export function parseTempSlot(slot: string): TempSlot | null {
   return { lane: lane || '레인 미상', summary: i < 0 ? '' : rest.slice(i + 1).trim() }
 }
 
-/** 조정 세션 슬롯 — `coord`(옛 킷) 또는 `coord:<run-id>`. 접두만 같은 다른 토큰(coordinator)은 아니다. run-id 가 비면 null. */
-export function parseCoordSlot(slot: string): { runId: string | null } | null {
-  if (slot === 'coord') return { runId: null }
+/**
+ * 조정 세션 슬롯 — `coord:<세션8>`(조정 세션 id 앞 8자, 조정자 계약 §4). 옛 킷의 `coord`·`coord:<run-id>` 도 팀장으로 읽는다.
+ * 접두만 같은 다른 토큰(coordinator)은 아니다. 식별자는 해석하지 않고 그대로 쓴다 — 옛 run-id 와 세션 식별자를 가르지 않는다.
+ * 같은 user·host 에 팀장 키가 둘 이상이면 다른 세션이므로 합치지 않는다. 식별자가 비면 null.
+ */
+export function parseCoordSlot(slot: string): { sessionId: string | null } | null {
+  if (slot === 'coord') return { sessionId: null }
   if (!slot.startsWith('coord:')) return null
-  return { runId: slot.slice('coord:'.length).trim() || null }
+  return { sessionId: slot.slice('coord:'.length).trim() || null }
 }
 export function isCoordSlot(slot: string): boolean {
   return parseCoordSlot(slot) !== null
@@ -123,10 +127,11 @@ export function tempStatusKind(label: string | null | undefined): TempStatusKind
   }
 }
 
-/** 조정 세션 한 줄 — slots=레인 수, busy=작업 중 레인 수(팀원 자리 수가 아니다). run-id 가 있으면 회차를 붙인다. */
-export function coordLine(w: { slots: number | null; busy: number | null } | null, runId: string | null = null): string {
+/** 조정 세션 한 줄 — slots=그 세션의 열린 회차 전부에서 합산한 레인 수, busy=그중 작업 중 레인 수(팀원 자리 수가 아니다).
+ *  식별자가 있으면 세션을 붙인다(회차 목록은 계약에 칸이 없어 보이지 않는다 — 10-06 결정). */
+export function coordLine(w: { slots: number | null; busy: number | null } | null, sessionId: string | null = null): string {
   const base = w?.slots != null ? `레인 ${w.slots}개 · 작업 중 ${w.busy ?? 0}` : '조정 중'
-  return runId ? `${base} · 회차 ${runId}` : base
+  return sessionId ? `${base} · 세션 ${sessionId}` : base
 }
 
 export function slotLabel(slot: string): string {
