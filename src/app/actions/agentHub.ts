@@ -8,7 +8,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { getAgentHub } from '@/lib/data/agentHub'
 import { fetchConsoleSeatOwners, fetchConsoleSeats, viewerEmail, type ConsoleSeatOwner } from '@/lib/data/agentSeatmap'
-import { CONSOLE_ISSUE_TEXT, consoleTargetKey, consoleTargetOfAgent, consoleTextIssue, normalizeConsoleText } from '@/lib/domain/agentConsole'
+import { CONSOLE_ANSWERABLE_KINDS, CONSOLE_ISSUE_TEXT, type ConsoleInputRequestView, type ConsoleKey, type ConsoleKeysRequest, consoleTargetKey, consoleTargetOfAgent, consoleTextIssue, normalizeConsoleText, parseConsoleKeys } from '@/lib/domain/agentConsole'
+import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
+import { readInputRequest, type InputRequest } from '@/lib/domain/watcherExtras'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { applyDelegation, ERR_NOT_ASSIGNEE } from '@/lib/agent/delegation'
 import { cancelOrders } from '@/lib/agent/cancelOrder'
@@ -353,12 +355,46 @@ export type ConsoleSendResult =
   | { ok: true; id: string }
   | { ok: false; code: 'unauthorized' | 'bad_target' | 'empty' | 'bang_in_text' | 'too_long' | 'target_unknown' | 'not_owner' | 'rate_limited' | 'queue_full' | 'error'; error: string }
 
+/** 키 입력 보내기 결과 — 보내기 결과에 입력 요청 대조 사유가 더해진다. */
+export type ConsoleKeysResult =
+  | { ok: true; id: string }
+  | { ok: false; code: 'unauthorized' | 'bad_target' | 'bad_keys' | 'target_unknown' | 'not_owner' | 'no_request' | 'not_answerable' | 'prompt_changed' | 'already_sent' | 'rate_limited' | 'queue_full' | 'error'; error: string }
+
 const CONSOLE_SEND_ERR = {
   target_unknown: '이 세션이 지금 오피스에 없습니다 — 세션이 다시 신호를 보내면 보낼 수 있습니다.',
   not_owner: '보내기는 이 세션의 주인 본인만 할 수 있습니다.',
   rate_limited: '1분에 5건까지 보낼 수 있습니다. 잠시 뒤에 다시 보내세요.',
   queue_full: '이 세션에 아직 전달되지 않은 프롬프트가 3건 있습니다. 전달된 뒤에 보내세요.',
 } as const
+
+const CONSOLE_KEYS_ERR = {
+  bad_keys: '보낼 수 없는 키 조합입니다. 키는 최대 4개까지 보낼 수 있고, 확정 키(숫자 1~9·Enter·Esc)와 Tab 은 마지막에 하나만 둘 수 있으며 그 앞에는 Up·Down 만 올 수 있습니다. 확정이나 Tab 이 여러 번 필요하면 나누어 보내세요.',
+  no_request: '이 세션에 지금 떠 있는 입력 요청이 없습니다.',
+  not_answerable: '이 입력 요청은 웹에서 답할 수 없습니다. 이미 처리됐거나 터미널에서 직접 답해야 하는 종류입니다.',
+  prompt_changed: '입력 창이 바뀌었거나 사라졌습니다. 화면을 새로 고쳐 확인한 뒤 다시 보내세요.',
+  already_sent: '이 입력 창에는 이미 답을 보냈습니다. 창이 바뀐 뒤에 다시 보낼 수 있습니다.',
+} as const
+
+/**
+ * 감시자 행의 입력 요청을 읽는다(service_role 직접 조회 — 감시자 행의 input_request 는 클라이언트가 못 읽는다).
+ * 생존 TTL 을 넘긴 감시자의 값은 이미 지난 창이므로 없는 것으로 본다. 저장돼 있는데 형식이 깨져 읽을 수 없으면 unreadable
+ * (없음과 구분 — 표시는 사유를 알리고, 보내기는 막는다). 조회 실패는 ok:false.
+ */
+async function readWatcherInputRequest(admin: AdminClient, userId: string, seatKey: string):
+  Promise<{ ok: true; request: InputRequest | null; unreadable: boolean } | { ok: false }> {
+  const { data, error } = await admin.from('agent_watchers').select('input_request, last_seen_at')
+    .eq('user_id', userId).eq('agent', seatKey).maybeSingle()
+  if (error) {
+    console.error('[agentHub] 콘솔 입력 요청 조회 실패:', error.message)
+    return { ok: false }
+  }
+  const row = data as { input_request: unknown; last_seen_at: string } | null
+  if (!row || row.input_request === null || row.input_request === undefined) return { ok: true, request: null, unreadable: false }
+  const seenMs = Date.parse(row.last_seen_at)
+  if (!(seenMs >= Date.now() - WATCHER_TTL_MS)) return { ok: true, request: null, unreadable: false }
+  const request = readInputRequest(row.input_request)
+  return { ok: true, request, unreadable: request === null }
+}
 
 async function consoleActor(): Promise<Actor | null> {
   try { return await getActor() } catch (e) {
@@ -400,6 +436,59 @@ export async function sendConsolePrompt(seatKey: string, text: string): Promise<
   return { ok: false, code: 'error', error: '프롬프트를 넣지 못했습니다. 잠시 뒤에 다시 시도하세요.' }
 }
 
+/**
+ * 키 입력 보내기 — 조정 레인의 터미널에 떠 있는 입력 요청(permission·question·choice)에 허용된 키만 보내 답한다.
+ * 보안 핵심이므로 클라이언트 값은 믿지 않고 서버가 전부 다시 판정한다. 순서:
+ *  로그인 → 대상이 coord_lane → 키 목록(허용 목록·1~4개) → 좌석 주인 본인(관리자·슈퍼유저도 불가, 조회 실패는 거부)
+ *  → 본인의 살아 있는 감시자 행에 저장된 입력 요청(미처리·답할 수 있는 종류) → 클라이언트가 본 kind·since·sha 가 저장값과 같은지.
+ * 큐에 넣는 값은 클라이언트가 보낸 값이 아니라 저장된 값이다. 같은 화면 상태에는 DB 가 한 번만 받는다(already_sent).
+ */
+export async function sendConsoleKeys(seatKey: string, req: ConsoleKeysRequest, keys: readonly ConsoleKey[]): Promise<ConsoleKeysResult> {
+  const actor = await consoleActor()
+  if (!actor) return { ok: false, code: 'unauthorized', error: '로그인이 필요합니다.' }
+  const target = typeof seatKey === 'string' ? consoleTargetOfAgent(seatKey) : null
+  if (!target || target.kind !== 'coord_lane') return { ok: false, code: 'bad_target', error: '키를 보낼 수 있는 세션이 아닙니다.' }
+  const checked = parseConsoleKeys(keys)
+  if (!checked) return { ok: false, code: 'bad_keys', error: CONSOLE_KEYS_ERR.bad_keys }
+  const admin = createAdminClient()
+  let owners: ConsoleSeatOwner[]
+  try { owners = await fetchConsoleSeatOwners(admin, seatKey) } catch (e) {
+    console.error('[agentHub] 콘솔 좌석 조회 실패:', e instanceof Error ? e.message : e)
+    return { ok: false, code: 'error', error: '세션 확인에 실패했습니다. 잠시 뒤에 다시 시도하세요.' }
+  }
+  if (owners.length === 0) return { ok: false, code: 'target_unknown', error: CONSOLE_SEND_ERR.target_unknown }
+  if (!owners.some(o => o.owner === actor.userId)) return { ok: false, code: 'not_owner', error: CONSOLE_SEND_ERR.not_owner }
+  let stored: Awaited<ReturnType<typeof readWatcherInputRequest>>
+  try { stored = await readWatcherInputRequest(admin, actor.userId, seatKey) } catch (e) {
+    console.error('[agentHub] 콘솔 입력 요청 조회 실패:', e instanceof Error ? e.message : e)
+    stored = { ok: false }
+  }
+  if (!stored.ok) return { ok: false, code: 'error', error: '입력 요청 확인에 실패했습니다. 잠시 뒤에 다시 시도하세요.' }
+  const request = stored.request
+  if (!request) return { ok: false, code: 'no_request', error: CONSOLE_KEYS_ERR.no_request }
+  if (request.handled !== null || !(CONSOLE_ANSWERABLE_KINDS as readonly string[]).includes(request.kind)) {
+    return { ok: false, code: 'not_answerable', error: CONSOLE_KEYS_ERR.not_answerable }
+  }
+  const seen = req !== null && typeof req === 'object' ? req : null
+  if (!seen || seen.kind !== request.kind || seen.since !== request.since || seen.sha !== request.sha) {
+    return { ok: false, code: 'prompt_changed', error: CONSOLE_KEYS_ERR.prompt_changed }
+  }
+  const { data, error } = await admin.rpc('agent_console_enqueue_keys', {
+    p_owner: actor.userId, p_host: target.host, p_kind: target.kind, p_ref: target.ref, p_keys: checked,
+    p_req_kind: request.kind, p_req_since: new Date(Date.parse(request.since)).toISOString(), p_req_sha: request.sha,
+  })
+  if (error) {
+    console.error('[agentHub] 콘솔 키 보내기 실패:', error.message)
+    return { ok: false, code: 'error', error: '키를 넣지 못했습니다. 잠시 뒤에 다시 시도하세요.' }
+  }
+  const row = ((data ?? []) as Array<{ outcome: string; id: string | null }>)[0]
+  if (row?.outcome === 'ok' && row.id) return { ok: true, id: row.id }
+  if (row?.outcome === 'rate_limited' || row?.outcome === 'queue_full') return { ok: false, code: row.outcome, error: CONSOLE_SEND_ERR[row.outcome] }
+  if (row?.outcome === 'already_sent') return { ok: false, code: 'already_sent', error: CONSOLE_KEYS_ERR.already_sent }
+  console.error('[agentHub] 콘솔 키 보내기 응답 이상:', JSON.stringify(data))
+  return { ok: false, code: 'error', error: '키를 넣지 못했습니다. 잠시 뒤에 다시 시도하세요.' }
+}
+
 /** 화면 한 장이 24시간 넘게 갱신되지 않았으면 보이지 않는다(화면 라우트가 게으르게 지우기 전이라도). */
 const CONSOLE_SCREEN_TTL_MS = 24 * 3600_000
 /** 전달 상태 표에 싣는 최근 프롬프트 수. */
@@ -419,6 +508,9 @@ export type ConsoleViewResult =
       /** canView 일 때만. null 은 올라온 화면이 없음. */
       screen?: { lines: string[]; capturedAt: string } | null
       screenError?: string
+      /** canView 일 때만 — 지금 떠 있는 입력 요청(발췌·해시 포함). null 은 입력 요청 없음. */
+      inputRequest?: ConsoleInputRequestView | null
+      inputRequestError?: string
     }
   | { ok: false; error: string }
 
@@ -441,7 +533,10 @@ export async function getConsoleView(seatKey: string): Promise<ConsoleViewResult
   //    그 주인의 같은 열쇠 좌석이 전부 프로젝트가 있고, 그 프로젝트를 모두 내가 관리할 때만 연다.
   let viewOwner: string | null = isOwner ? actor.userId : null
   const distinct = [...new Set(owners.map(o => o.owner))]
-  if (!isOwner && distinct.length === 1) {
+  // 조정 세션(coord_lane·coord_lead)은 관리자(남) 열람 경로를 만들지 않는다 — 계약 문구(관리자는 발췌를 볼 수 있다)와 다르다. 조정 좌석의 감시자 행은
+  // project_id 가 보조 신호라(다음 beat 전까지 길게는 70분 낡을 수 있다) 프로젝트로 열람 범위를 정하면 어긋난 행이 관리자에게 열릴 수 있기 때문이다.
+  const coordSeat = target.kind === 'coord_lane' || target.kind === 'coord_lead'
+  if (!isOwner && !coordSeat && distinct.length === 1) {
     try {
       const same = (await fetchConsoleSeats(admin, distinct[0])).filter(x => consoleTargetKey(x) === consoleTargetKey(target))
       if (same.length > 0 && same.every(x => x.projectId !== null && isProjectAdmin(actor, x.projectId))) viewOwner = distinct[0]
@@ -480,6 +575,20 @@ export async function getConsoleView(seatKey: string): Promise<ConsoleViewResult
     } else {
       const r = data as { lines: string[]; captured_at: string; updated_at: string } | null
       out.screen = r && Date.parse(r.updated_at) > Date.now() - CONSOLE_SCREEN_TTL_MS ? { lines: r.lines, capturedAt: r.captured_at } : null
+    }
+    // 입력 요청(발췌·해시 포함) — 화면 보기와 같은 권한(viewOwner)에게만 준다. 레인 감시자 행에만 있다.
+    // 조회 실패·형식 깨짐은 「없음」으로 위장하지 않고 사유를 싣는다.
+    if (target.kind === 'coord_lane') {
+      let w: Awaited<ReturnType<typeof readWatcherInputRequest>>
+      try { w = await readWatcherInputRequest(admin, viewOwner, seatKey) } catch (e) {
+        console.error('[agentHub] 콘솔 입력 요청 조회 실패:', e instanceof Error ? e.message : e)
+        w = { ok: false }
+      }
+      if (!w.ok) out.inputRequestError = '입력 요청 조회에 실패했습니다.'
+      else if (w.unreadable) out.inputRequestError = '입력 요청의 형식이 올바르지 않아 표시하지 못했습니다.'
+      else out.inputRequest = w.request
+        ? { kind: w.request.kind, since: w.request.since, handled: w.request.handled, excerpt: w.request.excerpt, sha: w.request.sha }
+        : null
     }
   }
   return out

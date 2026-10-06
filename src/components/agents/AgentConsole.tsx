@@ -7,6 +7,7 @@ import { getConsoleView, sendConsolePrompt, type ConsoleViewResult } from '@/app
 import { consoleTargetOfAgent, type ConsoleTargetKind } from '@/lib/domain/agentConsole'
 import type { SeatState } from '@/lib/domain/seatState'
 import { AgentConsolePanel } from './AgentConsolePanel'
+import { InputRequestPanel } from './InputRequestPanel'
 
 type DraftUpdate = string | ((prev: string) => string)
 /**
@@ -52,7 +53,11 @@ type View = Extract<ConsoleViewResult, { ok: true }>
  * 호출처는 key={seatKey} 를 함께 준다 — 자리를 바꾸면 새로 그려 앞 자리의 화면·보내는 중 표시가 한 순간도 섞이지 않게(계약).
  * 그래도 응답은 요청 번호로 걸러, 같은 인스턴스에서 좌석이 바뀌거나 앞선 조회가 늦게 와도 가장 최근 요청의 응답만 쓴다.
  */
-export function AgentConsole({ seatKey, label, nowMs }: { seatKey: string; label?: string; nowMs: number }) {
+export function AgentConsole({ seatKey, label, nowMs, hideInput = false }: {
+  seatKey: string; label?: string; nowMs: number
+  /** 입력 요청 발췌·답하기 구역을 그리지 않는다 — 같은 자리에 입력 요청 배지가 따로 있을 때(임시 팀원 상세) 두 벌이 겹치지 않게. */
+  hideInput?: boolean
+}) {
   const target = consoleTargetOfAgent(seatKey)
   const shared = useContext(ConsoleDraftContext)
   const [localDraft, setLocalDraft] = useState('')
@@ -137,6 +142,14 @@ export function AgentConsole({ seatKey, label, nowMs }: { seatKey: string; label
         canView={view.canView}
         screen={view.screenError ? null : view.screen} screenError={view.screenError ?? null}
       />
+      {/* 입력 요청 발췌와 웹에서 답하기 — 발췌는 서버가 열람 권한이 있는 사람에게만 주므로 칸이 없으면(undefined) 그리지 않는다.
+          키를 보낸 뒤 창이 바뀌었다는 답이 오면 기존 조회를 한 번 더 부른다(새 폴링 없음). */}
+      {!hideInput && view.inputRequestError && (
+        <p data-console-input-request-error="" role="alert" className="text-xs text-critical">{view.inputRequestError}</p>
+      )}
+      {!hideInput && !view.inputRequestError && view.inputRequest && (
+        <InputRequestPanel seatKey={seatKey} request={view.inputRequest} canSend={view.canSend} onSent={() => { void load() }} />
+      )}
       {/* 재조회만 실패했을 때 — 지난 값은 그대로 두고 실패를 따로 알린다(위장 금지). */}
       {viewError && <p data-console-view-error="" role="alert" className="text-xs text-critical">콘솔 갱신 실패 · {viewError}</p>}
     </>

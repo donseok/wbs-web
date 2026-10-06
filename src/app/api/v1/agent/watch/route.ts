@@ -1,8 +1,12 @@
+import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
 import { HOLDER_RE } from '@/lib/agent/leadLease'
+import { isAuxWatcherAgent } from '@/lib/domain/agentRoster'
+import { leadSummaryWire, parseInputRequest, parseLeadSummary } from '@/lib/domain/watcherExtras'
+import { parseLaneSummary, toWire } from '@/lib/domain/laneSummary'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, requireScope, resolveAgentPrincipal, type AgentPrincipal,
 } from '@/lib/agent/externalApi'
@@ -189,6 +193,27 @@ async function loadBuildReady(
   return out
 }
 
+/**
+ * 표시 전용 jsonb 세 칸(summary·lead_summary·input_request) — 허용한 키만 다시 지어 저장한다. 잘못된 값은 400 이 아니라 그 칸만 null 로 두고
+ * 사유를 모아 돌려준다(감시자 생존 신호를 표시용 칸 때문에 끊지 않는다). 칸을 보내지 않으면 null 로 덮어쓴다(이전 값을 남기지 않는다).
+ */
+function parseDisplayColumns(b: Record<string, unknown>): { summary: unknown; lead_summary: unknown; input_request: unknown; error: string | null } {
+  const errs: string[] = []
+  const sha = (m: string) => createHash('sha256').update(m, 'utf8').digest('hex')
+  const s = parseLaneSummary(b.summary)
+  const l = parseLeadSummary(b.lead_summary)
+  const i = parseInputRequest(b.input_request, sha)
+  if (!s.ok) errs.push(`summary: ${s.error}`)
+  if (!l.ok) errs.push(`lead_summary: ${l.error}`)
+  if (!i.ok) errs.push(`input_request: ${i.error}`)
+  return {
+    summary: s.ok && s.value ? toWire(s.value) : null,
+    lead_summary: l.ok && l.value ? leadSummaryWire(l.value) : null,
+    input_request: i.ok ? i.value : null,
+    error: errs.length ? errs.join(' | ').slice(0, 600) : null,
+  }
+}
+
 function nonNegInt(v: unknown, name: string): number | null | { error: string } {
   if (v === undefined || v === null) return null
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) return { error: `${name} 은 0 이상의 정수여야 합니다.` }
@@ -244,11 +269,16 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date()
+    // 0110 칸(summary·lead_summary·input_request)이 DB 에 먼저 있어야 한다 — 없으면 이 upsert 가 실패해 모든 PC 의 감시자 신호가 끊긴다.
+    const display = parseDisplayColumns(b)
     const { error: upErr } = await admin
       .from('agent_watchers')
       .upsert({
-        user_id: principal.userId, project_id: projectId, agent, host, slots, busy,
+        // 조정 팀장·임시 팀원은 프로젝트에 묶이지 않는 자리다 — 프로젝트 한정 PAT 로 project_id 를 바꿔 그 프로젝트 관리자에게
+        // 레인 화면·입력 요청 발췌가 열리게 하는 일을 막는다(콘솔 화면 보기는 project_id 가 있는 감시자만 관리자에게 연다).
+        user_id: principal.userId, project_id: isAuxWatcherAgent(agent) ? null : projectId, agent, host, slots, busy,
         until_label: until, last_seen_at: now.toISOString(),
+        summary: display.summary, lead_summary: display.lead_summary, input_request: display.input_request,
       }, { onConflict: 'user_id,agent' })
     if (upErr) { console.error('[agent-api] watch upsert 실패:', upErr.message); return apiInternalError() }
     // 청소를 따로 두지 않는다 — 7일 넘게 조용한 행은 여기서 지운다. 실패는 로깅만.
@@ -269,6 +299,7 @@ export async function POST(req: NextRequest) {
       resume_requests: resume,
       ...(resume === null ? { resume_requests_error: '재개 요청 조회에 실패했습니다.' } : {}),
       build_ready: buildReady,
+      ...(display.error ? { summary_error: display.error } : {}),
       ...(buildReady === null ? { build_ready_error: '구현 대기 목록 조회에 실패했습니다.' } : {}),
     })
   } catch (e) {
