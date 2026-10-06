@@ -9,6 +9,8 @@ import {
   type BlockedSuccessor, type BottleneckSettings, type StubPendingEntry,
 } from './forceProgress'
 import { isAuxWatcherAgent } from './agentRoster'
+import { readLaneSummary, type LaneSummary } from './laneSummary'
+import { readInputRequest, readLeadSummary, type InputRequest, type LeadSummary } from './watcherExtras'
 import { heavyGauge, seatHeavyOf, type SeatHeavy } from './heavyWork'
 import {
   designScreen, predsState, toDesignMode, toDesignState, workerAlive, type DesignScreenRow, type ItemFacts, type ScreenOrder,
@@ -60,6 +62,8 @@ export interface ReportRow { work_order_id: string; kind: 'progress' | 'completi
 export interface WatcherRow {
   id: string; user_id: string; project_id: string | null; agent: string; host: string | null
   slots: number | null; busy: number | null; until_label: string | null; last_seen_at: string
+  /** 0110 — 조정자 킷이 싣는 표시 전용 jsonb(원문). 읽을 때 한 번 더 검증해 Watcher 로 옮긴다. */
+  summary?: unknown; lead_summary?: unknown; input_request?: unknown
 }
 export interface ProjectRow { id: string; name: string }
 /** 팀장 lease 행(agent_lead_leases, 0101) — 신원+프로젝트당 하나. */
@@ -142,6 +146,10 @@ export interface Watcher {
   agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null
   /** 감시자 계정(user_id)이 보는 사람 — 좌석의 agentMine 과 같은 판정. 허브처럼 재료를 싣지 않는 곳은 비워 둔다(없음 = false). */
   mine?: boolean
+  /** 레인 요약(임시 팀원)·팀장 자리 요약(조정 팀장)·입력 요청 — 없거나 형식이 깨졌으면 null. 표시 전용이다. */
+  summary?: LaneSummary | null
+  leadSummary?: LeadSummary | null
+  inputRequest?: InputRequest | null
   /** 다른 계정의 감시자면 그 계정의 로스터 이름(없으면 null). */
   ownerName?: string | null
 }
@@ -471,7 +479,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     .filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (!mine || w.user_id === mine.userId))
     .map(w => {
       const owner = ownerOf(w.user_id, viewerId, ownerName(w.project_id))
-      return { agent: w.agent, host: w.host, slots: w.slots, busy: w.busy, untilLabel: w.until_label, lastSeenAt: w.last_seen_at, projectId: w.project_id, mine: owner.mine, ownerName: owner.name }
+      return { agent: w.agent, host: w.host, slots: w.slots, busy: w.busy, untilLabel: w.until_label, lastSeenAt: w.last_seen_at, projectId: w.project_id, mine: owner.mine, ownerName: owner.name,
+        summary: readLaneSummary(w.summary), leadSummary: readLeadSummary(w.lead_summary), inputRequest: readInputRequest(w.input_request) }
     })
     .sort((a, b) => a.agent.localeCompare(b.agent))
 

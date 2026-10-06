@@ -331,3 +331,75 @@ describe('POST /agent/watch — 계약 2.11', () => {
       .toEqual([['55555555', true, 'accepted'], ['66666666', false, null]])
   })
 })
+
+describe('POST /agent/watch — 표시 전용 요약 칸(0110)', () => {
+  const sum = { v: 1, lane: 'eng', state: 'active', brief: '엔진', items_done: 1, items_total: 3, hold: null, branch: 'feat/x', last_report_at: '2026-10-06T13:00:00+09:00', last_instr_at: null, ctx_pct: 40, compact_pending: false }
+  const run = {
+    run: 'rule-set-2026-10-06', decision: { pending_user: 1, open: 2, first_title: '삭제 확인' }, merge: { in_flight: 'eng', queue: ['srv'] },
+    progress: { goal: '목표', started_at: '2026-10-06T09:00:00+09:00', items_done: 3, items_total: 9 }, lanes: { working: 2, waiting: 1, done: 0, quiet: [] },
+    resource: { band: 'Y', five: 30, week: 64, load_adjust: 1, banned: false }, alive: { last_tick_at: '2026-10-06T13:50:00+09:00' },
+  }
+  const upsertOf = (calls: Record<string, unknown[]>) => (calls['agent_watchers:upsert'][0] as [Record<string, unknown>])[0]
+
+  it('회귀 — 요약 칸이 없는 옛 요청은 그대로 통과하고 세 칸을 null 로 쓴다(이전 값을 남기지 않는다)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues(), calls)
+    const res = await post({ agent: 'hong/mbp/임시:eng·x', until: '작업 중' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).not.toHaveProperty('summary_error')
+    expect(upsertOf(calls)).toMatchObject({ summary: null, lead_summary: null, input_request: null })
+  })
+  it('summary 를 허용한 키만으로 다시 지어 저장한다(모르는 키는 버린다)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues(), calls)
+    const res = await post({ agent: 'hong/mbp/임시:eng·x', summary: { ...sum, handle: 'term_secret', pid: 1 } })
+    expect(res.status).toBe(200)
+    const stored = upsertOf(calls).summary as Record<string, unknown>
+    expect(stored).toMatchObject({ v: 1, lane: 'eng', items_done: 1, items_total: 3, ctx_pct: 40 })
+    expect(JSON.stringify(stored)).not.toContain('term_secret')
+    expect(stored).not.toHaveProperty('pid')
+  })
+  it('잘못된 summary 는 400 이 아니라 그 칸만 null + summary_error 이고 감시자 신호는 저장된다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues(), calls)
+    const res = await post({ agent: 'hong/mbp/임시:eng·x', until: '작업 중', summary: { ...sum, v: 9 }, lead_summary: { v: 1, runs: [run] } })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+    expect(body.summary_error).toMatch(/^summary: /)
+    expect(body.summary_error).not.toContain('lead_summary')
+    const p = upsertOf(calls)
+    expect(p).toMatchObject({ summary: null, until_label: '작업 중' })
+    expect((p.lead_summary as { runs: unknown[] }).runs).toHaveLength(1)
+  })
+  it('lead_summary 는 회차 배열로 저장하고 5개 초과는 그 칸만 null', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues(), calls)
+    const ok = await post({ agent: 'hong/mbp/coord:abcd1234', lead_summary: { v: 1, runs: [run, { ...run, run: 'r2' }] } })
+    expect(ok.status).toBe(200)
+    expect((upsertOf(calls).lead_summary as { runs: Array<{ run: string; decision: { pending_user: number } }> }).runs.map(r => r.run)).toEqual(['rule-set-2026-10-06', 'r2'])
+    const calls2: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues(), calls2)
+    const bad = await (await post({ agent: 'hong/mbp/coord:abcd1234', lead_summary: { v: 1, runs: Array.from({ length: 6 }, () => run) } })).json()
+    expect(bad.summary_error).toMatch(/lead_summary/)
+    expect(upsertOf(calls2).lead_summary).toBeNull()
+  })
+  it('input_request — sha 는 서버가 발췌에서 계산하고 킷이 보낸 sha 는 무시한다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues(), calls)
+    const req = { v: 1, kind: 'permission', since: '2026-10-06T13:40:00+09:00', excerpt: ['Allow rm? (y/n)', '1) yes'], handled: null, sha: 'f'.repeat(64) }
+    const res = await post({ agent: 'hong/mbp/임시:eng·x', input_request: req })
+    expect(res.status).toBe(200)
+    const stored = upsertOf(calls).input_request as { sha: string; excerpt: string[]; kind: string }
+    expect(stored.kind).toBe('permission')
+    expect(stored.sha).toMatch(/^[0-9a-f]{64}$/)
+    expect(stored.sha).not.toBe('f'.repeat(64))
+  })
+  it('input_request 종류가 목록 밖이면 null + summary_error', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(runnerQueues(), calls)
+    const body = await (await post({ agent: 'hong/mbp/임시:eng·x', input_request: { v: 1, kind: 'rm-rf', since: '2026-10-06T13:40:00+09:00', excerpt: [] } })).json()
+    expect(body.summary_error).toMatch(/input_request/)
+    expect(upsertOf(calls).input_request).toBeNull()
+  })
+})
