@@ -204,7 +204,7 @@ describe('parseLaneSummary — lead 칸(이 레인을 거느린 조정 팀장의
     }
     expect(parseLaneSummary(good)).toMatchObject({ ok: true, value: { lead: null } })
   })
-  it('40자를 넘거나 문자열이 아니면 error — 요약 전체가 null 이 되고 그 레인은 팀장 미확인이다', () => {
+  it('40자를 넘거나 문자열이 아니면 error — 요약 전체가 null 이 되므로 lead 도 못 읽는다(그 레인은 lead 칸이 없는 옛 PC 와 같이 추정 규칙으로 간다)', () => {
     expect(parseLaneSummary({ ...good, lead: 'x'.repeat(41) }).ok).toBe(false)
     expect(parseLaneSummary({ ...good, lead: 'x'.repeat(40) }).ok).toBe(true)
     expect(parseLaneSummary({ ...good, lead: 12 }).ok).toBe(false)

@@ -165,6 +165,16 @@ describe('groupHostDesks — 팀장 0명·팀장 없는 팀원·dflow-team 팀�
     expect(withMembers[0].lead!.slot).toBe('lead')
   })
 
+  it('단독 감시(poll)의 신호가 더 최근이어도 팀원은 lead 팀장에게 붙는다 — 신호 순서가 바뀌어도 소속이 오가지 않는다', () => {
+    const g = groupsOf(
+      [watcher(`${HOST}/lead`, { slots: 1, busy: 1, lastSeenAt: '2026-10-06T01:00:00Z' }), watcher(`${HOST}/poll`, { slots: 5, busy: 0, lastSeenAt: '2026-10-06T02:00:00Z' })],
+      [seat('o1', `${HOST}/w1`, 'ACTIVE')],
+    )!
+    const withMembers = g.filter(x => x.memberCount > 0)
+    expect(withMembers).toHaveLength(1)
+    expect(withMembers[0].lead!.slot).toBe('lead')
+  })
+
   it('책상 목록(host.desks)은 묶음을 만들어도 바뀌지 않는다', () => {
     const roster = assembleRoster({ floors: [floor([], [coord('0f8a8f92', 1), lane('a', '0f8a8f92')])] })
     const before = roster.hosts[0].desks.map(d => d.key)

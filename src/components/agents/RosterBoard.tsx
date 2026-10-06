@@ -234,6 +234,7 @@ function GroupCard({ group, host, nowMs, selectedKey, onSelect }: {
 }) {
   const desks = group.lead ? [group.lead, ...group.members] : group.members
   const session = group.kind === 'coord' && group.lead ? parseCoordSlot(group.lead.slot)?.sessionId ?? null : null
+  // 한 줄에 최대 4칸 — 책상 폭은 172px 로 고정이고 좁은 화면에서는 줄을 바꾼다(칸을 줄여 카드를 찌그러뜨리지 않는다).
   const cols = Math.min(Math.max(desks.length, 1), 4)
   return (
     <section data-roster-group={group.kind} data-group-key={group.key} className="min-w-0 max-w-full rounded-2xl border border-line bg-surface p-3 shadow-sm">
@@ -242,17 +243,17 @@ function GroupCard({ group, host, nowMs, selectedKey, onSelect }: {
         {session && <span className="font-mono text-[11px] text-ink-subtle">세션 {session}</span>}
         <span data-group-count="" className="text-[11px] font-semibold tabular-nums text-ink-muted">팀원 {group.memberCount}명</span>
       </header>
-      <ul className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 172px))` }}>
+      <ul className="flex flex-wrap gap-3" style={{ maxWidth: `calc(${cols} * 172px + ${cols - 1} * 0.75rem)` }}>
         {desks.map(d => (
-          <Desk key={d.key} desk={d} host={host} nowMs={nowMs} selected={d.key === selectedKey} onSelect={onSelect} link={group.links[d.key]} />
+          <Desk key={d.key} desk={d} host={host} nowMs={nowMs} selected={d.key === selectedKey} onSelect={onSelect} link={group.links[d.key]} fixedWidth />
         ))}
       </ul>
     </section>
   )
 }
 
-function Desk({ desk, host, nowMs, selected, onSelect, link }: {
-  desk: RosterDesk; host: RosterHost; nowMs: number; selected: boolean; onSelect: (k: string) => void; link?: GroupLink
+function Desk({ desk, host, nowMs, selected, onSelect, link, fixedWidth }: {
+  desk: RosterDesk; host: RosterHost; nowMs: number; selected: boolean; onSelect: (k: string) => void; link?: GroupLink; fixedWidth?: boolean
 }) {
   const tone = deskTone(desk)
   const look = deskLook(desk)
@@ -268,7 +269,7 @@ function Desk({ desk, host, nowMs, selected, onSelect, link }: {
   const extra = inputReq ? <InputWaitChip meta={inputReq} nowMs={nowMs} /> : leadDecision ? <LeadDecisionBadge decision={leadDecision} /> : null
   const edge = `${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${mine ? (selected ? 'ring-offset-2 ring-offset-brand' : 'shadow-[0_0_0_2px_var(--color-brand)]') : ''}`
   return (
-    <li className="relative flex flex-col gap-1">
+    <li className={`relative flex flex-col gap-1 ${fixedWidth ? 'w-[172px] max-w-full' : ''}`}>
       <button type="button" data-roster-desk={desk.slot} data-owner={owner?.kind} data-group-link={link} title={link ? LINK_HINT[link] : undefined} aria-pressed={selected} onClick={() => onSelect(desk.key)}
         className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${edge} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
         {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
@@ -285,8 +286,8 @@ function Desk({ desk, host, nowMs, selected, onSelect, link }: {
               // 답 대기 — 상태 글자를 점멸하는 배지로 키운다(움직임 줄이기 설정이면 점멸하지 않는다).
               <AnswerBadge color={tone.color} label={tone.label} className="ml-auto" />
             ) : (
-              <span data-desk-status="" className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-semibold" style={{ color: tone.color === '#b7bfba' ? 'var(--color-ink-subtle)' : tone.color }}>
-                <i className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: tone.color }} />{tone.label}
+              <span data-desk-status="" title={tone.label} className="ml-auto inline-flex max-w-[55%] shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-semibold" style={{ color: tone.color === '#b7bfba' ? 'var(--color-ink-subtle)' : tone.color }}>
+                <i className="inline-block h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: tone.color }} /><span className="truncate">{tone.label}</span>
               </span>
             )}
           </span>

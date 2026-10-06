@@ -302,14 +302,15 @@ function tempLaneName(d: RosterDesk): string {
  * 1. 레인 요약의 lead 칸이 어느 조정 팀장의 세션 식별자와 같으면 그 팀장(확정). lead 가 있는데 맞는 팀장이 없으면 미확인(옛 세션의 레인).
  * 2. lead 칸이 없으면 팀장 요약의 조용한 레인(quiet) 이름에 정확히 한 팀장만 들어 있을 때 그 팀장(레인 이름 전체 목록은 계약에 없다).
  * 3. 그래도 못 정하면, 레인이 0개가 아닌(레인 수>0 이거나 모름) 조정 팀장이 하나뿐일 때 그 팀장. 그 밖에는 미확인.
- * 팀원(w<N>)·빈자리·규칙 밖 에이전트는 이 PC 의 dflow-team 팀장(감시자 행 정보를 준 쪽)에게 붙고, 팀장이 없으면 미확인이다.
+ * 팀원(w<N>)·빈자리·규칙 밖 에이전트는 이 PC 의 dflow-team 팀장(lead, 없으면 단독 감시)에게 붙고, 팀장이 없으면 미확인이다.
  */
 export function groupHostDesks(host: Pick<RosterHost, 'desks' | 'watcher'>): RosterGroup[] | null {
   const leadDesks = host.desks.filter(d => d.kind === 'lead')
   if (leadDesks.length === 0 && !host.desks.some(d => d.kind === 'temp')) return null
   const coordLeads = leadDesks.filter(d => isCoordSlot(d.slot))
   const teamLeads = leadDesks.filter(d => !isCoordSlot(d.slot))
-  const primaryTeam = teamLeads.find(d => d.watcher === host.watcher) ?? teamLeads[0] ?? null
+  // 팀원의 주인은 신호 시각과 무관하게 정해야 한다(lead·poll 의 최근 신호가 번갈아 바뀌어도 팀원이 묶음 사이를 오가지 않게) — lead 우선, 없으면 첫 책상.
+  const primaryTeam = teamLeads.find(d => d.slot === 'lead') ?? teamLeads[0] ?? null
 
   const coordGroups = new Map<string, RosterGroup>()
   for (const d of coordLeads) coordGroups.set(d.key, { key: `group:${d.key}`, kind: 'coord', lead: d, members: [], memberCount: 0, links: {} })
