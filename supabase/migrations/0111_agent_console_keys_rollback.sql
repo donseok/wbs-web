@@ -1,4 +1,6 @@
 -- supabase/migrations/0111_agent_console_keys_rollback.sql
+-- ⚠ 이 롤백은 코드(main)를 먼저 되돌린 뒤에 돌린다. 코드가 agent_console_claim 의 p_accept_keys 인자·키 행 칸을 쓰는 상태에서 먼저 돌리면
+-- poll 이 함수를 찾지 못해 500 이 나고 글 프롬프트 전달까지 멈춘다(키 행을 쓰는 코드는 accepts 에 'keys' 를 보낸 요청에서만 그 인자를 싣는다).
 -- 0111 을 되돌려 0109 의 정의로 돌아간다. 키 행은 지운다 — 칸을 지운 뒤 남기면 글 프롬프트처럼 읽혀 입력창에 들어간다.
 -- prompt_changed 사유가 남은 행은 error 로 바꾼다(0109 의 사유 목록에 없다).
 begin;

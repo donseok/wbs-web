@@ -4,7 +4,8 @@
 -- 글 프롬프트(input_kind='text')의 동작은 그대로다. 키 행은 대상 입력 요청의 (kind, since, 발췌 sha)를 함께 싣고,
 -- PC 폴러가 보내기 직전에 화면을 다시 판정해 다르면 보내지 않고 prompt_changed 로 거절한다.
 -- 같은 화면 상태(owner·host·대상·since·sha)에는 한 번만 답한다 — 함수 안 검사와 부분 유니크 인덱스의 이중 방어.
--- 키 순서 규칙 — 확정 키(1~9·Enter·Esc)는 마지막 자리에 하나만, 앞자리는 이동 키(Up·Down·Tab)만(총 1~4개). 폴러의 재판정은 첫 키를
+-- 키 순서 규칙 — 마지막 자리에만 확정 키(1~9·Enter·Esc)나 Tab 이 올 수 있고, 앞자리는 Up·Down 만(총 1~4개). Tab 은 permission 창에서 amend 입력
+-- 모드로 바꾸고 여러 질문 창에서는 질문 탭을 넘기므로 화면을 바꾼다 — 뒤따르는 키가 보지 않은 화면에서 확정되지 않게 마지막에 둔다. 폴러의 재판정은 첫 키를
 -- 보내기 직전에만 보호하므로, 확정 뒤에 다른 키가 따라가면 화면이 바뀐 뒤의 입력창에 들어간다. 여러 번 확정하는 답은 요청을 나눈다.
 -- 키 행은 claim 이 기본으로 집지 않는다(p_accept_keys=true 일 때만) — 키 행을 모르는 폴러가 text 표기를 글 프롬프트로 넣지 못하게.
 -- 키 행의 text 칸은 사람이 읽는 표기(예: `키: 1 Enter`)다 — 전달 상태 표가 그대로 보여 준다. 폴러는 keys 칸을 쓴다.
@@ -37,8 +38,8 @@ alter table public.agent_console_prompts
     or (input_kind = 'keys'
         and keys is not null and array_ndims(keys) = 1 and cardinality(keys) between 1 and 4
         and keys <@ array['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Enter', 'Esc', 'Up', 'Down', 'Tab']::text[]
-        -- 순서: 쉼표로 이은 문자열이 「이동 키 0~3개 + 마지막 한 개(이동·확정)」 꼴이어야 한다. 키 이름에 쉼표가 없으므로 구분자가 섞이지 않는다.
-        and array_to_string(keys, ',') ~ '^((Up|Down|Tab),){0,3}(Up|Down|Tab|[1-9]|Enter|Esc)$'
+        -- 순서: 쉼표로 이은 문자열이 「Up·Down 0~3개 + 마지막 한 개(Up·Down·Tab·확정)」 꼴이어야 한다. 키 이름에 쉼표가 없으므로 구분자가 섞이지 않는다.
+        and array_to_string(keys, ',') ~ '^((Up|Down),){0,3}(Up|Down|Tab|[1-9]|Enter|Esc)$'
         and req_kind is not null and req_since is not null and req_sha is not null));
 
 -- 거절 사유에 prompt_changed(창이 바뀌었거나 사라짐)를 더한다 — 기존 값은 그대로.
@@ -74,7 +75,7 @@ begin
      or not coalesce(p_keys <@ array['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Enter', 'Esc', 'Up', 'Down', 'Tab']::text[], false) then
     raise exception 'agent_console_enqueue_keys: bad keys' using errcode = '22023';
   end if;
-  if array_to_string(p_keys, ',') !~ '^((Up|Down|Tab),){0,3}(Up|Down|Tab|[1-9]|Enter|Esc)$' then
+  if array_to_string(p_keys, ',') !~ '^((Up|Down),){0,3}(Up|Down|Tab|[1-9]|Enter|Esc)$' then
     raise exception 'agent_console_enqueue_keys: bad key order' using errcode = '22023';
   end if;
   if p_req_kind is null or p_req_kind not in ('permission', 'question', 'choice') then

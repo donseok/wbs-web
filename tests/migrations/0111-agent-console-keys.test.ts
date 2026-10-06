@@ -30,8 +30,8 @@ describe('0111 — 콘솔 키 입력 정적 검사', () => {
     expect(flat).toContain(`keys <@ array[${ALLOWED}]::text[]`)
     expect(flat).toContain('req_kind is not null and req_since is not null and req_sha is not null')
   })
-  it('키 순서 규칙: 이동 키 0~3개 + 마지막 한 개를 쉼표로 이은 문자열 정규식 — 표 제약과 함수에 같다', () => {
-    const re = "'^((Up|Down|Tab),){0,3}(Up|Down|Tab|[1-9]|Enter|Esc)$'"
+  it('키 순서 규칙: Up·Down 0~3개 + 마지막 한 개(Tab·확정 포함)를 쉼표로 이은 문자열 정규식 — 표 제약과 함수에 같다', () => {
+    const re = "'^((Up|Down),){0,3}(Up|Down|Tab|[1-9]|Enter|Esc)$'"
     expect(flat).toContain(`array_to_string(keys, ',') ~ ${re}`)
     expect(flat).toContain(`array_to_string(p_keys, ',') !~ ${re}`)
     // 구분자 쉼표는 키 이름에 없다(허용 목록 검사가 쉼표가 든 원소를 먼저 막는다)
@@ -86,6 +86,7 @@ describe('0111 — 콘솔 키 입력 정적 검사', () => {
     expect(flat).not.toMatch(/create policy/i)
   })
   it('rollback: 키 행을 지우고 새 함수·인덱스·제약·열을 걷고 0109 의 claim·ack 정의로 되돌린다', () => {
+    expect(flatDown).toContain('이 롤백은 코드(main)를 먼저 되돌린 뒤에 돌린다')
     expect(flatDown).toContain('begin; -- 롤백 중')
     expect(flatDown).toContain('lock table public.agent_console_prompts in access exclusive mode;')
     expect(flatDown.indexOf('lock table')).toBeLessThan(flatDown.indexOf("input_kind = 'keys'"))

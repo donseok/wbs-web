@@ -54,27 +54,33 @@ insert into public.agent_console_prompts (owner, host, target_kind, target_ref, 
   values ('22222222-2222-2222-2222-222222222222', 'mbp', 'coord_lane', 'kit', '키: 1', 'keys', array['1'], 'permission', '2026-10-06T02:00:00Z', repeat('d', 64));
 select pg_temp.raises($q$insert into public.agent_console_prompts (owner, host, target_kind, target_ref, text, input_kind, keys, req_kind, req_since, req_sha) values ('22222222-2222-2222-2222-222222222222','mbp','coord_lane','kit','키: 2','keys', array['2'], 'permission', '2026-10-06T02:00:00Z', repeat('d',64))$q$, '23505', 'unique index');
 
--- 키 순서 규칙: 확정 키(1~9·Enter·Esc)는 마지막에 하나만, 앞은 이동 키(Up·Down·Tab)뿐. 거절은 22023(함수)·23514(표 제약).
+-- 키 순서 규칙: 확정 키(1~9·Enter·Esc)와 Tab 은 마지막에 하나만, 앞은 Up·Down 뿐(Tab 은 amend 모드·질문 탭 넘기기로 화면이 바뀐다). 거절은 22023(함수)·23514(표 제약).
 select pg_temp.raises($q$select pg_temp.enqk(array['1', 'Enter'], 'c')$q$, '22023', 'two confirms 1 Enter');
 select pg_temp.raises($q$select pg_temp.enqk(array['Enter', 'Enter'], 'c')$q$, '22023', 'Enter Enter');
 select pg_temp.raises($q$select pg_temp.enqk(array['Esc', 'Esc'], 'c')$q$, '22023', 'Esc Esc');
 select pg_temp.raises($q$select pg_temp.enqk(array['1', '2'], 'c')$q$, '22023', 'digits 1 2');
 select pg_temp.raises($q$select pg_temp.enqk(array['Enter', 'Up'], 'c')$q$, '22023', 'confirm then move');
 select pg_temp.raises($q$select pg_temp.enqk(array['Up', 'Enter', 'Tab'], 'c')$q$, '22023', 'confirm in the middle');
+select pg_temp.raises($q$select pg_temp.enqk(array['Tab', 'Enter'], 'c')$q$, '22023', 'Tab then Enter');
+select pg_temp.raises($q$select pg_temp.enqk(array['Tab', '1'], 'c')$q$, '22023', 'Tab then 1');
+select pg_temp.raises($q$select pg_temp.enqk(array['Tab', 'Tab'], 'c')$q$, '22023', 'Tab Tab');
+select pg_temp.raises($q$select pg_temp.enqk(array['Up', 'Tab', 'Down'], 'c')$q$, '22023', 'Tab in the middle');
 select pg_temp.raises($q$insert into public.agent_console_prompts (owner, host, target_kind, target_ref, text, input_kind, keys, req_kind, req_since, req_sha) values ('22222222-2222-2222-2222-222222222222','mbp','coord_lane','ord','x','keys', array['1','Enter'], 'permission', now(), repeat('c',64))$q$, '23514', 'table check: 1 Enter');
 select pg_temp.raises($q$insert into public.agent_console_prompts (owner, host, target_kind, target_ref, text, input_kind, keys, req_kind, req_since, req_sha) values ('22222222-2222-2222-2222-222222222222','mbp','coord_lane','ord','x','keys', array['Enter','Up'], 'permission', now(), repeat('c',64))$q$, '23514', 'table check: Enter Up');
+select pg_temp.raises($q$insert into public.agent_console_prompts (owner, host, target_kind, target_ref, text, input_kind, keys, req_kind, req_since, req_sha) values ('22222222-2222-2222-2222-222222222222','mbp','coord_lane','ord','x','keys', array['Tab','1'], 'permission', now(), repeat('c',64))$q$, '23514', 'table check: Tab 1');
 select pg_temp.raises($q$insert into public.agent_console_prompts (owner, host, target_kind, target_ref, text, input_kind, keys, req_kind, req_since, req_sha) values ('22222222-2222-2222-2222-222222222222','mbp','coord_lane','ord','x','keys', array['Up','Up','Up','Up','Up'], 'permission', now(), repeat('c',64))$q$, '23514', 'table check: five keys');
 -- 구분자(쉼표)가 키 이름과 섞이지 않는다 — 쉼표가 든 한 원소는 허용 목록에서 먼저 막힌다.
 select pg_temp.raises($q$select pg_temp.enqk(array['Up,Enter'], 'c')$q$, '22023', 'comma inside one element');
 select pg_temp.raises($q$insert into public.agent_console_prompts (owner, host, target_kind, target_ref, text, input_kind, keys, req_kind, req_since, req_sha) values ('22222222-2222-2222-2222-222222222222','mbp','coord_lane','ord','x','keys', array['Up,Enter'], 'permission', now(), repeat('c',64))$q$, '23514', 'table check: comma element');
--- 허용: 이동만 · 이동 뒤 확정 하나 · 확정 하나. (다른 사용자·레인으로 넣어 1분 5건·대상당 3건 한도를 겹치지 않게 한다.)
+-- 허용: Up·Down 뒤 Tab 하나 · Up·Down 뒤 확정 하나 · 확정 하나. (다른 사용자·레인으로 넣어 1분 5건·대상당 3건 한도를 겹치지 않게 한다.)
 create or replace function pg_temp.enq2(keys text[], ch text) returns text language sql as $$
   select outcome from public.agent_console_enqueue_keys('22222222-2222-2222-2222-222222222222', 'mbp', 'coord_lane', 'ord', keys, 'permission', '2026-10-06T03:00:00Z'::timestamptz, repeat(ch, 64))
 $$;
-select pg_temp.eq(pg_temp.enq2(array['Up', 'Up', 'Tab'], '1'), 'ok', 'moves only');
+select pg_temp.eq(pg_temp.enq2(array['Up', 'Down', 'Tab'], '1'), 'ok', 'moves then Tab');
 select pg_temp.eq(pg_temp.enq2(array['Down', 'Down', 'Up', 'Esc'], '2'), 'ok', 'three moves then Esc');
 select pg_temp.eq(pg_temp.enq2(array['9'], '3'), 'ok', 'single confirm');
-delete from public.agent_console_prompts where target_ref = 'ord';
+select pg_temp.eq((select outcome from public.agent_console_enqueue_keys('22222222-2222-2222-2222-222222222222', 'mbp', 'coord_lane', 'ord2', array['Up', 'Up', 'Down', 'Up'], 'permission', '2026-10-06T03:00:00Z'::timestamptz, repeat('4', 64))), 'ok', 'four moves only');
+delete from public.agent_console_prompts where target_ref in ('ord', 'ord2');
 
 -- claim: 반환 표에 새 칸이 실리고, 글 행은 input_kind='text'·나머지 null. 오래된 순.
 -- 기본 claim(인자 셋·p_accept_keys 기본 false)은 글 행만 집는다 — 키 행이 pending 으로 쌓여 있어도 (더 오래된 글 행 뒤에) 받지 않는다.
