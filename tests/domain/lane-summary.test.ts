@@ -191,3 +191,25 @@ describe('리뷰 반영 — 유니코드·시각·진행 경계', () => {
     expect(parseLaneSummary({ ...good, items_done: 9, items_total: 3 })).toMatchObject({ ok: true, value: { itemsDone: 3, itemsTotal: 3 } })
   })
 })
+
+describe('parseLaneSummary — lead 칸(이 레인을 거느린 조정 팀장의 세션 식별자, 2026-10-06 계약)', () => {
+  it('lead 를 읽어 저장 모양에도 싣는다', () => {
+    const r = parseLaneSummary({ ...good, lead: '0f8a8f92' })
+    expect(r).toMatchObject({ ok: true, value: { lead: '0f8a8f92' } })
+    if (r.ok && r.value) expect(toWire(r.value)).toMatchObject({ lead: '0f8a8f92' })
+  })
+  it('없거나 null·빈 문자열이면 null — 칸을 안 보내는 옛 PC 는 그대로 읽힌다', () => {
+    for (const v of [undefined, null, '', '  ']) {
+      expect(parseLaneSummary({ ...good, lead: v })).toMatchObject({ ok: true, value: { lead: null } })
+    }
+    expect(parseLaneSummary(good)).toMatchObject({ ok: true, value: { lead: null } })
+  })
+  it('40자를 넘거나 문자열이 아니면 error — 요약 전체가 null 이 되고 그 레인은 팀장 미확인이다', () => {
+    expect(parseLaneSummary({ ...good, lead: 'x'.repeat(41) }).ok).toBe(false)
+    expect(parseLaneSummary({ ...good, lead: 'x'.repeat(40) }).ok).toBe(true)
+    expect(parseLaneSummary({ ...good, lead: 12 }).ok).toBe(false)
+  })
+  it('제어 문자는 지운다', () => {
+    expect(parseLaneSummary({ ...good, lead: 'ab\u0000cd' })).toMatchObject({ ok: true, value: { lead: 'abcd' } })
+  })
+})

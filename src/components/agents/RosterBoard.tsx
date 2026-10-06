@@ -9,7 +9,7 @@ import Link from 'next/link'
 import type { Seat, Seatmap } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName } from '@/lib/domain/seatState'
-import { assembleRoster, coordLine, isAnswerWait, isCoordSlot, leadUntilText, parseCoordSlot, modelBadge, tempStatusKind, TIER_NAME, type ModelTier, type TempStatusKind, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
+import { assembleRoster, coordLine, groupHostDesks, isAnswerWait, isCoordSlot, leadUntilText, parseCoordSlot, modelBadge, tempStatusKind, TIER_NAME, type GroupLink, type ModelTier, type TempStatusKind, type Roster, type RosterDesk, type RosterGroup, type RosterHost } from '@/lib/domain/agentRoster'
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
 import { AgentConsole, hasConsole } from './AgentConsole'
@@ -47,7 +47,7 @@ const TEMP_TONE: Record<TempStatusKind, string> = { working: '#5DB1E5', wait: '#
 /** 답 대기 배지 — 배지 전체가 점멸한다(움직임 줄이기 설정이면 멈춘다). 책상 카드와 프로필이 같이 쓴다. */
 function AnswerBadge({ color, label, className }: { color: string; label: string; className: string }) {
   return (
-    <span data-answer-wait="" className={`${className} inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold text-ink motion-safe:animate-pulse`}
+    <span data-answer-wait="" className={`${className} inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold text-ink motion-safe:animate-pulse`}
       style={{ background: `color-mix(in srgb, ${color} 28%, transparent)`, boxShadow: `0 0 0 1.5px ${color}` }}>
       <i className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: color }} />{label}
     </span>
@@ -167,6 +167,7 @@ function HostCard({ host, nowMs, selectedKey, onSelect, onReleaseLead }: {
   host: RosterHost; nowMs: number; selectedKey: string | null; onSelect: (k: string) => void; onReleaseLead?: ReleaseLeadHandler
 }) {
   const busy = host.desks.filter(d => d.kind === 'member').length
+  const groups = useMemo(() => groupHostDesks(host), [host])
   const leads = host.desks.flatMap(d => d.leads)
   const w = host.watcher
   const sub = !host.conforming
@@ -197,15 +198,61 @@ function HostCard({ host, nowMs, selectedKey, onSelect, onReleaseLead }: {
           {host.slots !== null && <span className="text-xs font-semibold tabular-nums text-ink-muted">자리 {busy}/{host.slots}</span>}
         </span>
       </header>
-      <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(172px,1fr))]">
-        {host.desks.map(d => <Desk key={d.key} desk={d} host={host} nowMs={nowMs} selected={d.key === selectedKey} onSelect={onSelect} />)}
+      {groups ? (
+        // 팀장 한 명당 바운더리 하나(2026-10-06 사용자 지시) — PC 정보는 위 머리에 그대로 두고 그 안에 팀장 묶음이 여럿 들어간다.
+        <div data-roster-groups className="flex flex-wrap items-start gap-3">
+          {groups.map(g => <GroupCard key={g.key} group={g} host={host} nowMs={nowMs} selectedKey={selectedKey} onSelect={onSelect} />)}
+        </div>
+      ) : (
+        <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(172px,1fr))]">
+          {host.desks.map(d => <Desk key={d.key} desk={d} host={host} nowMs={nowMs} selected={d.key === selectedKey} onSelect={onSelect} />)}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+/** 조정 팀장 상세의 「입력 대기 N건」 재료 — 그 팀장 묶음의 팀원 책상만. 한 PC 에 조정 팀장이 둘이면 서로의 입력 대기가 섞이지 않는다. */
+function leadGroupDesks(host: RosterHost, desk: RosterDesk): RosterDesk[] {
+  const g = groupHostDesks(host)?.find(x => x.lead?.key === desk.key)
+  return g ? g.members : host.desks
+}
+const GROUP_TITLE: Record<RosterGroup['kind'], string> = { coord: '팀장(조정)', team: '팀장', unknown: '팀장 미확인' }
+/** 한 묶음 머리의 팀장 이름 — 단독 감시(poll)는 팀장이 아니라 「단독 감시」로 부른다. */
+function groupTitle(g: RosterGroup): string {
+  return g.lead ? deskTitle(g.lead) : GROUP_TITLE.unknown
+}
+const LINK_HINT: Record<GroupLink, string | undefined> = {
+  lead: undefined,
+  quiet: '이 팀장의 팀원으로 추정합니다(레인 요약에 팀장 칸이 없어 팀장 요약의 레인 이름으로 짝지었습니다).',
+  sole: '이 팀장의 팀원으로 추정합니다(레인 요약에 팀장 칸이 없고, 이 PC 에서 레인이 0개가 아닌 조정 팀장이 한 명뿐입니다).',
+}
+
+/** 팀장 한 명과 그 팀원 — 기존 바운더리(HostCard)와 같은 둥근 테두리 모양이다. 머리에 팀장 이름·세션·팀원 수. */
+function GroupCard({ group, host, nowMs, selectedKey, onSelect }: {
+  group: RosterGroup; host: RosterHost; nowMs: number; selectedKey: string | null; onSelect: (k: string) => void
+}) {
+  const desks = group.lead ? [group.lead, ...group.members] : group.members
+  const session = group.kind === 'coord' && group.lead ? parseCoordSlot(group.lead.slot)?.sessionId ?? null : null
+  const cols = Math.min(Math.max(desks.length, 1), 4)
+  return (
+    <section data-roster-group={group.kind} data-group-key={group.key} className="min-w-0 max-w-full rounded-2xl border border-line bg-surface p-3 shadow-sm">
+      <header className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <h3 className="text-sm font-bold text-ink">{groupTitle(group)}</h3>
+        {session && <span className="font-mono text-[11px] text-ink-subtle">세션 {session}</span>}
+        <span data-group-count="" className="text-[11px] font-semibold tabular-nums text-ink-muted">팀원 {group.memberCount}명</span>
+      </header>
+      <ul className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 172px))` }}>
+        {desks.map(d => (
+          <Desk key={d.key} desk={d} host={host} nowMs={nowMs} selected={d.key === selectedKey} onSelect={onSelect} link={group.links[d.key]} />
+        ))}
       </ul>
     </section>
   )
 }
 
-function Desk({ desk, host, nowMs, selected, onSelect }: {
-  desk: RosterDesk; host: RosterHost; nowMs: number; selected: boolean; onSelect: (k: string) => void
+function Desk({ desk, host, nowMs, selected, onSelect, link }: {
+  desk: RosterDesk; host: RosterHost; nowMs: number; selected: boolean; onSelect: (k: string) => void; link?: GroupLink
 }) {
   const tone = deskTone(desk)
   const look = deskLook(desk)
@@ -222,7 +269,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
   const edge = `${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${mine ? (selected ? 'ring-offset-2 ring-offset-brand' : 'shadow-[0_0_0_2px_var(--color-brand)]') : ''}`
   return (
     <li className="relative flex flex-col gap-1">
-      <button type="button" data-roster-desk={desk.slot} data-owner={owner?.kind} aria-pressed={selected} onClick={() => onSelect(desk.key)}
+      <button type="button" data-roster-desk={desk.slot} data-owner={owner?.kind} data-group-link={link} title={link ? LINK_HINT[link] : undefined} aria-pressed={selected} onClick={() => onSelect(desk.key)}
         className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${edge} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
         {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
         <span className="relative flex flex-col items-center pb-2.5 pt-2"
@@ -233,12 +280,12 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
         </span>
         <span className={`flex flex-col gap-1 px-3 pb-3 pt-2 ${mine ? 'bg-brand-weak' : ''}`}>
           <span className="flex items-center gap-2">
-            <b className="text-sm text-ink">{deskTitle(desk)}</b>
+            <b data-desk-title="" title={deskTitle(desk)} className="min-w-0 truncate text-sm text-ink">{deskTitle(desk)}</b>
             {answer ? (
               // 답 대기 — 상태 글자를 점멸하는 배지로 키운다(움직임 줄이기 설정이면 점멸하지 않는다).
               <AnswerBadge color={tone.color} label={tone.label} className="ml-auto" />
             ) : (
-              <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: tone.color === '#b7bfba' ? 'var(--color-ink-subtle)' : tone.color }}>
+              <span data-desk-status="" className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-semibold" style={{ color: tone.color === '#b7bfba' ? 'var(--color-ink-subtle)' : tone.color }}>
                 <i className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: tone.color }} />{tone.label}
               </span>
             )}
@@ -251,7 +298,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
           {/* 카드는 그 자체가 버튼이라 안에 버튼을 못 둔다 — 임시 팀원의 입력 대기와 조정 팀장의 결정 대기는 눌리지 않는 배지로 보이고,
               발췌 패널은 이 책상을 골랐을 때의 프로필에서 연다. */}
           {extra && <span data-desk-extra="" className="flex flex-wrap items-center gap-1">{extra}</span>}
-          <span className="line-clamp-2 min-h-[2.5em] text-xs text-ink-muted">{deskLine(desk, host, nowMs, chatter)}</span>
+          <span data-desk-line="" className="line-clamp-2 h-8 text-xs text-ink-muted">{deskLine(desk, host, nowMs, chatter)}</span>
           {desk.seat && <Progress pct={desk.seat.progress} color={tone.color} />}
           <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `${desk.kind === 'temp' ? '갱신' : '신호'} ${ageLabel(sig, nowMs)}` : ' '}</span>
         </span>
@@ -507,7 +554,7 @@ function Profile({ desk, host, nowMs, panel }: { desk: RosterDesk; host: RosterH
           {desk.watcher?.inputRequest && desk.raw && <InputRequestBadge key={`${desk.raw}:${desk.watcher.inputRequest.since}`} seatKey={desk.raw} meta={desk.watcher.inputRequest} nowMs={nowMs} />}
         </section>
       )}
-      {desk.kind === 'lead' && isCoordSlot(desk.slot) && <LeadSummaryPanel summary={desk.watcher?.leadSummary} hostDesks={host.desks} nowMs={nowMs} />}
+      {desk.kind === 'lead' && isCoordSlot(desk.slot) && <LeadSummaryPanel summary={desk.watcher?.leadSummary} hostDesks={leadGroupDesks(host, desk)} nowMs={nowMs} />}
       {desk.kind === 'empty' && (
         <p className="text-sm text-ink-muted">
           {chatter && <b data-away className="mb-1 block text-ink">지금은 {awayReason(desk.key, nowMs)}</b>}

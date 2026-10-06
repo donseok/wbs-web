@@ -100,7 +100,8 @@ describe('RosterBoard — 임시 팀원·조정 세션 책상', () => {
   it('일반 팀장(lead)·단독 감시(poll) 표시는 종전 그대로', () => {
     render([watcher('hong/mbp/lead', { slots: 2, untilLabel: '18:00' }), watcher('hong/mbp/poll')])
     const ds = desks()
-    expect(ds.map(d => d.querySelector('b')?.textContent)).toEqual(['팀장', '단독 감시', '팀원 1', '팀원 2'])
+    // 팀장 묶음(팀장·팀원 자리) 다음에 단독 감시가 자기 묶음으로 온다(2026-10-06 팀장별 바운더리).
+    expect(ds.map(d => d.querySelector('b')?.textContent)).toEqual(['팀장', '팀원 1', '팀원 2', '단독 감시'])
     expect(ds[0].textContent).toContain('팀원 2명 배정 · 18:00 까지')
     expect(ds[0].textContent).toContain('신호')
   })
