@@ -50,6 +50,16 @@ describe('fetchSeatmapRows', () => {
     // 2000건 상한에 걸리면 오름차순은 최신(가장 claimed/ACTIVE 일 가능성이 큰) 주문을 버린다 — 내림차순이어야 한다.
     expect(calls['agent_work_orders.order']?.[0]).toEqual(['created_at', { ascending: false }])
   })
+  it('조정 팀장 키(coord:<세션8>)는 같은 user·host 에 둘이어도 행 그대로 싣는다 — 서버가 합치지 않는다(조정자 계약 §4)', async () => {
+    const seen = new Date(NOW - 60_000).toISOString()
+    const w = (id: string, agent: string) => ({ id, user_id: 'u1', project_id: null, agent, host: 'mbp', slots: 2, busy: 1, until_label: '조정 중', last_seen_at: seen })
+    const a = admin({
+      agent_work_orders: [{ data: [O] }],
+      agent_watchers: [{ data: [w('w1', 'hong/mbp/coord:0f8a8f92'), w('w2', 'hong/mbp/coord:aa11bb22'), w('w3', 'hong/mbp/coord:widget-2026-10-05')] }],
+    })
+    const rows = await fetchSeatmapRows(a, ['p1'], NOW)
+    expect(rows.watchers.map(x => x.agent)).toEqual(['hong/mbp/coord:0f8a8f92', 'hong/mbp/coord:aa11bb22', 'hong/mbp/coord:widget-2026-10-05'])
+  })
   it('projectIds null(슈퍼유저)이면 프로젝트 필터를 걸지 않는다', async () => {
     const calls: Record<string, unknown[][]> = {}
     await fetchSeatmapRows(admin({ agent_work_orders: [{ data: [] }] }, calls), null, NOW)
