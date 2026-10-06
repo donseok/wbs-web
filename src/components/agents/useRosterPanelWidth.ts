@@ -28,7 +28,8 @@ export function useRosterPanelWidth(boardRef: RefObject<HTMLElement | null>): Ro
     const el = boardRef.current
     if (!el) return
     const measure = () => setSize(prev => {
-      const next = { board: el.clientWidth, viewport: window.innerWidth }
+      // clientWidth 는 반올림이라 소수 폭에서 1px 크게 읽혀 카드가 떨어질 수 있다 — 내림으로 잰다.
+      const next = { board: Math.floor(el.getBoundingClientRect().width), viewport: window.innerWidth }
       return prev && prev.board === next.board && prev.viewport === next.viewport ? prev : next
     })
     measure()

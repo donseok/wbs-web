@@ -25,7 +25,7 @@ export function ResizeHandle({ grow, value, min, max, step, label, getStart, onC
   className?: string
 }) {
   const horizontal = grow === 'left' || grow === 'right' // 폭 조절 — 구분선은 세로로 선다
-  const drag = useRef<{ from: number; origin: number; last: number } | null>(null)
+  const drag = useRef<{ from: number; origin: number; last: number; moved: boolean } | null>(null)
   const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n)))
   const delta = (e: React.PointerEvent, origin: number) => {
     const d = horizontal ? e.clientX - origin : e.clientY - origin
@@ -40,32 +40,35 @@ export function ResizeHandle({ grow, value, min, max, step, label, getStart, onC
         e.preventDefault()
         e.currentTarget.setPointerCapture?.(e.pointerId)
         const from = getStart?.() ?? value
-        drag.current = { from, origin: horizontal ? e.clientX : e.clientY, last: from }
+        drag.current = { from, origin: horizontal ? e.clientX : e.clientY, last: from, moved: false }
       }}
       onPointerMove={e => {
         const d = drag.current
         if (!d) return
+        d.moved = true
         d.last = clamp(d.from + delta(e, d.origin))
         onChange(d.last, false)
       }}
+      // 움직임 없이 눌렀다 뗀 클릭(더블클릭의 앞 클릭 포함)은 확정하지 않는다 — 기본 크기가 저장·고정되어 버린다.
       onPointerUp={e => {
         const d = drag.current
         if (!d) return
         drag.current = null
         e.currentTarget.releasePointerCapture?.(e.pointerId)
-        onChange(d.last, true)
+        if (d.moved) onChange(d.last, true)
       }}
       onPointerCancel={() => {
         const d = drag.current
         if (!d) return
         drag.current = null
-        onChange(d.last, true)
+        if (d.moved) onChange(d.last, true)
       }}
       onDoubleClick={() => onReset?.()}
       onKeyDown={e => {
         const keys = GROW_KEYS[grow]
-        const next = e.key === keys.grow ? value + step
-          : e.key === keys.shrink ? value - step
+        const base = getStart?.() ?? value // 기본 크기가 자동일 때도 실제 크기에서 출발한다
+        const next = e.key === keys.grow ? base + step
+          : e.key === keys.shrink ? base - step
             : e.key === 'Home' ? min
               : e.key === 'End' ? max
                 : null
