@@ -74,6 +74,7 @@ export function isAuxConsoleSeat(seat: { kind: ConsoleTargetKind; projectId: str
  */
 export function consolePatMaySeatKey(patProjectId: string | null, kind: ConsoleTargetKind, seatProjectIds: Array<string | null>): boolean {
   if (patProjectId === null) return true
+  if (seatProjectIds.length === 0) return false
   return seatProjectIds.every(p => p === patProjectId) || seatProjectIds.every(p => isAuxConsoleSeat({ kind, projectId: p }))
 }
 

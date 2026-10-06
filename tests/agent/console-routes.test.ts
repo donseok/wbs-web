@@ -119,6 +119,13 @@ describe('프로젝트 한정 PAT — 조정 세션 칸(프로젝트 없는 보�
       expect(calls.rpc).toHaveLength(0)
     }
   })
+  it('ack — 입력 검사가 행 조회보다 먼저다: 잘못된 result 는 team 행이든 coord 행이든 같은 400(존재 비구분)', async () => {
+    for (const row of [{ target_kind: 'team_worker' }, { target_kind: 'coord_lane' }, null]) {
+      const calls = mockAdmin({ agent_console_prompts: [{ data: row }] }, {}, LIMITED)
+      expect((await call(ack, 'ack', { id: ID, claim_token: TOKEN, result: 'bogus' })).status).toBe(400)
+      expect(calls.ops.filter(o => o[0] === 'agent_console_prompts')).toHaveLength(0)
+    }
+  })
   it('ack — 행 조회 실패는 500(거절로 위장하지 않는다), 한정 없는 PAT 는 행 조회 없이 RPC', async () => {
     const calls = mockAdmin({ agent_console_prompts: [{ error: { message: 'pool' } }] }, {}, LIMITED)
     expect((await call(ack, 'ack', { id: ID, claim_token: TOKEN, result: 'sent', detail: 'submitted' })).status).toBe(500)

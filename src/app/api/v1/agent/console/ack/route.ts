@@ -28,7 +28,9 @@ export async function POST(req: NextRequest) {
     if (typeof body.claim_token !== 'string' || !TOKEN_RE.test(body.claim_token)) {
       return apiFail(404, 'not_found', '프롬프트를 찾을 수 없습니다.')
     }
-    // 프로젝트 한정 PAT 는 조정 세션 칸 행만 ack 한다 — 그 밖의 행(team 대상·없는 행)은 남의 행과 같이 404 로 존재를 드러내지 않는다.
+    const issue = consoleAckIssue({ result: body.result, reason: body.reason, detail: body.detail })
+    if (issue) return apiBadRequest(issue)
+    // 프로젝트 한정 PAT 는 조정 세션 칸 행만 ack 한다(입력 검사를 먼저 해 400·404 로 행의 존재가 갈리지 않게 한다) — 그 밖의 행(team 대상·없는 행)은 남의 행과 같이 404 로 존재를 드러내지 않는다.
     const queueKinds = consoleQueueKinds(call)
     if (queueKinds) {
       const { data: row, error: rowErr } = await admin.from('agent_console_prompts').select('target_kind').eq('id', body.id).eq('owner', owner).maybeSingle()
@@ -37,8 +39,6 @@ export async function POST(req: NextRequest) {
         return apiFail(404, 'not_found', '프롬프트를 찾을 수 없습니다.')
       }
     }
-    const issue = consoleAckIssue({ result: body.result, reason: body.reason, detail: body.detail })
-    if (issue) return apiBadRequest(issue)
     const { data, error } = await admin.rpc('agent_console_ack', {
       p_owner: owner, p_id: body.id, p_token_hash: hashClaimToken(body.claim_token), p_result: body.result,
       p_reason: body.reason ?? null, p_detail: body.detail ?? null,
