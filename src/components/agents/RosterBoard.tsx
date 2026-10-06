@@ -3,7 +3,7 @@
 // 고른 자리의 프로필을 오른쪽에 보인다(2026-09-18 시안 v2, 사용자 결정으로 스튜디오 탭 안의 보기가 됐다).
 // 데이터는 스튜디오가 30초마다 읽는 좌석표 그대로를 agentRoster 로 다시 묶는다 — 폴링·범위(내 작업/전체)는 스튜디오 몫.
 // 좌석 단위 보고 이력·처리량·토큰 연결은 아직 데이터가 없어 그리지 않는다(시안 notes 의 NEW 항목).
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import type React from 'react'
 import Link from 'next/link'
 import type { Seat, Seatmap } from '@/lib/domain/seatmap'
@@ -20,6 +20,9 @@ import { OwnerTag, ownerLabel, teamOwnerLabel, watcherOwnerLabel, type OwnerLabe
 import { LeadChip } from './LeadChip'
 import { InputRequestBadge, InputWaitChip } from './InputRequestBadge'
 import { LeadDecisionBadge, LeadSummaryPanel, leadCardBadge } from './LeadSummaryPanel'
+import { ResizeHandle } from './ResizeHandle'
+import { useRosterPanelWidth } from './useRosterPanelWidth'
+import { PANEL_WIDTH } from '@/lib/domain/panelSize'
 
 /** 「팀장 해제」 핸들러 — 없으면 책상에 lease 정보만 보이고 해제 버튼은 그리지 않는다(FloorCard 와 같은 규칙). */
 type ReleaseLeadHandler = (projectId: string, userId: string) => Promise<void>
@@ -124,6 +127,8 @@ export function useRoster(map: Pick<Seatmap, 'floors'>): Roster {
 
 export function RosterBoard({ roster, nowMs, onReleaseLead }: { roster: Roster; nowMs: number; onReleaseLead?: ReleaseLeadHandler }) {
   const [selected, setSelected] = useState<string | null>(null)
+  const boardRef = useRef<HTMLDivElement>(null)
+  const panel = useRosterPanelWidth(boardRef)
   const allDesks = roster.hosts.flatMap(h => h.desks.map(d => ({ d, h })))
   // 고른 자리가 폴링으로 사라지면 결정 대기 → 첫 에이전트 순으로 다시 고른다.
   const current = allDesks.find(x => x.d.key === selected)
@@ -131,7 +136,7 @@ export function RosterBoard({ roster, nowMs, onReleaseLead }: { roster: Roster; 
     ?? allDesks.find(x => x.d.kind === 'member' || x.d.kind === 'external')
     ?? allDesks[0] ?? null
   return (
-    <div data-roster-board className="flex flex-wrap items-start gap-4">
+    <div ref={boardRef} data-roster-board className="flex flex-wrap items-start gap-4">
       <div className="flex min-w-0 flex-[1_1_520px] flex-col gap-4">
         {roster.hosts.length === 0 && (
           <p className="rounded-2xl border border-dashed border-line bg-surface px-5 py-8 text-center text-sm text-ink-muted">
@@ -153,7 +158,7 @@ export function RosterBoard({ roster, nowMs, onReleaseLead }: { roster: Roster; 
           <HostCard key={h.key} host={h} nowMs={nowMs} selectedKey={current?.d.key ?? null} onSelect={setSelected} onReleaseLead={onReleaseLead} />
         ))}
       </div>
-      {current && <Profile desk={current.d} host={current.h} nowMs={nowMs} />}
+      {current && <Profile desk={current.d} host={current.h} nowMs={nowMs} panel={panel} />}
     </div>
   )
 }
@@ -419,7 +424,7 @@ function SignalGauge({ at, nowMs, lead }: { at: string | null; nowMs: number; le
   )
 }
 
-function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; nowMs: number }) {
+function Profile({ desk, host, nowMs, panel }: { desk: RosterDesk; host: RosterHost; nowMs: number; panel: ReturnType<typeof useRosterPanelWidth> }) {
   const chatter = useOfficeChatter()
   const tone = deskTone(desk)
   const look = deskLook(desk)
@@ -428,7 +433,14 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
   const stepLabel = seat ? profilePhaseLabel(seat) : null
   const owner = deskOwner(desk)
   return (
-    <aside data-roster-profile className="sticky top-0 flex min-w-0 flex-[0_1_340px] flex-col gap-4 rounded-3xl border border-line bg-surface p-5 shadow-sm">
+    <aside data-roster-profile className="sticky top-0 flex min-w-0 flex-[0_1_340px] flex-col gap-4 rounded-3xl border border-line bg-surface p-5 shadow-sm"
+      style={panel.width !== null ? { flexBasis: panel.width } : undefined}>
+      {/* 폭 손잡이 — 카드가 오른쪽에 나란히 선 배치에서만 그린다(아래로 내려간 좁은 화면은 종전 그대로). 왼쪽으로 끌면 넓어진다. */}
+      {panel.resizable && (
+        <ResizeHandle grow="left" value={panel.value} min={panel.min} max={panel.max} step={PANEL_WIDTH.step}
+          label="상세 카드 폭 조절" onChange={panel.change} onReset={panel.reset}
+          className="absolute inset-y-4 -left-2 w-3 cursor-col-resize rounded-full" />
+      )}
       <div className="flex items-center gap-4">
         <span className="grid shrink-0 place-items-center rounded-2xl"
           style={{ background: `color-mix(in srgb, ${tone.color} 16%, var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
