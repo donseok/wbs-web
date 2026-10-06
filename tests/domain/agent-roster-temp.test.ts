@@ -201,7 +201,8 @@ describe('assembleAgentHub — 표시 전용 감시자 제외', () => {
   })
 })
 
-import { coordBubble, tempBubble, EMPTY_LINES, NAG_LINES } from '@/lib/domain/officeChatter'
+import { coordBubble, tempBubble, EMPTY_LINES, NAG_LINES, COORD_ANSWER_LINES, TEMP_ANSWER_LINES, ROTATE_MS } from '@/lib/domain/officeChatter'
+import { isAnswerWait } from '@/lib/domain/agentRoster'
 describe('조정 팀장·임시 팀원 말풍선', () => {
   const t = { lane: 'eng', summary: 'SET 노드 엔진' }
   it('임시 팀원은 상태 라벨과 지시 요약에 맞는 말이고 빈자리 대사가 아니다', () => {
@@ -226,5 +227,38 @@ describe('조정 팀장·임시 팀원 말풍선', () => {
       expect(EMPTY_LINES).not.toContain(x)
       expect(NAG_LINES).not.toContain(x)
     }
+  })
+  it('답 대기 — 조정 팀장은 사장님을 재촉하는 문구를 돌려 가며 보이고, 알림이라 잡담을 꺼도 뜬다', () => {
+    const w = { slots: 3, busy: 1, untilLabel: '답 대기' }
+    const seen = new Set<string>()
+    for (let i = 0; i < 40; i++) {
+      const b = coordBubble(w, NOW + i * ROTATE_MS, 'hong/mbp/coord:abcd1234')
+      expect(COORD_ANSWER_LINES).toContain(b.text)
+      expect(b.text).toContain('사장님')
+      expect(b.alert).toBe(true)
+      seen.add(b.text)
+    }
+    expect(seen.size).toBe(COORD_ANSWER_LINES.length)
+    // 차례대로 돌아 같은 줄이 연달아 나오지 않는다.
+    for (let i = 1; i < 40; i++) {
+      expect(coordBubble(w, NOW + i * ROTATE_MS, 'k').text).not.toBe(coordBubble(w, NOW + (i - 1) * ROTATE_MS, 'k').text)
+    }
+    // 「조정 중」·라벨 없음은 종전 레인 대사이고 알림이 아니다.
+    expect(coordBubble({ slots: 3, busy: 1, untilLabel: '조정 중' }, NOW).text).toBe('레인 3개 중 1개가 작업 중이다.')
+    expect(coordBubble({ slots: 3, busy: 1 }, NOW).alert).toBeUndefined()
+  })
+  it('답 대기 — 임시 팀원은 팀장님께 확인을 부탁한다', () => {
+    const b = tempBubble(t, ' 답 대기 ', NOW, 'hong/mbp/임시:eng·x')
+    expect(TEMP_ANSWER_LINES).toContain(b.text)
+    expect(b.text).toContain('팀장님')
+    expect(b.alert).toBe(true)
+    expect(tempBubble(t, '대기', NOW).alert).toBeUndefined()
+  })
+  it('답 대기 라벨 판정 — 앞뒤 공백만 허용하고 비슷한 말(대기)은 아니다', () => {
+    expect(isAnswerWait('답 대기')).toBe(true)
+    expect(isAnswerWait(' 답 대기 ')).toBe(true)
+    expect(isAnswerWait('대기')).toBe(false)
+    expect(isAnswerWait(null)).toBe(false)
+    expect(tempStatusKind('답 대기')).toBe('answer')
   })
 })

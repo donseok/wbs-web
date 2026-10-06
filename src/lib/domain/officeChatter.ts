@@ -2,7 +2,7 @@
 // 팀원 보고가 한동안 없으면 팀장이 잔소리를 하고, 팀원이 보고하면 그 요약을 말풍선으로 띄운다.
 // 대사는 nowMs 로 돌리므로(8초마다 다음 줄) 서버·클라이언트가 같은 줄을 고른다. 작업 PC 마다 시작 줄이 다르다.
 import { fnv1a32 } from './seatState'
-import type { RosterDesk, RosterHost } from './agentRoster'
+import { isAnswerWait, type RosterDesk, type RosterHost } from './agentRoster'
 import type { Seat } from './seatmap'
 // 대사는 officeChatter.lines.json 한 곳에 상황별(팀원 있을 때 · 없을 때 · 공통 …)로 모은다.
 // 그 안의 주제 묶음(키)은 자유롭게 늘려도 되고, 여기서 묶음을 모두 합쳐 쓴다.
@@ -249,11 +249,27 @@ export function awayBubble(deskKey: string, nowMs: number): string | null {
   return awayReason(deskKey, nowMs)
 }
 
+const ANSWER = LINES['답 대기']
+/** 답 대기 재촉 — 조정 팀장은 사장님(사람)을, 임시 팀원은 팀장님을 부른다. */
+export const COORD_ANSWER_LINES: readonly string[] = ANSWER['조정 팀장']
+export const TEMP_ANSWER_LINES: readonly string[] = ANSWER['임시 팀원']
+
+/** 상황 말풍선 한 줄 — tone 은 ChatBubble 의 모양, alert 는 잡담을 꺼도 보여야 하는 알림(답 대기)이다. */
+export type SituationBubble = { tone: 'nag' | 'praise' | 'empty'; text: string; alert?: true }
+
+/** 답 대기 말풍선 — 8초마다 다음 재촉 문구로 넘어간다(차례대로라 같은 줄이 연달아 나오지 않는다). seed 가 다르면 시작 줄이 다르다. */
+function answerBubble(lines: readonly string[], seed: string, nowMs: number): SituationBubble {
+  return { tone: 'nag', text: lines[(hash(seed) + slotOf(nowMs)) % lines.length], alert: true }
+}
+
 /**
  * 조정 팀장(coord:) 말풍선 — 레인 수·작업 중 수만으로 정하는 상황 대사다. 빈 책상 한탄·잔소리 묶음은 쓰지 않는다
- * (조정 세션은 팀원 책상을 거느리지 않는다).
+ * (조정 세션은 팀원 책상을 거느리지 않는다). 상태 라벨이 「답 대기」면 사장님을 재촉한다.
  */
-export function coordBubble(w: { slots: number | null; busy: number | null } | null): { tone: 'nag' | 'praise' | 'empty'; text: string } {
+export function coordBubble(
+  w: { slots: number | null; busy: number | null; untilLabel?: string | null } | null, nowMs = 0, seed = 'coord',
+): SituationBubble {
+  if (isAnswerWait(w?.untilLabel)) return answerBubble(COORD_ANSWER_LINES, seed, nowMs)
   if (!w || w.slots == null) return { tone: 'empty', text: '레인을 조정하는 중이다.' }
   const busy = w.busy ?? 0
   if (w.slots === 0) return { tone: 'empty', text: '맡길 레인이 아직 없다.' }
@@ -262,8 +278,11 @@ export function coordBubble(w: { slots: number | null; busy: number | null } | n
   return { tone: 'nag', text: `레인 ${w.slots}개 중 ${busy}개가 작업 중이다.` }
 }
 
-/** 임시 팀원 말풍선 — 상태 라벨(작업 중·대기·머지 중·끝)과 지시 요약에 맞춘다. 빈자리 문구는 쓰지 않는다. */
-export function tempBubble(temp: { lane: string; summary: string } | undefined, untilLabel: string | null | undefined): { tone: 'nag' | 'praise' | 'empty'; text: string } {
+/** 임시 팀원 말풍선 — 상태 라벨(작업 중·대기·답 대기·머지 중·끝)과 지시 요약에 맞춘다. 빈자리 문구는 쓰지 않는다. */
+export function tempBubble(
+  temp: { lane: string; summary: string } | undefined, untilLabel: string | null | undefined, nowMs = 0, seed = 'temp',
+): SituationBubble {
+  if (isAnswerWait(untilLabel)) return answerBubble(TEMP_ANSWER_LINES, seed, nowMs)
   const what = temp?.summary.trim() ? `「${temp.summary.trim()}」` : '맡은 일'
   switch (untilLabel?.trim()) {
     case '작업 중': return { tone: 'nag', text: `${what} 작업 중이다.` }

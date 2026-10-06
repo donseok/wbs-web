@@ -5,6 +5,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { FloorCard } from '@/components/agents/FloorCard'
 import { RosterBoard } from '@/components/agents/RosterBoard'
+import { OfficeChatterContext } from '@/components/agents/SeatSpeech'
 import { watchLabel } from '@/components/agent-hub/HubStatusBar'
 import { assembleRoster } from '@/lib/domain/agentRoster'
 import type { Floor, Watcher } from '@/lib/domain/seatmap'
@@ -101,5 +102,37 @@ describe('RosterBoard — 임시 팀원·조정 세션 책상', () => {
     expect(p.querySelector('h2')?.textContent).toBe('레인A')
     expect(p.querySelector('[data-roster-temp]')?.textContent).toContain('로그인 · 검증')
     expect(p.textContent).toContain('마지막 갱신')
+  })
+  it('답 대기 — 조정 팀장 책상은 상태 글자가 「답 대기」 점멸 배지가 되고 사장님 재촉 말풍선이 뜬다', () => {
+    render([watcher('hong/mbp/coord:abcd1234', { slots: 3, busy: 1, untilLabel: '답 대기' })])
+    const d = desks()[0]
+    expect(d.querySelector('[data-answer-wait]')?.textContent).toBe('답 대기')
+    expect(d.querySelector('[data-chat-bubble]')?.textContent).toContain('사장님')
+    expect(d.textContent).not.toContain('조정 중')
+    // 프로필(첫 책상이 골라진다)의 상태 칩도 같은 배지다.
+    expect(host.querySelector('[data-roster-profile] [data-answer-wait]')?.textContent).toBe('답 대기')
+  })
+  it('답 대기 — 임시 팀원 책상은 팀장님께 확인을 부탁하고 같은 배지를 단다', () => {
+    render([watcher('hong/mbp/임시:eng·노드 엔진', { untilLabel: '답 대기' })])
+    const d = desks()[0]
+    expect(d.querySelector('[data-answer-wait]')?.textContent).toBe('답 대기')
+    expect(d.querySelector('[data-chat-bubble]')?.textContent).toContain('팀장님')
+  })
+  it('답 대기가 아니면 배지가 없고, 일반 팀장은 until 이 「답 대기」여도 배지를 달지 않는다', () => {
+    render([watcher('hong/mbp/coord:abcd1234', { slots: 3, busy: 1, untilLabel: '조정 중' })])
+    expect(desks()[0].querySelector('[data-answer-wait]')).toBeNull()
+    expect(desks()[0].textContent).toContain('조정 중')
+    render([watcher('hong/mbp/lead', { slots: 1, untilLabel: '답 대기' })])
+    expect(host.querySelector('[data-answer-wait]')).toBeNull()
+  })
+  it('잡담을 꺼도 답 대기 말풍선은 뜨고, 다른 조정 말풍선은 사라진다', () => {
+    const off = (watchers: Watcher[]) => act(() => root.render(
+      <OfficeChatterContext.Provider value={false}>
+        <RosterBoard roster={assembleRoster({ floors: [floor(watchers)] })} nowMs={NOW} />
+      </OfficeChatterContext.Provider>))
+    off([watcher('hong/mbp/coord:abcd1234', { slots: 3, busy: 1, untilLabel: '답 대기' })])
+    expect(desks()[0].querySelector('[data-chat-bubble]')?.textContent).toContain('사장님')
+    off([watcher('hong/mbp/coord:abcd1234', { slots: 3, busy: 1, untilLabel: '조정 중' })])
+    expect(desks()[0].querySelector('[data-chat-bubble]')).toBeNull()
   })
 })
