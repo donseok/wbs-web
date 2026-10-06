@@ -1,6 +1,6 @@
 // tests/domain/agent-console.test.ts — 콘솔 대상 해석·ack·화면 항목 규칙(계약 §2.12).
 import { describe, expect, it } from 'vitest'
-import { consoleAckIssue, consoleTargetOfAgent, parseConsoleScreenItem } from '@/lib/domain/agentConsole'
+import { CONSOLE_KEYS, CONSOLE_KEYS_MAX, consoleAckIssue, consoleKeysLabel, consoleTargetOfAgent, parseConsoleKeys, parseConsoleScreenItem } from '@/lib/domain/agentConsole'
 
 describe('consoleTargetOfAgent', () => {
   it('네 종류를 읽는다 — lead · w<N> · coord:<세션8> · 임시:<레인>·<요약>', () => {
@@ -29,6 +29,50 @@ describe('consoleAckIssue', () => {
     expect(consoleAckIssue({ result: 'sent', detail: 'typed' })).not.toBeNull()
     expect(consoleAckIssue({ result: 'refused', reason: 'error', detail: 'accepted' })).not.toBeNull()
     expect(consoleAckIssue({ result: 'ok' })).not.toBeNull()
+  })
+})
+
+describe('consoleAckIssue — prompt_changed(키 입력 재판정 거절)', () => {
+  it('refused 와는 쓸 수 있고, sent·retry 와는 쓸 수 없다', () => {
+    expect(consoleAckIssue({ result: 'refused', reason: 'prompt_changed' })).toBeNull()
+    expect(consoleAckIssue({ result: 'sent', reason: 'prompt_changed' })).not.toBeNull()
+    expect(consoleAckIssue({ result: 'retry', reason: 'prompt_changed' })).not.toBeNull()
+  })
+})
+
+describe('parseConsoleKeys — 허용 키만 1~4개', () => {
+  it('허용 키 열네 개를 모두 받고 복사본을 돌려준다', () => {
+    expect([...CONSOLE_KEYS]).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Enter', 'Esc', 'Up', 'Down', 'Tab'])
+    for (const k of CONSOLE_KEYS) expect(parseConsoleKeys([k])).toEqual([k])
+    const src = ['Down', 'Enter']
+    const out = parseConsoleKeys(src)
+    expect(out).toEqual(['Down', 'Enter'])
+    expect(out).not.toBe(src)
+    expect(parseConsoleKeys(['Down', 'Down', 'Down', 'Enter'])).toHaveLength(CONSOLE_KEYS_MAX)
+  })
+  it('목록 밖·대소문자 변형·공백·객체·중첩·빈 배열·상한 초과는 null', () => {
+    const bad: unknown[] = [
+      undefined, null, 'Enter', {}, [], ['0'], ['10'], ['enter'], ['ENTER'], ['Enter '], [' 1'], ['esc'], ['up'], ['Left'], ['F5'], ['ctrl+c'], ['C-c'],
+      ['\n'], ['1\n'], [1], [null], [undefined], [['1']], [{ toString: () => '1' }], ['1', 'x'], ['1', '2', '3', '4', '5'],
+      [, '1'],
+    ]
+    for (const b of bad) expect(parseConsoleKeys(b), JSON.stringify(b)).toBeNull()
+  })
+  it('순서 규칙 — 확정 키(1~9·Enter·Esc)와 Tab 은 마지막에 하나만, 앞은 Up·Down 뿐(재판정은 첫 키만 보호하고 Tab 은 화면을 바꾼다)', () => {
+    const ok: string[][] = [
+      ['1'], ['9'], ['Enter'], ['Esc'], ['Up'], ['Down'], ['Tab'],
+      ['Up', 'Tab'], ['Up', 'Up', 'Up', 'Up'], ['Down', 'Enter'], ['Up', 'Down', 'Up', 'Esc'], ['Down', 'Down', 'Down', '3'], ['Down', 'Down', 'Up', 'Tab'],
+    ]
+    for (const k of ok) expect(parseConsoleKeys(k), k.join(' ')).toEqual(k)
+    const bad: string[][] = [
+      ['1', 'Enter'], ['Enter', 'Enter'], ['Esc', 'Esc'], ['1', '2'], ['Enter', 'Up'], ['Esc', 'Tab'], ['1', 'Up'],
+      ['Tab', 'Enter'], ['Tab', '1'], ['Tab', 'Tab'], ['Tab', 'Up'], ['Up', 'Tab', 'Enter'], ['Up', 'Tab', 'Down'],
+      ['Up', 'Enter', 'Tab'], ['Up', 'Enter', 'Enter'], ['Enter', 'Up', 'Up', 'Up'], ['9', 'Down', 'Down', 'Enter'],
+    ]
+    for (const k of bad) expect(parseConsoleKeys(k), k.join(' ')).toBeNull()
+  })
+  it('전달 상태 표의 표기', () => {
+    expect(consoleKeysLabel(['Down', 'Enter'])).toBe('키: Down Enter')
   })
 })
 
