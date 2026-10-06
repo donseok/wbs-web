@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DONE_WINDOW_MS, fetchMyMemberIds, fetchSeatmapRows } from '@/lib/data/agentSeatmap'
+import { DONE_WINDOW_MS, fetchConsoleSeatOwners, fetchConsoleSeats, fetchMyMemberIds, fetchSeatmapRows } from '@/lib/data/agentSeatmap'
+import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 type Resp = { data?: unknown; error?: { message: string } | null }
@@ -152,5 +153,49 @@ describe('fetchSeatmapRows — 선행 항목(predecessors)', () => {
   it('선행 조회가 error 면 throw — 미충족으로 위장하지 않는다', async () => {
     const a = admin({ agent_work_orders: [{ data: [READY] }], wbs_items: [{ data: [ITEM] }, { data: null, error: { message: 'boom' } }] })
     await expect(fetchSeatmapRows(a, ['p1'], NOW)).rejects.toThrow('선행 항목')
+  })
+})
+
+describe('fetchConsoleSeats — owner 의 콘솔 대상 좌석', () => {
+  it('살아 있는 감시자 키와 점유 주문의 팀원 신원만 대상으로 읽고, 대상 아닌 키는 뺀다', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const a = admin({
+      agent_watchers: [{ data: [
+        { agent: 'hong/mbp/lead', project_id: 'p1' }, { agent: 'hong/mbp/coord:0f8a8f92', project_id: null },
+        { agent: 'hong/mbp/임시:kit·엔진', project_id: null }, { agent: 'hong/mbp/poll', project_id: null },
+        { agent: 'hong/mbp/coord', project_id: null }, { agent: 'hong/mbp/w3', project_id: null },
+      ] }],
+      agent_work_orders: [{ data: [{ heartbeat_agent: 'hong/mbp/w1', project_id: 'p1' }, { heartbeat_agent: 'claude-mbp', project_id: 'p1' }, { heartbeat_agent: 'hong/mbp/lead', project_id: 'p1' }] }],
+    }, calls)
+    const seats = await fetchConsoleSeats(a, 'u1', NOW)
+    expect(seats).toEqual([
+      { kind: 'team_lead', ref: 'lead', host: 'mbp', projectId: 'p1' },
+      { kind: 'coord_lead', ref: '0f8a8f92', host: 'mbp', projectId: null },
+      { kind: 'coord_lane', ref: 'kit', host: 'mbp', projectId: null },
+      { kind: 'team_worker', ref: 'w1', host: 'mbp', projectId: 'p1' },
+    ])
+    expect(calls['agent_watchers.eq']).toContainEqual(['user_id', 'u1'])
+    expect(calls['agent_watchers.gte']).toContainEqual(['last_seen_at', new Date(NOW - WATCHER_TTL_MS).toISOString()])
+    expect(calls['agent_work_orders.eq']).toEqual(expect.arrayContaining([['claimed_by_user_id', 'u1'], ['status', 'claimed']]))
+  })
+  it('조회 실패는 throw — 빈 목록으로 위장하지 않는다', async () => {
+    await expect(fetchConsoleSeats(admin({ agent_work_orders: [{ error: { message: 'x' } }] }), 'u1', NOW)).rejects.toThrow('콘솔 점유 주문')
+  })
+})
+
+describe('fetchConsoleSeatOwners — 좌석 키의 주인', () => {
+  it('팀원 키는 점유 주문에서, 감시자 키는 살아 있는 감시자 행에서 읽는다', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const w = await fetchConsoleSeatOwners(admin({ agent_work_orders: [{ data: [{ claimed_by_user_id: 'u1', project_id: 'p1' }, { claimed_by_user_id: null, project_id: 'p1' }] }] }, calls), 'hong/mbp/w1', NOW)
+    expect(w).toEqual([{ owner: 'u1', projectId: 'p1' }])
+    expect(calls['agent_work_orders.eq']).toEqual(expect.arrayContaining([['heartbeat_agent', 'hong/mbp/w1'], ['status', 'claimed']]))
+    const l = await fetchConsoleSeatOwners(admin({ agent_watchers: [{ data: [{ user_id: 'u2', project_id: null }] }] }), 'hong/mbp/lead', NOW)
+    expect(l).toEqual([{ owner: 'u2', projectId: null }])
+  })
+  it('대상이 아닌 키는 조회하지 않고 [], 조회 실패는 throw', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    expect(await fetchConsoleSeatOwners(admin({}, calls), 'hong/mbp/poll', NOW)).toEqual([])
+    expect(Object.keys(calls)).toHaveLength(0)
+    await expect(fetchConsoleSeatOwners(admin({ agent_watchers: [{ error: { message: 'x' } }] }), 'hong/mbp/lead', NOW)).rejects.toThrow()
   })
 })
