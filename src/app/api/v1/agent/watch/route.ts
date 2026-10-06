@@ -21,6 +21,8 @@ export const dynamic = 'force-dynamic'
 
 const AGENT_MAX = 120
 const STALE_ROW_MS = 7 * 24 * 3600_000
+/** 콘솔 지원 표식 — v 는 콘솔 API 판, poll_s 는 서버가 권하는 폴러 주기(초, 폴러가 15~120 으로 자른다). */
+const CONSOLE_WATCH_CAPS = { v: 1, poll_s: 30 } as const
 /** 한 번에 실어 보내는 재개 요청 수 — 요청이 걸린 주문은 늘 소수다. */
 const RESUME_MAX = 50
 
@@ -261,6 +263,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       expires_at: new Date(now.getTime() + WATCHER_TTL_MS).toISOString(),
+      // 에이전트 콘솔 지원 표식(계약 §2.12) — 폴러는 이 칸이 있는 서버에서만 프롬프트 전달·화면 올리기를 한다.
+      console: CONSOLE_WATCH_CAPS,
       // 배열이면 그게 전부다. null 은 "조회에 실패했다"이며 "요청이 없다"가 아니다(에러 3원칙).
       resume_requests: resume,
       ...(resume === null ? { resume_requests_error: '재개 요청 조회에 실패했습니다.' } : {}),

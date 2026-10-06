@@ -5,6 +5,7 @@ import type { AdminClient } from '@/lib/minutes/externalApi'
 import { isProjectAdmin, type Actor } from '@/lib/domain/authz'
 import { seatmapProjectIds } from '@/lib/authz/agentsAccess'
 import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
+import { consoleTargetOfAgent, type ConsoleTarget } from '@/lib/domain/agentConsole'
 import {
   assembleSeatmap, type ItemRow, type LeaseRow, type MemberRow, type OrderRow, type PredecessorRow, type ProjectRow, type ReportRow, type ReviewRow, type Seatmap, type SeatmapRows, type SeatmapScope, type SeatmapViewer, type WatcherRow,
 } from '@/lib/domain/seatmap'
@@ -177,4 +178,58 @@ export async function getProjectOffice(actor: Actor, projectId: string, nowMs = 
     getSeatmap(actor, nowMs, scope, { projectId }),
   ])
   return { projectName: project?.name ?? null, seatmap }
+}
+
+/** 콘솔 대상 하나와 그 좌석이 속한 프로젝트(감시자 project_id 는 null 일 수 있다 — 조정 세션 대부분). */
+export interface ConsoleSeat extends ConsoleTarget { projectId: string | null }
+
+/**
+ * 이 사용자(owner)의 콘솔 대상 좌석 — 계약 §2.12 의 「owner 의 좌석(watcher·점유 주문)」.
+ * 감시자는 살아 있는 행(TTL 70분)의 agent 키, 팀원은 이 사용자가 점유한(claimed) 주문 중 heartbeat 가 70분 안에 온 것의 신원(<신원>/<host>/w<N>)에서
+ * 읽는다 — 죽은 팀원의 점유 주문이 한없이 대상으로 남지 않게 감시자와 같은 창을 쓴다.
+ * 대상이 아닌 키(단독 감시·옛 coord·규칙 밖 신원)는 뺀다. 보내기·화면 올리기·화면 보기 게이트가 모두 이 목록을 쓴다.
+ * 조회 실패는 throw 한다 — 빈 목록으로 위장하면 보안 게이트가 「대상 없음」으로 잘못 거절하거나 통과시킨다.
+ */
+export async function fetchConsoleSeats(admin: AdminClient, ownerId: string, nowMs = Date.now()): Promise<ConsoleSeat[]> {
+  const [watchers, orders] = await Promise.all([
+    admin.from('agent_watchers').select('agent, project_id')
+      .eq('user_id', ownerId).gte('last_seen_at', new Date(nowMs - WATCHER_TTL_MS).toISOString())
+      .then(r => must<Array<{ agent: string; project_id: string | null }>>('콘솔 감시자', r)),
+    admin.from('agent_work_orders').select('heartbeat_agent, project_id')
+      .eq('claimed_by_user_id', ownerId).eq('status', 'claimed').not('heartbeat_agent', 'is', null)
+      .gte('last_heartbeat_at', new Date(nowMs - WATCHER_TTL_MS).toISOString())
+      .then(r => must<Array<{ heartbeat_agent: string | null; project_id: string }>>('콘솔 점유 주문', r)),
+  ])
+  const out: ConsoleSeat[] = []
+  for (const w of watchers) {
+    const t = consoleTargetOfAgent(w.agent)
+    if (t && t.kind !== 'team_worker') out.push({ ...t, projectId: w.project_id })
+  }
+  for (const o of orders) {
+    const t = consoleTargetOfAgent(o.heartbeat_agent)
+    if (t && t.kind === 'team_worker') out.push({ ...t, projectId: o.project_id })
+  }
+  return out
+}
+
+/** 좌석 키 하나의 주인 — 같은 키(<신원>/<host>/<slot>)를 쓰는 계정이 드물게 둘 이상일 수 있어 목록이다. */
+export interface ConsoleSeatOwner { owner: string; projectId: string | null }
+
+/**
+ * 좌석 키(감시자 agent 또는 팀원 heartbeat 신원)의 주인과 프로젝트 — 화면 보기 게이트(본인 + 그 좌석 프로젝트의 관리자)의 재료.
+ * 감시자는 살아 있는 행(TTL 70분)의 user_id·project_id, 팀원은 그 신원으로 70분 안에 heartbeat 를 보낸 claimed 주문의 점유자·프로젝트다.
+ * 대상 키가 아니면 조회하지 않고 [] 다. 조회 실패는 throw.
+ */
+export async function fetchConsoleSeatOwners(admin: AdminClient, seatKey: string, nowMs = Date.now()): Promise<ConsoleSeatOwner[]> {
+  const t = consoleTargetOfAgent(seatKey)
+  if (!t) return []
+  if (t.kind === 'team_worker') {
+    const rows = must<Array<{ claimed_by_user_id: string | null; project_id: string }>>('콘솔 좌석 주문',
+      await admin.from('agent_work_orders').select('claimed_by_user_id, project_id').eq('heartbeat_agent', seatKey).eq('status', 'claimed')
+        .gte('last_heartbeat_at', new Date(nowMs - WATCHER_TTL_MS).toISOString()))
+    return rows.filter(r => r.claimed_by_user_id !== null).map(r => ({ owner: r.claimed_by_user_id as string, projectId: r.project_id }))
+  }
+  const rows = must<Array<{ user_id: string; project_id: string | null }>>('콘솔 좌석 감시자',
+    await admin.from('agent_watchers').select('user_id, project_id').eq('agent', seatKey).gte('last_seen_at', new Date(nowMs - WATCHER_TTL_MS).toISOString()))
+  return rows.map(r => ({ owner: r.user_id, projectId: r.project_id }))
 }

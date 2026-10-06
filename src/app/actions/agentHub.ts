@@ -1,13 +1,14 @@
 'use server'
 // 에이전트 허브 액션 — 재조회와 위임 묶음 저장. 판정은 authz 가드로만, 본체는 src/lib/agent/delegation.ts.
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §5
-import { requireProjectMember } from '@/lib/authz'
+import { getActor, requireProjectMember, type Actor } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
 import { isUuidLike, resumeHostFromClaimLabel } from '@/lib/domain/agentWork'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { getAgentHub } from '@/lib/data/agentHub'
-import { viewerEmail } from '@/lib/data/agentSeatmap'
+import { fetchConsoleSeatOwners, fetchConsoleSeats, viewerEmail, type ConsoleSeatOwner } from '@/lib/data/agentSeatmap'
+import { CONSOLE_ISSUE_TEXT, consoleTargetKey, consoleTargetOfAgent, consoleTextIssue, normalizeConsoleText } from '@/lib/domain/agentConsole'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { applyDelegation, ERR_NOT_ASSIGNEE } from '@/lib/agent/delegation'
 import { cancelOrders } from '@/lib/agent/cancelOrder'
@@ -338,4 +339,148 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
     console.error('[agentHub] 조정 뒤 재조회 실패:', e instanceof Error ? e.message : e)
     return { ok: true, hub: null, hubError: '처리는 됐지만 현황 재조회에 실패했습니다. 새로고침을 누르세요.', ...warning }
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 에이전트 콘솔(2026-10-06, 계약 api-contract §2.12) — 오피스에서 세션에 프롬프트를 보내고 최근 화면(끝 40줄)을 본다.
+// 권한은 위의 stop·resume 게이트(관리자·서브트리 관리자 허용)와 다르다 — 그대로 베끼지 않는다:
+//   · 보내기·전달 상태·본문 보기 = 세션 주인 본인만(actor.userId === owner). 프로젝트 관리자·슈퍼유저도 남의 세션에는 못 보낸다.
+//   · 화면 보기 = 본인 + 그 좌석 프로젝트의 관리자. 프로젝트를 정할 수 없으면(감시자 project_id null) 본인만(fail-closed).
+// 대상·host 는 서버가 좌석 키에서 읽고, 그 키가 지금 살아 있는 좌석(감시자 행·점유 주문)인지 DB 로 다시 확인한다 — 클라이언트 값을 믿지 않는다.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type ConsoleSendResult =
+  | { ok: true; id: string }
+  | { ok: false; code: 'unauthorized' | 'bad_target' | 'empty' | 'bang_in_text' | 'too_long' | 'target_unknown' | 'not_owner' | 'rate_limited' | 'queue_full' | 'error'; error: string }
+
+const CONSOLE_SEND_ERR = {
+  target_unknown: '이 세션이 지금 오피스에 없습니다 — 세션이 다시 신호를 보내면 보낼 수 있습니다.',
+  not_owner: '보내기는 이 세션의 주인 본인만 할 수 있습니다.',
+  rate_limited: '1분에 5건까지 보낼 수 있습니다. 잠시 뒤에 다시 보내세요.',
+  queue_full: '이 세션에 아직 전달되지 않은 프롬프트가 3건 있습니다. 전달된 뒤에 보내세요.',
+} as const
+
+async function consoleActor(): Promise<Actor | null> {
+  try { return await getActor() } catch (e) {
+    console.error('[agentHub] 콘솔 사용자 조회 실패:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
+/** 프롬프트 보내기 — 대기열에 넣는다. 로컬 폴러가 30초 안에 가져가 세션 입력창에 한 줄로 넣는다. 바쁜 세션에도 바로 넣는다. */
+export async function sendConsolePrompt(seatKey: string, text: string): Promise<ConsoleSendResult> {
+  const actor = await consoleActor()
+  if (!actor) return { ok: false, code: 'unauthorized', error: '로그인이 필요합니다.' }
+  const target = typeof seatKey === 'string' ? consoleTargetOfAgent(seatKey) : null
+  if (!target) return { ok: false, code: 'bad_target', error: '프롬프트를 보낼 수 있는 세션이 아닙니다.' }
+  if (typeof text !== 'string') return { ok: false, code: 'empty', error: CONSOLE_ISSUE_TEXT.empty }
+  const normalized = normalizeConsoleText(text)
+  const issue = consoleTextIssue(normalized)
+  if (issue) return { ok: false, code: issue === 'bang' ? 'bang_in_text' : issue, error: CONSOLE_ISSUE_TEXT[issue] }
+  const admin = createAdminClient()
+  let owners: ConsoleSeatOwner[]
+  try { owners = await fetchConsoleSeatOwners(admin, seatKey) } catch (e) {
+    // 보안 게이트의 재료 — 조회 실패는 거부(fail-closed), 「대상 없음」으로 위장하지 않는다.
+    console.error('[agentHub] 콘솔 좌석 조회 실패:', e instanceof Error ? e.message : e)
+    return { ok: false, code: 'error', error: '세션 확인에 실패했습니다. 잠시 뒤에 다시 시도하세요.' }
+  }
+  if (owners.length === 0) return { ok: false, code: 'target_unknown', error: CONSOLE_SEND_ERR.target_unknown }
+  if (!owners.some(o => o.owner === actor.userId)) return { ok: false, code: 'not_owner', error: CONSOLE_SEND_ERR.not_owner }
+  const { data, error } = await admin.rpc('agent_console_enqueue', {
+    p_owner: actor.userId, p_host: target.host, p_kind: target.kind, p_ref: target.ref, p_text: normalized,
+  })
+  if (error) {
+    console.error('[agentHub] 콘솔 보내기 실패:', error.message)
+    return { ok: false, code: 'error', error: '프롬프트를 넣지 못했습니다. 잠시 뒤에 다시 시도하세요.' }
+  }
+  const row = ((data ?? []) as Array<{ outcome: string; id: string | null }>)[0]
+  if (row?.outcome === 'ok' && row.id) return { ok: true, id: row.id }
+  if (row?.outcome === 'rate_limited' || row?.outcome === 'queue_full') return { ok: false, code: row.outcome, error: CONSOLE_SEND_ERR[row.outcome] }
+  console.error('[agentHub] 콘솔 보내기 응답 이상:', JSON.stringify(data))
+  return { ok: false, code: 'error', error: '프롬프트를 넣지 못했습니다. 잠시 뒤에 다시 시도하세요.' }
+}
+
+/** 화면 한 장이 24시간 넘게 갱신되지 않았으면 보이지 않는다(화면 라우트가 게으르게 지우기 전이라도). */
+const CONSOLE_SCREEN_TTL_MS = 24 * 3600_000
+/** 전달 상태 표에 싣는 최근 프롬프트 수. */
+const CONSOLE_PROMPTS_SHOWN = 10
+
+export interface ConsolePromptRow { id: string; text: string; status: string; reason: string | null; createdAt: string }
+export type ConsoleViewResult =
+  | {
+      ok: true
+      canSend: boolean
+      /** 보낼 수 없을 때의 사유 — 남의 세션·살아 있지 않은 세션. */
+      sendBlockedReason: string | null
+      canView: boolean
+      /** 본인만 — 남의 세션이면 칸이 없다. null 은 조회 실패(빈 목록과 다르다). */
+      prompts?: ConsolePromptRow[] | null
+      promptsError?: string
+      /** canView 일 때만. null 은 올라온 화면이 없음. */
+      screen?: { lines: string[]; capturedAt: string } | null
+      screenError?: string
+    }
+  | { ok: false; error: string }
+
+/** 콘솔 보기 — 보내기 자격·전달 상태(본인)·최근 화면(본인·관리자)을 한 번에 읽는다. 오피스 상세가 30초 폴링과 보내기 뒤에 부른다. */
+export async function getConsoleView(seatKey: string): Promise<ConsoleViewResult> {
+  const actor = await consoleActor()
+  if (!actor) return { ok: false, error: '로그인이 필요합니다.' }
+  const target = typeof seatKey === 'string' ? consoleTargetOfAgent(seatKey) : null
+  if (!target) return { ok: false, error: '콘솔을 열 수 있는 세션이 아닙니다.' }
+  const admin = createAdminClient()
+  let owners: ConsoleSeatOwner[]
+  try { owners = await fetchConsoleSeatOwners(admin, seatKey) } catch (e) {
+    console.error('[agentHub] 콘솔 좌석 조회 실패:', e instanceof Error ? e.message : e)
+    return { ok: false, error: '세션 확인에 실패했습니다.' }
+  }
+  const isOwner = owners.some(o => o.owner === actor.userId)
+  // 화면을 볼 계정 — 본인이면 자기 화면. 남(관리자)이면 아래를 모두 만족할 때만 그 주인의 화면이다(fail-closed):
+  //  · 이 좌석 키의 주인이 한 명 — 둘 이상이면 어느 계정의 화면인지 가를 수 없다(남이 같은 키로 감시자를 등록할 수 있다).
+  //  · 화면 행은 (owner, host, 종류, 참조)라 같은 열쇠의 다른 좌석(다른 프로젝트의 같은 슬롯·요약만 다른 레인)과 한 행을 쓴다 —
+  //    그 주인의 같은 열쇠 좌석이 전부 프로젝트가 있고, 그 프로젝트를 모두 내가 관리할 때만 연다.
+  let viewOwner: string | null = isOwner ? actor.userId : null
+  const distinct = [...new Set(owners.map(o => o.owner))]
+  if (!isOwner && distinct.length === 1) {
+    try {
+      const same = (await fetchConsoleSeats(admin, distinct[0])).filter(x => consoleTargetKey(x) === consoleTargetKey(target))
+      if (same.length > 0 && same.every(x => x.projectId !== null && isProjectAdmin(actor, x.projectId))) viewOwner = distinct[0]
+    } catch (e) {
+      console.error('[agentHub] 콘솔 좌석 조회 실패:', e instanceof Error ? e.message : e)
+      return { ok: false, error: '세션 확인에 실패했습니다.' }
+    }
+  }
+  const out: Extract<ConsoleViewResult, { ok: true }> = {
+    ok: true, canSend: isOwner, canView: viewOwner !== null,
+    sendBlockedReason: isOwner ? null : owners.length === 0 ? CONSOLE_SEND_ERR.target_unknown : CONSOLE_SEND_ERR.not_owner,
+  }
+  const key = { host: target.host, target_kind: target.kind, target_ref: target.ref }
+  if (isOwner) {
+    // 게으른 전이(만료·120초 무응답)를 먼저 돌려 표가 오래된 「전달 중」에 머물지 않게 한다. 실패해도 표는 읽는다(로깅).
+    const { error: swErr } = await admin.rpc('agent_console_sweep', { p_owner: actor.userId })
+    if (swErr) console.error('[agentHub] 콘솔 정리 실패:', swErr.message)
+    const { data, error } = await admin.from('agent_console_prompts').select('id, text, status, reason, created_at')
+      .eq('owner', actor.userId).eq('host', key.host).eq('target_kind', key.target_kind).eq('target_ref', key.target_ref)
+      .order('created_at', { ascending: false }).limit(CONSOLE_PROMPTS_SHOWN)
+    if (error) {
+      console.error('[agentHub] 콘솔 전달 상태 조회 실패:', error.message)
+      out.prompts = null; out.promptsError = '전달 상태 조회에 실패했습니다.'
+    } else {
+      out.prompts = ((data ?? []) as Array<{ id: string; text: string; status: string; reason: string | null; created_at: string }>)
+        .map(r => ({ id: r.id, text: r.text, status: r.status, reason: r.reason, createdAt: r.created_at }))
+    }
+  }
+  if (viewOwner !== null) {
+    const { data, error } = await admin.from('agent_console_screens').select('lines, captured_at, updated_at')
+      .eq('owner', viewOwner).eq('host', key.host).eq('target_kind', key.target_kind).eq('target_ref', key.target_ref)
+      .maybeSingle()
+    if (error) {
+      console.error('[agentHub] 콘솔 화면 조회 실패:', error.message)
+      out.screenError = '화면 조회에 실패했습니다.'
+    } else {
+      const r = data as { lines: string[]; captured_at: string; updated_at: string } | null
+      out.screen = r && Date.parse(r.updated_at) > Date.now() - CONSOLE_SCREEN_TTL_MS ? { lines: r.lines, capturedAt: r.captured_at } : null
+    }
+  }
+  return out
 }
