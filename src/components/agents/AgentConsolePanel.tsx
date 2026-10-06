@@ -4,6 +4,8 @@
 // 보내기는 세션 주인 본인만, 화면 보기는 본인과 프로젝트 관리자만이다. 여기의 canSend·canView 는 어포던스이고 최종 판정은 서버가 한다.
 import { useId } from 'react'
 import { ageLabel } from '@/lib/domain/seatmap'
+import { showableTerminalLine } from '@/lib/domain/safeDisplay'
+import css from './seatmap.module.css'
 import {
   CONSOLE_ISSUE_TEXT, CONSOLE_SCREEN_LINES, CONSOLE_STATUS_LABEL, CONSOLE_TEXT_MAX, consoleTextIssue, consoleTextLength,
   normalizeConsoleText, type ConsolePromptStatus, type ConsoleTargetKind,
@@ -150,8 +152,8 @@ export function AgentConsolePanel({
                 ? <p data-console-screen-empty="" className="text-xs text-ink-subtle">아직 올라온 화면이 없습니다 — 로컬 폴러가 30초마다 올립니다.</p>
                 : (
                   <pre data-console-screen="" tabIndex={0} role="region" aria-label={`${target.label} 최근 화면`}
-                    className="max-h-80 overflow-auto rounded-xl border border-line bg-canvas p-2 font-mono text-[11px] leading-snug text-ink">
-                    {lines.join('\n')}
+                    className={`${css.termPre} max-h-80 overflow-auto rounded-xl border border-line bg-canvas p-2 font-mono text-[11px] leading-snug text-ink`}>
+                    {lines.map(showableTerminalLine).join('\n')}
                   </pre>
                 )}
       </div>

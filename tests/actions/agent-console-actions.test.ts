@@ -261,7 +261,7 @@ describe('sendConsoleKeys — 서버가 모든 검사를 다시 한다', () => {
   it('키 목록 밖·5개 초과·빈 배열·배열 아님은 bad_keys — DB 를 읽기 전에 거절', async () => {
     mocks.getActor.mockResolvedValue(ME)
     ownerSeat()
-    for (const keys of [['0'], ['enter'], ['Enter '], ['F5'], ['1', '2', '3', '4', '5'], [], ['1', 'Enter'], ['Enter', 'Enter'], ['Esc', 'Esc'], ['1', '2'], ['Enter', 'Up'], ['Up', 'Enter', 'Tab'], 'Enter', null, [1], [['1']], [{}]]) {
+    for (const keys of [['0'], ['enter'], ['Enter '], ['F5'], ['1', '2', '3', '4', '5'], [], ['1', 'Enter'], ['Enter', 'Enter'], ['Esc', 'Esc'], ['1', '2'], ['Enter', 'Up'], ['Up', 'Enter', 'Tab'], ['Tab', 'Enter'], ['Tab', '1'], ['Tab', 'Tab'], 'Enter', null, [1], [['1']], [{}]]) {
       const calls = mockAdmin({ agent_watchers: [watcherRow()] }, enqOk())
       expect(await sendConsoleKeys(LANE, REQ, keys as never), JSON.stringify(keys)).toMatchObject({ ok: false, code: 'bad_keys' })
       expect(calls.rpc).toHaveLength(0)
@@ -269,7 +269,7 @@ describe('sendConsoleKeys — 서버가 모든 검사를 다시 한다', () => {
     }
   })
   it('이동 키만 있는 배열과 이동 키 뒤 확정 하나는 넘긴다 — 오류 문구는 확정 키가 마지막 하나뿐임을 알린다', async () => {
-    for (const keys of [['Up', 'Up', 'Tab'], ['Down', 'Esc'], ['3']] as const) {
+    for (const keys of [['Up', 'Down', 'Tab'], ['Down', 'Esc'], ['3']] as const) {
       mocks.getActor.mockResolvedValue(ME)
       ownerSeat()
       const calls = mockAdmin({ agent_watchers: [watcherRow()] }, enqOk())
@@ -281,7 +281,7 @@ describe('sendConsoleKeys — 서버가 모든 검사를 다시 한다', () => {
     mockAdmin()
     const r = await sendConsoleKeys(LANE, REQ, ['1', 'Enter'])
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.error).toContain('확정 키')
+    if (!r.ok) { expect(r.error).toContain('확정 키'); expect(r.error).toContain('Tab') }
   })
   it('조정 레인이 아닌 대상(팀장·팀원·조정 팀장·대상 아님)은 bad_target, 비로그인은 unauthorized', async () => {
     mocks.getActor.mockResolvedValue(ME)
@@ -401,14 +401,40 @@ describe('getConsoleView — inputRequest(발췌 노출 권한은 화면 보기�
     mockAdmin({ agent_console_prompts: [{ data: [] }], agent_console_screens: [{ data: screenRow }], agent_watchers: [watcherRow({ handled: { by: 'coordinator', at: SINCE } })] })
     expect(await getConsoleView(LANE)).toMatchObject({ inputRequest: { handled: { by: 'coordinator', at: SINCE } } })
   })
-  it('그 좌석 프로젝트의 관리자 — 주인의 입력 요청을 본다(보내기는 못 한다)', async () => {
-    mocks.getActor.mockResolvedValue(ADMIN)
-    mocks.fetchConsoleSeatOwners.mockResolvedValue([{ owner: 'u-me', projectId: P1 }])
-    mocks.fetchConsoleSeats.mockResolvedValue([{ kind: 'coord_lane', ref: 'kit', host: 'mbp', projectId: P1 }])
-    const calls = mockAdmin({ agent_console_screens: [{ data: screenRow }], agent_watchers: [watcherRow()] })
-    const v = await getConsoleView(LANE)
-    expect(v).toMatchObject({ ok: true, canSend: false, canView: true, inputRequest: VIEW })
-    expect(calls.ops).toContainEqual(['agent_watchers', 'eq', ['user_id', 'u-me']]) // 주인의 행
+  it('조정 세션(coord_lane·coord_lead) 좌석은 관리자·슈퍼유저·같은 프로젝트 멤버에게 화면·발췌가 비어 있다 — 감시자 행의 project_id 가 낡을 수 있다', async () => {
+    const MEMBER = actor('u-member', [[P1, 'member']])
+    for (const seat of [LANE, 'me/mbp/coord:0f8a8f92']) {
+      for (const who of [ADMIN, SUPER, MEMBER]) {
+        mocks.getActor.mockResolvedValue(who)
+        mocks.fetchConsoleSeatOwners.mockResolvedValue([{ owner: 'u-me', projectId: P1 }])
+        mocks.fetchConsoleSeats.mockResolvedValue([{ kind: seat === LANE ? 'coord_lane' : 'coord_lead', ref: seat === LANE ? 'kit' : '0f8a8f92', host: 'mbp', projectId: P1 }])
+        const calls = mockAdmin({ agent_console_screens: [{ data: screenRow }], agent_watchers: [watcherRow()] })
+        const v = await getConsoleView(seat)
+        expect(v, seat).toMatchObject({ ok: true, canSend: false, canView: false })
+        expect(v.ok && ('screen' in v || 'inputRequest' in v || 'inputRequestError' in v || 'prompts' in v)).toBe(false)
+        expect(calls.ops).toHaveLength(0)
+        expect(mocks.fetchConsoleSeats).not.toHaveBeenCalled()
+        mocks.fetchConsoleSeats.mockClear()
+      }
+    }
+  })
+  it('조정 세션도 본인은 화면·발췌를 본다', async () => {
+    mocks.getActor.mockResolvedValue(ME)
+    ownerSeat()
+    mockAdmin({ agent_console_prompts: [{ data: [] }], agent_console_screens: [{ data: screenRow }], agent_watchers: [watcherRow()] })
+    expect(await getConsoleView(LANE)).toMatchObject({ ok: true, canView: true, screen: { lines: ['$ ls'] }, inputRequest: VIEW })
+  })
+  it('팀장·팀원 좌석은 종전대로 그 좌석 프로젝트의 관리자가 화면을 본다(입력 요청 칸은 없다)', async () => {
+    for (const [seat, kind, ref] of [['me/mbp/lead', 'team_lead', 'lead'], ['me/mbp/w1', 'team_worker', 'w1']] as const) {
+      mocks.getActor.mockResolvedValue(ADMIN)
+      mocks.fetchConsoleSeatOwners.mockResolvedValue([{ owner: 'u-me', projectId: P1 }])
+      mocks.fetchConsoleSeats.mockResolvedValue([{ kind, ref, host: 'mbp', projectId: P1 }])
+      const calls = mockAdmin({ agent_console_screens: [{ data: screenRow }] })
+      const v = await getConsoleView(seat)
+      expect(v, seat).toMatchObject({ ok: true, canSend: false, canView: true, screen: { lines: ['$ ls'] } })
+      expect(v.ok && 'inputRequest' in v).toBe(false)
+      expect(calls.ops).toContainEqual(['agent_console_screens', 'eq', ['owner', 'u-me']])
+    }
   })
   it('열람 권한이 없으면(다른 프로젝트 관리자·프로젝트 없음) inputRequest 칸 자체가 없고 감시자 행도 읽지 않는다', async () => {
     mocks.getActor.mockResolvedValue(actor('u-x', [['other', 'admin']]))

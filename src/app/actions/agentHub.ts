@@ -368,7 +368,7 @@ const CONSOLE_SEND_ERR = {
 } as const
 
 const CONSOLE_KEYS_ERR = {
-  bad_keys: '보낼 수 없는 키 조합입니다. 키는 최대 4개까지 보낼 수 있고, 확정 키(숫자 1~9·Enter·Esc)는 마지막에 하나만 둘 수 있으며 그 앞에는 Up·Down·Tab 만 올 수 있습니다. 확정이 여러 번 필요하면 나누어 보내세요.',
+  bad_keys: '보낼 수 없는 키 조합입니다. 키는 최대 4개까지 보낼 수 있고, 확정 키(숫자 1~9·Enter·Esc)와 Tab 은 마지막에 하나만 둘 수 있으며 그 앞에는 Up·Down 만 올 수 있습니다. 확정이나 Tab 이 여러 번 필요하면 나누어 보내세요.',
   no_request: '이 세션에 지금 떠 있는 입력 요청이 없습니다.',
   not_answerable: '이 입력 요청은 웹에서 답할 수 없습니다. 이미 처리됐거나 터미널에서 직접 답해야 하는 종류입니다.',
   prompt_changed: '입력 창이 바뀌었거나 사라졌습니다. 화면을 새로 고쳐 확인한 뒤 다시 보내세요.',
@@ -533,7 +533,10 @@ export async function getConsoleView(seatKey: string): Promise<ConsoleViewResult
   //    그 주인의 같은 열쇠 좌석이 전부 프로젝트가 있고, 그 프로젝트를 모두 내가 관리할 때만 연다.
   let viewOwner: string | null = isOwner ? actor.userId : null
   const distinct = [...new Set(owners.map(o => o.owner))]
-  if (!isOwner && distinct.length === 1) {
+  // 조정 세션(coord_lane·coord_lead)은 관리자(남) 열람 경로를 만들지 않는다 — 계약 문구(관리자는 발췌를 볼 수 있다)와 다르다. 조정 좌석의 감시자 행은
+  // project_id 가 보조 신호라(다음 beat 전까지 길게는 70분 낡을 수 있다) 프로젝트로 열람 범위를 정하면 어긋난 행이 관리자에게 열릴 수 있기 때문이다.
+  const coordSeat = target.kind === 'coord_lane' || target.kind === 'coord_lead'
+  if (!isOwner && !coordSeat && distinct.length === 1) {
     try {
       const same = (await fetchConsoleSeats(admin, distinct[0])).filter(x => consoleTargetKey(x) === consoleTargetKey(target))
       if (same.length > 0 && same.every(x => x.projectId !== null && isProjectAdmin(actor, x.projectId))) viewOwner = distinct[0]

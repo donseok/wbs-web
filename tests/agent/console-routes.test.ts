@@ -135,12 +135,12 @@ describe('POST /console/poll', () => {
     })
     expect(keys.claim_token).toMatch(/^[0-9a-f]{32}$/)
   })
-  it('accepts 가 없는 옛 폴러는 p_accept_keys=false 로 부른다 — 키 행을 집지 않으므로 ack 로 닫는 일도 없다', async () => {
+  it('accepts 가 없는 옛 폴러는 p_accept_keys 인자를 아예 싣지 않는다(옛 3인자 호출과 같은 모양) — 키 행을 집지 않으므로 ack 로 닫는 일도 없다', async () => {
     for (const bodyIn of [{ host: 'mbp' }, { host: 'mbp', accepts: [] }, { host: 'mbp', accepts: ['other'] }]) {
       const calls = mockAdmin({}, { agent_console_claim: [{ data: [TEXT_ROW] }] })
       const body = await (await call(poll, 'poll', bodyIn)).json()
       expect(calls.rpc).toHaveLength(1)
-      expect(calls.rpc[0][1]).toMatchObject({ p_accept_keys: false })
+      expect(Object.keys(calls.rpc[0][1]).sort()).toEqual(['p_host', 'p_owner', 'p_token_hashes'])
       expect(body.prompts.map((p: { id: string }) => p.id)).toEqual(['t'])
     }
   })
@@ -152,7 +152,7 @@ describe('POST /console/poll', () => {
   })
   it('키 행이 깨져 있으면(순서 규칙 위반·키 목록 밖·칸 없음) 응답에 싣지 않는다', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    for (const broken of [{ keys: ['1', 'Enter'] }, { keys: ['Enter', 'Up'] }, { keys: ['F5'] }, { keys: null }, { req_sha: null }, { req_since: 'garbage' }, { req_kind: null }]) {
+    for (const broken of [{ keys: ['1', 'Enter'] }, { keys: ['Enter', 'Up'] }, { keys: ['Tab', 'Enter'] }, { keys: ['Tab', '1'] }, { keys: ['F5'] }, { keys: null }, { req_sha: null }, { req_since: 'garbage' }, { req_kind: null }]) {
       mockAdmin({}, { agent_console_claim: [{ data: [{ ...KEYS_ROW, ...broken }] }] })
       const body = await (await call(poll, 'poll', { host: 'mbp', accepts: ['keys'] })).json()
       expect(body.prompts, JSON.stringify(broken)).toEqual([])

@@ -8,12 +8,13 @@ import {
   CONSOLE_ANSWERABLE_KINDS, CONSOLE_KEYS, CONSOLE_KEYS_MAX, type ConsoleInputRequestView, type ConsoleKey,
 } from '@/lib/domain/agentConsole'
 import { inputKindLabel, inputWaitView } from '@/lib/domain/laneSummary'
+import { showableTerminalLine } from '@/lib/domain/safeDisplay'
 import css from './seatmap.module.css'
 
 type KeysCode = Extract<Awaited<ReturnType<typeof sendConsoleKeys>>, { ok: false }>['code']
 
 /** 키 순서 규칙 안내 — 확정 키를 쌓았을 때와 서버가 bad_keys 로 거절했을 때 같은 문장을 보인다. */
-export const KEYS_RULE_TEXT = '확정 키(숫자·Enter·Esc)는 마지막에 하나만 보낼 수 있습니다. 더 답하려면 화면이 바뀐 뒤 다시 보내세요.'
+export const KEYS_RULE_TEXT = '확정 키(숫자·Enter·Esc)와 Tab 은 마지막에 하나만 보낼 수 있습니다. 더 답하려면 화면이 바뀐 뒤 다시 보내세요.'
 
 /** 결과 코드마다 보이는 안내 — 서버 문장을 그대로 믿지 않고 화면이 고정된 말로 안내한다. */
 export const KEYS_RESULT_TEXT: Record<KeysCode, string> = {
@@ -35,30 +36,21 @@ const KEY_LABEL: Record<ConsoleKey, string> = { Up: '↑', Down: '↓', Esc: 'Es
 const KEY_ARIA: Partial<Record<ConsoleKey, string>> = { Up: '위쪽 화살표', Down: '아래쪽 화살표' }
 
 // ── 키 순서 규칙(서버가 강제하는 것과 같은 규칙을 화면이 미리 안내한다 — 최종 판정은 서버다) ──
-const MOVE_KEYS: readonly ConsoleKey[] = ['Up', 'Down', 'Tab']
-/** 확정 키 — 이동 키(Up·Down·Tab)가 아닌 허용 키(숫자·Enter·Esc). */
-export function isConfirmKey(k: ConsoleKey): boolean {
-  return CONSOLE_KEYS.includes(k) && !MOVE_KEYS.includes(k)
+/** 앞자리에 올 수 있는 키 — 이동 키 Up·Down 뿐이다. 그 밖의 키(숫자·Enter·Esc·Tab)는 마지막 자리에 하나만 온다. */
+const LEADING_KEYS: readonly ConsoleKey[] = ['Up', 'Down']
+/** 마지막 자리 전용 키 — 숫자·Enter·Esc(확정 키)와 Tab. 쌓이면 이후 모든 키가 막힌다. */
+export function isFinalKey(k: ConsoleKey): boolean {
+  return CONSOLE_KEYS.includes(k) && !LEADING_KEYS.includes(k)
 }
-/** 쌓은 목록이 규칙에 맞는가 — 1~최대 개수, 확정 키는 많아야 하나이고 있다면 마지막 자리, 앞자리는 이동 키뿐(이동 키만 있어도 된다). */
+/** 쌓은 목록이 규칙에 맞는가 — 1~최대 개수, 앞자리는 Up·Down 뿐, 마지막 자리는 허용 키 아무거나(Up·Down 만 있는 배열도 된다). */
 export function isValidKeySequence(keys: readonly ConsoleKey[]): boolean {
   if (keys.length < 1 || keys.length > CONSOLE_KEYS_MAX) return false
-  return keys.every((k, i) => CONSOLE_KEYS.includes(k) && (i === keys.length - 1 || MOVE_KEYS.includes(k)))
+  return keys.every((k, i) => CONSOLE_KEYS.includes(k) && (i === keys.length - 1 || LEADING_KEYS.includes(k)))
 }
-/** 이 키를 더 쌓을 수 있는가 — 확정 키가 이미 쌓였으면 모두 막고(확정 키는 마지막이어야 하므로), 개수 상한에서도 막는다. */
+/** 이 키를 더 쌓을 수 있는가 — 마지막 자리 전용 키가 이미 쌓였으면 모두 막고, 개수 상한에서도 막는다. */
 export function canAddKey(keys: readonly ConsoleKey[], k: ConsoleKey): boolean {
   if (!CONSOLE_KEYS.includes(k) || keys.length >= CONSOLE_KEYS_MAX) return false
-  return !keys.some(isConfirmKey)
-}
-
-/** 양방향 제어 문자 — 줄 안에서 글자 순서를 뒤집어 보이게 해 웹에서 보이는 명령과 실제 명령이 달라 보이게 만들 수 있다. */
-const BIDI = /[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g
-/**
- * 발췌 한 줄을 그릴 글로 바꾼다 — 양방향 제어 문자는 ⟨U+202E⟩ 꼴의 눈에 보이는 기호로 바꾼다.
- * 화면에서만 바꾼다: 서버에서 지우면 PC 가 계산한 발췌 해시와 어긋나므로 저장된 발췌는 그대로 둔다.
- */
-export function showableExcerptLine(line: string): string {
-  return line.replace(BIDI, c => `⟨U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}⟩`)
+  return !keys.some(isFinalKey)
 }
 
 export function isAnswerableKind(kind: string): boolean {
@@ -124,7 +116,7 @@ function PanelInner({ seatKey, request, canSend, onSent }: { seatKey: string; re
     <section data-input-request="" data-input-kind={request.kind} className={css.inReq}>
       <h4 className={css.inReqHead}>입력 요청 · {inputKindLabel(request.kind)}</h4>
       {request.excerpt.length > 0
-        ? <pre data-input-excerpt="" tabIndex={0} aria-label="입력 요청 발췌" className={css.inExcerpt}>{request.excerpt.map(showableExcerptLine).join('\n')}</pre>
+        ? <pre data-input-excerpt="" tabIndex={0} aria-label="입력 요청 발췌" className={`${css.inExcerpt} ${css.termPre}`}>{request.excerpt.map(showableTerminalLine).join('\n')}</pre>
         : <p data-input-excerpt-empty="" className={css.inMuted}>발췌가 비어 있습니다.</p>}
       {handledView && handledView.state === 'handled' && <p data-input-handled="" className={css.inMuted}>이미 처리된 요청입니다. {handledView.text}</p>}
       {!canSend ? (
@@ -143,7 +135,7 @@ function PanelInner({ seatKey, request, canSend, onSent }: { seatKey: string; re
           <p data-input-queue="" className={css.inQueue}>
             {keys.length > 0 ? `쌓인 키(${keys.length}/${CONSOLE_KEYS_MAX}): ${keys.map(k => KEY_LABEL[k]).join(' → ')}` : `쌓인 키가 없습니다. 최대 ${CONSOLE_KEYS_MAX}개까지 순서대로 쌓아 한 번에 보냅니다.`}
           </p>
-          {keys.some(isConfirmKey) && <p data-input-keys-rule="" className={css.inMuted}>{KEYS_RULE_TEXT}</p>}
+          {keys.some(isFinalKey) && <p data-input-keys-rule="" className={css.inMuted}>{KEYS_RULE_TEXT}</p>}
           <div className={css.inActions}>
             <button type="button" data-input-clear="" className={css.inKey} disabled={locked || keys.length === 0} onClick={() => setKeys([])}>지우기</button>
             <button type="button" data-input-send="" className={css.inSend} disabled={locked || !isValidKeySequence(keys)} onClick={() => { void send() }}>

@@ -58,14 +58,15 @@ describe('parseConsoleKeys — 허용 키만 1~4개', () => {
     ]
     for (const b of bad) expect(parseConsoleKeys(b), JSON.stringify(b)).toBeNull()
   })
-  it('순서 규칙 — 확정 키(1~9·Enter·Esc)는 마지막에 하나만, 앞은 Up·Down·Tab 뿐(재판정은 첫 키만 보호한다)', () => {
+  it('순서 규칙 — 확정 키(1~9·Enter·Esc)와 Tab 은 마지막에 하나만, 앞은 Up·Down 뿐(재판정은 첫 키만 보호하고 Tab 은 화면을 바꾼다)', () => {
     const ok: string[][] = [
       ['1'], ['9'], ['Enter'], ['Esc'], ['Up'], ['Down'], ['Tab'],
-      ['Up', 'Up', 'Tab'], ['Up', 'Up', 'Up', 'Up'], ['Down', 'Enter'], ['Tab', 'Down', 'Up', 'Esc'], ['Down', 'Down', 'Down', '3'],
+      ['Up', 'Tab'], ['Up', 'Up', 'Up', 'Up'], ['Down', 'Enter'], ['Up', 'Down', 'Up', 'Esc'], ['Down', 'Down', 'Down', '3'], ['Down', 'Down', 'Up', 'Tab'],
     ]
     for (const k of ok) expect(parseConsoleKeys(k), k.join(' ')).toEqual(k)
     const bad: string[][] = [
       ['1', 'Enter'], ['Enter', 'Enter'], ['Esc', 'Esc'], ['1', '2'], ['Enter', 'Up'], ['Esc', 'Tab'], ['1', 'Up'],
+      ['Tab', 'Enter'], ['Tab', '1'], ['Tab', 'Tab'], ['Tab', 'Up'], ['Up', 'Tab', 'Enter'], ['Up', 'Tab', 'Down'],
       ['Up', 'Enter', 'Tab'], ['Up', 'Enter', 'Enter'], ['Enter', 'Up', 'Up', 'Up'], ['9', 'Down', 'Down', 'Enter'],
     ]
     for (const k of bad) expect(parseConsoleKeys(k), k.join(' ')).toBeNull()

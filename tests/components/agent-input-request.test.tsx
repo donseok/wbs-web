@@ -17,7 +17,7 @@ vi.mock('@/app/actions/agentHub', () => ({
   runHubProcessOp: vi.fn(),
 }))
 import { AgentConsole } from '@/components/agents/AgentConsole'
-import { KEYS_RULE_TEXT, canAddKey, isConfirmKey, isValidKeySequence, showableExcerptLine } from '@/components/agents/InputRequestPanel'
+import { KEYS_RULE_TEXT, canAddKey, isFinalKey, isValidKeySequence } from '@/components/agents/InputRequestPanel'
 import { LaneBoard } from '@/components/agents/LaneBoard'
 import { RosterBoard } from '@/components/agents/RosterBoard'
 import { OfficeChatterContext } from '@/components/agents/SeatSpeech'
@@ -221,9 +221,9 @@ describe('AgentConsole — 입력 요청 답하기', () => {
 
   it('이동 키는 최대 4개까지만 쌓이고 지우기로 비운다', async () => {
     await renderConsole(consoleView(reqView({ kind: 'choice' })))
-    for (const k of ['Up', 'Down', 'Tab', 'Down']) await click(keyBtn(k))
+    for (const k of ['Up', 'Down', 'Down', 'Up']) await click(keyBtn(k))
     expect(q('[data-input-queue]')?.textContent).toContain('(4/4)')
-    expect(q('[data-input-queue]')?.textContent).toContain('↑ → ↓ → Tab → ↓')
+    expect(q('[data-input-queue]')?.textContent).toContain('↑ → ↓ → ↓ → ↑')
     expect(qa('[data-console-key]').every(b => (b as HTMLButtonElement).disabled)).toBe(true)
     expect(q('[data-input-keys-rule]')).toBeNull() // 확정 키가 없으니 규칙 안내는 필요 없다
     await click(q('[data-input-clear]'))
@@ -238,8 +238,19 @@ describe('AgentConsole — 입력 요청 답하기', () => {
     expect(sendKeys.mock.calls[0][2]).toEqual(['Down', 'Down'])
   })
 
+  it('앞자리는 Up·Down 뿐 — Tab 을 쌓으면 확정 키처럼 이후 모든 키가 막히고, [Up, Tab] 은 보낼 수 있다', async () => {
+    sendKeys.mockResolvedValueOnce({ ok: true, id: 'k' })
+    await renderConsole(consoleView(reqView({ kind: 'choice' })))
+    await click(keyBtn('Up')); await click(keyBtn('Tab'))
+    expect(qa('[data-console-key]').every(b => (b as HTMLButtonElement).disabled)).toBe(true)
+    expect(q('[data-input-keys-rule]')?.textContent).toBe(KEYS_RULE_TEXT)
+    expect(sendBtn().disabled).toBe(false)
+    await click(sendBtn())
+    expect(sendKeys.mock.calls[0][2]).toEqual(['Up', 'Tab'])
+  })
+
   it('확정 키(숫자·Enter·Esc)를 쌓으면 모든 키가 막히고 안내 문장이 나온다 — 지우면 되돌아온다', async () => {
-    for (const confirm of ['2', 'Enter', 'Esc']) {
+    for (const confirm of ['2', 'Enter', 'Esc', 'Tab']) {
       await renderConsole(consoleView(reqView()))
       await click(keyBtn('Up')); await click(keyBtn(confirm))
       expect(qa('[data-console-key]').every(b => (b as HTMLButtonElement).disabled), confirm).toBe(true)
@@ -432,53 +443,62 @@ describe('RosterBoard — 조정 팀장·임시 팀원', () => {
 })
 
 describe('키 순서 규칙(순수 함수)', () => {
-  it('확정 키는 숫자·Enter·Esc, 이동 키는 Up·Down·Tab', () => {
-    for (const k of ['1', '5', '9', 'Enter', 'Esc'] as const) expect(isConfirmKey(k), k).toBe(true)
-    for (const k of ['Up', 'Down', 'Tab'] as const) expect(isConfirmKey(k), k).toBe(false)
+  it('마지막 자리 전용 키는 숫자·Enter·Esc·Tab, 앞자리 키는 Up·Down', () => {
+    for (const k of ['1', '5', '9', 'Enter', 'Esc', 'Tab'] as const) expect(isFinalKey(k), k).toBe(true)
+    for (const k of ['Up', 'Down'] as const) expect(isFinalKey(k), k).toBe(false)
   })
-  it('유효한 순서 — 이동 키만, 이동 키 뒤 확정 키 하나, 확정 키 하나만', () => {
+  it('유효한 순서 — Up·Down 만, 앞자리 Up·Down 뒤 마지막 키 하나', () => {
     expect(isValidKeySequence(['Down'])).toBe(true)
-    expect(isValidKeySequence(['Up', 'Down', 'Tab', 'Tab'])).toBe(true)
+    expect(isValidKeySequence(['Up', 'Down', 'Down', 'Up'])).toBe(true)
+    expect(isValidKeySequence(['Up', 'Tab'])).toBe(true)
     expect(isValidKeySequence(['Down', 'Down', '2'])).toBe(true)
+    expect(isValidKeySequence(['Up', 'Down', 'Up', 'Esc'])).toBe(true)
+    expect(isValidKeySequence(['Tab'])).toBe(true)
     expect(isValidKeySequence(['Enter'])).toBe(true)
   })
-  it('잘못된 순서 — 비었음·5개 이상·확정 키가 마지막이 아님·확정 키 둘', () => {
+  it('잘못된 순서 — 비었음·5개 이상·Tab 이나 확정 키가 앞자리·마지막 전용 키 둘', () => {
     expect(isValidKeySequence([])).toBe(false)
     expect(isValidKeySequence(['Up', 'Up', 'Up', 'Up', 'Up'])).toBe(false)
+    expect(isValidKeySequence(['Tab', 'Up'])).toBe(false)
+    expect(isValidKeySequence(['Tab', 'Tab'])).toBe(false)
     expect(isValidKeySequence(['1', 'Down'])).toBe(false)
     expect(isValidKeySequence(['1', 'Enter'])).toBe(false)
-    expect(isValidKeySequence(['Enter', '1'])).toBe(false)
     expect(isValidKeySequence(['Down', 'Esc', 'Enter'])).toBe(false)
+    expect(isValidKeySequence(['Up', 'Tab', 'Enter'])).toBe(false)
   })
-  it('canAddKey — 확정 키가 쌓였으면 모두 막고, 4개에서도 막는다', () => {
+  it('canAddKey — 마지막 전용 키(Tab 포함)가 쌓였으면 모두 막고, 4개에서도 막는다', () => {
     expect(canAddKey([], '1')).toBe(true)
-    expect(canAddKey(['Up'], 'Enter')).toBe(true)
-    expect(canAddKey(['Up', 'Down', 'Tab'], 'Down')).toBe(true)
-    expect(canAddKey(['Up', 'Down', 'Tab', 'Tab'], 'Down')).toBe(false)
+    expect(canAddKey(['Up'], 'Tab')).toBe(true)
+    expect(canAddKey(['Up', 'Down', 'Up'], 'Down')).toBe(true)
+    expect(canAddKey(['Up', 'Down', 'Up', 'Down'], 'Down')).toBe(false)
     expect(canAddKey(['2'], 'Down')).toBe(false)
-    expect(canAddKey(['Up', 'Esc'], 'Tab')).toBe(false)
+    expect(canAddKey(['Up', 'Tab'], 'Up')).toBe(false)
     expect(canAddKey(['Up', 'Esc'], '3')).toBe(false)
   })
 })
 
-describe('showableExcerptLine — 양방향 제어 문자', () => {
-  it('보통 글은 그대로 둔다(한글·이모지·ZWJ 포함)', () => {
-    expect(showableExcerptLine('Allow Bash(git push)? 계속 👨\u200D👩')).toBe('Allow Bash(git push)? 계속 👨\u200D👩')
-  })
-  it('U+202A–202E·2066–2069·200E·200F·061C 는 ⟨U+XXXX⟩ 기호로 바꾼다', () => {
-    const all = ['\u202A', '\u202B', '\u202C', '\u202D', '\u202E', '\u2066', '\u2067', '\u2068', '\u2069', '\u200E', '\u200F', '\u061C']
-    for (const c of all) {
-      const hex = c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')
-      expect(showableExcerptLine(`a${c}b`)).toBe(`a⟨U+${hex}⟩b`)
-    }
-    expect(showableExcerptLine('rm \u202Efdp.txt')).toBe('rm ⟨U+202E⟩fdp.txt')
-  })
-  it('화면에도 기호로 그려지고 실제 제어 문자는 그리지 않는다', async () => {
-    getView.mockResolvedValue(consoleView(reqView({ excerpt: ['echo \u202Eevil', '둘째 줄'] })))
+describe('터미널 글 표시 — 발췌와 최근 화면이 같은 함수를 거친다', () => {
+  const EVIL = 'echo \u202Eevil\u200B\u2028가짜 줄\u{E0041}'
+  const SHOWN = 'echo ⟨U+202E⟩evil⟨U+200B⟩⟨U+2028⟩가짜 줄⟨U+E0041⟩'
+  const noHidden = (t: string) => expect(t).not.toMatch(/[\u202A-\u202E\u2066-\u2069\u200B\u2028\u2029\u{E0000}-\u{E007F}]/u)
+
+  it('발췌는 기호로 그리고 pre 에 bidi-override 클래스가 붙는다', async () => {
+    getView.mockResolvedValue(consoleView(reqView({ excerpt: [EVIL, '둘째 줄'] })))
     act(() => root.render(<AgentConsole key={++consoleRun} seatKey={LANE_KEY} nowMs={NOW} />))
     await flush()
-    const t = q('[data-input-excerpt]')!.textContent!
-    expect(t).toBe('echo ⟨U+202E⟩evil\n둘째 줄')
-    expect(t).not.toContain('\u202E')
+    const pre = q('[data-input-excerpt]') as HTMLElement
+    expect(pre.textContent).toBe(`${SHOWN}\n둘째 줄`)
+    noHidden(pre.textContent!)
+    expect(pre.className).toContain('termPre')
+  })
+
+  it('최근 화면도 같은 함수를 거치고 pre 에 bidi-override 클래스가 붙는다', async () => {
+    getView.mockResolvedValue(consoleView(null, { screen: { lines: [EVIL, '$ ls'], capturedAt: since(30_000) } }))
+    act(() => root.render(<AgentConsole key={++consoleRun} seatKey={LANE_KEY} nowMs={NOW} />))
+    await flush()
+    const pre = q('[data-console-screen]') as HTMLElement
+    expect(pre.textContent).toBe(`${SHOWN}\n$ ls`)
+    noHidden(pre.textContent!)
+    expect(pre.className).toContain('termPre')
   })
 })

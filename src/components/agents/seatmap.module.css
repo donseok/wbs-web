@@ -429,3 +429,6 @@
 .leadWaits { display: grid; gap: 3px; padding-top: 6px; border-top: 1px solid var(--sm-line-2, #E2E6E1); }
 .leadWaitN { margin: 0; font-size: 12px; font-weight: 800; color: var(--sm-warn, #D8563E); }
 .leadRecords { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+
+/* 터미널 글(발췌·최근 화면) — 강한 RTL 글자(히브리·아랍)가 주변 글자를 재배열하지 못하게 논리 순서 그대로 왼쪽에서 오른쪽으로 그린다. */
+.termPre { direction: ltr; unicode-bidi: bidi-override; }
