@@ -4,6 +4,7 @@
 import Link from 'next/link'
 import { Bot, PauseCircle } from 'lucide-react'
 import type { Watcher } from '@/lib/domain/seatmap'
+import { watcherUntilSuffix } from '@/lib/domain/agentRoster'
 import { AgentProjectToggle } from '@/components/settings/AgentProjectToggle'
 
 type Props = {
@@ -17,10 +18,10 @@ type Props = {
   onChanged: () => Promise<void> | void
 }
 
-/** FloorCard 의 감시자 표기와 같은 조합 — `agent busy/slots ~until`. */
+/** FloorCard 의 감시자 표기와 같은 조합 — `agent busy/slots ~until`(until 이 「답 대기」면 `~` 없이). */
 export function watchLabel(w: Watcher[]): string {
   if (w.length === 0) return '감시 없음'
-  return w.map(x => `${x.agent}${x.slots != null ? ` ${x.busy ?? 0}/${x.slots}` : ''}${x.untilLabel ? ` ~${x.untilLabel}` : ''}`).join(' · ')
+  return w.map(x => `${x.agent}${x.slots != null ? ` ${x.busy ?? 0}/${x.slots}` : ''}${watcherUntilSuffix(x.untilLabel)}`).join(' · ')
 }
 
 export function HubStatusBar({ projectId, registered, enabled, watchers, isAdmin, designReview = 0, onChanged }: Props) {

@@ -54,6 +54,9 @@ describe('HubStatusBar watchLabel — 일반 감시자 표기 유지', () => {
   it('종전 조합 그대로', () => {
     expect(watchLabel([watcher('hong/mbp/lead', { slots: 3, busy: 1, untilLabel: '18:00' })])).toBe('hong/mbp/lead 1/3 ~18:00')
   })
+  it('until 이 「답 대기」면 「~」 없이 그대로 쓴다(FloorCard 와 같은 규칙)', () => {
+    expect(watchLabel([watcher('hong/mbp/lead', { slots: 3, busy: 1, untilLabel: '답 대기' })])).toBe('hong/mbp/lead 1/3 답 대기')
+  })
 })
 
 describe('RosterBoard — 임시 팀원·조정 세션 책상', () => {
