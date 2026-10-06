@@ -2,6 +2,7 @@
 // 서버는 허용한 키만 다시 지어 저장한다(원본 jsonb 를 그대로 저장하지 않는다) — 다른 사용자도 seatmap 으로 읽는 칸이라
 // 계약의 「비밀·경로·핸들·pid 는 싣지 않는다」 를 여기서 강제한다.
 import { parseTempSlot } from './agentRoster'
+import type { InputRequestMeta } from './watcherExtras'
 
 export const LANE_SUMMARY_V = 1
 /** 전체 2KB — 정규화한 객체를 JSON 으로 만든 UTF-8 바이트 수. 한글은 글자당 3바이트다. */
@@ -134,9 +135,13 @@ export interface LaneSummaryRow {
   instrAgo: string | null
   items: string | null
   agent: string
+  /** 콘솔 보기·답하기가 쓰는 좌석 키 — 감시자의 agent 문자열 그대로다. */
+  seatKey: string
+  /** 발췌 없는 입력 요청 — 배지(입력 대기·처리됨)를 그리는 재료. 없으면 null. */
+  inputRequest: InputRequestMeta | null
 }
 
-interface RowWatcher { agent: string; untilLabel: string | null; lastSeenAt: string; summary?: LaneSummary | null }
+interface RowWatcher { agent: string; untilLabel: string | null; lastSeenAt: string; summary?: LaneSummary | null; inputRequest?: InputRequestMeta | null }
 
 /**
  * 상태 레인 보기의 레인 요약 행 — 임시 팀원(임시:<레인>·<요약>) 감시자만. 층마다 같은 감시자가 겹쳐 실리므로 agent 로 한 번만 센다.
@@ -160,7 +165,63 @@ export function assembleLaneSummaryRows(floors: ReadonlyArray<{ watchers: readon
       reportAgo: s ? agoText(s.lastReportAt, nowMs) : null,
       instrAgo: s ? agoText(s.lastInstrAt, nowMs) : null,
       items: s && s.itemsTotal > 0 ? `${s.itemsDone}/${s.itemsTotal}` : null,
+      seatKey: w.agent, inputRequest: w.inputRequest ?? null,
     })
   }
   return rows.sort((a, b) => a.lane.localeCompare(b.lane, undefined, { numeric: true }) || a.agent.localeCompare(b.agent))
+}
+
+// ───────────────────────── 입력 요청 배지(입력 대기 · 처리됨) — 화면이 nowMs 로 계산하는 순수 규칙
+
+export const INPUT_KIND_LABEL: Record<string, string> = {
+  permission: '권한 요청', question: '질문', choice: '선택', 'usage-limit': '사용량 한도', trust: '신뢰 확인', message: '메시지 질문',
+}
+/** 미응답이 이 시간을 넘으면(정확히 5분은 아니다) 빨간 경고를 낸다. */
+export const INPUT_OVERDUE_MS = 5 * 60_000
+
+/** 모르는 종류는 원문을 그대로 보인다(추측해 바꾸지 않는다). */
+export function inputKindLabel(kind: string): string {
+  return Object.hasOwn(INPUT_KIND_LABEL, kind) ? INPUT_KIND_LABEL[kind] : kind
+}
+
+/** 길이 표기 — 「1분 미만」·「n분」·「n시간 m분」·「n일 m시간」. 음수는 0 으로 본다. */
+export function durationText(ms: number): string {
+  const min = Math.floor(Math.max(0, ms) / 60_000)
+  if (min < 1) return '1분 미만'
+  if (min < 60) return `${min}분`
+  const h = Math.floor(min / 60), m = min % 60
+  if (h < 24) return m > 0 ? `${h}시간 ${m}분` : `${h}시간`
+  const d = Math.floor(h / 24), hh = h % 24
+  return hh > 0 ? `${d}일 ${hh}시간` : `${d}일`
+}
+
+const CLOCK = new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Seoul' })
+/** 한국 시각 「HH:MM」. 읽을 수 없으면 null. */
+export function clockText(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const t = Date.parse(iso)
+  return Number.isNaN(t) ? null : CLOCK.format(new Date(t))
+}
+
+export const INPUT_HANDLED_BY_LABEL = { coordinator: '조정자', auto: '자동' } as const
+
+export type InputWaitView =
+  | { state: 'waiting'; kindLabel: string; waitMs: number | null; waitText: string; overdue: boolean }
+  | { state: 'handled'; kindLabel: string; byLabel: string; atText: string | null; text: string }
+
+/**
+ * 입력 요청 배지 — handled 가 없으면 「입력 대기」(since 기준 대기 시간), 있으면 「처리됨 (조정자|자동) 시각」.
+ * since 를 읽을 수 없으면 대기 시간은 「—」 이고 경고는 내지 않는다(모르는 시간으로 경고를 만들지 않는다).
+ */
+export function inputWaitView(meta: { kind: string; since: string; handled: { by: 'coordinator' | 'auto'; at: string } | null }, nowMs: number): InputWaitView {
+  const kindLabel = inputKindLabel(meta.kind)
+  if (meta.handled) {
+    const byLabel = INPUT_HANDLED_BY_LABEL[meta.handled.by] ?? meta.handled.by
+    const atText = clockText(meta.handled.at)
+    return { state: 'handled', kindLabel, byLabel, atText, text: `처리됨 (${byLabel})${atText ? ` ${atText}` : ''}` }
+  }
+  const since = Date.parse(meta.since)
+  if (Number.isNaN(since)) return { state: 'waiting', kindLabel, waitMs: null, waitText: '—', overdue: false }
+  const waitMs = Math.max(0, nowMs - since)
+  return { state: 'waiting', kindLabel, waitMs, waitText: durationText(waitMs), overdue: waitMs > INPUT_OVERDUE_MS }
 }

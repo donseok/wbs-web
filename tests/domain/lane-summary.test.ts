@@ -1,6 +1,9 @@
 // 레인 요약(summary) 검증·읽기·경과 표기·행 조립 — 계약 lane-summary-contract.md v:1.
 import { describe, expect, it } from 'vitest'
-import { agoText, assembleLaneSummaryRows, parseLaneSummary, readLaneSummary, toWire, LANE_SUMMARY_MAX_BYTES } from '@/lib/domain/laneSummary'
+import {
+  agoText, assembleLaneSummaryRows, parseLaneSummary, readLaneSummary, toWire, LANE_SUMMARY_MAX_BYTES,
+  clockText, durationText, inputKindLabel, inputWaitView, INPUT_OVERDUE_MS,
+} from '@/lib/domain/laneSummary'
 
 const good = {
   v: 1, lane: 'office-tally', state: 'active', brief: '레인 요약 행', items_done: 2, items_total: 5, hold: null,
@@ -103,5 +106,67 @@ describe('assembleLaneSummaryRows', () => {
   it('감시자가 없으면 빈 배열', () => {
     expect(assembleLaneSummaryRows([], NOW)).toEqual([])
     expect(assembleLaneSummaryRows([{ watchers: [] }], NOW)).toEqual([])
+  })
+})
+
+describe('assembleLaneSummaryRows — 좌석 키·입력 요청', () => {
+  const req = { v: 1 as const, kind: 'permission' as const, since: '2026-10-06T13:50:00Z', handled: null }
+  it('행마다 감시자의 agent 를 seatKey 로, 입력 요청 메타를 그대로 싣는다', () => {
+    const [r] = assembleLaneSummaryRows([{ watchers: [w('jji/mac/임시:eng·엔진', { inputRequest: req })] }], NOW)
+    expect(r.seatKey).toBe('jji/mac/임시:eng·엔진')
+    expect(r.seatKey).toBe(r.agent)
+    expect(r.inputRequest).toEqual(req)
+  })
+  it('입력 요청이 없거나 칸이 없는 옛 감시자는 null', () => {
+    const rows = assembleLaneSummaryRows([{ watchers: [w('jji/mac/임시:a·x', { inputRequest: null }), w('jji/mac/임시:b·y')] }], NOW)
+    expect(rows.map(r => r.inputRequest)).toEqual([null, null])
+  })
+  it('겹쳐 실린 감시자는 최근 신호 쪽의 입력 요청을 쓴다', () => {
+    const a = w('jji/mac/임시:eng·x', { inputRequest: req, lastSeenAt: '2026-10-06T12:00:00Z' })
+    const b = w('jji/mac/임시:eng·x', { inputRequest: { ...req, handled: { by: 'auto' as const, at: '2026-10-06T13:55:00Z' } }, lastSeenAt: '2026-10-06T13:00:00Z' })
+    const [r] = assembleLaneSummaryRows([{ watchers: [a] }, { watchers: [b] }], NOW)
+    expect(r.inputRequest?.handled?.by).toBe('auto')
+  })
+})
+
+describe('입력 대기 배지 규칙', () => {
+  const SINCE = '2026-10-06T14:00:00+09:00'
+  const sinceMs = Date.parse(SINCE)
+  const meta = { kind: 'permission', since: SINCE, handled: null }
+  it('종류 라벨 — 모르는 종류는 원문 그대로', () => {
+    expect(['permission', 'question', 'choice', 'usage-limit', 'trust', 'message'].map(inputKindLabel))
+      .toEqual(['권한 요청', '질문', '선택', '사용량 한도', '신뢰 확인', '메시지 질문'])
+    expect(inputKindLabel('weird')).toBe('weird')
+    expect(inputKindLabel('toString')).toBe('toString')
+  })
+  it('대기 시간은 since 기준이고 정확히 5분은 경고가 아니다(5분 1초부터)', () => {
+    expect(INPUT_OVERDUE_MS).toBe(300_000)
+    const at = (ms: number) => inputWaitView(meta, sinceMs + ms)
+    expect(at(0)).toMatchObject({ state: 'waiting', waitMs: 0, waitText: '1분 미만', overdue: false })
+    expect(at(4 * 60_000 + 59_000)).toMatchObject({ waitText: '4분', overdue: false })
+    expect(at(5 * 60_000)).toMatchObject({ waitText: '5분', overdue: false })
+    expect(at(5 * 60_000 + 1_000)).toMatchObject({ waitText: '5분', overdue: true })
+    expect(at(75 * 60_000)).toMatchObject({ waitText: '1시간 15분', overdue: true })
+  })
+  it('시계가 어긋나 since 가 미래여도 음수 대기를 만들지 않는다', () => {
+    expect(inputWaitView(meta, sinceMs - 90_000)).toMatchObject({ waitMs: 0, overdue: false })
+  })
+  it('since 를 읽을 수 없으면 대기 시간 「—」 이고 경고하지 않는다', () => {
+    expect(inputWaitView({ ...meta, since: '어제' }, NOW)).toMatchObject({ state: 'waiting', waitMs: null, waitText: '—', overdue: false })
+  })
+  it('처리된 건은 「처리됨 (조정자|자동) 시각」 이고 대기 시간·경고가 없다', () => {
+    const h = (by: 'coordinator' | 'auto') => inputWaitView({ ...meta, handled: { by, at: '2026-10-06T09:03:00Z' } }, sinceMs + 3_600_000)
+    expect(h('coordinator')).toMatchObject({ state: 'handled', byLabel: '조정자', atText: '18:03', text: '처리됨 (조정자) 18:03' })
+    expect(h('auto')).toMatchObject({ state: 'handled', text: '처리됨 (자동) 18:03' })
+    expect(h('auto')).not.toHaveProperty('overdue')
+  })
+  it('durationText·clockText', () => {
+    expect(durationText(-5)).toBe('1분 미만')
+    expect(durationText(60 * 60_000)).toBe('1시간')
+    expect(durationText(26 * 3_600_000)).toBe('1일 2시간')
+    expect(durationText(48 * 3_600_000)).toBe('2일')
+    expect(clockText('2026-10-06T15:05:00Z')).toBe('00:05')
+    expect(clockText('x')).toBeNull()
+    expect(clockText(null)).toBeNull()
   })
 })

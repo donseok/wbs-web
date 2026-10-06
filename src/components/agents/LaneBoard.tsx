@@ -10,6 +10,8 @@ import { SeatMark, seatMetaLine, seatStateLabel } from './Seat'
 import { OwnerTag, ownerLabel } from './OwnerTag'
 import { DecisionChip } from './DecisionChip'
 import { IconFolded, IconStale, IconWait } from './icons'
+import { InputRequestBadge, InputWaitChip } from './InputRequestBadge'
+import { assembleLaneSummaryRows, type LaneSummaryRow } from '@/lib/domain/laneSummary'
 import css from './seatmap.module.css'
 
 interface LaneDef { key: string; title: string; states: readonly SeatState[]; icon: (() => React.JSX.Element) | null }
@@ -56,6 +58,51 @@ function LaneSpeech({ seat, nowMs }: { seat: Seat; nowMs: number }) {
 }
 
 /**
+ * 레인 요약 구역 — 조정자 킷이 보낸 임시 팀원(레인)의 표시 전용 요약. 터미널 화면은 읽지 않는다.
+ * 요약이 없는 레인(옛 PC·형식 오류)도 행은 그리고 「요약 없음」 을 쓴다. 감시자가 하나도 없으면 구역 자체를 그리지 않는다.
+ */
+function LaneSummaryBoard({ rows, nowMs }: { rows: LaneSummaryRow[]; nowMs: number }) {
+  if (rows.length === 0) return null
+  return (
+    <section className={css.laneSum} data-lane-summary aria-label="레인 요약">
+      <div className={css.laneHead}><b>레인 요약</b><span className={css.laneN} data-lane-summary-n>{rows.length}</span></div>
+      <ul className={css.laneSumList}>
+        {rows.map(row => {
+          const s = row.summary
+          const waiting = row.inputRequest !== null && row.inputRequest.handled === null
+          return (
+            <li key={row.key} className={css.laneSumRow} data-lane-summary-row={row.lane} data-input-waiting={waiting ? '1' : undefined}>
+              <div className={css.laneSumTop}>
+                <b className={css.laneSumName}>{row.lane}</b>
+                <span className={css.laneSumState} data-lane-state>{row.state}</span>
+                {s?.hold && <span className={css.laneSumHold} data-lane-hold title="보류 사유">보류 · {s.hold}</span>}
+                {s?.compactPending && <span className={css.laneSumFlag} data-lane-compact>compact 대기</span>}
+                {row.inputRequest && !waiting && <InputWaitChip meta={row.inputRequest} nowMs={nowMs} />}
+              </div>
+              {row.inputRequest && waiting && <InputRequestBadge seatKey={row.seatKey} meta={row.inputRequest} nowMs={nowMs} />}
+              {s ? (
+                <>
+                  {s.brief && <p className={css.laneSumBrief} data-lane-brief>{s.brief}</p>}
+                  <p className={css.laneSumMeta} data-lane-meta>
+                    {row.items && <span data-lane-items>진행 {row.items}</span>}
+                    {s.branch && <span data-lane-branch className={css.laneSumBranch}>{s.branch}</span>}
+                    {row.reportAgo && <span data-lane-report>보고 {row.reportAgo}</span>}
+                    {row.instrAgo && <span data-lane-instr>지시 {row.instrAgo}</span>}
+                    {s.ctxPct !== null && <span data-lane-ctx>ctx {s.ctxPct}%</span>}
+                  </p>
+                </>
+              ) : (
+                <p className={css.laneSumNone} data-lane-summary-none>요약 없음</p>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+/**
  * 상태 레인 보기 — 층·구역을 접고 상태별로 모아 세운다. 승인 대기와 손봐야 할 좌석이 한눈에 오며,
  * 평면도에는 그리지 않는 머지 완료(최근 7일) 좌석의 승인 취소·재작업 요청도 여기서 닿는다.
  */
@@ -67,7 +114,10 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
   onOp: SeatOpHandler
 }) {
   const all = collect(map)
+  const summaryRows = assembleLaneSummaryRows(map.floors, nowMs)
   return (
+    <>
+    <LaneSummaryBoard rows={summaryRows} nowMs={nowMs} />
     <div className={css.lanes} aria-label="상태별 좌석">
       {LANES.map(lane => {
         const list = all.filter(e => laneKeyOf(e.seat) === lane.key)
@@ -108,5 +158,6 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
         )
       })}
     </div>
+    </>
   )
 }

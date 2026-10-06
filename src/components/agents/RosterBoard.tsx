@@ -18,6 +18,8 @@ import { awayBubble, awayReason, coordBubble, leadAnswerBubble, leadChatter, tem
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { OwnerTag, ownerLabel, teamOwnerLabel, watcherOwnerLabel, type OwnerLabel } from './OwnerTag'
 import { LeadChip } from './LeadChip'
+import { InputRequestBadge, InputWaitChip } from './InputRequestBadge'
+import { LeadDecisionBadge, LeadSummaryPanel, leadCardBadge } from './LeadSummaryPanel'
 
 /** 「팀장 해제」 핸들러 — 없으면 책상에 lease 정보만 보이고 해제 버튼은 그리지 않는다(FloorCard 와 같은 규칙). */
 type ReleaseLeadHandler = (projectId: string, userId: string) => Promise<void>
@@ -209,6 +211,9 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
   // 책상 줄이 어긋난다. 내 책상을 고르면 선택 링을 브랜드 링 바깥(ring-offset)에 둔다. 남의 것은 흐리게 하지 않는다.
   const mine = owner?.kind === 'mine'
   const answer = deskAwaitsAnswer(desk)
+  const inputReq = desk.kind === 'temp' ? desk.watcher?.inputRequest ?? null : null
+  const leadDecision = desk.kind === 'lead' && isCoordSlot(desk.slot) ? leadCardBadge(desk.watcher?.leadSummary, nowMs) : null
+  const extra = inputReq ? <InputWaitChip meta={inputReq} nowMs={nowMs} /> : leadDecision ? <LeadDecisionBadge decision={leadDecision} /> : null
   const edge = `${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${mine ? (selected ? 'ring-offset-2 ring-offset-brand' : 'shadow-[0_0_0_2px_var(--color-brand)]') : ''}`
   return (
     <li className="relative flex flex-col gap-1">
@@ -238,6 +243,9 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
             {owner && <OwnerTag owner={owner} />}
             {desk.seat && <span className="ml-auto shrink-0" data-desk-phase=""><PhaseBadge seat={desk.seat} size="chip" /></span>}
           </span>
+          {/* 카드는 그 자체가 버튼이라 안에 버튼을 못 둔다 — 임시 팀원의 입력 대기와 조정 팀장의 결정 대기는 눌리지 않는 배지로 보이고,
+              발췌 패널은 이 책상을 골랐을 때의 프로필에서 연다. */}
+          {extra && <span data-desk-extra="" className="flex flex-wrap items-center gap-1">{extra}</span>}
           <span className="line-clamp-2 min-h-[2.5em] text-xs text-ink-muted">{deskLine(desk, host, nowMs, chatter)}</span>
           {desk.seat && <Progress pct={desk.seat.progress} color={tone.color} />}
           <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `${desk.kind === 'temp' ? '갱신' : '신호'} ${ageLabel(sig, nowMs)}` : ' '}</span>
@@ -484,8 +492,10 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">지시</h3>
           <p className="whitespace-pre-wrap text-ink">{desk.temp?.summary || '지시 요약 없음'}</p>
           <p className="text-[11px] text-ink-subtle">조정 세션이 맡긴 임시 작업입니다 — WBS 진척에는 들어가지 않고 상단 집계에만 셉니다.</p>
+          {desk.watcher?.inputRequest && desk.raw && <InputRequestBadge key={desk.raw} seatKey={desk.raw} meta={desk.watcher.inputRequest} nowMs={nowMs} />}
         </section>
       )}
+      {desk.kind === 'lead' && isCoordSlot(desk.slot) && <LeadSummaryPanel summary={desk.watcher?.leadSummary} hostDesks={host.desks} nowMs={nowMs} />}
       {desk.kind === 'empty' && (
         <p className="text-sm text-ink-muted">
           {chatter && <b data-away className="mb-1 block text-ink">지금은 {awayReason(desk.key, nowMs)}</b>}
@@ -498,7 +508,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           key 로 자리마다 새로 그린다 — 앞 자리의 응답이 섞이지 않게. 초안은 오피스가 자리 키별로 쥔다. */}
       {hasConsole(desk.raw, desk.seat?.state) && (
         <div data-roster-console="" className="border-t border-line pt-3">
-          <AgentConsole key={desk.raw} seatKey={desk.raw} nowMs={nowMs} />
+          <AgentConsole key={desk.raw} seatKey={desk.raw} nowMs={nowMs} hideInput={desk.kind === 'temp'} />
         </div>
       )}
 
