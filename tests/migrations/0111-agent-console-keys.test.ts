@@ -30,6 +30,14 @@ describe('0111 — 콘솔 키 입력 정적 검사', () => {
     expect(flat).toContain(`keys <@ array[${ALLOWED}]::text[]`)
     expect(flat).toContain('req_kind is not null and req_since is not null and req_sha is not null')
   })
+  it('키 순서 규칙: 이동 키 0~3개 + 마지막 한 개를 쉼표로 이은 문자열 정규식 — 표 제약과 함수에 같다', () => {
+    const re = "'^((Up|Down|Tab),){0,3}(Up|Down|Tab|[1-9]|Enter|Esc)$'"
+    expect(flat).toContain(`array_to_string(keys, ',') ~ ${re}`)
+    expect(flat).toContain(`array_to_string(p_keys, ',') !~ ${re}`)
+    // 구분자 쉼표는 키 이름에 없다(허용 목록 검사가 쉼표가 든 원소를 먼저 막는다)
+    expect(ALLOWED).not.toContain(',Enter')
+    for (const k of ALLOWED.replace(/'/g, '').split(', ')) expect(k).not.toContain(',')
+  })
   it('허용 키 목록은 함수 안에도 같다(도메인 CONSOLE_KEYS 와 일치)', () => {
     expect(flat.split(`array[${ALLOWED}]::text[]`)).toHaveLength(3) // 제약 + 함수
   })
@@ -57,10 +65,16 @@ describe('0111 — 콘솔 키 입력 정적 검사', () => {
     expect(flat).toContain("pg_advisory_xact_lock(hashtextextended('agent_console:' || p_owner::text, 0))")
     expect(flat).toContain("'키: ' || array_to_string(p_keys, ' ')")
   })
-  it('claim 은 지우고 다시 만들며 반환 표에 새 칸을 싣고, 권한을 다시 건다', () => {
+  it('claim: 인자 넷(p_accept_keys 기본 false), 글 행만 기본으로 집고 키 행은 accept 일 때만', () => {
+    expect(flat).toContain('p_owner uuid, p_host text, p_token_hashes text[], p_accept_keys boolean default false')
+    expect(flat).toContain("and (p.input_kind = 'text' or coalesce(p_accept_keys, false))")
+    expect(flat).toContain('drop function if exists public.agent_console_claim(uuid, text, text[]);')
+    expect(flat).toContain('drop function if exists public.agent_console_claim(uuid, text, text[], boolean);')
+  })
+  it('claim 은 지우고 다시 만들며 반환 표에 새 칸을 싣고, 새 서명에 권한을 다시 건다', () => {
     expect(flat).toContain('drop function if exists public.agent_console_claim(uuid, text, text[])')
     expect(flat).toContain('input_kind text, keys text[], req_kind text, req_since timestamptz, req_sha text)')
-    for (const f of [ENQ_KEYS, 'agent_console_claim(uuid, text, text[])', 'agent_console_ack(uuid, uuid, text, text, text, text)']) {
+    for (const f of [ENQ_KEYS, 'agent_console_claim(uuid, text, text[], boolean)', 'agent_console_ack(uuid, uuid, text, text, text, text)']) {
       expect(flat).toContain(`revoke all on function public.${f} from public, anon, authenticated`)
       expect(flat).toContain(`grant execute on function public.${f} to service_role`)
     }
@@ -72,6 +86,10 @@ describe('0111 — 콘솔 키 입력 정적 검사', () => {
     expect(flat).not.toMatch(/create policy/i)
   })
   it('rollback: 키 행을 지우고 새 함수·인덱스·제약·열을 걷고 0109 의 claim·ack 정의로 되돌린다', () => {
+    expect(flatDown).toContain('begin; -- 롤백 중')
+    expect(flatDown).toContain('lock table public.agent_console_prompts in access exclusive mode;')
+    expect(flatDown.indexOf('lock table')).toBeLessThan(flatDown.indexOf("input_kind = 'keys'"))
+    expect(flatDown).toContain('drop function if exists public.agent_console_claim(uuid, text, text[], boolean);')
     expect(flatDown).toContain("input_kind = 'keys'")
     expect(flatDown).toContain("reason = 'prompt_changed'")
     expect(flatDown).toContain(`drop function if exists public.${ENQ_KEYS}`)

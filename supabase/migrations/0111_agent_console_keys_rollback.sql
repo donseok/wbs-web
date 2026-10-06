@@ -3,6 +3,9 @@
 -- prompt_changed 사유가 남은 행은 error 로 바꾼다(0109 의 사유 목록에 없다).
 begin;
 
+-- 롤백 중 진행 중이던 agent_console_enqueue_keys 가 커밋되어 키 행이 글 행으로 남는 경쟁을 막는다.
+lock table public.agent_console_prompts in access exclusive mode;
+
 -- 이미 되돌린 뒤 다시 돌려도 멈추지 않게 칸이 있을 때만 지운다.
 do $$ begin
   if exists (select 1 from information_schema.columns
@@ -32,6 +35,7 @@ alter table public.agent_console_prompts
     'compacting', 'stale', 'target-not-found', 'ambiguous', 'bang-in-text', 'prompt-open', 'draft-in-input', 'error'));
 
 -- claim — 0109 의 반환 표(새 칸 없음)로 되돌린다. 반환 타입이 바뀌므로 지우고 다시 만든다.
+drop function if exists public.agent_console_claim(uuid, text, text[], boolean);
 drop function if exists public.agent_console_claim(uuid, text, text[]);
 create function public.agent_console_claim(
   p_owner uuid, p_host text, p_token_hashes text[]

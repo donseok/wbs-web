@@ -4,6 +4,9 @@
 -- 글 프롬프트(input_kind='text')의 동작은 그대로다. 키 행은 대상 입력 요청의 (kind, since, 발췌 sha)를 함께 싣고,
 -- PC 폴러가 보내기 직전에 화면을 다시 판정해 다르면 보내지 않고 prompt_changed 로 거절한다.
 -- 같은 화면 상태(owner·host·대상·since·sha)에는 한 번만 답한다 — 함수 안 검사와 부분 유니크 인덱스의 이중 방어.
+-- 키 순서 규칙 — 확정 키(1~9·Enter·Esc)는 마지막 자리에 하나만, 앞자리는 이동 키(Up·Down·Tab)만(총 1~4개). 폴러의 재판정은 첫 키를
+-- 보내기 직전에만 보호하므로, 확정 뒤에 다른 키가 따라가면 화면이 바뀐 뒤의 입력창에 들어간다. 여러 번 확정하는 답은 요청을 나눈다.
+-- 키 행은 claim 이 기본으로 집지 않는다(p_accept_keys=true 일 때만) — 키 행을 모르는 폴러가 text 표기를 글 프롬프트로 넣지 못하게.
 -- 키 행의 text 칸은 사람이 읽는 표기(예: `키: 1 Enter`)다 — 전달 상태 표가 그대로 보여 준다. 폴러는 keys 칸을 쓴다.
 -- 코드와 같은 커밋에 담지 않는다(마이그레이션 분리 규칙). 동작 시나리오: tests/migrations/sql/0111-scenario.sql.
 begin;
@@ -34,6 +37,8 @@ alter table public.agent_console_prompts
     or (input_kind = 'keys'
         and keys is not null and array_ndims(keys) = 1 and cardinality(keys) between 1 and 4
         and keys <@ array['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Enter', 'Esc', 'Up', 'Down', 'Tab']::text[]
+        -- 순서: 쉼표로 이은 문자열이 「이동 키 0~3개 + 마지막 한 개(이동·확정)」 꼴이어야 한다. 키 이름에 쉼표가 없으므로 구분자가 섞이지 않는다.
+        and array_to_string(keys, ',') ~ '^((Up|Down|Tab),){0,3}(Up|Down|Tab|[1-9]|Enter|Esc)$'
         and req_kind is not null and req_since is not null and req_sha is not null));
 
 -- 거절 사유에 prompt_changed(창이 바뀌었거나 사라짐)를 더한다 — 기존 값은 그대로.
@@ -68,6 +73,9 @@ begin
   if p_keys is null or array_ndims(p_keys) is distinct from 1 or cardinality(p_keys) not between 1 and 4
      or not coalesce(p_keys <@ array['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Enter', 'Esc', 'Up', 'Down', 'Tab']::text[], false) then
     raise exception 'agent_console_enqueue_keys: bad keys' using errcode = '22023';
+  end if;
+  if array_to_string(p_keys, ',') !~ '^((Up|Down|Tab),){0,3}(Up|Down|Tab|[1-9]|Enter|Esc)$' then
+    raise exception 'agent_console_enqueue_keys: bad key order' using errcode = '22023';
   end if;
   if p_req_kind is null or p_req_kind not in ('permission', 'question', 'choice') then
     raise exception 'agent_console_enqueue_keys: request kind % not answerable', p_req_kind using errcode = '22023';
@@ -109,11 +117,13 @@ begin
   return query select 'ok'::text, v_id;
 end $$;
 
--- claim — 반환 표에 input_kind·keys·req_* 를 더한다. 반환 타입이 바뀌므로 지우고 다시 만든다(권한은 아래에서 다시 건다).
--- 텍스트 행은 새 칸이 모두 null/'text' 이다.
+-- claim — 반환 표에 input_kind·keys·req_* 를 더하고, 키 행은 p_accept_keys 가 true 일 때만 집는다(기본 false).
+-- 반환 타입과 서명이 바뀌므로 옛 서명(3인자)을 지우고 다시 만든다(권한은 아래에서 새 서명에 다시 건다). 텍스트 행은 새 칸이 'text'/null 이다.
+-- 집지 않은 키 행은 pending 으로 남아 60초 뒤 만료된다.
 drop function if exists public.agent_console_claim(uuid, text, text[]);
+drop function if exists public.agent_console_claim(uuid, text, text[], boolean);
 create function public.agent_console_claim(
-  p_owner uuid, p_host text, p_token_hashes text[]
+  p_owner uuid, p_host text, p_token_hashes text[], p_accept_keys boolean default false
 ) returns table (id uuid, target_kind text, target_ref text, text text, expires_at timestamptz, token_index integer,
                  input_kind text, keys text[], req_kind text, req_since timestamptz, req_sha text)
 language plpgsql set search_path = '' as $$
@@ -129,6 +139,7 @@ begin
     with locked as materialized (
       select p.id, p.created_at from public.agent_console_prompts p
        where p.owner = p_owner and p.host = p_host and p.status = 'pending' and p.expires_at >= now()
+         and (p.input_kind = 'text' or coalesce(p_accept_keys, false))
        order by p.created_at, p.id
        limit v_n
        for update skip locked
@@ -200,10 +211,10 @@ end $$;
 
 -- 권한 — 새 함수와 다시 만든 claim 에 0109 와 같은 설정을 건다(service_role 만 실행).
 revoke all on function public.agent_console_enqueue_keys(uuid, text, text, text, text[], text, timestamptz, text) from public, anon, authenticated;
-revoke all on function public.agent_console_claim(uuid, text, text[]) from public, anon, authenticated;
+revoke all on function public.agent_console_claim(uuid, text, text[], boolean) from public, anon, authenticated;
 revoke all on function public.agent_console_ack(uuid, uuid, text, text, text, text) from public, anon, authenticated;
 grant execute on function public.agent_console_enqueue_keys(uuid, text, text, text, text[], text, timestamptz, text) to service_role;
-grant execute on function public.agent_console_claim(uuid, text, text[]) to service_role;
+grant execute on function public.agent_console_claim(uuid, text, text[], boolean) to service_role;
 grant execute on function public.agent_console_ack(uuid, uuid, text, text, text, text) to service_role;
 
 commit;
