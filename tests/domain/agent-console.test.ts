@@ -1,6 +1,7 @@
 // tests/domain/agent-console.test.ts — 콘솔 대상 해석·ack·화면 항목 규칙(계약 §2.12).
 import { describe, expect, it } from 'vitest'
-import { CONSOLE_KEYS, CONSOLE_KEYS_MAX, consoleAckIssue, consoleKeysLabel, consoleTargetOfAgent, parseConsoleKeys, parseConsoleScreenItem } from '@/lib/domain/agentConsole'
+import { isAuxWatcherAgent } from '@/lib/domain/agentRoster'
+import { CONSOLE_KEYS, CONSOLE_KEYS_MAX, consoleAckIssue, consolePatMaySeatKey, isAuxConsoleSeat, CONSOLE_AUX_KINDS, consoleKeysLabel, consoleTargetOfAgent, parseConsoleKeys, parseConsoleScreenItem } from '@/lib/domain/agentConsole'
 
 describe('consoleTargetOfAgent', () => {
   it('네 종류를 읽는다 — lead · w<N> · coord:<세션8> · 임시:<레인>·<요약>', () => {
@@ -108,5 +109,44 @@ describe('parseConsoleScreenItem', () => {
     expect(parse({ ...base, lines: ['a', 3] })).toMatchObject({ reason: 'invalid_line' })
     expect(parse({ ...base, lines: ['\u0085'] })).toMatchObject({ reason: 'control_char' })
     expect(parse(null)).toEqual({ reason: 'invalid_item' })
+  })
+})
+
+describe('프로젝트 한정 PAT 의 보조 좌석 판정(consolePatMaySeatKey)', () => {
+  it('한정 없는 PAT 는 모든 열쇠를 쓴다', () => {
+    expect(consolePatMaySeatKey(null, 'team_worker', ['p2'])).toBe(true)
+    expect(consolePatMaySeatKey(null, 'coord_lane', [null])).toBe(true)
+  })
+  it('한정 PAT — 자기 프로젝트 좌석만이거나, 프로젝트 없는 조정 세션 칸만일 때 허용', () => {
+    expect(consolePatMaySeatKey('p1', 'team_worker', ['p1', 'p1'])).toBe(true)
+    expect(consolePatMaySeatKey('p1', 'coord_lane', [null])).toBe(true)
+    expect(consolePatMaySeatKey('p1', 'coord_lead', [null, null])).toBe(true)
+  })
+  it('한정 PAT — 프로젝트 없는 team 좌석·남의 프로젝트 좌석·섞인 열쇠는 거절', () => {
+    expect(consolePatMaySeatKey('p1', 'team_lead', [null])).toBe(false)
+    expect(consolePatMaySeatKey('p1', 'team_worker', ['p2'])).toBe(false)
+    expect(consolePatMaySeatKey('p1', 'team_worker', ['p1', 'p2'])).toBe(false)
+    expect(consolePatMaySeatKey('p1', 'coord_lane', [null, 'p9'])).toBe(false)
+    expect(consolePatMaySeatKey('p1', 'coord_lane', ['p9'])).toBe(false)
+    expect(consolePatMaySeatKey('p1', 'coord_lane', [])).toBe(false)
+  })
+  it('isAuxConsoleSeat — 조정 세션 칸이면서 프로젝트가 없을 때만', () => {
+    expect(isAuxConsoleSeat({ kind: 'coord_lane', projectId: null })).toBe(true)
+    expect(isAuxConsoleSeat({ kind: 'coord_lead', projectId: null })).toBe(true)
+    expect(isAuxConsoleSeat({ kind: 'coord_lane', projectId: 'p1' })).toBe(false)
+    expect(isAuxConsoleSeat({ kind: 'team_lead', projectId: null })).toBe(false)
+  })
+})
+
+describe('보조 좌석 불변식 — coord_* 로 읽히는 agent 는 감시자 project_id 가 늘 null 인 보조 슬롯이다', () => {
+  it('consoleTargetOfAgent 가 coord_lead·coord_lane 으로 읽으면 isAuxWatcherAgent 도 true, 그 밖은 false', () => {
+    for (const a of ['hong/mbp/coord:0f8a8f92', 'hong/mbp/임시:kit·노드 엔진', 'hong/mbp/임시:web']) {
+      expect(CONSOLE_AUX_KINDS.includes(consoleTargetOfAgent(a)!.kind)).toBe(true)
+      expect(isAuxWatcherAgent(a)).toBe(true)
+    }
+    for (const a of ['hong/mbp/lead', 'hong/mbp/w3']) {
+      expect(CONSOLE_AUX_KINDS.includes(consoleTargetOfAgent(a)!.kind)).toBe(false)
+      expect(isAuxWatcherAgent(a)).toBe(false)
+    }
   })
 })

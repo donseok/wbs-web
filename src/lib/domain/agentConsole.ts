@@ -55,6 +55,29 @@ export const CONSOLE_ISSUE_TEXT: Record<ConsoleTextIssue, string> = {
 // ── 대상·로컬 API 검증(계약 §2.12) ────────────────────────────────────────────────────────────────────
 
 export const CONSOLE_TARGET_KINDS: readonly ConsoleTargetKind[] = ['coord_lead', 'coord_lane', 'team_lead', 'team_worker']
+/**
+ * 보조 대상 종류 — 조정 세션 칸(coord_lead·coord_lane). 감시자 project_id 가 늘 null 이라 프로젝트가 없다(lane-summary-contract (h)).
+ * 프로젝트 한정 PAT 가 콘솔(화면 올리기·글·키 받기·ack)을 쓸 수 있는 유일한 대상이다 — 같은 owner 의 좌석에서만(owner 는 호출자가 이미 맞춘다).
+ * team_lead·team_worker 는 프로젝트가 있는 자리라 지금 규칙(자기 프로젝트만)대로 둔다. DB 함수 agent_console_claim 의 p_target_kinds 와 같은 목록이다(0112).
+ */
+export const CONSOLE_AUX_KINDS: readonly ConsoleTargetKind[] = ['coord_lead', 'coord_lane']
+
+/** 프로젝트 없는 보조 좌석인가 — 종류가 조정 세션 칸이고 좌석에 프로젝트가 붙어 있지 않다. */
+export function isAuxConsoleSeat(seat: { kind: ConsoleTargetKind; projectId: string | null }): boolean {
+  return seat.projectId === null && (CONSOLE_AUX_KINDS as readonly string[]).includes(seat.kind)
+}
+
+/**
+ * 프로젝트 한정 PAT(patProjectId) 가 좌석 열쇠 하나(같은 열쇠를 함께 쓰는 좌석들의 project_id 목록)를 쓸 수 있는가.
+ * 한정 없는 PAT 는 모두 허용. 한정 PAT 는 좌석이 전부 자기 프로젝트이거나, 전부 프로젝트 없는 보조 좌석일 때만 허용한다 —
+ * 프로젝트 있는 좌석과 보조 좌석이 섞이면 거절(fail-closed). seats 가 비면 열쇠가 없는 것이므로 호출자가 먼저 거른다.
+ */
+export function consolePatMaySeatKey(patProjectId: string | null, kind: ConsoleTargetKind, seatProjectIds: Array<string | null>): boolean {
+  if (patProjectId === null) return true
+  if (seatProjectIds.length === 0) return false
+  return seatProjectIds.every(p => p === patProjectId) || seatProjectIds.every(p => isAuxConsoleSeat({ kind, projectId: p }))
+}
+
 /** PC 슬러그 — 좌석 키 가운데 칸. DB 검사(0109)와 같다. */
 export const CONSOLE_HOST_RE = /^[a-z0-9-]{1,63}$/
 /** 대상 참조 — 같은 owner·host 안에서 대상을 가른다. DB 검사(0109)와 같다. */

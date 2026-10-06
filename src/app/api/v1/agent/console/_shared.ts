@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { createHash } from 'node:crypto'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { apiBadRequest, apiFail, apiNotFound, requireScope, resolveAgentPrincipal } from '@/lib/agent/externalApi'
+import { CONSOLE_AUX_KINDS, type ConsoleTargetKind } from '@/lib/domain/agentConsole'
 
 /** 인증·스코프를 통과한 요청 — owner 는 PAT 의 사용자다(보낸 사람 = 세션 주인). projectId 는 PAT 의 프로젝트 한정(null = 전체). */
 export interface ConsoleCall { owner: string; projectId: string | null; body: Record<string, unknown> }
@@ -24,12 +25,12 @@ export async function consoleCall(req: NextRequest, admin: AdminClient): Promise
 }
 
 /**
- * 프로젝트 한정 PAT 는 대기열(poll·ack)을 쓸 수 없다 — 프롬프트에는 프로젝트가 없어(조정 세션은 대개 프로젝트가 없다) 한 프로젝트의
- * 토큰이 같은 사용자의 다른 프로젝트 세션으로 가는 프롬프트를 읽고 삼킬 수 있기 때문이다(fail-closed). 화면은 그 프로젝트 좌석만 받는다.
+ * 프로젝트 한정 PAT 가 대기열(poll·ack)에서 다룰 수 있는 대상 종류. null = 제한 없음(한정 없는 PAT).
+ * 프롬프트 행에는 프로젝트가 없어 한 프로젝트의 토큰이 같은 사용자의 다른 프로젝트 세션으로 가는 프롬프트를 읽고 삼킬 수 있으므로(fail-closed),
+ * 한정 PAT 는 프로젝트 없는 보조 대상(조정 세션 칸 — CONSOLE_AUX_KINDS)의 행만 다룬다. team_lead·team_worker 행은 건드리지 못한다.
  */
-export function rejectProjectLimited(call: ConsoleCall): NextResponse | null {
-  if (call.projectId === null) return null
-  return apiFail(403, 'forbidden_role', '프로젝트 한정 PAT 로는 콘솔 대기열을 쓸 수 없습니다 — 프로젝트를 한정하지 않은 PAT 를 쓰세요.')
+export function consoleQueueKinds(call: ConsoleCall): readonly ConsoleTargetKind[] | null {
+  return call.projectId === null ? null : CONSOLE_AUX_KINDS
 }
 
 /** claim 토큰 해시 — DB 에는 이 값만 둔다(0109). 원문은 poll 응답에 한 번만 실린다. */
