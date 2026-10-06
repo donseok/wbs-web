@@ -210,9 +210,9 @@ describe('sendConsoleKeys — 서버가 모든 검사를 다시 한다', () => {
     mocks.getActor.mockResolvedValue(ME)
     ownerSeat()
     const calls = mockAdmin({ agent_watchers: [watcherRow()] }, enqOk())
-    expect(await sendConsoleKeys(LANE, REQ, ['1', 'Enter'])).toEqual({ ok: true, id: 'k-1' })
+    expect(await sendConsoleKeys(LANE, REQ, ['Down', 'Enter'])).toEqual({ ok: true, id: 'k-1' })
     expect(calls.rpc).toEqual([['agent_console_enqueue_keys', {
-      p_owner: 'u-me', p_host: 'mbp', p_kind: 'coord_lane', p_ref: 'kit', p_keys: ['1', 'Enter'],
+      p_owner: 'u-me', p_host: 'mbp', p_kind: 'coord_lane', p_ref: 'kit', p_keys: ['Down', 'Enter'],
       p_req_kind: 'permission', p_req_since: SINCE, p_req_sha: SHA,
     }]])
     // 입력 요청은 본인(user_id=actor)의 이 좌석 키 행에서 읽는다
@@ -261,12 +261,27 @@ describe('sendConsoleKeys — 서버가 모든 검사를 다시 한다', () => {
   it('키 목록 밖·5개 초과·빈 배열·배열 아님은 bad_keys — DB 를 읽기 전에 거절', async () => {
     mocks.getActor.mockResolvedValue(ME)
     ownerSeat()
-    for (const keys of [['0'], ['enter'], ['Enter '], ['F5'], ['1', '2', '3', '4', '5'], [], 'Enter', null, [1], [['1']], [{}]]) {
+    for (const keys of [['0'], ['enter'], ['Enter '], ['F5'], ['1', '2', '3', '4', '5'], [], ['1', 'Enter'], ['Enter', 'Enter'], ['Esc', 'Esc'], ['1', '2'], ['Enter', 'Up'], ['Up', 'Enter', 'Tab'], 'Enter', null, [1], [['1']], [{}]]) {
       const calls = mockAdmin({ agent_watchers: [watcherRow()] }, enqOk())
       expect(await sendConsoleKeys(LANE, REQ, keys as never), JSON.stringify(keys)).toMatchObject({ ok: false, code: 'bad_keys' })
       expect(calls.rpc).toHaveLength(0)
       expect(calls.ops).toHaveLength(0)
     }
+  })
+  it('이동 키만 있는 배열과 이동 키 뒤 확정 하나는 넘긴다 — 오류 문구는 확정 키가 마지막 하나뿐임을 알린다', async () => {
+    for (const keys of [['Up', 'Up', 'Tab'], ['Down', 'Esc'], ['3']] as const) {
+      mocks.getActor.mockResolvedValue(ME)
+      ownerSeat()
+      const calls = mockAdmin({ agent_watchers: [watcherRow()] }, enqOk())
+      expect(await sendConsoleKeys(LANE, REQ, keys)).toMatchObject({ ok: true })
+      expect(calls.rpc[0][1]).toMatchObject({ p_keys: keys })
+    }
+    mocks.getActor.mockResolvedValue(ME)
+    ownerSeat()
+    mockAdmin()
+    const r = await sendConsoleKeys(LANE, REQ, ['1', 'Enter'])
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toContain('확정 키')
   })
   it('조정 레인이 아닌 대상(팀장·팀원·조정 팀장·대상 아님)은 bad_target, 비로그인은 unauthorized', async () => {
     mocks.getActor.mockResolvedValue(ME)

@@ -44,9 +44,9 @@ describe('parseConsoleKeys — 허용 키만 1~4개', () => {
   it('허용 키 열네 개를 모두 받고 복사본을 돌려준다', () => {
     expect([...CONSOLE_KEYS]).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Enter', 'Esc', 'Up', 'Down', 'Tab'])
     for (const k of CONSOLE_KEYS) expect(parseConsoleKeys([k])).toEqual([k])
-    const src = ['1', 'Enter']
+    const src = ['Down', 'Enter']
     const out = parseConsoleKeys(src)
-    expect(out).toEqual(['1', 'Enter'])
+    expect(out).toEqual(['Down', 'Enter'])
     expect(out).not.toBe(src)
     expect(parseConsoleKeys(['Down', 'Down', 'Down', 'Enter'])).toHaveLength(CONSOLE_KEYS_MAX)
   })
@@ -58,8 +58,20 @@ describe('parseConsoleKeys — 허용 키만 1~4개', () => {
     ]
     for (const b of bad) expect(parseConsoleKeys(b), JSON.stringify(b)).toBeNull()
   })
+  it('순서 규칙 — 확정 키(1~9·Enter·Esc)는 마지막에 하나만, 앞은 Up·Down·Tab 뿐(재판정은 첫 키만 보호한다)', () => {
+    const ok: string[][] = [
+      ['1'], ['9'], ['Enter'], ['Esc'], ['Up'], ['Down'], ['Tab'],
+      ['Up', 'Up', 'Tab'], ['Up', 'Up', 'Up', 'Up'], ['Down', 'Enter'], ['Tab', 'Down', 'Up', 'Esc'], ['Down', 'Down', 'Down', '3'],
+    ]
+    for (const k of ok) expect(parseConsoleKeys(k), k.join(' ')).toEqual(k)
+    const bad: string[][] = [
+      ['1', 'Enter'], ['Enter', 'Enter'], ['Esc', 'Esc'], ['1', '2'], ['Enter', 'Up'], ['Esc', 'Tab'], ['1', 'Up'],
+      ['Up', 'Enter', 'Tab'], ['Up', 'Enter', 'Enter'], ['Enter', 'Up', 'Up', 'Up'], ['9', 'Down', 'Down', 'Enter'],
+    ]
+    for (const k of bad) expect(parseConsoleKeys(k), k.join(' ')).toBeNull()
+  })
   it('전달 상태 표의 표기', () => {
-    expect(consoleKeysLabel(['1', 'Enter'])).toBe('키: 1 Enter')
+    expect(consoleKeysLabel(['Down', 'Enter'])).toBe('키: Down Enter')
   })
 })
 

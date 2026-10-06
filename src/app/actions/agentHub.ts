@@ -368,7 +368,7 @@ const CONSOLE_SEND_ERR = {
 } as const
 
 const CONSOLE_KEYS_ERR = {
-  bad_keys: '보낼 수 없는 키가 있습니다. 숫자 1~9, Enter, Esc, 위·아래 화살표, Tab 만 최대 4개까지 보낼 수 있습니다.',
+  bad_keys: '보낼 수 없는 키 조합입니다. 키는 최대 4개까지 보낼 수 있고, 확정 키(숫자 1~9·Enter·Esc)는 마지막에 하나만 둘 수 있으며 그 앞에는 Up·Down·Tab 만 올 수 있습니다. 확정이 여러 번 필요하면 나누어 보내세요.',
   no_request: '이 세션에 지금 떠 있는 입력 요청이 없습니다.',
   not_answerable: '이 입력 요청은 웹에서 답할 수 없습니다. 이미 처리됐거나 터미널에서 직접 답해야 하는 종류입니다.',
   prompt_changed: '입력 창이 바뀌었거나 사라졌습니다. 화면을 새로 고쳐 확인한 뒤 다시 보내세요.',

@@ -10,9 +10,10 @@ import { apiNotFound, consoleCall, hashClaimToken, rejectProjectLimited } from '
  * 같은 행을 두 폴러가 받을 수 없다(agent_console_claim: skip locked 한 문장). 부를 때마다 만료 pending → expired,
  * 120초 무응답 claimed → unknown 정리가 먼저 돈다. claim_token 은 응답에 한 번만 싣고 DB 에는 해시만 둔다.
  *
- * 키 입력 행(input_kind='keys', 0111)은 `kind:'keys'`·`keys`·`input_request{kind,since,sha}` 가 더 실린다. 글 행의 모양은 그대로다.
- * 키 행을 이해하는 폴러만 받는다 — 요청 본문에 `accepts:['keys']` 가 없으면(옛 폴러) 집힌 키 행을 서버가 곧바로 refused(error)로
- * 닫고 응답에서 뺀다. 옛 폴러가 사람이 읽는 표기(`키: 1 Enter`)를 글 프롬프트로 입력창에 넣는 일을 막는다.
+ * 키 입력 행(input_kind='keys', 0111)은 claim 이 기본으로 집지 않는다 — 요청 본문에 `accepts:['keys']` 가 있을 때만 p_accept_keys=true 로
+ * 불러 집는다. 키 행을 모르는 옛 폴러는 키 행을 받지 못하고(그 행은 pending 으로 남아 60초 뒤 만료), 사람이 읽는 표기(`키: 1 Enter`)가
+ * 글 프롬프트로 입력창에 들어가는 일이 없다. 키 행 응답은 `kind:'keys'`·`keys`·`input_request{kind,since,sha}` 를 싣고 text 는 싣지 않는다.
+ * 글 행의 모양은 그대로다.
  */
 export const dynamic = 'force-dynamic'
 
@@ -47,30 +48,23 @@ export async function POST(req: NextRequest) {
     // 128비트 무작위 토큰을 limit 개 만들고 해시만 넘긴다 — 함수가 행마다 token_index(1부터)로 짝을 돌려준다.
     const tokens = Array.from({ length: limit }, () => randomBytes(16).toString('hex'))
     const { data, error } = await admin.rpc('agent_console_claim', {
-      p_owner: owner, p_host: body.host, p_token_hashes: tokens.map(hashClaimToken),
+      p_owner: owner, p_host: body.host, p_token_hashes: tokens.map(hashClaimToken), p_accept_keys: acceptsKeys,
     })
     if (error) { console.error('[agent-api] console poll 실패:', error.message); return apiInternalError() }
     // 돌려받는 행의 순서는 정해지지 않았다 — token_index 가 오래된 순 번호다.
     const rows = ((data ?? []) as ClaimRow[]).slice().sort((a, b) => a.token_index - b.token_index)
     const prompts: Array<Record<string, unknown>> = []
     for (const r of rows) {
-      const base = {
-        id: r.id, target_kind: r.target_kind, target_ref: r.target_ref, text: r.text,
-        claim_token: tokens[r.token_index - 1], expires_at: r.expires_at,
-      }
-      if (r.input_kind !== 'keys') { prompts.push(base); continue }
+      const common = { id: r.id, target_kind: r.target_kind, target_ref: r.target_ref, claim_token: tokens[r.token_index - 1], expires_at: r.expires_at }
+      if (r.input_kind !== 'keys') { prompts.push({ ...common, text: r.text }); continue }
+      // 응답을 만들 때 한 번 더 검사한다(DB CHECK 가 이미 보장 — 깨진 행이 있어도 키를 내보내지 않는다). 집힌 뒤라 claimed 로 남아 120초 뒤 unknown 이 된다.
       const keys = parseConsoleKeys(r.keys)
       const sinceMs = r.req_since === null ? NaN : Date.parse(r.req_since)
-      if (acceptsKeys && keys && r.req_kind !== null && r.req_sha !== null && !Number.isNaN(sinceMs)) {
-        prompts.push({ ...base, kind: 'keys', keys, input_request: { kind: r.req_kind, since: new Date(sinceMs).toISOString(), sha: r.req_sha } })
+      if (!acceptsKeys || !keys || r.req_kind === null || r.req_sha === null || Number.isNaN(sinceMs)) {
+        console.error('[agent-api] console poll 키 행 이상:', r.id)
         continue
       }
-      // 키 행을 이해하지 못하는 폴러이거나 행이 깨졌다 — 보내지 않고 닫는다(error 로 거절).
-      const { error: refuseErr } = await admin.rpc('agent_console_ack', {
-        p_owner: owner, p_id: r.id, p_token_hash: hashClaimToken(tokens[r.token_index - 1]),
-        p_result: 'refused', p_reason: 'error', p_detail: null,
-      })
-      if (refuseErr) console.error('[agent-api] console poll 키 행 거절 실패:', refuseErr.message)
+      prompts.push({ ...common, kind: 'keys', keys, input_request: { kind: r.req_kind, since: new Date(sinceMs).toISOString(), sha: r.req_sha } })
     }
     return NextResponse.json({ ok: true, prompts })
   } catch (e) {

@@ -116,39 +116,48 @@ describe('POST /console/poll', () => {
     }
   })
   const KEYS_ROW = {
-    id: 'k', target_kind: 'coord_lane', target_ref: 'kit', text: '키: 1 Enter', expires_at: 'x', token_index: 2,
-    input_kind: 'keys', keys: ['1', 'Enter'], req_kind: 'permission', req_since: '2026-10-06T01:00:00+00:00', req_sha: 'ab'.repeat(32),
+    id: 'k', target_kind: 'coord_lane', target_ref: 'kit', text: '키: Down Enter', expires_at: 'x', token_index: 2,
+    input_kind: 'keys', keys: ['Down', 'Enter'], req_kind: 'permission', req_since: '2026-10-06T01:00:00+00:00', req_sha: 'ab'.repeat(32),
   }
   const TEXT_ROW = { id: 't', target_kind: 'coord_lane', target_ref: 'kit', text: '하나', expires_at: 'x', token_index: 1,
     input_kind: 'text', keys: null, req_kind: null, req_since: null, req_sha: null }
-  it('키 행 — accepts 에 keys 가 있으면 kind·keys·input_request 를 싣고, 글 행의 모양은 그대로다', async () => {
-    mockAdmin({}, { agent_console_claim: [{ data: [KEYS_ROW, TEXT_ROW] }] })
+  it('키 행 — accepts 에 keys 가 있으면 p_accept_keys=true 로 집고, kind·keys·input_request 만 싣는다(text 없음). 글 행의 모양은 그대로다', async () => {
+    const calls = mockAdmin({}, { agent_console_claim: [{ data: [KEYS_ROW, TEXT_ROW] }] })
     const body = await (await call(poll, 'poll', { host: 'mbp', limit: 2, accepts: ['keys'] })).json()
+    expect(calls.rpc[0][1]).toMatchObject({ p_accept_keys: true })
     expect(body.prompts).toHaveLength(2)
     const [text, keys] = body.prompts
     expect(Object.keys(text).sort()).toEqual(['claim_token', 'expires_at', 'id', 'target_kind', 'target_ref', 'text'])
+    expect(Object.keys(keys).sort()).toEqual(['claim_token', 'expires_at', 'id', 'input_request', 'keys', 'kind', 'target_kind', 'target_ref'])
     expect(keys).toMatchObject({
-      id: 'k', target_kind: 'coord_lane', target_ref: 'kit', text: '키: 1 Enter', kind: 'keys', keys: ['1', 'Enter'],
+      id: 'k', target_kind: 'coord_lane', target_ref: 'kit', kind: 'keys', keys: ['Down', 'Enter'],
       input_request: { kind: 'permission', since: '2026-10-06T01:00:00.000Z', sha: 'ab'.repeat(32) },
     })
     expect(keys.claim_token).toMatch(/^[0-9a-f]{32}$/)
   })
-  it('키 행 — accepts 가 없는 옛 폴러에는 싣지 않고 서버가 refused(error)로 닫는다(글 프롬프트로 입력창에 들어가지 않게)', async () => {
-    const calls = mockAdmin({}, { agent_console_claim: [{ data: [KEYS_ROW, TEXT_ROW] }], agent_console_ack: [{ data: [{ outcome: 'ok', status: 'refused' }] }] })
+  it('accepts 가 없는 옛 폴러는 p_accept_keys=false 로 부른다 — 키 행을 집지 않으므로 ack 로 닫는 일도 없다', async () => {
+    for (const bodyIn of [{ host: 'mbp' }, { host: 'mbp', accepts: [] }, { host: 'mbp', accepts: ['other'] }]) {
+      const calls = mockAdmin({}, { agent_console_claim: [{ data: [TEXT_ROW] }] })
+      const body = await (await call(poll, 'poll', bodyIn)).json()
+      expect(calls.rpc).toHaveLength(1)
+      expect(calls.rpc[0][1]).toMatchObject({ p_accept_keys: false })
+      expect(body.prompts.map((p: { id: string }) => p.id)).toEqual(['t'])
+    }
+  })
+  it('방어: DB 가 accept 없이 키 행을 돌려줘도 응답에 싣지 않는다(ack 도 하지 않아 상태는 건드리지 않는다)', async () => {
+    const calls = mockAdmin({}, { agent_console_claim: [{ data: [KEYS_ROW, TEXT_ROW] }] })
     const body = await (await call(poll, 'poll', { host: 'mbp', limit: 2 })).json()
     expect(body.prompts.map((p: { id: string }) => p.id)).toEqual(['t'])
-    const hashes = calls.rpc[0][1].p_token_hashes as string[]
-    expect(calls.rpc[1]).toEqual(['agent_console_ack', {
-      p_owner: 'u-1', p_id: 'k', p_token_hash: hashes[1], p_result: 'refused', p_reason: 'error', p_detail: null,
-    }])
+    expect(calls.rpc.map(r => r[0])).toEqual(['agent_console_claim'])
   })
-  it('키 행이 깨져 있으면(키 목록 밖·칸 없음) 폴러가 키를 이해해도 보내지 않고 닫는다', async () => {
-    for (const broken of [{ keys: ['F5'] }, { keys: null }, { req_sha: null }, { req_since: 'garbage' }, { req_kind: null }]) {
-      const calls = mockAdmin({}, { agent_console_claim: [{ data: [{ ...KEYS_ROW, ...broken }] }], agent_console_ack: [{ data: [{ outcome: 'ok', status: 'refused' }] }] })
+  it('키 행이 깨져 있으면(순서 규칙 위반·키 목록 밖·칸 없음) 응답에 싣지 않는다', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    for (const broken of [{ keys: ['1', 'Enter'] }, { keys: ['Enter', 'Up'] }, { keys: ['F5'] }, { keys: null }, { req_sha: null }, { req_since: 'garbage' }, { req_kind: null }]) {
+      mockAdmin({}, { agent_console_claim: [{ data: [{ ...KEYS_ROW, ...broken }] }] })
       const body = await (await call(poll, 'poll', { host: 'mbp', accepts: ['keys'] })).json()
       expect(body.prompts, JSON.stringify(broken)).toEqual([])
-      expect(calls.rpc[1][0]).toBe('agent_console_ack')
     }
+    spy.mockRestore()
   })
   it('accepts 형식 오류는 400', async () => {
     for (const bad of ['keys', [1], { keys: true }, Array(11).fill('keys')]) {
