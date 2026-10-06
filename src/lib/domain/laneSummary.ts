@@ -8,7 +8,7 @@ export const LANE_SUMMARY_V = 1
 /** 전체 2KB — 정규화한 객체를 JSON 으로 만든 UTF-8 바이트 수. 한글은 글자당 3바이트다. */
 export const LANE_SUMMARY_MAX_BYTES = 2048
 /** 문자열 상한은 킷이 자르는 값(brief 200·hold 사유 100)과 같거나 크게 둔다. 코드포인트 수로 잰다(DB 는 jsonb 전체 바이트 상한만 본다). */
-const MAX = { lane: 60, state: 20, brief: 200, hold: 100, branch: 120 } as const
+const MAX = { lane: 60, state: 20, brief: 200, hold: 100, branch: 120, lead: 40 } as const
 
 export interface LaneSummary {
   v: 1
@@ -19,6 +19,8 @@ export interface LaneSummary {
   itemsTotal: number
   hold: string | null
   branch: string | null
+  /** 이 레인을 거느린 조정 팀장의 세션 식별자 — 팀장 키 `coord:<세션8>` 의 `<세션8>` 와 같은 문자열(2026-10-06 계약). 모르면 null. */
+  lead: string | null
   lastReportAt: string | null
   lastInstrAt: string | null
   ctxPct: number | null
@@ -88,11 +90,12 @@ export function parseLaneSummary(raw: unknown): LaneSummaryParse {
   const brief = str(raw, 'brief', MAX.brief, false)
   const hold = str(raw, 'hold', MAX.hold, false)
   const branch = str(raw, 'branch', MAX.branch, false)
+  const lead = str(raw, 'lead', MAX.lead, false)
   const done = count(raw, 'items_done')
   const total = count(raw, 'items_total')
   const rep = iso(raw, 'last_report_at')
   const instr = iso(raw, 'last_instr_at')
-  for (const x of [lane, state, brief, hold, branch, done, total, rep, instr]) {
+  for (const x of [lane, state, brief, hold, branch, lead, done, total, rep, instr]) {
     if (typeof x === 'object' && x !== null) return { ok: false, error: x.error }
   }
   let ctx: number | null = null
@@ -108,7 +111,7 @@ export function parseLaneSummary(raw: unknown): LaneSummaryParse {
   const value: LaneSummary = {
     v: 1, lane: lane as string, state: state as string, brief: (brief as string | null) ?? '',
     itemsDone: Math.min(done as number, total as number), itemsTotal: total as number,
-    hold: hold as string | null, branch: branch as string | null,
+    hold: hold as string | null, branch: branch as string | null, lead: lead as string | null,
     lastReportAt: rep as string | null, lastInstrAt: instr as string | null,
     ctxPct: ctx, compactPending: raw.compact_pending === true,
   }
@@ -122,7 +125,7 @@ export function parseLaneSummary(raw: unknown): LaneSummaryParse {
 export function toWire(s: LaneSummary): Record<string, unknown> {
   return {
     v: 1, lane: s.lane, state: s.state, brief: s.brief, items_done: s.itemsDone, items_total: s.itemsTotal,
-    hold: s.hold, branch: s.branch, last_report_at: s.lastReportAt, last_instr_at: s.lastInstrAt,
+    hold: s.hold, branch: s.branch, lead: s.lead, last_report_at: s.lastReportAt, last_instr_at: s.lastInstrAt,
     ctx_pct: s.ctxPct, compact_pending: s.compactPending,
   }
 }
