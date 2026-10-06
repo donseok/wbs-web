@@ -117,7 +117,8 @@ describe('assembleRoster — 임시 팀원·조정 세션 책상', () => {
     expect(h.watcher?.agent).toBe('jji/mac/lead')
     expect(h.slots).toBe(2)
     expect(h.desks.filter(d => d.kind === 'empty')).toHaveLength(2)
-    expect(r.tiles.empty).toBe(2)
+    // 빈 좌석 계산은 일반 감시자 기준(2)이고, 「대기」 임시 팀원 1명이 더해진다.
+    expect(r.tiles.empty).toBe(3)
   })
   it('정렬 — 팀장 먼저, w<N> 번호순, 임시 팀원은 레인 이름순(숫자는 수로)으로 맨 뒤', () => {
     const r = assembleRoster({ floors: [floor(
@@ -136,10 +137,49 @@ describe('assembleRoster — 임시 팀원·조정 세션 책상', () => {
     const r = assembleRoster({ floors: [floor([seat('o1', 'jji/mac/w1', 'ACTIVE')], [watcher('jji/mac/임시:a·x'), watcher('jji/mac/lead', { slots: 0 })])] })
     expect(r.hosts[0].desks.map(d => d.kind)).toEqual(['lead', 'member', 'temp'])
   })
-  it('임시 작업은 타일·에이전트 수·좌석에 섞이지 않는다', () => {
-    const r = assembleRoster({ floors: [floor([], [watcher('jji/mac/임시:a·x', { untilLabel: '작업 중' }), watcher('jji/mac/coord', { slots: 3, busy: 3 })])] })
+  it('조정 팀장 1 + 임시 팀원(작업 중 2)은 working 3 · agentCount 3 이고 좌석·빈자리는 늘지 않는다', () => {
+    const r = assembleRoster({ floors: [floor([], [
+      watcher('jji/mac/coord:0f8a8f92', { slots: 3, busy: 2 }),
+      watcher('jji/mac/임시:a·x', { untilLabel: '작업 중' }),
+      watcher('jji/mac/임시:b·y', { untilLabel: '작업 중' }),
+    ])] })
+    expect(r.tiles).toEqual({ working: 3, blocked: 0, stale: 0, offline: 0, empty: 0 })
+    expect(r.agentCount).toBe(3)
+    expect(r.hosts[0].desks.some(d => d.kind === 'member' || d.kind === 'empty')).toBe(false)
+  })
+  it('머지 중·알 수 없는 라벨의 임시 팀원은 working 이다', () => {
+    const r = assembleRoster({ floors: [floor([], [
+      watcher('jji/mac/임시:a·x', { untilLabel: '머지 중' }),
+      watcher('jji/mac/임시:b·y', { untilLabel: '이상한값' }),
+      watcher('jji/mac/임시:c·z', { untilLabel: null }),
+    ])] })
+    expect(r.tiles.working).toBe(3)
+    expect(r.agentCount).toBe(3)
+  })
+  it('답 대기는 blocked — 조정 팀장과 임시 팀원 모두', () => {
+    const r = assembleRoster({ floors: [floor([], [
+      watcher('jji/mac/coord', { untilLabel: ' 답 대기 ' }),
+      watcher('jji/mac/임시:a·x', { untilLabel: '답 대기' }),
+    ])] })
+    expect(r.tiles).toEqual({ working: 0, blocked: 2, stale: 0, offline: 0, empty: 0 })
+    expect(r.agentCount).toBe(2)
+  })
+  it('대기 임시 팀원은 empty(일 없이 기다리는 자리)로 세고 에이전트 수에는 넣는다', () => {
+    const r = assembleRoster({ floors: [floor([], [watcher('jji/mac/임시:a·x', { untilLabel: '대기' })])] })
+    expect(r.tiles).toEqual({ working: 0, blocked: 0, stale: 0, offline: 0, empty: 1 })
+    expect(r.agentCount).toBe(1)
+  })
+  it('끝 임시 팀원은 어디에도 세지 않는다', () => {
+    const r = assembleRoster({ floors: [floor([], [watcher('jji/mac/임시:a·x', { untilLabel: '끝' })])] })
     expect(r.tiles).toEqual({ working: 0, blocked: 0, stale: 0, offline: 0, empty: 0 })
     expect(r.agentCount).toBe(0)
+  })
+  it('일반 감시자(lead·poll)는 집계에 넣지 않고 WBS 좌석 집계와 합산만 된다', () => {
+    const r = assembleRoster({ floors: [floor([seat('o1', 'jji/mac/w1', 'ACTIVE')], [
+      watcher('jji/mac/lead'), watcher('jji/mac/poll'), watcher('jji/mac/coord'), watcher('jji/mac/임시:a·x', { untilLabel: '작업 중' }),
+    ])] })
+    expect(r.tiles.working).toBe(3) // 좌석 1 + 조정 팀장 1 + 임시 팀원 1
+    expect(r.agentCount).toBe(3)
   })
 })
 
