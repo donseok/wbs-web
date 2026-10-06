@@ -26,9 +26,10 @@ describe('parseTempSlot · slotLabel', () => {
     expect(slotLabel('mystery')).toBe('mystery')
   })
   it('조정 슬롯 — coord · coord:<run-id> 만 인정하고 coordinator 같은 접두 오인은 아니다', () => {
-    expect(parseCoordSlot('coord')).toEqual({ runId: null })
-    expect(parseCoordSlot('coord:widget-2026-10-05')).toEqual({ runId: 'widget-2026-10-05' })
-    expect(parseCoordSlot('coord:')).toEqual({ runId: null })
+    expect(parseCoordSlot('coord')).toEqual({ sessionId: null })
+    expect(parseCoordSlot('coord:widget-2026-10-05')).toEqual({ sessionId: 'widget-2026-10-05' })
+    expect(parseCoordSlot('coord:0f8a8f92')).toEqual({ sessionId: '0f8a8f92' })
+    expect(parseCoordSlot('coord:')).toEqual({ sessionId: null })
     for (const s of ['coordinator', 'coordx', 'lead', 'w1', '임시:coord·x']) { expect(parseCoordSlot(s)).toBeNull(); expect(isCoordSlot(s)).toBe(false) }
     expect(slotLabel('coord:r1')).toBe('팀장(조정)')
     expect(slotLabel('coordinator')).toBe('coordinator')
@@ -36,8 +37,8 @@ describe('parseTempSlot · slotLabel', () => {
     expect(isAuxSlot('coordinator')).toBe(false)
     expect(isAuxWatcherAgent('jji/mac/coord:r1')).toBe(true)
     expect(isAuxWatcherAgent('jji/mac/coordinator')).toBe(false)
-    expect(coordLine({ slots: 2, busy: 1 }, 'r1')).toBe('레인 2개 · 작업 중 1 · 회차 r1')
-    expect(coordLine(null, 'r1')).toBe('조정 중 · 회차 r1')
+    expect(coordLine({ slots: 2, busy: 1 }, '0f8a8f92')).toBe('레인 2개 · 작업 중 1 · 세션 0f8a8f92')
+    expect(coordLine(null, '0f8a8f92')).toBe('조정 중 · 세션 0f8a8f92')
   })
   it('보조 자리 판정 — coord·임시만 true, 일반 감시자·규칙 밖 신원은 false', () => {
     expect(isAuxSlot('coord')).toBe(true)

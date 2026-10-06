@@ -58,6 +58,16 @@ describe('fetchAgentHubRows', () => {
     expect(c('project_members').select).toBe('id, name, email, user_id')
     expect(calls.map(x => x.table).sort()).toEqual(['agent_projects', 'agent_watchers', 'agent_work_orders', 'agent_work_orders', 'agent_work_reports', 'project_members', 'projects', 'wbs_items'])
   })
+  it('조정 팀장 키(coord:<세션8>)는 같은 user·host 에 둘이어도 행 그대로 싣는다 — 서버가 합치지 않는다(조정자 계약 §4)', async () => {
+    const seen = new Date(NOW - 60_000).toISOString()
+    const w = (agent: string) => ({ user_id: 'u1', project_id: null, agent, host: 'mbp', slots: 2, busy: 1, until_label: '조정 중', last_seen_at: seen })
+    const { client } = admin({
+      projects: [{ data: [{ id: P1, name: 'mes-base' }] }],
+      agent_watchers: [{ data: [w('hong/mbp/coord:0f8a8f92'), w('hong/mbp/coord:aa11bb22')] }],
+    })
+    const rows = await fetchAgentHubRows(client as never, P1, NOW)
+    expect(rows.watchers.map(x => x.agent)).toEqual(['hong/mbp/coord:0f8a8f92', 'hong/mbp/coord:aa11bb22'])
+  })
   it('살아 있는 주문이 없으면 보고 조회를 생략한다(2차 0건)', async () => {
     const { client, calls } = admin({ agent_work_orders: [{ data: [] }], projects: [{ data: [{ id: P1, name: 'x' }] }] })
     const rows = await fetchAgentHubRows(client as never, P1, NOW)
