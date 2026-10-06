@@ -6,6 +6,7 @@ import { seatStateLabel } from './Seat'
 import { opsFor, opSpec, type SeatOpKind } from './seatOps'
 import { IconApprove, IconReject, IconResume, IconRework, IconStop, IconUnapprove } from './icons'
 import { SeatDecisions } from './SeatDecisions'
+import { AgentConsole, hasConsole } from './AgentConsole'
 import css from './seatmap.module.css'
 
 const LADDER: Array<{ phase: string; pct: number }> = [
@@ -169,6 +170,13 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
         </div>
       )}
       {opError && <p className={css.opError} data-op-error="">{opError}</p>}
+
+      {/* 콘솔(2026-10-06) — 이 좌석에 앉은 팀원 세션(…/w<N>)에 프롬프트 보내기·최근 화면. 자리를 비운 좌석(빈자리·승인 대기·완료)은 세션이 없다. */}
+      {hasConsole(seat.agent, seat.state) && (
+        <div className={css.noteBox} data-detail-console="">
+          <AgentConsole key={seat.agent} seatKey={seat.agent} nowMs={nowMs} />
+        </div>
+      )}
 
       <div className={css.actions}>
         {/* 그 작업의 사이드바까지 바로 연다(2026-09-25 사용자 요청) — 에이전트 보기(RosterBoard)와 같은 focus·open 딥링크. */}

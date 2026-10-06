@@ -12,6 +12,7 @@ import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName 
 import { assembleRoster, coordLine, isAnswerWait, isCoordSlot, leadUntilText, parseCoordSlot, modelBadge, tempStatusKind, TIER_NAME, type ModelTier, type TempStatusKind, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
+import { AgentConsole, hasConsole } from './AgentConsole'
 import { PhaseBadge } from './PhaseBadge'
 import { awayBubble, awayReason, coordBubble, leadAnswerBubble, leadChatter, tempBubble } from '@/lib/domain/officeChatter'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
@@ -490,6 +491,15 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           {chatter && <b data-away className="mb-1 block text-ink">지금은 {awayReason(desk.key, nowMs)}</b>}
           아무도 앉지 않은 자리입니다. 팀장이 다음 위임을 이 자리에 배정합니다.
         </p>
+      )}
+
+      {/* 콘솔(2026-10-06) — 이 세션에 프롬프트 보내기·전달 상태·최근 화면. 대상이 아닌 자리(단독 감시·옛 조정 키·빈자리)와
+          세션이 앉아 있지 않은 팀원 좌석(승인 대기·완료 등)은 그리지 않는다 — 평면도 상세와 같은 판정.
+          key 로 자리마다 새로 그린다 — 앞 자리의 응답이 섞이지 않게. 초안은 오피스가 자리 키별로 쥔다. */}
+      {hasConsole(desk.raw, desk.seat?.state) && (
+        <div data-roster-console="" className="border-t border-line pt-3">
+          <AgentConsole key={desk.raw} seatKey={desk.raw} nowMs={nowMs} />
+        </div>
       )}
 
       <section className="flex flex-col gap-1.5">
