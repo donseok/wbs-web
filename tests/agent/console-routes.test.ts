@@ -80,14 +80,59 @@ describe('공통 게이트', () => {
     mockAdmin({})
     expect((await call(poll, 'poll', [1, 2])).status).toBe(400)
   })
-  it('프로젝트 한정 PAT 는 poll·ack 403 forbidden_role(대기열에는 프로젝트가 없다)', async () => {
-    for (const [fn, path, body] of [[poll, 'poll', { host: 'mbp' }], [ack, 'ack', { id: ID, claim_token: 'a'.repeat(32), result: 'sent' }]] as const) {
-      const calls = mockAdmin({}, {}, { ...RUNNER, project_id: 'p1' })
-      const res = await call(fn, path, body)
-      expect(res.status).toBe(403)
-      expect((await res.json()).code).toBe('forbidden_role')
+})
+
+describe('프로젝트 한정 PAT — 조정 세션 칸(프로젝트 없는 보조 대상)만', () => {
+  const LIMITED = { ...RUNNER, project_id: 'p1' }
+  const TOKEN = 'a'.repeat(32)
+  const CLAIMED = { id: ID, target_kind: 'coord_lane', target_ref: 'kit', text: '안녕', expires_at: '2099-01-01T00:00:00Z', token_index: 1,
+    input_kind: 'text', keys: null, req_kind: null, req_since: null, req_sha: null }
+  it('poll — p_target_kinds=[coord_lead, coord_lane] 로 집고 행을 돌려준다(글 행·키 행 모두)', async () => {
+    const keyRow = { ...CLAIMED, id: '22222222-2222-4222-8222-222222222222', token_index: 2, input_kind: 'keys', keys: ['1'], req_kind: 'permission', req_since: '2026-10-06T00:00:00Z', req_sha: 'b'.repeat(64) }
+    const calls = mockAdmin({}, { agent_console_claim: [{ data: [CLAIMED, keyRow] }] }, LIMITED)
+    const res = await call(poll, 'poll', { host: 'mbp', accepts: ['keys'] })
+    expect(res.status).toBe(200)
+    const { prompts } = await res.json()
+    expect(prompts.map((p: { id: string; kind?: string }) => [p.id, p.kind ?? 'text'])).toEqual([[ID, 'text'], [keyRow.id, 'keys']])
+    expect(calls.rpc[0][1]).toMatchObject({ p_owner: 'u-1', p_host: 'mbp', p_accept_keys: true, p_target_kinds: ['coord_lead', 'coord_lane'] })
+  })
+  it('한정 없는 PAT 는 p_target_kinds 를 싣지 않는다 — 옛 호출 모양 그대로(회귀)', async () => {
+    const calls = mockAdmin({}, { agent_console_claim: [{ data: [] }] })
+    expect((await call(poll, 'poll', { host: 'mbp' })).status).toBe(200)
+    expect(Object.keys(calls.rpc[0][1]).sort()).toEqual(['p_host', 'p_owner', 'p_token_hashes'])
+  })
+  it('ack — 조정 세션 칸 행은 RPC 로 닫는다(owner 로 행을 먼저 본다)', async () => {
+    const calls = mockAdmin({ agent_console_prompts: [{ data: { target_kind: 'coord_lead' } }] },
+      { agent_console_ack: [{ data: [{ outcome: 'ok', status: 'sent' }] }] }, LIMITED)
+    const res = await call(ack, 'ack', { id: ID, claim_token: TOKEN, result: 'sent', detail: 'submitted' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, status: 'sent' })
+    expect(calls.ops.filter(o => o[0] === 'agent_console_prompts' && o[1] === 'eq').map(o => o[2])).toEqual([['id', ID], ['owner', 'u-1']])
+    expect(calls.rpc[0][0]).toBe('agent_console_ack')
+  })
+  it('ack — team 대상 행·없는 행·남의 행은 RPC 없이 404(존재 비구분)', async () => {
+    for (const row of [{ target_kind: 'team_worker' }, { target_kind: 'team_lead' }, null]) {
+      const calls = mockAdmin({ agent_console_prompts: [{ data: row }] }, {}, LIMITED)
+      const res = await call(ack, 'ack', { id: ID, claim_token: TOKEN, result: 'sent', detail: 'submitted' })
+      expect(res.status).toBe(404)
+      expect((await res.json()).code).toBe('not_found')
       expect(calls.rpc).toHaveLength(0)
     }
+  })
+  it('ack — 입력 검사가 행 조회보다 먼저다: 잘못된 result 는 team 행이든 coord 행이든 같은 400(존재 비구분)', async () => {
+    for (const row of [{ target_kind: 'team_worker' }, { target_kind: 'coord_lane' }, null]) {
+      const calls = mockAdmin({ agent_console_prompts: [{ data: row }] }, {}, LIMITED)
+      expect((await call(ack, 'ack', { id: ID, claim_token: TOKEN, result: 'bogus' })).status).toBe(400)
+      expect(calls.ops.filter(o => o[0] === 'agent_console_prompts')).toHaveLength(0)
+    }
+  })
+  it('ack — 행 조회 실패는 500(거절로 위장하지 않는다), 한정 없는 PAT 는 행 조회 없이 RPC', async () => {
+    const calls = mockAdmin({ agent_console_prompts: [{ error: { message: 'pool' } }] }, {}, LIMITED)
+    expect((await call(ack, 'ack', { id: ID, claim_token: TOKEN, result: 'sent', detail: 'submitted' })).status).toBe(500)
+    expect(calls.rpc).toHaveLength(0)
+    const free = mockAdmin({}, { agent_console_ack: [{ data: [{ outcome: 'ok', status: 'sent' }] }] })
+    expect((await call(ack, 'ack', { id: ID, claim_token: TOKEN, result: 'sent', detail: 'submitted' })).status).toBe(200)
+    expect(free.ops.filter(o => o[0] === 'agent_console_prompts')).toHaveLength(0)
   })
 })
 
@@ -306,10 +351,42 @@ describe('POST /console/screen', () => {
     mockAdmin({ ...seatsQueues(), agent_console_screens: [{ error: { message: 'pool' } }] })
     expect((await call(screen, 'screen', { host: 'mbp', items: [item()] })).status).toBe(500)
   })
-  it('프로젝트 한정 PAT 는 그 프로젝트 좌석만 대상이다 — 프로젝트 없는 조정 좌석·다른 프로젝트 좌석은 unknown_target', async () => {
-    mockAdmin(seatsQueues(), {}, { ...RUNNER, project_id: 'p1' })
-    const res = await call(screen, 'screen', { host: 'mbp', items: [item(), item({ target_kind: 'team_worker', target_ref: 'w1' })] })
-    expect((await res.json()).results.map((r: { status: string; reason?: string }) => r.reason ?? r.status)).toEqual(['unknown_target', 'stored'])
+  it('프로젝트 한정 PAT — 프로젝트 없는 조정 세션 칸과 자기 프로젝트 좌석은 stored, 프로젝트 없는 team 좌석·남의 프로젝트 team 좌석은 unknown_target', async () => {
+    const calls = mockAdmin({
+      agent_watchers: [{ data: [
+        { agent: 'hong/mbp/임시:kit·노드 엔진', project_id: null }, { agent: 'hong/mbp/coord:abcd1234', project_id: null }, { agent: 'hong/mbp/lead', project_id: null },
+      ] }],
+      agent_work_orders: [{ data: [{ heartbeat_agent: 'hong/mbp/w1', project_id: 'p1' }, { heartbeat_agent: 'hong/mbp/w2', project_id: 'p2' }] }],
+    }, {}, { ...RUNNER, project_id: 'p1' })
+    const res = await call(screen, 'screen', { host: 'mbp', items: [
+      item(), item({ target_kind: 'coord_lead', target_ref: 'abcd1234' }), item({ target_kind: 'team_worker', target_ref: 'w1' }),
+      item({ target_kind: 'team_worker', target_ref: 'w2' }), item({ target_kind: 'team_lead', target_ref: 'lead' }),
+    ] })
+    expect((await res.json()).results.map((r: { status: string; reason?: string }) => r.reason ?? r.status))
+      .toEqual(['stored', 'stored', 'stored', 'unknown_target', 'unknown_target'])
+    const rows = calls.ops.find(o => o[0] === 'agent_console_screens' && o[1] === 'upsert')![2][0] as Array<Record<string, unknown>>
+    expect(rows.map(r => `${r.target_kind}/${r.target_ref}`)).toEqual(['coord_lane/kit', 'coord_lead/abcd1234', 'team_worker/w1'])
+  })
+  it('프로젝트 한정 PAT — 한 열쇠에 보조 좌석과 프로젝트 있는 좌석이 섞이면 unknown_target(fail-closed)', async () => {
+    mockAdmin({
+      agent_watchers: [{ data: [{ agent: 'hong/mbp/임시:kit·노드 엔진', project_id: null }, { agent: 'hong/mbp/임시:kit·옛 요약', project_id: 'p9' }] }],
+      agent_work_orders: [{ data: [] }],
+    }, {}, { ...RUNNER, project_id: 'p1' })
+    const res = await call(screen, 'screen', { host: 'mbp', items: [item()] })
+    expect((await res.json()).results[0].reason).toBe('unknown_target')
+  })
+  it('프로젝트 한정 PAT — 자기 프로젝트 좌석과 보조 좌석이 한 열쇠에 섞여도 거절(어느 쪽 화면도 덮어쓰지 않는다)', async () => {
+    mockAdmin({
+      agent_watchers: [{ data: [{ agent: 'hong/mbp/임시:kit·노드 엔진', project_id: null }, { agent: 'hong/mbp/임시:kit·옛 요약', project_id: 'p1' }] }],
+      agent_work_orders: [{ data: [] }],
+    }, {}, { ...RUNNER, project_id: 'p1' })
+    expect((await (await call(screen, 'screen', { host: 'mbp', items: [item()] })).json()).results[0].reason).toBe('unknown_target')
+  })
+  it('다른 owner 의 좌석은 어떤 PAT 로도 대상이 아니다 — 좌석 조회가 owner 로 걸러진다', async () => {
+    const calls = mockAdmin(seatsQueues(), {}, { ...RUNNER, project_id: 'p1' })
+    await call(screen, 'screen', { host: 'mbp', items: [item()] })
+    expect(calls.ops.filter(o => ['agent_watchers', 'agent_work_orders'].includes(o[0]) && o[1] === 'eq')
+      .map(o => o[2])).toEqual(expect.arrayContaining([['user_id', 'u-1'], ['claimed_by_user_id', 'u-1']]))
   })
   it('로그에 토큰 원문·화면 본문을 남기지 않는다', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})

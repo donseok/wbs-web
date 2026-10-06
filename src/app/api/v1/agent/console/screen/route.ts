@@ -3,7 +3,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { apiBadRequest, apiInternalError } from '@/lib/agent/externalApi'
 import { fetchConsoleSeats } from '@/lib/data/agentSeatmap'
 import {
-  CONSOLE_HOST_RE, CONSOLE_SCREEN_ITEMS_MAX, consoleTargetKey, parseConsoleScreenItem, type ConsoleScreenItem,
+  CONSOLE_HOST_RE, CONSOLE_SCREEN_ITEMS_MAX, consolePatMaySeatKey, consoleTargetKey, parseConsoleScreenItem,
+  type ConsoleScreenItem, type ConsoleTargetKind,
 } from '@/lib/domain/agentConsole'
 import { apiNotFound, consoleCall } from '../_shared'
 
@@ -11,7 +12,7 @@ import { apiNotFound, consoleCall } from '../_shared'
  * screen — 폴러가 이 PC 의 대상마다 화면 끝 40줄을 올린다(계약 §2.12). 대상마다 최신 1행을 덮어쓴다.
  * lines 가 있으면 저장, 없으면 touch(sha 가 저장된 것과 같을 때 captured_at 만 갱신, 다르거나 행이 없으면 need_full).
  * 검사는 항목마다 해서 거절된 항목만 rejected 로 돌려준다. owner 의 좌석에 없는 대상은 unknown_target —
- * 프로젝트 한정 PAT 는 그 프로젝트 좌석만 대상이다(다른 프로젝트 관리자가 보는 화면에 쓰지 못하게).
+ * 프로젝트 한정 PAT 는 그 프로젝트 좌석과 프로젝트 없는 조정 세션 칸만 대상이다(다른 프로젝트 관리자가 보는 화면에 쓰지 못하게).
  * DB 왕복은 PC 마다 30초에 한 번이라 묶는다: 저장분은 upsert 한 번, touch 는 기존 sha 조회 한 번 + 같은 시각끼리 갱신 한 번.
  * DB 쓰기가 실패하면 항목별 사유로 감추지 않고 500 으로 답한다 — 폴러는 다음 주기에 다시 보낸다.
  * 화면은 폴러가 비밀 모양 문자열을 가린 뒤 올린다. 서버는 글자 그대로 저장하고 본문을 로그에 남기지 않는다.
@@ -40,14 +41,15 @@ export async function POST(req: NextRequest) {
     }
     // 대상 대조 재료 — 조회 실패는 500(위장 금지). 빈 목록이면 모든 항목이 unknown_target 이다.
     // 화면 행은 (owner, host, 종류, 참조) 하나를 같은 열쇠의 좌석들이 함께 쓴다 — 프로젝트 한정 PAT 는 그 열쇠의 좌석이 전부 자기
-    // 프로젝트일 때만 쓸 수 있다(다른 프로젝트·프로젝트 없는 좌석과 겹치면 그쪽 화면을 덮어쓰게 되므로 거절, fail-closed).
-    const byKey = new Map<string, Array<string | null>>()
+    // 프로젝트이거나 전부 프로젝트 없는 보조 좌석(조정 세션 칸)일 때만 쓸 수 있다(프로젝트 있는 좌석·다른 프로젝트 좌석과 겹치면
+    // 그쪽 화면을 덮어쓰게 되므로 거절, fail-closed). 판정은 consolePatMaySeatKey 한 곳에서 한다.
+    const byKey = new Map<string, { kind: ConsoleTargetKind; pids: Array<string | null> }>()
     for (const s of await fetchConsoleSeats(admin, owner)) {
       if (s.host !== host) continue
       const k = consoleTargetKey(s)
-      byKey.set(k, [...(byKey.get(k) ?? []), s.projectId])
+      byKey.set(k, { kind: s.kind, pids: [...(byKey.get(k)?.pids ?? []), s.projectId] })
     }
-    const seats = new Set([...byKey].filter(([, pids]) => call.projectId === null || pids.every(p => p === call.projectId)).map(([k]) => k))
+    const seats = new Set([...byKey].filter(([, v]) => consolePatMaySeatKey(call.projectId, v.kind, v.pids)).map(([k]) => k))
     const now = new Date()
     const results: Result[] = []
     // 같은 대상이 한 요청에 두 번 오면 마지막 것만 쓴다(한 upsert 문장이 같은 행을 두 번 고칠 수 없다).
