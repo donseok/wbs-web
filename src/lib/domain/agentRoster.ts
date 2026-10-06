@@ -269,6 +269,90 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
   return { hosts: list, tiles, agentCount: seats.length + auxAgents, unmatchedLeads }
 }
 
+/**
+ * 팀장 한 명과 그 팀원 — PC 행 안의 바운더리 하나(2026-10-06 사용자 지시: 팀장 하나당 바운더리 하나).
+ * kind: coord=조정 팀장(coord:<세션8>) · team=dflow-team 팀장(lead·poll) · unknown=「팀장 미확인」(lead 가 null).
+ */
+export type GroupKind = 'coord' | 'team' | 'unknown'
+/** 임시 팀원을 조정 팀장에 붙인 근거 — lead=레인 요약의 lead 칸(확정) · quiet=팀장 요약의 조용한 레인 이름 · sole=그 PC 에서 레인이 0개가 아닌 조정 팀장이 하나뿐(추정). */
+export type GroupLink = 'lead' | 'quiet' | 'sole'
+export interface RosterGroup {
+  key: string
+  kind: GroupKind
+  /** 팀장 책상 — 미확인 묶음은 null. */
+  lead: RosterDesk | null
+  /** 이 팀장의 팀원 책상(임시 팀원·팀원·빈자리·규칙 밖 에이전트) — 책상 순서 그대로. */
+  members: RosterDesk[]
+  /** 팀원 수 — 빈자리를 뺀 앉은 책상 수. */
+  memberCount: number
+  /** 조정 팀장 묶음의 임시 팀원 책상 key → 붙인 근거. 다른 책상은 없다. */
+  links: Record<string, GroupLink>
+}
+
+/** 임시 팀원 책상의 레인 이름 — 요약의 lane 이 먼저, 없으면 슬롯의 레인. */
+function tempLaneName(d: RosterDesk): string {
+  return d.watcher?.summary?.lane || d.temp?.lane || ''
+}
+
+/**
+ * 한 PC 행의 책상을 팀장별로 묶는다. 책상 목록(host.desks)은 그대로 두고 묶음만 새로 만든다.
+ * 팀장도 임시 팀원도 없는 행(규칙 밖 한 줄짜리 등)은 묶을 이유가 없어 null — 화면이 종전대로 그린다.
+ *
+ * 임시 팀원을 조정 팀장에 붙이는 순서(같은 PC 행 안에서만):
+ * 1. 레인 요약의 lead 칸이 어느 조정 팀장의 세션 식별자와 같으면 그 팀장(확정). lead 가 있는데 맞는 팀장이 없으면 미확인(옛 세션의 레인).
+ * 2. lead 칸이 없으면 팀장 요약의 조용한 레인(quiet) 이름에 정확히 한 팀장만 들어 있을 때 그 팀장(레인 이름 전체 목록은 계약에 없다).
+ * 3. 그래도 못 정하면, 레인이 0개가 아닌(레인 수>0 이거나 모름) 조정 팀장이 하나뿐일 때 그 팀장. 그 밖에는 미확인.
+ * 팀원(w<N>)·빈자리·규칙 밖 에이전트는 이 PC 의 dflow-team 팀장(lead, 없으면 단독 감시)에게 붙고, 팀장이 없으면 미확인이다.
+ */
+export function groupHostDesks(host: Pick<RosterHost, 'desks' | 'watcher'>): RosterGroup[] | null {
+  const leadDesks = host.desks.filter(d => d.kind === 'lead')
+  if (leadDesks.length === 0 && !host.desks.some(d => d.kind === 'temp')) return null
+  const coordLeads = leadDesks.filter(d => isCoordSlot(d.slot))
+  const teamLeads = leadDesks.filter(d => !isCoordSlot(d.slot))
+  // 팀원의 주인은 신호 시각과 무관하게 정해야 한다(lead·poll 의 최근 신호가 번갈아 바뀌어도 팀원이 묶음 사이를 오가지 않게) — lead 우선, 없으면 첫 책상.
+  const primaryTeam = teamLeads.find(d => d.slot === 'lead') ?? teamLeads[0] ?? null
+
+  const coordGroups = new Map<string, RosterGroup>()
+  for (const d of coordLeads) coordGroups.set(d.key, { key: `group:${d.key}`, kind: 'coord', lead: d, members: [], memberCount: 0, links: {} })
+  const teamGroups = new Map<string, RosterGroup>()
+  for (const d of teamLeads) teamGroups.set(d.key, { key: `group:${d.key}`, kind: 'team', lead: d, members: [], memberCount: 0, links: {} })
+  const unknown: RosterGroup = { key: `group:unknown:${leadDesks[0]?.key ?? host.desks[0]?.key ?? ''}`, kind: 'unknown', lead: null, members: [], memberCount: 0, links: {} }
+
+  const sessionOf = (d: RosterDesk) => parseCoordSlot(d.slot)?.sessionId ?? null
+  // 레인 수를 모르는(null) 팀장은 후보로 남긴다 — 명시적으로 레인이 0개인 팀장만 뺀다.
+  const laned = coordLeads.filter(d => d.watcher?.slots !== 0)
+  const attach = (g: RosterGroup, d: RosterDesk, link?: GroupLink) => {
+    g.members.push(d)
+    if (d.kind !== 'empty') g.memberCount++
+    if (link) g.links[d.key] = link
+  }
+
+  for (const d of host.desks) {
+    if (d.kind === 'lead') continue
+    if (d.kind !== 'temp') {
+      attach(primaryTeam ? teamGroups.get(primaryTeam.key)! : unknown, d)
+      continue
+    }
+    const lead = d.watcher?.summary?.lead?.trim() || null
+    let owner: RosterDesk | null = null
+    let link: GroupLink = 'lead'
+    if (lead) {
+      owner = coordLeads.find(c => sessionOf(c) === lead) ?? null
+    } else {
+      const lane = tempLaneName(d)
+      const byQuiet = lane ? coordLeads.filter(c => c.watcher?.leadSummary?.runs.some(r => r.lanes.quiet.includes(lane))) : []
+      if (byQuiet.length === 1) { owner = byQuiet[0]; link = 'quiet' }
+      else if (laned.length === 1) { owner = laned[0]; link = 'sole' }
+    }
+    if (owner) attach(coordGroups.get(owner.key)!, d, link)
+    else attach(unknown, d)
+  }
+
+  const groups = [...coordGroups.values(), ...teamGroups.values()]
+  // 팀장만 있는 묶음도 그린다(팀원 0명). 미확인은 책상이 있을 때만.
+  return unknown.members.length > 0 ? [...groups, unknown] : groups
+}
+
 /** 명찰에 쓰는 모델 표기 — 제조사 표식·색과 짧은 이름. 모르는 값은 원문을 그대로 둔다(추측해 바꾸지 않는다). */
 export type ModelVendor = 'claude' | 'openai' | 'gemini' | 'grok' | 'llama' | 'mistral' | 'deepseek' | 'qwen' | 'other'
 /** 등급 — 제조사마다 자기 라인업 안에서 4단계(1 최상위 · 2 상위 · 3 표준 · 4 경량). 판정 근거가 없으면 null. */
