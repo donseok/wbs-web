@@ -170,3 +170,24 @@ describe('입력 대기 배지 규칙', () => {
     expect(clockText(null)).toBeNull()
   })
 })
+
+describe('리뷰 반영 — 유니코드·시각·진행 경계', () => {
+  it('NUL 과 제어 문자는 지우고, 짝 없는 서로게이트는 그 칸을 거절한다(jsonb 22P05 방지)', () => {
+    const r = parseLaneSummary({ ...good, brief: 'a\u0000b\u001b[31mc\nd' })
+    expect(r).toMatchObject({ ok: true, value: { brief: 'ab[31mc d' } })
+    expect(parseLaneSummary({ ...good, brief: 'x\ud800y' }).ok).toBe(false)
+    expect(parseLaneSummary({ ...good, brief: 'x\udc00' }).ok).toBe(false)
+    expect(parseLaneSummary({ ...good, brief: '😀' }).ok).toBe(true)
+  })
+  it('시각은 시간대가 있는 ISO 만 받는다 — 시간대 없음·숫자·자연어는 거절', () => {
+    for (const bad of ['1', '2026', '2026-10-06T10:00:00', 'March 7, 2026 10:00', '2026-10-06']) {
+      expect(parseLaneSummary({ ...good, last_report_at: bad }).ok, bad).toBe(false)
+    }
+    for (const okv of ['2026-10-06T10:00:00Z', '2026-10-06T10:00:00.123+09:00', '2026-10-06T10:00:00-05:00']) {
+      expect(parseLaneSummary({ ...good, last_report_at: okv }).ok, okv).toBe(true)
+    }
+  })
+  it('완료 수가 전체를 넘으면 전체로 자른다(9/3 으로 보이지 않는다)', () => {
+    expect(parseLaneSummary({ ...good, items_done: 9, items_total: 3 })).toMatchObject({ ok: true, value: { itemsDone: 3, itemsTotal: 3 } })
+  })
+})

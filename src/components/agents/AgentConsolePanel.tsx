@@ -41,7 +41,7 @@ function safeAge(iso: string, nowMs: number): string {
 
 /** 거절·만료 사유 표기 — 키 답하기에서 창이 바뀌어 폴러가 보내지 않은 건은 한국어로 풀어 쓴다. 그 밖의 사유는 원문 그대로. */
 function reasonText(reason: string): string {
-  return reason === 'prompt_changed' || reason === 'prompt-changed' ? '창이 바뀌어 보내지 않음' : `사유: ${reason}`
+  return reason === 'prompt_changed' ? '창이 바뀌어 보내지 않음' : `사유: ${reason}`
 }
 
 const H3 = 'text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle'

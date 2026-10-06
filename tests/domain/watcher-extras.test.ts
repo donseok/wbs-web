@@ -49,6 +49,37 @@ describe('parseLeadSummary', () => {
   })
 })
 
+describe('리뷰 반영 — 오류 경로·중복·유니코드·해시 고정 벡터', () => {
+  it('오류 사유의 칸 경로가 겹치지 않는다', () => {
+    const r = parseLeadSummary({ v: 1, runs: [{ ...run, decision: { ...run.decision, first_title: '가'.repeat(101) } }] })
+    expect(r.ok ? '' : r.error).toMatch(/^lead_summary\.first_title 는 100자/)
+    const i = parseInputRequest({ v: 1, kind: 'permission', since: '어제', excerpt: [] }, sha)
+    expect(i.ok ? '' : i.error).toMatch(/^input_request\.since /)
+  })
+  it('회차 이름이 겹치면 칸을 거절하고, 완료가 전체를 넘으면 자른다', () => {
+    expect(parseLeadSummary({ v: 1, runs: [{ run: 'r' }, { run: 'r' }] }).ok).toBe(false)
+    const r = parseLeadSummary({ v: 1, runs: [{ ...run, progress: { ...run.progress, items_done: 9, items_total: 3 } }] })
+    expect(r).toMatchObject({ ok: true, value: { runs: [{ progress: { itemsDone: 3, itemsTotal: 3 } }] } })
+  })
+  it('NUL·제어 문자는 지우고 짝 없는 서로게이트는 거절한다', () => {
+    expect(parseLeadSummary({ v: 1, runs: [{ run: 'r\u0000x' }] })).toMatchObject({ ok: true, value: { runs: [{ run: 'rx' }] } })
+    expect(parseLeadSummary({ v: 1, runs: [{ run: 'r\ud800' }] }).ok).toBe(false)
+    const e = parseInputRequest({ v: 1, kind: 'choice', since: '2026-10-06T13:40:00+09:00', excerpt: ['a\u0000b', 'c\u001b[0m'] }, sha)
+    expect(e).toMatchObject({ ok: true, value: { excerpt: ['ab', 'c[0m'] } })
+    expect(parseInputRequest({ v: 1, kind: 'choice', since: '2026-10-06T13:40:00+09:00', excerpt: ['x\udc00'] }, sha).ok).toBe(false)
+  })
+  it('줄 길이는 끝 공백을 지운 뒤에 잰다 — 195자 + 끝 공백 10개는 통과', () => {
+    const line = 'a'.repeat(195) + ' '.repeat(10)
+    expect(parseInputRequest({ v: 1, kind: 'choice', since: '2026-10-06T13:40:00Z', excerpt: [line] }, sha).ok).toBe(true)
+    expect(parseInputRequest({ v: 1, kind: 'choice', since: '2026-10-06T13:40:00Z', excerpt: ['a'.repeat(201)] }, sha).ok).toBe(false)
+  })
+  it('해시 고정 벡터(킷과 맞추는 값) — 줄 끝 공백을 지우고 줄바꿈으로 이은 UTF-8 의 sha256', () => {
+    const r = parseInputRequest({ v: 1, kind: 'choice', since: '2026-10-06T13:40:00Z', excerpt: ['a  ', 'b'] }, sha)
+    // `printf 'a\nb' | shasum -a 256` 과 같은 값이다 — 서버 구현이 바뀌어도 킷과 어긋나지 않게 고정한다.
+    expect(r.ok && r.value ? r.value.sha : null).toBe('7e18f737311b2dc3b2f269dd78396b0351f14fb66efa879f768cb23181883c78')
+  })
+})
+
 const req = { v: 1, kind: 'permission', since: '2026-10-06T13:40:00+09:00', excerpt: ['Allow? (y/n)', '1) yes  2) no'], handled: null }
 
 describe('parseInputRequest', () => {

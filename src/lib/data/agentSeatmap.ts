@@ -62,6 +62,7 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
     // decision_count 만 싣는다 — 본문은 상세 패널이 좁게 읽는다(주문 최대 2000건, 과제 C).
     admin.from('agent_work_reports').select('work_order_id, review_action, review_note, created_at, decision_count')
       .in('work_order_id', orderIds).eq('kind', 'completion').then(r => must<ReviewRow[]>('완료 보고', r)),
+    // summary·lead_summary·input_request 는 0110 이 더한 칸이다 — 0110 을 DB 에 먼저 적용해야 한다(없으면 이 조회와 watch upsert 가 실패한다).
     admin.from('agent_watchers').select('id, user_id, project_id, agent, host, slots, busy, until_label, last_seen_at, summary, lead_summary, input_request')
       .gte('last_seen_at', new Date(nowMs - WATCHER_TTL_MS).toISOString()).then(r => must<WatcherRow[]>('감시자', r)),
     admin.from('projects').select('id, name').in('id', projIds).then(r => must<ProjectRow[]>('프로젝트', r)),

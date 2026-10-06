@@ -79,7 +79,7 @@ function LaneSummaryBoard({ rows, nowMs }: { rows: LaneSummaryRow[]; nowMs: numb
                 {s?.compactPending && <span className={css.laneSumFlag} data-lane-compact>compact 대기</span>}
                 {row.inputRequest && !waiting && <InputWaitChip meta={row.inputRequest} nowMs={nowMs} />}
               </div>
-              {row.inputRequest && waiting && <InputRequestBadge seatKey={row.seatKey} meta={row.inputRequest} nowMs={nowMs} />}
+              {row.inputRequest && waiting && <InputRequestBadge key={`${row.seatKey}:${row.inputRequest.since}`} seatKey={row.seatKey} meta={row.inputRequest} nowMs={nowMs} />}
               {s ? (
                 <>
                   {s.brief && <p className={css.laneSumBrief} data-lane-brief>{s.brief}</p>}

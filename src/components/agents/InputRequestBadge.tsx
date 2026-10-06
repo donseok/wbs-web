@@ -16,6 +16,7 @@ function ChipBody({ view }: { view: Extract<ReturnType<typeof inputWaitView>, { 
     <>
       <i aria-hidden className={css.inDot} />입력 대기 · {view.kindLabel}
       <span data-input-wait="" className={css.inWait}>{view.waitText}</span>
+      {view.overdue && <span data-input-overdue-text="" className={css.inWait}> · 5분 넘음</span>}
     </>
   )
 }

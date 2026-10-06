@@ -268,6 +268,7 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date()
+    // 0110 칸(summary·lead_summary·input_request)이 DB 에 먼저 있어야 한다 — 없으면 이 upsert 가 실패해 모든 PC 의 감시자 신호가 끊긴다.
     const display = parseDisplayColumns(b)
     const { error: upErr } = await admin
       .from('agent_watchers')

@@ -492,7 +492,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">지시</h3>
           <p className="whitespace-pre-wrap text-ink">{desk.temp?.summary || '지시 요약 없음'}</p>
           <p className="text-[11px] text-ink-subtle">조정 세션이 맡긴 임시 작업입니다 — WBS 진척에는 들어가지 않고 상단 집계에만 셉니다.</p>
-          {desk.watcher?.inputRequest && desk.raw && <InputRequestBadge key={desk.raw} seatKey={desk.raw} meta={desk.watcher.inputRequest} nowMs={nowMs} />}
+          {desk.watcher?.inputRequest && desk.raw && <InputRequestBadge key={`${desk.raw}:${desk.watcher.inputRequest.since}`} seatKey={desk.raw} meta={desk.watcher.inputRequest} nowMs={nowMs} />}
         </section>
       )}
       {desk.kind === 'lead' && isCoordSlot(desk.slot) && <LeadSummaryPanel summary={desk.watcher?.leadSummary} hostDesks={host.desks} nowMs={nowMs} />}

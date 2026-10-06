@@ -7,7 +7,7 @@ import type { InputRequestMeta } from './watcherExtras'
 export const LANE_SUMMARY_V = 1
 /** 전체 2KB — 정규화한 객체를 JSON 으로 만든 UTF-8 바이트 수. 한글은 글자당 3바이트다. */
 export const LANE_SUMMARY_MAX_BYTES = 2048
-/** 문자열 상한은 킷이 자르는 값(brief 200·hold 사유 100)과 같거나 크게 둔다. 코드포인트 수로 잰다(DB char_length 와 같은 기준). */
+/** 문자열 상한은 킷이 자르는 값(brief 200·hold 사유 100)과 같거나 크게 둔다. 코드포인트 수로 잰다(DB 는 jsonb 전체 바이트 상한만 본다). */
 const MAX = { lane: 60, state: 20, brief: 200, hold: 100, branch: 120 } as const
 
 export interface LaneSummary {
@@ -32,25 +32,46 @@ export type LaneSummaryParse =
 export const cp = (s: string) => [...s].length
 export const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-export function str(raw: Record<string, unknown>, key: string, max: number, required: boolean): string | null | { error: string } {
+/** 짝 없는 서로게이트 — JSON 으로는 만들어지지만 Postgres jsonb 가 저장하지 못한다(22P05). 그 칸만 거절한다. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+/** 지우는 글자 — C0·DEL·C1 제어 문자(U+0000 포함: jsonb 가 저장하지 못한다). 줄바꿈·탭은 호출자가 먼저 공백으로 바꾼다. */
+const CONTROLS = /[\u0000-\u001F\u007F-\u009F]/g
+/**
+ * 표시 문자열 정리 — 제어 문자를 지운다. 짝 없는 서로게이트가 있으면 null(호출자가 그 칸을 거절한다).
+ * spaceBreaks 면 줄바꿈·탭을 공백 하나로 바꾼 뒤 지운다(brief·hold 같은 한 줄 글). 발췌 줄은 바꾸지 않고 지운다(해시 규칙).
+ */
+export function cleanText(v: string, spaceBreaks: boolean): string | null {
+  if (LONE_SURROGATE.test(v)) return null
+  return (spaceBreaks ? v.replace(/[\r\n\t]+/g, ' ') : v).replace(CONTROLS, '')
+}
+
+/** 시각 — 시간대(Z 또는 ±hh:mm)가 있는 ISO 8601 만 받는다. 시간대 없는 값은 서버·PC 시간대에 따라 9시간이 어긋나므로 거절한다. */
+export const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/
+
+export function str(raw: Record<string, unknown>, key: string, max: number, required: boolean, scope = 'summary'): string | null | { error: string } {
   const v = raw[key]
-  if (v === undefined || v === null) return required ? { error: `summary.${key} 가 필요합니다.` } : null
-  if (typeof v !== 'string') return { error: `summary.${key} 는 문자열이어야 합니다.` }
-  const t = v.trim()
-  if (required && t === '') return { error: `summary.${key} 가 비어 있습니다.` }
-  if (cp(t) > max) return { error: `summary.${key} 는 ${max}자 이하여야 합니다.` }
+  const at = `${scope}.${key}`
+  if (v === undefined || v === null) return required ? { error: `${at} 가 필요합니다.` } : null
+  if (typeof v !== 'string') return { error: `${at} 는 문자열이어야 합니다.` }
+  const c = cleanText(v, true)
+  if (c === null) return { error: `${at} 에 올바르지 않은 유니코드가 있습니다.` }
+  const t = c.trim()
+  if (required && t === '') return { error: `${at} 가 비어 있습니다.` }
+  if (cp(t) > max) return { error: `${at} 는 ${max}자 이하여야 합니다.` }
   return t === '' ? null : t
 }
-export function count(raw: Record<string, unknown>, key: string): number | { error: string } {
+export function count(raw: Record<string, unknown>, key: string, scope = 'summary'): number | { error: string } {
   const v = raw[key]
   if (v === undefined || v === null) return 0
-  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 9999) return { error: `summary.${key} 는 0~9999 정수여야 합니다.` }
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 9999) return { error: `${scope}.${key} 는 0~9999 정수여야 합니다.` }
   return v
 }
-export function iso(raw: Record<string, unknown>, key: string): string | null | { error: string } {
+export function iso(raw: Record<string, unknown>, key: string, scope = 'summary'): string | null | { error: string } {
   const v = raw[key]
   if (v === undefined || v === null) return null
-  if (typeof v !== 'string' || v.length > 40 || Number.isNaN(Date.parse(v))) return { error: `summary.${key} 는 ISO 시각이어야 합니다.` }
+  if (typeof v !== 'string' || v.length > 40 || !ISO_WITH_OFFSET.test(v) || Number.isNaN(Date.parse(v))) {
+    return { error: `${scope}.${key} 는 시간대(Z 또는 +09:00)가 있는 ISO 시각이어야 합니다.` }
+  }
   return v
 }
 
@@ -86,7 +107,7 @@ export function parseLaneSummary(raw: unknown): LaneSummaryParse {
   }
   const value: LaneSummary = {
     v: 1, lane: lane as string, state: state as string, brief: (brief as string | null) ?? '',
-    itemsDone: done as number, itemsTotal: total as number,
+    itemsDone: Math.min(done as number, total as number), itemsTotal: total as number,
     hold: hold as string | null, branch: branch as string | null,
     lastReportAt: rep as string | null, lastInstrAt: instr as string | null,
     ctxPct: ctx, compactPending: raw.compact_pending === true,
