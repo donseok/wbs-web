@@ -85,17 +85,21 @@ fi
 TARGET=$(cd "$TARGET" && pwd)
 [ -d "$TARGET/.git" ] || echo "경고: $TARGET 은 git 리포가 아니다 — dflow-dev 는 git 리포 루트에서만 동작한다." >&2
 
-# 1) 의존 점검 — dflow.sh(curl·jq), poll.sh(jq), nlevel/export 스크립트(python3 또는 python), done --auto-links(gh)
+# 1) 의존 점검 — dflow.sh(curl·jq), poll.sh(jq), export 스크립트(node 18.17 이상), done --auto-links(gh)
 #    Windows 는 Git Bash(Git for Windows) 에서 실행한다. dflow-team 은 powershell.exe 도 쓴다(프로세스 시작 시각).
+#    python 은 아직 python 으로 남은 스크립트(dflow-wbs-nlevel, junit-count.sh)용 선택 의존이라 없으면 경고만 한다.
 missing=""
-for c in git curl jq gh; do command -v "$c" >/dev/null 2>&1 || missing="$missing $c"; done
-command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 || missing="$missing python3"
+for c in git curl jq gh node; do command -v "$c" >/dev/null 2>&1 || missing="$missing $c"; done
 if [ -n "$missing" ]; then
   echo "필요한 명령이 없다:$missing" >&2
   echo "  macOS: brew install${missing}" >&2
-  echo "  Windows(Git Bash): winget 또는 scoop 으로 설치${missing} (python3 은 python 으로 대신할 수 있다)" >&2
+  echo "  Windows(Git Bash): winget 또는 scoop 으로 설치${missing}" >&2
   exit 2
 fi
+node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>18||(a===18&&b>=17)?0:1)' \
+  || { echo "node 18.17 이상이 필요하다(현재 $(node --version)) — dflow-export 스크립트가 node 18.17 이상을 전제한다." >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 \
+  || echo "경고: python3 이 없다 — dflow-wbs-nlevel 스크립트와 junit-count.sh 는 아직 python 이 필요하다(dflow-export·그 밖 스크립트는 node 만으로 돈다)." >&2
 
 # 2) 스킬 복사 — 스킬 폴더 단위로 통째 갱신(사본에서 고친 것은 덮인다 — 정본은 킷)
 #    주의: .claude/skills/dflow-* 가 심링크(다른 리포를 가리킴)인 대상에서는 이 단계가 그 심링크를 지우고
@@ -106,6 +110,17 @@ for s in "$KIT_DIR"/skills/dflow-*; do
   rm -rf "$TARGET/.claude/skills/$name"
   cp -R "$s" "$TARGET/.claude/skills/$name"
 done
+# _shared — 스킬 스크립트가 ../../_shared/{node,bin} 을 import·참조한다. 대상 리포의 다른 _shared 파일(다른 스킬이 쓰는
+#   문서·시험 등)을 지우지 않도록 폴더를 rm 하지 않고 같은 이름 파일만 덮어쓴다(킷에서 사라진 옛 파일은 남는다 — 무해).
+#   _shared 자체가 심링크(정본 리포를 가리킴)면 그 정본을 건드리지 않도록 건너뛴다.
+if [ -d "$KIT_DIR/skills/_shared" ]; then
+  if [ -L "$TARGET/.claude/skills/_shared" ]; then
+    echo "건너뜀: $TARGET/.claude/skills/_shared 는 심링크다 — 정본 리포의 _shared 를 덮어쓰지 않았다(그 정본이 최신인지 확인할 것)." >&2
+  else
+    mkdir -p "$TARGET/.claude/skills/_shared"
+    cp -R "$KIT_DIR/skills/_shared/." "$TARGET/.claude/skills/_shared/"
+  fi
+fi
 chmod +x "$TARGET"/.claude/skills/dflow-work/scripts/dflow.sh "$TARGET"/.claude/skills/dflow-poll/scripts/poll.sh
 # gradle-check.sh 는 dflow-team 킷에 늘 딸려 오지만(kit-build.sh SKILLS 목록), 없어도 이 단계는 죽지 않는다 —
 # 아래 3-d) 는 어차피 -f 로 있는지 다시 확인하고 sh 로 직접 불러 실행 비트에 기대지 않는다.
