@@ -14,7 +14,8 @@ git clone git@github.com:jongik-sv/dflow-kit.git ~/dflow-kit
 ~/dflow-kit/install.sh ~/project/<내 리포>
 ```
 
-install.sh 가 하는 일: 의존 명령 점검(git curl jq python3 gh) → `<리포>/.claude/skills/dflow-*` 복사 →
+install.sh 가 하는 일: 의존 명령 점검(git curl jq gh node 18.17+, python3 은 없으면 경고만) → `<리포>/.claude/skills/dflow-*` 복사 →
+`<리포>/.claude/skills/_shared`(node 공용 모듈·동봉 jq) 덮어쓰기 복사(다른 파일은 지우지 않고, `_shared` 가 심링크면 건너뜀) →
 `.dflow`·`.dflow.local` 초안 + `.gitignore` 보강 → `.claude/settings.json` 에 워커 허용 목록 병합(git 은 이 PC 의 절대경로) → 다음 단계 안내.
 
 그 다음 사람이 할 일:
@@ -115,7 +116,8 @@ Gradle 리포(`gradlew` 또는 `settings.gradle(.kts)` 가 있는 폴더 — inc
 
 ## 의존
 
-git · curl · jq · python3 · gh(GitHub CLI, `done --auto-links` 와 리포 생성용). macOS: `brew install jq gh`.
+git · curl · jq · node 18.17 이상(dflow-export 스크립트) · gh(GitHub CLI, `done --auto-links` 와 리포 생성용). macOS: `brew install jq gh node`.
+python3 은 아직 python 인 스크립트(dflow-wbs-nlevel, junit-count.sh)에만 필요한 선택 의존이다.
 
 ## Windows(Git Bash)
 
