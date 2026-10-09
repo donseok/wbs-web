@@ -21,7 +21,7 @@ install.sh 가 하는 일: 의존 명령 점검(git gh node 18.17+) → `<리포
 그 다음 사람이 할 일:
 
 1. D'Flow 웹 → `/account` "내 토큰" → PAT 발급
-2. `<리포>/.dflow` 에 `api_base`(스테이징/운영)·`project_id` 기입(커밋 대상). `<리포>/.dflow.local` 에 `pats`·`dev_branch` 기입(개인, 커밋하지 않음). 토큰이 둘 이상이면 `.dflow.local` 의 `as=<prefix>`(내부적으로 `DFLOW_AS`) 로 이 리포의 키를 고정한다(prefix 는 `dflow.sh profiles` 로 확인. `/dflow-team` 은 비어 있으면 시작할 때 묻고 적는다)
+2. `<리포>/.dflow` 에 `api_base`(스테이징/운영)·`project_id` 기입(커밋 대상). `<리포>/.dflow.local` 에 `pats`·`dev_branch` 기입(개인, 커밋하지 않음). 토큰이 둘 이상이면 `.dflow.local` 의 `as=<prefix>`(내부적으로 `DFLOW_AS`) 로 이 리포의 키를 고정한다(prefix 는 `dflow.mjs profiles` 로 확인. `/dflow-team` 은 비어 있으면 시작할 때 묻고 적는다)
 3. 확인: `cd <리포> && node .claude/skills/dflow-work/scripts/dflow.mjs doctor`
 4. Claude Code 를 **리포 루트에서** 연다 — 스킬은 프로젝트 스코프(`.claude/skills/`)라 cwd 가 리포 루트여야 한다
 
