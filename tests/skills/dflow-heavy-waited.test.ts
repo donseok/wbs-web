@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh')
+const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.mjs')
 
 let tmp: string, dir: string
 const kids: ChildProcess[] = []
@@ -24,11 +24,11 @@ function env(extra: Record<string, string> = {}) {
   }
 }
 function run(args: string[], extra: Record<string, string> = {}) {
-  const r = spawnSync('bash', [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000 })
+  const r = spawnSync(process.execPath, [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000 })
   return { code: r.status, err: r.stderr || '', stdout: r.stdout || '' }
 }
 function start(args: string[], extra: Record<string, string> = {}) {
-  const p = spawn('bash', [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
+  const p = spawn(process.execPath, [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
   let err = ''
   p.stderr!.on('data', (b) => { err += b })
   const done = new Promise<{ code: number | null; err: string }>((res) => p.on('close', (code) => res({ code, err })))

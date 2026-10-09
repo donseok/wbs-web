@@ -122,10 +122,10 @@ describe('statusLine 덤프', () => {
     expect(existsSync(limitsFile())).toBe(false)
   })
   it('덤프는 워크트리 밖(~/.dflow/limits)이다 — git status 를 더럽히지 않는다', () => {
-    expect(B()).toMatch(/워크트리 밖[^\n]*`~\/\.dflow\/limits/)
+    expect(B()).toMatch(/worktree 밖\(`~\/\.dflow\/limits`\)에 씀/)
   })
   it('Orca 절의 낡은 첫 문장을 고쳤다', () => {
     expect(B()).not.toContain('tmux 를 찾지 못한 Orca 환경에서만 이 백엔드로 온다')
-    expect(B()).toContain('Orca 안에서 띄운 팀장은 이 백엔드를 먼저 고른다')
+    expect(B()).toContain('팀장이 Orca 안이면 **pane(Orca)**, 밖이면 **pane(tmux)**')
   })
 })

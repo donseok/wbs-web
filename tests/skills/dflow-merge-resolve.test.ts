@@ -16,10 +16,12 @@ const resolveSection = () => {
   if (a < 0) throw new Error('references/resolve.md 에 「## 해소 머지」 가 없다')
   return RES.slice(a)
 }
-const section = (from: string, to: string) => {
-  const a = MERGE.indexOf(from); const b = MERGE.indexOf(to, a + 1)
+// 3·4번 머지 절차 전문은 references/merge-exec.md 로 옮겼다(2026-10 개편)
+const EXEC = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-exec.md'), 'utf8')
+const section = (from: string, to: string, text = MERGE) => {
+  const a = text.indexOf(from); const b = text.indexOf(to, a + 1)
   if (a < 0 || b < 0) throw new Error(`절을 찾지 못했다: ${from}`)
-  return MERGE.slice(a, b)
+  return text.slice(a, b)
 }
 
 describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
@@ -29,12 +31,12 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
     expect(MERGE).toContain('**`--resolve <ref>`(팀장이 띄운 해소 워커 전용)**')
   })
   it('스윕의 충돌 처리: --diff-filter=U 로 파일 목록을 --abort 전에 읽는다', () => {
-    const step3 = section('   3. `git merge --no-ff <머지 대상>`.', '   4. state.json 을 `phase=merged` 로')
+    const step3 = section('   3. `git merge --no-ff <머지 대상>`.', '   4. state.json 을 `phase=merged` 로', EXEC)
     expect(step3).toContain('git diff --name-only --diff-filter=U')
     // 코드 블록에서 목록 명령이 --abort 바로 앞 줄이다(뒤에서는 목록이 비어 있다)
     expect(step3).toMatch(/--diff-filter=U[^\n]*\n\s*git merge --abort/)
     expect(step3).toContain('"머지 실패(충돌)"')
-    expect(MERGE).toContain('머지 실패(충돌) <파일,…>')
+    expect(EXEC).toContain('머지 실패(충돌) <파일,…>')
   })
   it('해소 머지는 references/resolve.md 로 분리됐고, SKILL 은 --resolve 일 때만 그 파일을 읽게 한다', () => {
     expect(RES).toMatch(/^## 해소 머지$/m) // 제목 계약
@@ -49,14 +51,14 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
   })
   it('해소 머지 절: 머지 자리는 호출한 워크트리, rerere 는 -c 로만, 트레일러 둘, push 경합 재시도 2회', () => {
     const r = resolveSection()
-    expect(r).toContain('머지 자리는 **호출한 워크트리 자신**')
+    expect(r).toContain('merge 자리 = **호출한 worktree 자신**')
     expect(r).toContain('RESOLVE_NOT_DETACHED')
     expect(r).toContain('RESOLVE_BASE_MOVED')
     expect(r).toContain('git -c rerere.enabled=true merge --no-ff --no-commit <머지 대상>')
     expect(r).toContain('git -c rerere.enabled=true commit')
     expect(r).toContain('--trailer "DFlow-Order: <order>" --trailer "DFlow-Resolve: <n>/3"')
     expect(r).toContain('git push origin HEAD:<기본브랜치>')
-    expect(r).toContain('한 세션 안에서 2회까지')
+    expect(r).toContain('한 세션 안 2회까지')
     expect(r).toContain('`dflow-team/references/resolve-prompt.md` 「해소 규약」')
     expect(r).toContain('`dflow-team/references/resolve-prompt.md` 「게이트」')
     expect(r).not.toContain('git config rerere')
@@ -64,9 +66,8 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
   it('게이트 순서(2026-09-24): 해소·stage → 게이트 → 기록 → 커밋. 두 문서가 같은 순서를 말한다', () => {
     const r = resolveSection()
     const PROMPT = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resolve-prompt.md'), 'utf8')
-    const ORDER = '**해소·stage → 게이트 → 기록 → 커밋**'
-    expect(r).toContain(ORDER)
-    expect(PROMPT).toContain(ORDER)
+    expect(r).toContain('순서 = **해소·stage → 게이트 → 기록 → 커밋**')
+    expect(PROMPT).toContain('순서: **해소·stage → 게이트 → 기록 → commit**')
     // 번호 순서: 4 머지·stage → 5 게이트 → 6 기록·커밋(머지 커밋 명령은 게이트 뒤) → 7 state.json → 8 push
     const idx = (s: string) => { const i = r.indexOf(s); if (i < 0) throw new Error(`없음: ${s}`); return i }
     expect(idx('4. **머지·해소·stage**')).toBeLessThan(idx('5. **게이트**'))
@@ -77,7 +78,7 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
     // 옛 모순 문구는 없다
     expect(r).not.toContain('머지 커밋 **직후, state.json 커밋 전에**')
     const gate = r.slice(idx('5. **게이트**'), idx('6. **기록·커밋**'))
-    expect(gate).toContain('커밋 **전에**, stage 한 트리에서')
+    expect(gate).toContain('commit **전** stage 한 트리에서')
     expect(gate).toContain('`git diff --quiet`')
     // 게이트 실패의 되돌리기는 merge --abort(커밋 전이라 reset --keep 은 해소 편집을 작업 트리에 남긴다)
     expect(gate).toContain('**`git merge --abort`**')
@@ -85,19 +86,19 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
     // push 실패는 커밋이 있으므로 여전히 reset --keep
     expect(r.slice(idx('8. **push**'))).toContain('`git reset --keep <기준 HEAD>`')
     // 결과 줄의 머지 커밋 sha 는 6번에서 기록한 값(HEAD~1 로 세지 않는다)
-    expect(r).toContain('머지 커밋 sha 는 6번에서 기록한 `git rev-parse HEAD` 값이다')
+    expect(r).toContain('merge commit sha = 6번에서 기록한 `git rev-parse HEAD` 값')
     expect(r).not.toContain('`git rev-parse HEAD~1`')
     // resolve-prompt: 게이트 대상은 커밋 전 트리, 실패는 merge --abort, 기록은 커밋 전에
     const pg = PROMPT.slice(PROMPT.indexOf('## 게이트'), PROMPT.indexOf('## 기록'))
-    expect(pg).toContain('**커밋하기 전에\nstage 한 해소 머지 트리**')
-    expect(pg).toContain('`git merge --abort` 로 머지를 버린 뒤')
+    expect(pg).toContain('**commit 하기 전에 stage 한 해소 merge 트리**')
+    expect(pg).toContain('commit 안 하고 `git merge --abort` 로 merge 버림')
     expect(pg).not.toContain('판정 대상은 해소 머지\n커밋이다')
     const rec = PROMPT.slice(PROMPT.indexOf('## 기록'), PROMPT.indexOf('## 결과 줄'))
-    expect(rec).toContain('「게이트」 를 통과한 **뒤, 커밋하기 전에** 적는다')
+    expect(rec).toContain('「게이트」 를 통과한 **뒤, commit 하기 전에** 적음')
   })
   it('금지: --resolve 에서도 agent 브랜치 수정·force push·훅 우회는 금지다', () => {
     const ban = MERGE.slice(MERGE.indexOf('## 금지'))
-    expect(ban).toContain('`--resolve` 의 agent 브랜치 수정·rebase')
+    expect(ban).toContain('`--resolve` 의 agent branch 수정·rebase')
   })
 })
 

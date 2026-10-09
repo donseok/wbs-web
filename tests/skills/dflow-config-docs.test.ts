@@ -9,27 +9,27 @@ const WORKER = read('.claude/skills/dflow-team/references/worker-prompt.md')
 const BACKENDS = read('.claude/skills/dflow-team/references/backends.md')
 
 describe('dflow-team 문서', () => {
-  it('어느 셸 블록도 .env 를 source 하지 않는다 — dflow.sh 가 스스로 읽는다', () => {
+  it('어느 셸 블록도 .env 를 source 하지 않는다 — dflow.mjs 가 스스로 읽는다', () => {
     for (const [n, t] of [['TEAM', TEAM], ['WORKER', WORKER], ['BACKENDS', BACKENDS]]) {
       expect(t, n).not.toMatch(/\.\s+\.\/\.env/)
       expect(t, n).not.toContain('DFLOW_ENV_FILE="<MAIN>/.env"')
     }
   })
-  it('전제 검사는 개발 브랜치를 dflow.sh branch dev 로 얻고 원격 존재를 확인한다', () => {
-    expect(TEAM).toContain('base=$(.claude/skills/dflow-work/scripts/dflow.sh branch dev)')
+  it('전제 검사는 개발 브랜치를 dflow.mjs branch dev 로 얻고 원격 존재를 확인한다', () => {
+    expect(TEAM).toContain('base=$(node .claude/skills/dflow-work/scripts/dflow.mjs branch dev)')
     expect(TEAM).toContain('bad "NO_REMOTE_DEV_BRANCH $base"')
     expect(TEAM).not.toContain('base=$(git symbolic-ref --short refs/remotes/origin/HEAD')
   })
   it('poll 은 DFLOW_CONFIG_DIR 로 설정 위치를 받는다', () => {
     expect(TEAM).toContain('DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0')
   })
-  it('자동 머지는 dflow.sh config automerge 로 읽는다', () => {
-    expect(TEAM).toContain('[ "$(.claude/skills/dflow-work/scripts/dflow.sh config automerge)" = 1 ]')
+  it('자동 머지는 dflow.mjs config automerge 로 읽는다', () => {
+    expect(TEAM).toContain('[ "$(node .claude/skills/dflow-work/scripts/dflow.mjs config automerge)" = 1 ]')
   })
   it('워커에 개발 브랜치를 명시해서 넘기고, 워커는 다시 해석하지 않는다', () => {
     expect(TEAM).toContain('DEV_BRANCH=<개발브랜치>')
     expect(WORKER).toContain('| `{DEV_BRANCH}` | `DEV_BRANCH` |')
-    expect(WORKER).toContain('`<기본브랜치>` 는 팀장이 넘긴 `{DEV_BRANCH}` 다')
+    expect(WORKER).toContain('`<기본브랜치>` = 팀장이 넘긴 `{DEV_BRANCH}`')
     expect(WORKER).not.toContain('git symbolic-ref --short refs/remotes/origin/HEAD')
   })
   it('워크트리에는 .dflow.local 을 링크하고(레거시는 .env), 정리 규칙이 그 링크를 부산물로 본다', () => {

@@ -8,7 +8,7 @@ import { tmpdir, totalmem } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh')
+const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.mjs')
 const DISC = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 
 let tmp: string
@@ -29,12 +29,12 @@ function env(extra: Record<string, string> = {}) {
 }
 
 function run(args: string[], extra: Record<string, string> = {}) {
-  const r = spawnSync('bash', [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000 })
+  const r = spawnSync(process.execPath, [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000 })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), err: r.stderr || '', stdout: r.stdout || '' }
 }
 
 function start(args: string[], extra: Record<string, string> = {}) {
-  const p = spawn('bash', [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
+  const p = spawn(process.execPath, [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
   let out = ''
   p.stdout!.on('data', (b) => { out += b })
   p.stderr!.on('data', (b) => { out += b })
@@ -68,7 +68,7 @@ afterEach(() => {
 // 실제 프로세스를 병렬로 띄우고 기다린다. PC 가 바쁠 때 기본 5초를 넘길 수 있어 넉넉히 준다.
 describe('heavy.sh — PC 전역 무거운 명령 세마포어', { timeout: 30000 }, () => {
   it('bash 로 파싱되고 실행 권한이 있다', () => {
-    expect(spawnSync('bash', ['-n', HEAVY]).status).toBe(0)
+    expect(spawnSync(process.execPath, ['--check', HEAVY]).status).toBe(0)
     expect(spawnSync('test', ['-x', HEAVY]).status).toBe(0)
   })
 
@@ -167,7 +167,7 @@ describe('heavy.sh — PC 전역 무거운 명령 세마포어', { timeout: 3000
   })
 
   it('안쪽 호출(DFLOW_HEAVY_HELD 상속)은 두 번째 슬롯을 기다리지 않는다', () => {
-    const r = run(['bash', HEAVY, 'echo', 'nested-ok'], { DFLOW_HEAVY_WAIT: '0' })
+    const r = run(['node', HEAVY, 'echo', 'nested-ok'], { DFLOW_HEAVY_WAIT: '0' })
     expect(r.code).toBe(0)
     expect(r.out).toContain('nested-ok')
   })
@@ -212,7 +212,8 @@ describe('heavy.sh — PC 전역 무거운 명령 세마포어', { timeout: 3000
     expect(r.out).toContain('HEAVY_RECLAIM slot-1')
   })
 
-  it('Windows 흉내: kill -0 이 실패해도 ps -W 의 WINPID 로 살아 있으면 hold 를 회수하지 않고, 목록에 없으면 회수한다', () => {
+  // node 판은 process.kill(pid, 0) 으로 윈도우에서도 존재를 검사해 sh 판의 MSYS ps -W 폴백이 없다 — sh 전용 시험이라 skip.
+  it.skip('Windows 흉내: kill -0 이 실패해도 ps -W 의 WINPID 로 살아 있으면 hold 를 회수하지 않고, 목록에 없으면 회수한다', () => {
     const bin = join(tmp, 'bin')
     mkdirSync(bin, { recursive: true })
     writeFileSync(join(bin, 'uname'), `#!/bin/sh\nprintf 'MINGW64_NT-10.0\\n'\n`, { mode: 0o755 })
@@ -270,7 +271,7 @@ describe('heavy.sh --pool docker — 도커 전용 슬롯', { timeout: 30000 }, 
 
   it('도커 슬롯과 일반 슬롯을 함께 잡고, 끝나면 둘 다 푼다. 안쪽 호출은 기다리지 않는다', () => {
     const r = run(['--pool', 'docker', 'sh', '-c',
-      `echo "g=$DFLOW_HEAVY_HELD d=$DFLOW_HEAVY_DOCKER_HELD"; bash '${HEAVY}' --pool docker echo inner-d; bash '${HEAVY}' echo inner-g; exit 4`],
+      `echo "g=$DFLOW_HEAVY_HELD d=$DFLOW_HEAVY_DOCKER_HELD"; node '${HEAVY}' --pool docker echo inner-d; node '${HEAVY}' echo inner-g; exit 4`],
     { DFLOW_HEAVY_WAIT: '0' })
     expect(r.code).toBe(4)
     expect(r.out).toContain('HEAVY_DOCKER_SLOT docker-1 docker=1 + slot-1 k=1')
@@ -339,7 +340,7 @@ describe('heavy.sh --pool docker — 도커 전용 슬롯', { timeout: 30000 }, 
   })
 
   it('감싼 실행 안의 acquire 는 그 실행의 슬롯을 쓰고 두 번째 슬롯을 기다리지 않는다', () => {
-    const r = run(['sh', '-c', `bash '${HEAVY}' acquire srv`], { DFLOW_HEAVY_WAIT: '0' })
+    const r = run(['sh', '-c', `node '${HEAVY}' acquire srv`], { DFLOW_HEAVY_WAIT: '0' })
     expect(r.code).toBe(0)
     expect(r.out).toContain('HEAVY_ACQUIRED slot-1 (감싼 실행의 슬롯) k=1')
   })
@@ -463,11 +464,11 @@ describe('dev-discipline 「무거운 명령 줄 세우기」 정본', () => {
   const sec = DISC.slice(DISC.indexOf('## 무거운 명령 줄 세우기'))
   it('절이 있고 HEAVY_BUSY 재호출·E2E 서버 acquire/release·서버 종료를 적는다', () => {
     expect(DISC).toContain('## 무거운 명령 줄 세우기')
-    expect(sec).toContain('.claude/skills/dflow-dev/scripts/heavy.sh')
+    expect(sec).toContain('.claude/skills/dflow-dev/scripts/heavy.mjs')
     expect(sec).toContain('HEAVY_BUSY')
-    expect(sec).toContain('실패가 아니다')
-    expect(sec).toContain('heavy.sh acquire')
-    expect(sec).toContain('heavy.sh release')
+    expect(sec).toContain('실패 아님')
+    expect(sec).toContain('heavy.mjs acquire')
+    expect(sec).toContain('heavy.mjs release')
   })
   it('기준선·Verify 문단이 정본을 가리킨다', () => {
     const base = DISC.slice(DISC.indexOf('## 게이트 기준선'), DISC.indexOf('### research/docs'))
@@ -482,27 +483,27 @@ describe('dev-discipline 「무거운 명령 줄 세우기」 정본', () => {
     expect(heavySec).toContain('슬롯을 90초(`DFLOW_HEAVY_WAIT`) 안에')
     expect(heavySec).toContain('`HEAVY_BUSY k=<K> wait=90s 보유:')
     expect(heavySec).not.toMatch(/4분|wait=240s|대기 상한\(240초\)/)
-    expect(heavySec).toContain('Bash 도구의 timeout 을 300000~600000 으로 준다(팀원 세션은 가드 훅이 이보다 짧으면 거부한다)')
-    expect(heavySec).toContain('**명령이 10분을 넘을 것 같으면 아래 분리 실행')
+    expect(heavySec).toContain('Bash 도구 timeout 을 300000-600000 으로 줌(팀원 세션은 가드 훅이 이보다 짧으면 거부)')
+    expect(heavySec).toContain('명령이 10분을 넘을 것 같으면 아래 분리 실행')
     // 분리 실행
-    expect(heavySec).toContain('heavy.sh --detach ./gradlew testAll')
-    expect(heavySec).toContain('heavy.sh wait <id>')
+    expect(heavySec).toContain('heavy.mjs --detach ./gradlew testAll')
+    expect(heavySec).toContain('heavy.mjs wait <id>')
     expect(heavySec).toContain('`HEAVY_JOB_RUNNING id=<id> elapsed=<초>s`')
-    expect(heavySec).toContain('`HEAVY_JOB_DONE` 을 보기 전에는 턴을 끝내지 않는다.')
+    expect(heavySec).toContain('`HEAVY_JOB_DONE` 보기 전에는 턴을 끝내지 않음.')
     // 독점
-    expect(heavySec).toContain('`heavy.sh --exclusive <명령>`')
-    expect(heavySec).toContain('`HEAVY_EXCL_NESTED` 와 exit 2')
+    expect(heavySec).toContain('`heavy.mjs --exclusive <명령>`')
+    expect(heavySec).toContain('`HEAVY_EXCL_NESTED` + exit 2')
     expect(heavySec).toContain('`DFLOW_HEAVY_EXCL_TTL`(기본 180초)')
     // E2E 풀
-    expect(heavySec).toContain('**E2E 풀**(`e2e-<i>`, `DFLOW_HEAVY_E2E_SLOTS`, 기본 1)')
+    expect(heavySec).toContain('E2E 풀(`e2e-<i>`, `DFLOW_HEAVY_E2E_SLOTS`, 기본 1)')
     expect(heavySec).toContain('`DFLOW_HEAVY_E2E_SLOTS=0`')
     expect(heavySec).toContain('K+1')
   })
   it('Phase 공통 프롬프트가 분리 실행의 폴링·턴 유지와 독점 실행을 적는다', () => {
     const prompt = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/phase-prompt.md'), 'utf8').replace(/\s*\n\s*/g, ' ')
-    expect(prompt).toContain('`heavy.sh --detach <명령>`')
+    expect(prompt).toContain('`heavy.mjs --detach <명령>`')
     expect(prompt).toContain('`HEAVY_JOB_DONE` 을 보기 전에는 턴을 끝내지 않는다')
-    expect(prompt).toContain('`heavy.sh --exclusive <명령>`')
+    expect(prompt).toContain('`heavy.mjs --exclusive <명령>`')
     expect(prompt).toContain('Bash 도구의 timeout 은 300000~600000 으로 준다')
     expect(prompt).not.toContain('240초')
   })
@@ -515,29 +516,29 @@ describe('dev-discipline 「무거운 명령 줄 세우기」 정본', () => {
     const proc = e2e.slice(e2e.indexOf('## 서버 프로세스'), e2e.indexOf('## E2E 서버 슬롯'))
     expect(proc).toContain("`./gradlew :api:bootRun --no-daemon --args='--server.port=<빈 포트>'`")
     expect(proc).toContain('`bootWar`')
-    expect(proc).toContain('`.claude/skills/dflow-dev/scripts/heavy.sh ./gradlew :api:bootWar`')
+    expect(proc).toContain('`node .claude/skills/dflow-dev/scripts/heavy.mjs ./gradlew :api:bootWar`')
     expect(proc).toContain('`java -jar`')
     expect(proc).toContain('`--spring.datasource.url=<절대경로 URL>`')
     expect(proc).toContain('모듈 폴더에서')
   })
-  it('heavy.sh 머리 주석이 새 기본값·사용법·환경변수를 적는다', () => {
+  it('heavy.mjs 머리 주석이 새 기본값·사용법·환경변수를 적는다', () => {
     const src = readFileSync(HEAVY, 'utf8')
-    const head = src.slice(0, src.indexOf('set -u'))
-    expect(src).toContain('WAIT="${DFLOW_HEAVY_WAIT:-90}"')
-    for (const w of ['heavy.sh --exclusive', 'heavy.sh --detach', 'heavy.sh wait <id> [--max <초>]', 'DFLOW_HEAVY_E2E_SLOTS',
-      'DFLOW_HEAVY_EXCL_TTL', 'DFLOW_HEAVY_JOBS', 'DFLOW_HEAVY_DETACH_WAIT', 'HEAVY_JOB_RUNNING', 'HEAVY_EXCL_NESTED', '기본 90']) {
+    const head = src.slice(0, src.indexOf('\nimport '))
+    expect(src).toContain('intOr(ENV.DFLOW_HEAVY_WAIT, 90)')
+    for (const w of ['heavy.mjs [--pool docker | --exclusive] [--detach]', 'heavy.mjs wait <id> [--max <초', 'E2E_SLOTS',
+      'EXCL_TTL', 'JOBS', 'DETACH_WAIT', 'HEAVY_JOB_RUNNING', 'HEAVY_EXCL_NESTED', '기본 90']) {
       expect(head).toContain(w)
     }
-    expect(readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/baseline.sh'), 'utf8')).toContain('WAIT="${DFLOW_BASELINE_WAIT:-90}"')
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/baseline.mjs'), 'utf8')).toContain('numOr(process.env.DFLOW_BASELINE_WAIT, 90)')
   })
   it('E2E 서버 슬롯 절차(acquire → 서버 → 종료 → release)는 e2e.md 가 정본이고 정본 절이 그곳을 가리킨다', () => {
     const e2e = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/e2e.md'), 'utf8')
     const slot = e2e.slice(e2e.indexOf('## E2E 서버 슬롯'))
-    expect(slot).toContain('`.claude/skills/dflow-dev/scripts/heavy.sh acquire e2e-<TSK>`')
+    expect(slot).toContain('`node .claude/skills/dflow-dev/scripts/heavy.mjs acquire e2e-<TSK>`')
     expect(slot).toContain('`HEAVY_ACQUIRED`')
     expect(slot).toContain('`HEAVY_REUSE`')
-    expect(slot).toContain('**E2E 가 끝나면 성공·실패·중단과 상관없이 서버를 반드시 종료한다**')
-    expect(slot).toContain('`.claude/skills/dflow-dev/scripts/heavy.sh release`')
+    expect(slot).toContain('**E2E 끝나면 성공·실패·중단 무관하게 서버 반드시 종료**')
+    expect(slot).toContain('`node .claude/skills/dflow-dev/scripts/heavy.mjs release`')
     expect(slot).toContain('`DFLOW_HEAVY_HOLD_TTL`')
     expect(sec).toContain('`references/e2e.md` 「E2E 서버 슬롯」')
   })

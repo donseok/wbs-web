@@ -7,9 +7,10 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 
 const ROOT = process.cwd()
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 const TOKEN = `dflow_pat_AAAAAAAAAAAA_${'x'.repeat(24)}`
 const PID = '11111111-1111-4111-8111-111111111111'
 
@@ -40,11 +41,11 @@ printf '%s' "$body" > "$out"; printf '200'
 }
 
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync('sh', [DFLOW, ...args], {
+  return spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8', cwd: repo,
     env: {
       NODE_ENV: process.env.NODE_ENV,
-      PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
+      NODE_OPTIONS: CURL_SHIM_OPTS, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
       HOME: join(tmp, 'home'), XDG_CACHE_HOME: join(tmp, 'cache'),
       DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
       DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: TOKEN, DFLOW_PROJECT_ID: PID,
@@ -87,21 +88,20 @@ describe('dflow.sh — /work/mine limit', () => {
     expect(r.stderr).toContain('LIST_TRUNCATED assigned')
   })
 
-  it('cmd_list 가 부르는 /work/mine 이 limit=100 을 싣는다(직접 또는 쿼리 변수로)', () => {
-    // 계약 2.11(cmd_list)부터는 agent·require_tag·wp·lead 를 더한 공통 쿼리 문자열 $_q 를 미리 지어
-    // 호출부에 꽂는다 — limit= 이 호출부 줄이 아니라 $_q 를 짓는 줄에 있다. 검색 범위를 cmd_list 함수 본문
-    // (다음 함수 cmd_show 시작 전까지)으로 좁혀서, 다른 함수·주석·뒤의 재대입이 우연히 걸리지 않게 한다.
+  it('cmdList 가 부르는 /work/mine 이 limit=100 을 싣는다(쿼리 문자열 q 를 짓는 줄에서)', () => {
+    // node 판(cmdList)은 scope·limit·agent 를 더한 공통 쿼리 문자열 q 를 지어 호출부에 꽂는다.
+    // 검색 범위를 cmdList 함수 본문(다음 함수 cmdShow 시작 전까지)으로 좁혀 다른 함수·주석이 우연히 걸리지 않게 한다.
     const src = readFileSync(DFLOW, 'utf8')
-    const fnStart = src.indexOf('\ncmd_list() {')
-    const fnEnd = src.indexOf('\ncmd_show() {', fnStart)
+    const fnStart = src.indexOf('\nasync function cmdList(')
+    const fnEnd = src.indexOf('\nasync function cmdShow(', fnStart)
     expect(fnStart).toBeGreaterThan(-1)
     expect(fnEnd).toBeGreaterThan(fnStart)
     const fn = src.slice(fnStart, fnEnd)
-    const calls = fn.split('\n').filter((l) => l.includes('/api/v1/agent/work/mine') && !l.trim().startsWith('#'))
+    const calls = fn.split('\n').filter((l) => l.includes('/api/v1/agent/work/mine') && !l.trim().startsWith('//'))
     expect(calls.length).toBeGreaterThan(0)
-    const inline = /limit=(100|\$MINE_LIMIT|\$\{MINE_LIMIT\})/
+    const inline = /limit=(100|\$\{MINE_LIMIT\})/
     for (const l of calls) {
-      const viaQueryVar = /\?\$_q"/.test(l) && new RegExp(`_q=.*limit=(100|\\$MINE_LIMIT|\\$\\{MINE_LIMIT\\})`).test(fn)
+      const viaQueryVar = /\?\$\{q\}/.test(l) && /let q = .*limit=(100|\$\{MINE_LIMIT\})/.test(fn)
       expect(inline.test(l) || viaQueryVar, l).toBe(true)
     }
   })

@@ -17,30 +17,31 @@ const bashBlocks = (s: string) => [...s.matchAll(/^( *)```bash\n([\s\S]*?)^\1```
 
 describe('resolve-prompt.md 「3. 기준선」 — 세 측정은 baseline.sh 캐시로', () => {
   it('세 커밋 모두 baseline.sh run --base 로 재고, 먼저 list 로 원래 워커의 명령 문자열을 찾는다', () => {
-    expect(S3).toContain(".claude/skills/dflow-dev/scripts/baseline.sh list --base '<MB>'")
+    expect(S3).toContain("node .claude/skills/dflow-dev/scripts/baseline.mjs list --base '<MB>'")
     for (const b of ["'<MB>'", "'<머지 대상>'", "'<BASE>'"]) {
-      expect(S3).toContain(`.claude/skills/dflow-dev/scripts/baseline.sh run --base ${b} --task-dir '{TASK_DIR}' -- '<기준선 명령>'`)
+      expect(S3).toContain(`node .claude/skills/dflow-dev/scripts/baseline.mjs run --base ${b} --task-dir '{TASK_DIR}' -- '<기준선 명령>'`)
     }
-    expect(S3).toContain('**그 문자열과 cwd 를 글자 그대로** 세 커밋 모두에 쓴다')
+    expect(S3).toContain('**그 문자열과 cwd 를 글자 그대로** commit 3개 모두에 사용')
     // 옛 문구: 각 커밋에서 전체 시험을 맨손으로 돌렸다
     expect(PROMPT).not.toContain('여기서 전체 시험을 돌려 총수만 적는다')
     expect(PROMPT).not.toContain('전체 시험을 한 번 돌려 기록한다')
   })
 
   it('새로 잰 수는 note 로 더하고, BUSY 는 실패가 아니라 다시 호출한다', () => {
-    expect(S3).toContain('baseline.sh note <key> --tests <총수> --failures <실패 수>')
-    expect(S3).toContain('`BASELINE_SUMMARY` 가 없으면')
-    expect(S3).toMatch(/`BASELINE_BUSY exit=75 …`: 실패가 아니다\. 같은 명령을 다시 호출한다/)
+    expect(S3).toContain('baseline.mjs note <key> --tests <총수> --failures <실패 수>')
+    expect(S3).toContain('`BASELINE_SUMMARY` 없음(잰 쪽이 수를 안 더함)')
+    expect(S3).toMatch(/`BASELINE_BUSY exit=75 …`: 실패 아님\. 같은 명령 다시 호출/)
     expect(S3).toContain('`--pool docker`')
     // cache=off 는 수만 쓰고 파일을 지우지 않는다(스킬 링크·팀장의 .dflow-pane 등이 미추적 파일이다)
-    expect(S3).toContain('수는 그대로 쓰고 **아무 파일도 지우지 않는다**')
+    expect(S3).toContain('쟀지만 캐시 못 씀. 수는 그대로 사용.')
+    expect(S3).toContain('**아무 파일도 안 지움.**')
     expect(S3).not.toContain('미추적 파일을 확인해 치운다')
   })
 
   it('MERGE_HEAD 단독 총수는 워커의 게이트 기록(커밋이 맞을 때만)을 먼저 쓴다', () => {
     expect(S3).toContain('`refactor_gate` → `verify_gate` → `build_gate`')
     expect(S3).toContain("git diff --name-only '<기록의 커밋>' '<머지 대상>' -- . ':(exclude){TASK_DIR}'")
-    expect(S3).toContain('커밋이 없는 기록은 어느 트리를 잰 것인지 몰라 쓰지 않는다')
+    expect(S3).toContain('commit 없는 기록은 어느 트리를 잰 것인지 몰라 안 씀')
     expect(S3).toContain('기준선 출처: 개발 브랜치 <cache|measured> · MERGE_HEAD 단독 <gate-record|cache|measured> · merge-base <cache|measured>')
   })
 
@@ -50,10 +51,10 @@ describe('resolve-prompt.md 「3. 기준선」 — 세 측정은 baseline.sh 캐
 
   it('「7」: 옛 "두 번" 모순을 없애고, baseline.sh 측정은 heavy.sh 로 다시 감싸지 않으며 게이트만 감싼다', () => {
     expect(PROMPT).not.toContain('3번 기준선의 두 번')
-    expect(S7).toContain('3번 기준선의 세 측정(개발 브랜치·MERGE_HEAD 단독·merge-base)')
-    expect(S7).toContain('**바깥에서 `heavy.sh` 로 다시 감싸지 않는다**')
-    expect(S7).toContain('「게이트」 의 전체 시험(캐시를 쓰지 않는다)만')
-    expect(S7).toContain('`BASELINE_BUSY`(exit 75)로 끝나면 실패가 아니다')
+    expect(S7).toContain('3번 기준선의 세 측정(개발 branch·MERGE_HEAD 단독·merge-base)')
+    expect(S7).toContain('**바깥에서 `heavy.mjs` 로 다시 감싸지 않음**')
+    expect(S7).toContain('「게이트」 의 전체 test(캐시 안 씀)만')
+    expect(S7).toContain('`BASELINE_BUSY`(exit 75)로 끝나면 실패 아님')
   })
 })
 
@@ -94,7 +95,7 @@ afterEach(() => { rmSync(tmp, { recursive: true, force: true }) })
 
 describe('3번 측정 블록 — 샌드박스 실행', { timeout: 60000 }, () => {
   const block = () => {
-    const b = bashBlocks(S3).find((x) => x.includes('baseline.sh run --base'))
+    const b = bashBlocks(S3).find((x) => x.includes('baseline.mjs run --base'))
     expect(b).toBeTruthy()
     return b!
       .replaceAll("'<MB>'", 'MB').replaceAll("'<머지 대상>'", 'HEADTIP').replaceAll("'<BASE>'", 'BASE')

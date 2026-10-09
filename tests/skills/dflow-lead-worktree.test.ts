@@ -10,11 +10,11 @@ import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
-const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-worktree.md'), 'utf8')
+const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-worktree.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-exec.md'), 'utf8')
 const DEV = devAll()
-const LEAD_WT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-worktree.sh')
-const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.sh')
-const LIVE_LEADS = join(ROOT, '.claude/skills/dflow-team/scripts/live-leads.sh')
+const LEAD_WT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-worktree.mjs')
+const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.mjs')
+const LIVE_LEADS = join(ROOT, '.claude/skills/dflow-team/scripts/live-leads.mjs')
 
 const GIT_ENV = {
   ...process.env,
@@ -71,7 +71,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
       ln -s '${tmp}/kit/dflow-team' .claude/skills/dflow-team
     `)
     expect(r0.code, r0.out).toBe(0)
-    const r = sh(primary, `bash '${LEAD_WT}' k3`)
+    const r = sh(primary, `node '${LEAD_WT}' k3`)
     expect(r.code, r.out).toBe(0)
     const lw = join(primary, '.claude/worktrees/lead-k3')
     expect(lstatSync(join(lw, '.claude/skills')).isSymbolicLink()).toBe(false)
@@ -88,7 +88,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     writeFileSync(join(primary, '.claude/skills/dflow-team/SKILL.md'), 'x')
     writeFileSync(join(primary, '.env'), 'DFLOW_PATS=secret\n')
     chmodSync(join(primary, '.env'), 0o600)
-    const r = sh(primary, `bash '${LEAD_WT}' k2`)
+    const r = sh(primary, `node '${LEAD_WT}' k2`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('secret')
     const lw = join(primary, '.claude/worktrees/lead-k2')
@@ -101,7 +101,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     expect(sh(primary, 'git status --porcelain').out.trim()).toBe('')
     // 두 번 돌려도 깨지지 않고 .env 를 덮어쓰지 않는다
     writeFileSync(join(lw, '.env'), 'DFLOW_AS=other\n')
-    const r2 = sh(primary, `bash '${LEAD_WT}' k2`)
+    const r2 = sh(primary, `node '${LEAD_WT}' k2`)
     expect(r2.code, r2.out).toBe(0)
     expect(readFileSync(join(lw, '.env'), 'utf8')).toBe('DFLOW_AS=other\n')
   })
@@ -109,7 +109,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
   it('lead-worktree.sh 는 복사본에서 DFLOW_AS 줄만 빼고 나머지는 그대로 둔다', () => {
     writeFileSync(join(primary, '.env'), 'DFLOW_API_BASE=https://x\nDFLOW_AS=AAAAAAAAAAAA\nDFLOW_PATS=secret\n  export DFLOW_AS=BBBBBBBBBBBB\nDFLOW_ASK=keep\n')
     chmodSync(join(primary, '.env'), 0o644)
-    const r = sh(primary, `bash '${LEAD_WT}' k2`)
+    const r = sh(primary, `node '${LEAD_WT}' k2`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('secret')
     expect(r.out).not.toContain('AAAAAAAAAAAA')
@@ -124,20 +124,20 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
 
   it('lead-worktree.sh 는 .env 가 DFLOW_AS 줄뿐이어도 죽지 않는다', () => {
     writeFileSync(join(primary, '.env'), 'DFLOW_AS=AAAAAAAAAAAA\n')
-    const r = sh(primary, `bash '${LEAD_WT}' k2`)
+    const r = sh(primary, `node '${LEAD_WT}' k2`)
     expect(r.code, r.out).toBe(0)
     expect(readFileSync(join(primary, '.claude/worktrees/lead-k2/.env'), 'utf8')).toBe('')
   })
 
   it('lead-worktree.sh 는 링크드 워크트리에서 부르면 거부한다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
-    const r = sh(join(primary, '.claude/worktrees/lead-k2'), `bash '${LEAD_WT}' k3`)
+    sh(primary, `node '${LEAD_WT}' k2`)
+    const r = sh(join(primary, '.claude/worktrees/lead-k2'), `node '${LEAD_WT}' k3`)
     expect(r.code).toBe(2)
     expect(r.out).toContain('NOT_PRIMARY')
   })
 
   it('잠금·종료 파일·poll 디렉터리는 워크트리마다 따로 풀린다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     const paths = (cwd: string) => sh(cwd, 'git rev-parse --path-format=absolute --git-path dflow-team.lock --git-path dflow-team.stop --git-path dflow-team-poll').out.trim().split('\n')
     const a = paths(primary)
@@ -146,7 +146,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
   })
 
   it('SAME_IDENTITY_LEAD: 다른 워크트리에 살아 있는 같은 신원의 잠금만 잡는다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     const start = TEAM.indexOf('   stale() {')
     const end = TEAM.indexOf('   [ -z "$dup" ] || bad "SAME_IDENTITY_LEAD $dup"')
@@ -173,7 +173,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     writeFileSync(join(primary, '.claude/skills/dflow-team/SKILL.md'), 'x')
     writeFileSync(join(primary, '.dflow'), 'api_base=https://x.test\n')
     writeFileSync(join(primary, '.dflow.local'), 'pats=dflow_pat_AAAAAAAAAAAA_topsecrettopsecret\nas=AAAAAAAAAAAA\ndev_branch=dev/me\n')
-    const r = sh(primary, `bash '${LEAD_WT}' k3`)
+    const r = sh(primary, `node '${LEAD_WT}' k3`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('topsecret')
     const lw = join(primary, '.claude/worktrees/lead-k3')
@@ -186,7 +186,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
   })
   it('새 방식 설정이 깨졌으면(NO_LOCAL) 워크트리를 만들지 않고 exit 2', () => {
     writeFileSync(join(primary, '.dflow'), 'api_base=https://x.test\n')
-    const r = sh(primary, `bash '${LEAD_WT}' k4`)
+    const r = sh(primary, `node '${LEAD_WT}' k4`)
     expect(r.code).toBe(2); expect(r.out).toContain('NO_LOCAL')
     expect(existsSync(join(primary, '.claude/worktrees/lead-k4'))).toBe(false)
   })
@@ -205,23 +205,23 @@ describe('키 판정은 다른 워크트리의 살아 있는 팀장이 쓰는 �
   }
 
   it('다른 워크트리의 살아 있는 잠금만 <신원><TAB><워크트리> 로 낸다 — 자기 잠금·죽은 잠금·다른 host 는 뺀다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
-    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe('')
+    expect(sh(lw, `node '${LIVE_LEADS}'`).out).toBe('')
     const l = hold(primary, `alice/${HOST}/lead`, now())
-    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe(`alice\t${primary}\n`)
+    expect(sh(lw, `node '${LIVE_LEADS}'`).out).toBe(`alice\t${primary}\n`)
     // 자기 워크트리의 잠금은 세지 않는다
-    expect(sh(primary, `bash '${LIVE_LEADS}'`).out).toBe('')
+    expect(sh(primary, `node '${LIVE_LEADS}'`).out).toBe('')
     // beat 가 70분을 넘기면 죽은 팀장이다(SAME_IDENTITY_LEAD 와 같은 기준)
     writeFileSync(join(l, 'beat'), `${now() - 5000}\n`)
-    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe('')
+    expect(sh(lw, `node '${LIVE_LEADS}'`).out).toBe('')
     // 다른 host 의 잠금은 SAME_IDENTITY_LEAD 가 막지 않으므로 여기서도 빼지 않는다
     hold(primary, 'alice/other-pc/lead', now())
-    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe('')
+    expect(sh(lw, `node '${LIVE_LEADS}'`).out).toBe('')
   })
 
   it('--mark 는 profiles 행에 in_use 를 더하고 JSON 이 아닌 줄은 그대로 낸다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     hold(primary, `alice/${HOST}/lead`, now())
     const input = [
@@ -231,7 +231,7 @@ describe('키 판정은 다른 워크트리의 살아 있는 팀장이 쓰는 �
       '{"n":3,"prefix":"CCCCCCCCCCCC","error":"auth","selected":false}',
     ].join('\n')
     writeFileSync(join(tmp, 'in.txt'), input + '\n')
-    const r = sh(lw, `bash '${LIVE_LEADS}' --mark < '${join(tmp, 'in.txt')}'`)
+    const r = sh(lw, `node '${LIVE_LEADS}' --mark < '${join(tmp, 'in.txt')}'`)
     expect(r.code, r.out).toBe(0)
     const lines = r.out.trim().split('\n')
     expect(lines[0]).toBe('DFLOW_AS=없음')
@@ -242,10 +242,9 @@ describe('키 판정은 다른 워크트리의 살아 있는 팀장이 쓰는 �
 
   it('살아 있음의 기준이 전제 검사의 stale() 와 같다', () => {
     const t = readFileSync(LIVE_LEADS, 'utf8')
-    for (const s of ['-ge 4200', '-mmin +10']) {
-      expect(t, s).toContain(s)
-      expect(TEAM, s).toContain(s)
-    }
+    // 스크립트는 node 판이라 같은 기준(70분=4200초, 10분=600초)을 숫자 비교로 적는다. 문서의 stale() 는 셸 판 그대로다
+    for (const s of ['>= 4200', '> 600']) expect(t, s).toContain(s)
+    for (const s of ['-ge 4200', '-mmin +10']) expect(TEAM, s).toContain(s)
   })
 })
 
@@ -259,7 +258,7 @@ describe('기본 브랜치에 있지 않은 체크아웃은 임시 머지 워크
   })
 
   it('main 을 주 체크아웃이 잡고 있어도, detached 팀장 워크트리에서 문서의 명령으로 머지·push 된다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     // 이 상황이 문제의 출발점이다: 링크드 워크트리는 main 으로 switch 하지 못한다
     const sw = sh(lw, 'git switch main')
@@ -292,7 +291,7 @@ describe('기본 브랜치에 있지 않은 체크아웃은 임시 머지 워크
   })
 
   it('push 가 경합으로 거부되면 non-fast-forward 문구가 나오고 reset --hard 로 되돌릴 수 있다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     const r = sh(lw, `
       W="${lw}/.claude/worktrees/dflow-merge"
@@ -342,8 +341,8 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
     // 행 H 는 dflow-dev/references/worker-mode.md 로, 설치 세부의 이유는 deps.sh 머리 주석(정본)으로 옮겼다
     const worker = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
     expect(DEV).toContain('references/worker-mode.md')
-    expect(worker).toContain('.claude/skills/dflow-dev/scripts/deps.sh')
-    expect(worker).toContain('`scripts/deps.sh` 머리 주석이 정본이다')
+    expect(worker).toContain('.claude/skills/dflow-dev/scripts/deps.mjs')
+    expect(worker).toContain('정본 = `scripts/deps.mjs` 머리 주석')
     const deps = readFileSync(DEPS, 'utf8')
     expect(deps).toContain('pnpm 은 기존 node_modules 를 lockfile 과 대조해 다른 것만')
     expect(deps).toContain('npm 은 사람 체크아웃의 node_modules 를 쓰지 않는다')
@@ -354,13 +353,13 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
     const bin = fakeBin()
     const env = { PATH: `${bin}:${process.env.PATH}` }
     const w1 = worker('dflow-11111111')
-    const r1 = sh(w1, `bash '${DEPS}'`, env)
+    const r1 = sh(w1, `node '${DEPS}'`, env)
     expect(r1.code, r1.out).toBe(0)
     expect(r1.out).toContain('DEPS_INSTALLED npm ci')
     expect(r1.out).toContain('DEPS_CACHED')
     expect(npmCalls()).toBe(1)
     const w2 = worker('dflow-22222222')
-    const r2 = sh(w2, `bash '${DEPS}'`, env)
+    const r2 = sh(w2, `node '${DEPS}'`, env)
     expect(r2.code, r2.out).toBe(0)
     expect(r2.out).toContain('DEPS_CLONED')
     expect(npmCalls()).toBe(1)
@@ -378,17 +377,17 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
   it('lockfile 이 다르면 캐시를 쓰지 않고 npm ci 한다', () => {
     const bin = fakeBin()
     const env = { PATH: `${bin}:${process.env.PATH}` }
-    sh(worker('dflow-11111111'), `bash '${DEPS}'`, env)
+    sh(worker('dflow-11111111'), `node '${DEPS}'`, env)
     const w2 = worker('dflow-22222222')
     writeFileSync(join(w2, 'package-lock.json'), '{"lockfileVersion":3,"x":1}\n')
-    const r = sh(w2, `bash '${DEPS}'`, env)
+    const r = sh(w2, `node '${DEPS}'`, env)
     expect(r.out).toContain('DEPS_INSTALLED npm ci')
     expect(npmCalls()).toBe(2)
   })
 
   it('npm ci 가 실패하면 DEPS_FAILED 와 그 exit 로 끝나고 캐시를 남기지 않는다', () => {
     const bin = fakeBin()
-    const r = sh(worker('dflow-11111111'), `bash '${DEPS}'`, { PATH: `${bin}:${process.env.PATH}`, FAKE_NPM_FAIL: '1' })
+    const r = sh(worker('dflow-11111111'), `node '${DEPS}'`, { PATH: `${bin}:${process.env.PATH}`, FAKE_NPM_FAIL: '1' })
     expect(r.code).toBe(9)
     expect(r.out).toContain('DEPS_FAILED npm ci exit 9')
     expect(sh(primary, 'ls .git/dflow-deps 2>/dev/null | wc -l').out.trim()).toBe('0')
@@ -402,14 +401,14 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
     writeFileSync(join(locks, 'slot-1', 'owner'), `pid=${process.pid}\nkind=run\nstart=${Math.floor(Date.now() / 1000)}\npstart=-\ncmd=./gradlew testAll\n`)
     const env = { PATH: `${bin}:${process.env.PATH}`, DFLOW_HEAVY_WAIT: '0' }
     const w = worker('dflow-11111111')
-    const r = sh(w, `bash '${DEPS}'`, env)
+    const r = sh(w, `node '${DEPS}'`, env)
     expect(r.code, r.out).toBe(75)
     expect(r.out).toContain('HEAVY_BUSY')
     expect(r.out.trim().split('\n').pop()).toBe('DEPS_BUSY .')
     expect(npmCalls()).toBe(0)
     expect(existsSync(join(w, 'node_modules'))).toBe(false)
     rmSync(join(locks, 'slot-1'), { recursive: true })
-    const again = sh(w, `bash '${DEPS}'`, env)
+    const again = sh(w, `node '${DEPS}'`, env)
     expect(again.code, again.out).toBe(0)
     expect(again.out).toContain('HEAVY_SLOT slot-1')
     expect(again.out).toContain('DEPS_INSTALLED npm ci')
@@ -422,10 +421,10 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
     const env = { PATH: `${bin}:${process.env.PATH}` }
     const w = worker('dflow-11111111')
     mkdirSync(join(w, 'node_modules'))
-    expect(sh(w, `bash '${DEPS}'`, env).out).toContain('DEPS_SKIP')
+    expect(sh(w, `node '${DEPS}'`, env).out).toContain('DEPS_SKIP')
     rmSync(join(w, 'package.json'))
     rmSync(join(w, 'node_modules'), { recursive: true })
-    expect(sh(w, `bash '${DEPS}'`, env).out).toContain('DEPS_SKIP')
+    expect(sh(w, `node '${DEPS}'`, env).out).toContain('DEPS_SKIP')
     expect(npmCalls()).toBe(0)
   })
 
@@ -454,7 +453,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
       printf '{}\\n' > "${w}/src/frontend/package.json"
       printf 'lockfileVersion: 6\\n' > "${w}/src/frontend/pnpm-lock.yaml"`)
     expect(r0.code, r0.out).toBe(0)
-    const r = sh(w, `bash '${DEPS}'`, env)
+    const r = sh(w, `node '${DEPS}'`, env)
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SKIP package.json 없음') // 루트
     expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
@@ -477,7 +476,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
       printf '{}\\n' > "${w}/.claude/worktrees/nested/package.json"
       printf 'lockfileVersion: 6\\n' > "${w}/.claude/worktrees/nested/pnpm-lock.yaml"`)
     expect(r0.code, r0.out).toBe(0)
-    const r = sh(w, `bash '${DEPS}'`, env)
+    const r = sh(w, `node '${DEPS}'`, env)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('vendor')
     expect(r.out).not.toContain('nested')
@@ -539,7 +538,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     commitWorkspace()
     mainInstall()
     const w = worker('dflow-a1a1a1a1')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1' })
+    const r = sh(w, `node '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1' })
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
     const c = calls()
@@ -561,7 +560,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     commitWorkspace()
     mainInstall()
     const w = worker('dflow-b2b2b2b2')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, FAKE_PNPM_FAIL_CLONED: '1', DFLOW_DEPS_MAIN_CLONE: '1' })
+    const r = sh(w, `node '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, FAKE_PNPM_FAIL_CLONED: '1', DFLOW_DEPS_MAIN_CLONE: '1' })
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SYNC_FAILED pnpm install exit 7')
     expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
@@ -575,7 +574,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     commitWorkspace()
     mainInstall()
     const w = worker('dflow-c9c9c9c9')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}` })
+    const r = sh(w, `node '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}` })
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('DEPS_SYNC')
     expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
@@ -589,7 +588,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     writeFileSync(join(real, '.main-marker'), 'LINKED')
     sh(primary, `ln -s '${real}' src/frontend/node_modules`)
     const w = worker('dflow-c3c3c3c3')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1' })
+    const r = sh(w, `node '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1' })
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('DEPS_SYNC')
     expect(r.out).toContain('DEPS_INSTALLED pnpm src/frontend')
@@ -606,7 +605,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     writeFileSync(join(primary, 'src/frontend/x/node_modules/.main-marker'), 'X')
     expect(sh(primary, 'git add src && git commit -qm x && git push -q origin main').code).toBe(0)
     const w = worker('dflow-d4d4d4d4')
-    const r = sh(w, `bash '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1' })
+    const r = sh(w, `node '${DEPS}'`, { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1' })
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
     expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend/x')
@@ -622,7 +621,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     writeFileSync(join(locks, 'slot-1', 'owner'), `pid=${process.pid}\nkind=run\nstart=${Math.floor(Date.now() / 1000)}\npstart=-\ncmd=other\n`)
     const w = worker('dflow-f6f6f6f6')
     const env = { PATH: `${fakePnpm()}:${process.env.PATH}`, DFLOW_DEPS_MAIN_CLONE: '1', DFLOW_HEAVY_WAIT: '0' }
-    const r = sh(w, `bash '${DEPS}'`, env)
+    const r = sh(w, `node '${DEPS}'`, env)
     expect(r.code, r.out).toBe(75)
     expect(r.out.trim().split('\n').pop()).toBe('DEPS_BUSY src/frontend')
     expect(calls().length).toBe(0)
@@ -630,7 +629,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     expect(existsSync(join(w, 'src/frontend/node_modules'))).toBe(false)
     expect(existsSync(join(w, 'src/frontend/packages/a/node_modules'))).toBe(false)
     rmSync(join(locks, 'slot-1'), { recursive: true })
-    const again = sh(w, `bash '${DEPS}'`, env)
+    const again = sh(w, `node '${DEPS}'`, env)
     expect(again.code, again.out).toBe(0)
     expect(again.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
     expect(calls().length).toBe(1)
@@ -671,7 +670,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     // 전제: 메인 설치본의 셈에는 메인 경로가 박혀 있다
     expect(psh(primary, `grep -rl '${primary}/src/frontend/' src/frontend/node_modules | head -1`).out.trim()).not.toBe('')
     const w = worker('dflow-e5e5e5e5')
-    const r = psh(w, `bash '${DEPS}'`, { npm_config_store_dir: store })
+    const r = psh(w, `node '${DEPS}'`, { npm_config_store_dir: store })
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SYNCED pnpm 메인 복제 + frozen install src/frontend')
     const fe = join(w, 'src/frontend')
@@ -693,7 +692,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
     expect(r0.code, r0.out).toBe(0)
     expect(existsSync(join(primary, 'src/frontend/packages/a/node_modules/tool2'))).toBe(false)
     const w = worker('dflow-f6f6f6f6')
-    const r = psh(w, `bash '${DEPS}'`, { npm_config_store_dir: store })
+    const r = psh(w, `node '${DEPS}'`, { npm_config_store_dir: store })
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SYNCED')
     expect(psh(join(w, 'src/frontend/packages/a'), `node -e 'console.log(require("tool2"))'`).out).toContain('tool2')
@@ -702,7 +701,7 @@ mkdir -p node_modules && echo v1 > node_modules/marker
   it.skipIf(!hasPnpm)('실제 pnpm: store 가 달라도 확인 프롬프트에 멈추지 않고 끝난다', () => {
     realWorkspace(join(tmp, 'store'))
     const w = worker('dflow-a7a7a7a7')
-    const r = psh(w, `bash '${DEPS}'`, { npm_config_store_dir: join(tmp, 'other-store') })
+    const r = psh(w, `node '${DEPS}'`, { npm_config_store_dir: join(tmp, 'other-store') })
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_SYNCED')
     expect(psh(join(w, 'src/frontend'), './node_modules/.bin/tool').out).toContain('TOOL_OK')
@@ -735,7 +734,7 @@ describe('gradle-wrapper.jar 복구: 메인 체크아웃에서 복사한다(요�
     const w = bareWorker('dflow-88888888')
     expect(existsSync(join(w, 'sub/gradlew'))).toBe(true)
     expect(existsSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'))).toBe(false)
-    const r = sh(w, `bash '${DEPS}'`)
+    const r = sh(w, `node '${DEPS}'`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_GRADLE_JAR sub')
     expect(readFileSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'), 'utf8')).toBe('JARDATA')
@@ -748,7 +747,7 @@ describe('gradle-wrapper.jar 복구: 메인 체크아웃에서 복사한다(요�
     const w = bareWorker('dflow-99999999')
     mkdirSync(join(w, 'sub/gradle/wrapper'), { recursive: true })
     writeFileSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'), 'OLD')
-    const r = sh(w, `bash '${DEPS}'`)
+    const r = sh(w, `node '${DEPS}'`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('DEPS_GRADLE_JAR')
     expect(readFileSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'), 'utf8')).toBe('OLD')
@@ -757,7 +756,7 @@ describe('gradle-wrapper.jar 복구: 메인 체크아웃에서 복사한다(요�
   it('메인 체크아웃에도 없으면 DEPS_GRADLE_JAR_MISSING 을 알리고 설치는 계속한다', () => {
     commitGradlew()
     const w = bareWorker('dflow-77777777')
-    const r = sh(w, `bash '${DEPS}'`)
+    const r = sh(w, `node '${DEPS}'`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_GRADLE_JAR_MISSING sub')
     expect(existsSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'))).toBe(false)
@@ -789,7 +788,7 @@ describe('gitignore 된 심링크 복제: 메인 체크아웃의 외부 링크�
     ignoreAndLink(['docs/mdm/design'])
     const w = bareWorker('dflow-66666666')
     expect(existsSync(join(w, 'docs/mdm/design'))).toBe(false)
-    const r = sh(w, `bash '${DEPS}'`)
+    const r = sh(w, `node '${DEPS}'`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).toContain('DEPS_LINK docs/mdm/design')
     expect(lstatSync(join(w, 'docs/mdm/design')).isSymbolicLink()).toBe(true)
@@ -801,7 +800,7 @@ describe('gitignore 된 심링크 복제: 메인 체크아웃의 외부 링크�
     const w = bareWorker('dflow-55555555')
     mkdirSync(join(w, 'docs/design'), { recursive: true })
     writeFileSync(join(w, 'docs/design/mine.md'), 'MINE')
-    const r = sh(w, `bash '${DEPS}'`)
+    const r = sh(w, `node '${DEPS}'`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('DEPS_LINK')
     expect(lstatSync(join(w, 'docs/design')).isSymbolicLink()).toBe(false)
@@ -815,7 +814,7 @@ describe('gitignore 된 심링크 복제: 메인 체크아웃의 외부 링크�
     const r0 = sh(primary, `ln -s '${ext}' untracked-link`)
     expect(r0.code, r0.out).toBe(0)
     const w = bareWorker('dflow-44444444')
-    const r = sh(w, `bash '${DEPS}'`)
+    const r = sh(w, `node '${DEPS}'`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('DEPS_LINK')
     expect(existsSync(join(w, 'untracked-link'))).toBe(false)

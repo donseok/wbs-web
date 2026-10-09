@@ -20,13 +20,26 @@ const DOCS = [
   '.claude/skills/dflow-team/references/resume.md',
   '.claude/skills/dflow-team/references/closing.md',
   '.claude/skills/dflow-team/references/second-lead.md',
+  // dflow-node-1010 절 분리: SKILL.md 에서 요약만 남기고 원문 블록을 옮긴 문서
+  '.claude/skills/dflow-team/references/start.md',
+  '.claude/skills/dflow-team/references/lead-state.md',
+  '.claude/skills/dflow-team/references/wake.md',
+  '.claude/skills/dflow-team/references/result-handling.md',
+  '.claude/skills/dflow-team/references/sweep.md',
+  '.claude/skills/dflow-team/references/blocked-seat.md',
   // dflow-dev 는 2026-09-26 분할로 셸 블록이 단계 파일에 있다(안내 본문에는 없다)
   '.claude/skills/dflow-dev/references/orch/sweep.md',
   '.claude/skills/dflow-dev/references/orch/claim.md',
   '.claude/skills/dflow-dev/references/orch/baseline.md',
   '.claude/skills/dflow-dev/references/orch/design-first.md',
   '.claude/skills/dflow-dev/references/worker-mode.md',
-  '.claude/skills/dflow-merge/SKILL.md',
+  // dflow-merge 는 절 분리(dflow-node-1010)로 SKILL.md 에 셸 블록이 없고 단계 파일에 있다
+  '.claude/skills/dflow-merge/references/dialect.md',
+  '.claude/skills/dflow-merge/references/merge-exec.md',
+  '.claude/skills/dflow-merge/references/merge-worktree.md',
+  '.claude/skills/dflow-merge/references/resolve.md',
+  '.claude/skills/dflow-merge/references/sweep-scan.md',
+  '.claude/skills/dflow-merge/references/unapproved.md',
 ]
 
 type Block = { file: string; line: number; code: string }
@@ -88,12 +101,15 @@ describe('스킬 문서의 셸 블록은 sh·bash·zsh 로 파싱된다(스펙 �
     for (const rel of [
       '.claude/skills/dflow-team/SKILL.md',
       '.claude/skills/dflow-team/references/events.md',
-      '.claude/skills/dflow-work/scripts/dflow.sh',
       'kit/hooks/heartbeat.sh',
     ]) {
       const t = readFileSync(join(ROOT, rel), 'utf8')
       expect(t, rel).not.toMatch(/\$\(hostname -s|hostname -s \|/)
       expect(t, rel).toMatch(/hostname( 2>\/dev\/null)? \| cut -d\. -f1/)
     }
+    // dflow.mjs(node 이식판)는 셸 대신 os.hostname() 의 첫 마디를 쓴다
+    const mjs = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs'), 'utf8')
+    expect(mjs).not.toMatch(/\$\(hostname -s|hostname -s \|/)
+    expect(mjs).toContain("(os.hostname() ?? '').split('.')[0]")
   })
 })

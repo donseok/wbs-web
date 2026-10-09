@@ -9,9 +9,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/sweep-check.sh')
+const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/sweep-check.mjs')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
-const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
+const SCAN = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/sweep-scan.md'), 'utf8')
+const TEAM =readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 const MC = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')
 const API = 'https://example.test'
 
@@ -27,7 +28,7 @@ function sh(cwd: string, script: string, env: Record<string, string> = {}) {
   const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', timeout: 60000, env: { ...BASE_ENV, S: SCRIPT, ...env } })
   return { code: r.status, out: r.stdout || '', err: r.stderr || '' }
 }
-const check = (env: Record<string, string> = {}) => sh(repo, 'bash "$S"', env)
+const check = (env: Record<string, string> = {}) => sh(repo, 'node "$S"', env)
 const last = (out: string) => out.trim().split('\n').at(-1) ?? ''
 const ok = (r: { code: number | null; err: string; out: string }) => expect(r.code, r.out + r.err).toBe(0)
 const state = (tsk: string, order: string, phase: string, extra: Record<string, unknown> = {}) =>
@@ -79,7 +80,7 @@ afterEach(() => { rmSync(tmp, { recursive: true, force: true }) })
 
 describe('sweep-check.sh — 스윕 후보 사전 검사', { timeout: 60000 }, () => {
   it('bash 로 파싱되고 실행 권한이 있다', () => {
-    expect(spawnSync('bash', ['-n', SCRIPT]).status).toBe(0)
+    expect(spawnSync('node', ['--check', SCRIPT]).status).toBe(0)
     expect(spawnSync('test', ['-x', SCRIPT]).status).toBe(0)
   })
 
@@ -193,7 +194,7 @@ describe('sweep-check.sh — 스윕 후보 사전 검사', { timeout: 60000 }, (
 function canonBlock(marker: string) {
   const re = /^( *)```bash\n([\s\S]*?)^\1```/gm
   let m: RegExpExecArray | null
-  while ((m = re.exec(MERGE))) {
+  while ((m = re.exec(SCAN))) {
     if (m[2].includes(marker)) return m[2].split('\n').map((l) => l.slice(m![1].length)).join('\n').replaceAll('<기본브랜치>', 'dev')
   }
   throw new Error(`정본 블록 없음: ${marker}`)
@@ -242,13 +243,13 @@ describe('sweep-check.sh 후보 = /dflow-merge 「절차」 1번 정본(드리�
   })
 
   it('정본이 sweep-check.sh 를 가리키고, 팀장 스윕 규칙이 그것을 쓴다', () => {
-    expect(MERGE).toContain('scripts/sweep-check.sh')
+    expect(MERGE).toContain('scripts/sweep-check.mjs')
     // 정본(셸 블록)은 SKILL 에 두고, 스크립트는 출력 계약만 적는다. 호출자(dflow-team 「4-0」·dflow-dev 01-가)가 이 글자를 본다
-    const s1 = MERGE.slice(MERGE.indexOf('1. **후보 식별**'), MERGE.indexOf('2. **판정'))
-    expect(s1).toContain('**정본은 이 두 셸 블록이다**')
+    const s1 = SCAN.slice(SCAN.indexOf('1. **후보 식별**'), SCAN.indexOf('2. **판정'))
+    expect(s1).toContain('**정본 = 이 두 셸 블록.**')
     for (const k of ['`SWEEP_CANDIDATES n=<N> <id8…>`', '`SWEEP_NONE`', '`SWEEP_UNKNOWN <사유>`', '`SWEEP_DIALECT_PENDING <sha>`'])
       expect(s1, k).toContain(k)
-    expect(TEAM).toContain('.claude/skills/dflow-merge/scripts/sweep-check.sh')
+    expect(TEAM).toContain('.claude/skills/dflow-merge/scripts/sweep-check.mjs')
     expect(TEAM).toContain('`SWEEP_NONE`')
     expect(TEAM).toContain('`SWEEP_UNKNOWN <사유>`')
     expect(TEAM).toContain('### 4-0. 스윕을 부르는 규칙')

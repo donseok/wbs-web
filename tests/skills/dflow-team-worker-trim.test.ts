@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCRIPT = join(ROOT, '.claude/skills/dflow-team/scripts/worker-trim.sh')
+const SCRIPT = join(ROOT, '.claude/skills/dflow-team/scripts/worker-trim.mjs')
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8')
 const B = () => read('.claude/skills/dflow-team/references/backends.md')
 
@@ -33,7 +33,7 @@ function local(lines: string) {
 }
 const baseEnv = () => ({ PATH: process.env.PATH ?? '', HOME: home, NODE_ENV: process.env.NODE_ENV })
 function trim(p = '{}', env: Record<string, string> = {}) {
-  const r = spawnSync('sh', [SCRIPT, main, p], { encoding: 'utf8', env: { ...baseEnv(), ...env } })
+  const r = spawnSync(process.execPath, [SCRIPT, main, p], { encoding: 'utf8', env: { ...baseEnv(), ...env } })
   expect(r.status, r.stderr).toBe(0)
   return { out: JSON.parse(r.stdout), err: r.stderr }
 }
@@ -144,7 +144,7 @@ describe('worker-trim.sh — 킷 규칙', () => {
   const S = () => readFileSync(SCRIPT, 'utf8')
   it('내장 스킬을 통째로 끄지 않는다(disableBundledSkills 는 Workflow 도구 설명을 도리어 키운다)', () => {
     expect(S()).not.toContain('disableBundledSkills')
-    expect(B()).toContain('`disableBundledSkills` 는\n  쓰지 않는다')
+    expect(B()).toContain('`disableBundledSkills` 사용 금지')
   })
   it('키 넷이 dflow-config.sh 에 개인(personal) 키로 등록돼 있고 예시 파일에 주석으로 있다', () => {
     const lib = join(ROOT, '.claude/skills/dflow-work/scripts/dflow-config.sh')
@@ -233,7 +233,7 @@ describe('worker-trim.sh — auto(사용자 전역 지침 기준)', () => {
   }
   const trim3 = (p: string, env: Record<string, string>) => {
     const pre = join(tmp, 'lim', 'abcd1234'); mkdirSync(join(tmp, 'lim'), { recursive: true })
-    const r = spawnSync('sh', [SCRIPT, main, p, pre], { encoding: 'utf8', env: { ...baseEnv(), ...env } })
+    const r = spawnSync(process.execPath, [SCRIPT, main, p, pre], { encoding: 'utf8', env: { ...baseEnv(), ...env } })
     expect(r.status, r.stderr).toBe(0)
     return { out: JSON.parse(r.stdout), err: r.stderr, pre }
   }
@@ -307,7 +307,7 @@ describe('worker-trim.sh — auto(사용자 전역 지침 기준)', () => {
   })
 
   it('킷 문서·스크립트에 특정 스킬·플러그인 이름을 적지 않는다(auto 예시도 일반화)', () => {
-    const texts = [read('.claude/skills/dflow-team/scripts/worker-trim.sh'), read('.claude/skills/dflow-team/references/help.md'), B()]
+    const texts = [read('.claude/skills/dflow-team/scripts/worker-trim.mjs'), read('.claude/skills/dflow-team/references/help.md'), B()]
     for (const t of texts) for (const bad of ['ego-browser', 'playwright@', 'playwright mcp', 'oasis-', 'mantine-']) expect(t.toLowerCase(), bad).not.toContain(bad)
   })
 })

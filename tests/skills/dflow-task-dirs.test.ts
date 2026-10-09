@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const LIB = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow-config.sh')
-const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.mjs')
 const A = '11111111-1111-4111-8111-111111111111'
 const B = '22222222-2222-4222-8222-222222222222'
 const C = '33333333-3333-4333-8333-333333333333'
@@ -59,7 +59,7 @@ describe('dflow_config_tasks_dirs', () => {
 })
 
 describe('dflow.sh config docs-dir|tasks-dirs', () => {
-  const run = (args: string[]) => spawnSync('sh', [DFLOW, ...args], {
+  const run = (args: string[]) => spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8', cwd: mkdtempSync(join(tmpdir(), 'dflow-td-')),
     env: {
       PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV, HOME: '/nonexistent',
@@ -79,7 +79,7 @@ describe('dflow.sh config docs-dir|tasks-dirs', () => {
 // project_map 키 검증(최종 리뷰 #5·#8, 잔여 수정). 키는 리포 최상위 기준 상대경로다 — 절대경로·'..'·빈 키는
 // 원격 스캔의 git diff 를 exit 128 로 죽이고(후보 0건) claim 이 리포 밖에 폴더를 만든다.
 // 잘못된 항목은 그 항목만 건너뛴다 — 무관한 잘못된 키 때문에 제대로 바인딩된 프로젝트까지 멈추지 않는다.
-const runDflow = (args: string[], env: Record<string, string>) => spawnSync('sh', [DFLOW, ...args], {
+const runDflow = (args: string[], env: Record<string, string>) => spawnSync('node', [DFLOW, ...args], {
   encoding: 'utf8', cwd: mkdtempSync(join(tmpdir(), 'dflow-td-')),
   env: {
     PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV, HOME: '/nonexistent',

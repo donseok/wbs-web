@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh')
+const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.mjs')
 
 let tmp: string, dir: string
 const kids: ChildProcess[] = []
@@ -19,7 +19,7 @@ const env = (extra: Record<string, string> = {}) => ({
   DFLOW_HEAVY_LOAD_MAX: '0', ...extra,
 })
 const snap = (extra: Record<string, string> = {}) => {
-  const r = spawnSync('bash', [HEAVY, 'snapshot'], { encoding: 'utf8', env: env(extra), timeout: 30000 })
+  const r = spawnSync(process.execPath, [HEAVY, 'snapshot'], { encoding: 'utf8', env: env(extra), timeout: 30000 })
   return { code: r.status, lines: (r.stdout || '').split('\n').filter(Boolean).map(l => l.split('\t')) }
 }
 const slot = (name: string, o: Record<string, string | number>) => {
@@ -76,7 +76,7 @@ describe('heavy.sh snapshot', { timeout: 30000 }, () => {
     mkdirSync(cwd, { recursive: true })
     slot('slot-1', { pid: process.pid, kind: 'run', start: 1790000000, cwd: WT, cmd: 'a' })
     slot('slot-2', { pid: process.pid, kind: 'run', start: 1790000000, cwd: WT, cmd: 'b' })
-    const p = spawn('bash', [HEAVY, 'sleep', '0'], { cwd, env: env(), stdio: 'ignore' })
+    const p = spawn(process.execPath, [HEAVY, 'sleep', '0'], { cwd, env: env(), stdio: 'ignore' })
     kids.push(p)
     const t0 = Date.now()
     while (!readdirSync(dir).some(f => f.startsWith('wait-'))) {
@@ -130,7 +130,7 @@ describe('heavy.sh snapshot', { timeout: 30000 }, () => {
   })
 
   it('status 의 stdout 한 줄 형식은 그대로다(capacity.sh 가 읽는다)', () => {
-    const r = spawnSync('bash', [HEAVY, 'status'], { encoding: 'utf8', env: env() })
+    const r = spawnSync(process.execPath, [HEAVY, 'status'], { encoding: 'utf8', env: env() })
     expect(r.stdout).toBe('HEAVY_STATUS slots=2 held=0 waiting=0\n')
   })
 })

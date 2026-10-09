@@ -50,10 +50,10 @@ describe('team.lost 이벤트', () => {
     expect(e).toContain('`no-response` · `pane-dead` · `rate-limit`')
     expect(e).toContain('`restart` · `wait` · `park`')
     expect(e).toMatch(/`evidence`[^\n]*선택/)
-    expect(e).toMatch(/`team\.lost`[\s\S]{0,200}`team\.result` 를 쓰지 않는다/)
+    expect(e).toMatch(/`team\.lost`[\s\S]{0,200}`team\.result` 안 씀/)
   })
   it('제외 목록 규칙에 team.lost 가 들어간다', () => {
-    expect(EV()).toContain('마지막 `team.spawn`·`team.blocked`·`team.result`·`team.lost` 로 정한다')
+    expect(EV()).toContain('마지막 `team.spawn`·`team.blocked`·`team.result`·`team.lost` 로 결정')
   })
   it('조각대로 만든 완전한 team.lost 줄은 가드를 통과해 붙는다', () => {
     const r = run(lostCommand((c) => c

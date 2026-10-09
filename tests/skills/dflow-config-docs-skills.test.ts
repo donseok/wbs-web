@@ -10,11 +10,12 @@ const DEV = devAll()
 const MERGE = read('.claude/skills/dflow-merge/SKILL.md')
 describe('나머지 스킬 문서', () => {
   it('dflow-dev·dflow-merge 가 <기본브랜치> 를 개발 브랜치로 정의한다', () => {
-    for (const t of [DEV, MERGE]) expect(t).toContain('`<기본브랜치>` 는 개발 브랜치, 즉 `dflow.sh branch dev` 의 값이다')
+    expect(DEV + read('.claude/skills/dflow-dev/references/worker-mode.md')).toContain('`<기본브랜치>` 는 개발 브랜치, 즉 `dflow.mjs branch dev` 의 값이다')
+    expect(MERGE).toContain('`<기본브랜치>` = 개발 branch = `dflow.mjs branch dev` 값')
     expect(MERGE).not.toContain('기본브랜치(main)')
   })
   it('dflow-merge 는 api_base 를 dflow.sh config 로 얻는다', () => {
-    expect(MERGE).toContain('api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base)')
+    expect(read('.claude/skills/dflow-merge/references/sweep-scan.md')).toContain('api=$(node .claude/skills/dflow-work/scripts/dflow.mjs config api_base)')
     expect(MERGE).not.toMatch(/\.\s+\.\/\.env/)
   })
   it('바인딩 안내가 .dflow·.dflow.local 을 가리킨다', () => {

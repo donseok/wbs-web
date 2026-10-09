@@ -5,9 +5,10 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 
 const ROOT = process.cwd()
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 const TOKEN = `dflow_pat_AAAAAAAAAAAA_${'x'.repeat(24)}`
 const PID = '11111111-1111-4111-8111-111111111111'
 const WORK_ID = '99999999-9999-4999-8999-999999999999'
@@ -72,10 +73,10 @@ printf '%s' "$body" > "$out"; printf '%s' "$code"
 
 let tmp: string, repo: string, bodies: string, urls: string
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync('sh', [DFLOW, ...args], {
+  return spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8', cwd: repo,
     env: {
-      NODE_ENV: process.env.NODE_ENV, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
+      NODE_ENV: process.env.NODE_ENV, NODE_OPTIONS: CURL_SHIM_OPTS, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
       HOME: join(tmp, 'home'), XDG_CACHE_HOME: join(tmp, 'cache'),
       DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
       DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: TOKEN, DFLOW_PROJECT_ID: PID,
@@ -127,10 +128,10 @@ describe('exit 11·12(계약 2.11)', () => {
     expect(run(['build-start', WORK_ID], { FAKE_BS: 'conflict' }).status).toBe(4)
   })
   it('사용법·파일 머리의 exit 표에 11·12 가 있다', () => {
-    const r = spawnSync('sh', [DFLOW], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: join(tmp, 'home'), NODE_ENV: process.env.NODE_ENV, DFLOW_CONFIG_DIR: join(tmp, 'no-config') } })
-    expect(r.stderr).toMatch(/11 설계 관문/)
-    expect(r.stderr).toMatch(/12 다른 PC 도는 중/)
-    expect(readFileSync(DFLOW, 'utf8').split('\n')[4]).toContain('11 설계 관문')
+    const r = spawnSync('node', [DFLOW], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: join(tmp, 'home'), NODE_ENV: process.env.NODE_ENV, DFLOW_CONFIG_DIR: join(tmp, 'no-config') } })
+    expect(r.stderr).toMatch(/11 = 설계 관문/)
+    expect(r.stderr).toMatch(/12 = 다른 PC 가 이 작업을 돌리는 중/)
+    expect(readFileSync(DFLOW, 'utf8').split('\n')[5]).toContain('11 설계 관문')
   })
 })
 

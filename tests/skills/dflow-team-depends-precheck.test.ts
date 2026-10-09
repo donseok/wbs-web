@@ -6,6 +6,8 @@ import { execFileSync } from 'node:child_process'
 
 const ROOT = join(__dirname, '..', '..')
 const team = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
+const wakeMd = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/wake.md'), 'utf8')
+const leadState = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/lead-state.md'), 'utf8')
 
 // 팀장 poll exit 0 의 show 필터(jq 식)를 문서에서 그대로 꺼내 돌린다 — 문서와 동작이 어긋나지 않게.
 function filterExpr(): string {
@@ -39,11 +41,12 @@ describe('dflow-team — spawn 전 선행 사전 검사(2026-09-19)', () => {
     expect(run(order({})).deps_unmet).toEqual([])
   })
   it('poll exit 0 행이 사전 검사로 spawn 을 막고, 사유가 선행 계열(자동 머지 뒤 해제 대상)로 시작한다', () => {
-    expect(team).toContain('`deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)`')
+    expect(team).toContain('서버 판정 `reached` 가 거짓인 선행이 하나라도 있으면 spawn 안 함(확정 skip)')
+    expect(team).toContain('사유 `선행 미충족(사전 검사: <ref…>)` 인 작업은 일시 제외 아닌 **선행 대기**')
     expect(team).toMatch(/선행 계열\(선행 미충족·/)
   })
   it('state.json merged 기준으로 거르지 않는다(워커 행 B 스택을 막지 않도록)', () => {
-    expect(team).toContain('`state.json` 의 `phase=merged` 로 거르지 않는다')
+    expect(wakeMd).toContain('`state.json` `phase=merged` 로 안 거름')
   })
   it('deps_nohead 는 reached=true·head_sha 없는 선행만 담는다 — head_sha 있는 선행(행 B 스택)은 거르지 않는다(2026-09-23)', () => {
     const r = run(order({ depends_evidence: [
@@ -57,8 +60,8 @@ describe('dflow-team — spawn 전 선행 사전 검사(2026-09-19)', () => {
   })
   it('선행 반영 사전 검사: NOT_REFLECTED 는 선행 미반영으로 일시 제외, UNKNOWN 은 거르지 않는다', () => {
     expect(team).toContain('사유 `선행 미반영(사전 검사: <ref…>)`')
-    expect(team).toContain('`UNKNOWN`(rc=2) 은 거르지 않고 워커에 맡긴다')
-    expect(team).toContain('.claude/skills/dflow-dev/scripts/pred-reflected.sh')
+    expect(team).toContain('`UNKNOWN`(rc=2) 은 워커에 맡김')
+    expect(team).toContain('.claude/skills/dflow-dev/scripts/pred-reflected.mjs')
   })
 })
 
@@ -68,7 +71,7 @@ describe('dflow-team — 선행 대기 블록', () => {
   const AGENT = 'me/pc1/lead'
   const MAIN = '/repo/main'
   function block(): string {
-    const at = team.indexOf('선행 대기 블록 — 출력 한 줄이')
+    const at = team.indexOf('선행 대기 블록 — 출력 한 줄 = ')
     expect(at).toBeGreaterThan(-1)
     const m = team.slice(at).match(/```bash\n([\s\S]*?)```/)
     if (!m) throw new Error('선행 대기 블록을 찾지 못했다')
@@ -120,9 +123,9 @@ describe('dflow-team — 선행 대기 블록', () => {
 
   it('SKILL.md: poll 은 --wait-cycles 40 과 --exclude-wait 로 띄우고, 선행 대기는 일시 제외에 넣지 않는다', () => {
     expect(team).toContain('--wait-cycles 40 [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] [--exclude-wait <id8,id8>] )')
-    expect(team).toContain('일시 제외가 아니라 **선행 대기**에 넣는다')
+    expect(team).toContain('일시 제외 아닌 **선행 대기**')
     // 2026-09-25 문장 압축: 목록은 기억이 아니라 선행 대기 블록 출력으로 복원한다(「팀장 상태」·「2-3」)
-    expect(team).toContain('선행 대기 목록은\n  「2-3」 의 선행 대기 블록 출력으로 복원한다')
-    expect(team).toContain('목록은 기억이 아니라 이 출력이 정본이며')
+    expect(leadState).toContain('선행 대기 목록 = 「2-3」 선행 대기 블록 출력으로 복원.')
+    expect(team).toContain('목록은 기억 아닌 이 출력이 정본.')
   })
 })

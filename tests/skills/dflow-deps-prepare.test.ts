@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.sh')
+const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.mjs')
 
 const GIT_ENV = {
   ...process.env,
@@ -28,7 +28,7 @@ function sh(cwd: string, script: string, env: Record<string, string> = {}) {
   const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', env: { ...GIT_ENV, ...heavy, ...env }, timeout: 60000 })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
 }
-const deps = (cwd: string, env: Record<string, string> = {}) => sh(cwd, `bash '${DEPS}'`, env)
+const deps = (cwd: string, env: Record<string, string> = {}) => sh(cwd, `node '${DEPS}'`, env)
 const worker = (name: string) => {
   const w = join(primary, '.claude/worktrees', name)
   const r = sh(primary, `mkdir -p .claude/worktrees && git worktree add -q --detach "${w}" main`)
@@ -193,6 +193,6 @@ describe('deps.sh 준비 빌드(prepare)', { timeout: 60000 }, () => {
     const worker = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8').replace(/\s*\n\s*/g, ' ')
     expect(worker).toContain('`.dflow-gates` 의 `prepare<TAB><명령>`')
     expect(worker).toContain('`DEPS_PREPARE_FAIL`')
-    expect(worker).toContain('Bash 도구의 timeout 을 300000~600000 으로 준다')
+    expect(worker).toContain('Bash 도구 timeout 을 300000-600000 으로 줌')
   })
 })

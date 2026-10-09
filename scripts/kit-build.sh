@@ -18,6 +18,8 @@ for s in $SKILLS; do
   rm -rf "$OUT/skills/$s"
   mkdir -p "$OUT/skills/$s"
   cp -R "$SRC/." "$OUT/skills/$s/"
+  # backup/ 은 퇴역한 sh 판 기록(실행 금지)이라 배포 킷에 싣지 않는다 — 윈도우에서 돌지도 않고 크기만 늘린다.
+  rm -rf "$OUT/skills/$s/backup"
   find "$OUT/skills/$s" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
   find "$OUT/skills/$s" -name '.pytest_cache' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 done

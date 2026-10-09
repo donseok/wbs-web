@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCRIPT = join(ROOT, '.claude/skills/dflow-dev/scripts/pred-reflected.sh')
+const SCRIPT = join(ROOT, '.claude/skills/dflow-dev/scripts/pred-reflected.mjs')
 const GIT_ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
@@ -18,7 +18,7 @@ function sh(cwd: string, script: string) {
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
 }
 function judge(tsk: string, dev = 'main') {
-  const r = spawnSync('sh', [SCRIPT, 'docs/tasks', tsk, dev], { cwd: repo, encoding: 'utf8', env: GIT_ENV })
+  const r = spawnSync('node', [SCRIPT, 'docs/tasks', tsk, dev], { cwd: repo, encoding: 'utf8', env: GIT_ENV })
   return { code: r.status, out: (r.stdout || '').trim() }
 }
 /** state.json 을 main 에 커밋하고 push 한다. */
@@ -75,13 +75,12 @@ describe('pred-reflected.sh', () => {
     expect(judge('TSK-03-02', 'develop')).toEqual({ code: 2, out: 'UNKNOWN no-dev-branch origin/develop' })
   })
   it('인자가 셋이 아니면 UNKNOWN usage(2)', () => {
-    const r = spawnSync('sh', [SCRIPT, 'docs/tasks'], { cwd: repo, encoding: 'utf8', env: GIT_ENV })
+    const r = spawnSync('node', [SCRIPT, 'docs/tasks'], { cwd: repo, encoding: 'utf8', env: GIT_ENV })
     expect(r.status).toBe(2)
     expect(r.stdout.trim()).toBe('UNKNOWN usage')
   })
-  it('POSIX sh 스크립트다(#!/bin/sh, set -u)', () => {
+  it('node 스크립트다(#!/usr/bin/env node)', () => {
     const src = readFileSync(SCRIPT, 'utf8')
-    expect(src.startsWith('#!/bin/sh\n')).toBe(true)
-    expect(src).toContain('set -u')
+    expect(src.startsWith('#!/usr/bin/env node\n')).toBe(true)
   })
 })

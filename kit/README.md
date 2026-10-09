@@ -14,15 +14,15 @@ git clone git@github.com:jongik-sv/dflow-kit.git ~/dflow-kit
 ~/dflow-kit/install.sh ~/project/<내 리포>
 ```
 
-install.sh 가 하는 일: 의존 명령 점검(git curl jq gh node 18.17+, python3 은 없으면 경고만) → `<리포>/.claude/skills/dflow-*` 복사 →
+install.sh 가 하는 일: 의존 명령 점검(git gh node 18.17+) → `<리포>/.claude/skills/dflow-*` 복사 →
 `<리포>/.claude/skills/_shared`(node 공용 모듈·동봉 jq) 덮어쓰기 복사(다른 파일은 지우지 않고, `_shared` 가 심링크면 건너뜀) →
 `.dflow`·`.dflow.local` 초안 + `.gitignore` 보강 → `.claude/settings.json` 에 워커 허용 목록 병합(git 은 이 PC 의 절대경로) → 다음 단계 안내.
 
 그 다음 사람이 할 일:
 
 1. D'Flow 웹 → `/account` "내 토큰" → PAT 발급
-2. `<리포>/.dflow` 에 `api_base`(스테이징/운영)·`project_id` 기입(커밋 대상). `<리포>/.dflow.local` 에 `pats`·`dev_branch` 기입(개인, 커밋하지 않음). 토큰이 둘 이상이면 `.dflow.local` 의 `as=<prefix>`(내부적으로 `DFLOW_AS`) 로 이 리포의 키를 고정한다(prefix 는 `dflow.sh profiles` 로 확인. `/dflow-team` 은 비어 있으면 시작할 때 묻고 적는다)
-3. 확인: `cd <리포> && .claude/skills/dflow-work/scripts/dflow.sh doctor`
+2. `<리포>/.dflow` 에 `api_base`(스테이징/운영)·`project_id` 기입(커밋 대상). `<리포>/.dflow.local` 에 `pats`·`dev_branch` 기입(개인, 커밋하지 않음). 토큰이 둘 이상이면 `.dflow.local` 의 `as=<prefix>`(내부적으로 `DFLOW_AS`) 로 이 리포의 키를 고정한다(prefix 는 `dflow.mjs profiles` 로 확인. `/dflow-team` 은 비어 있으면 시작할 때 묻고 적는다)
+3. 확인: `cd <리포> && node .claude/skills/dflow-work/scripts/dflow.mjs doctor`
 4. Claude Code 를 **리포 루트에서** 연다 — 스킬은 프로젝트 스코프(`.claude/skills/`)라 cwd 가 리포 루트여야 한다
 
 `.claude/skills/` 는 리포에 커밋하고 기본 브랜치에 push 한다(`/dflow-team` 팀원 워크트리는 `origin` 의 스킬을 쓴다). 팀원은 클론만으로 같은 스킬을 쓴다. `.dflow` 는 커밋하고 `.dflow.local` 은 커밋하지 않는다.
@@ -31,9 +31,9 @@ install.sh 가 하는 일: 의존 명령 점검(git curl jq gh node 18.17+, pyth
 
 | 스킬 | 역할 |
 |---|---|
-| dflow-work | `dflow.sh` — D'Flow Agent API 래퍼(me/list/show/claim/progress/done/release/doctor). 다른 스킬의 기반 |
+| dflow-work | `dflow.mjs` — D'Flow Agent API 래퍼(me/list/show/claim/progress/done/release/doctor). 다른 스킬의 기반 |
 | dflow-dev | 작업 1건 개발 사이클(착수 판정→설계→TDD→검증→보고). 규율 정본 `references/dev-discipline.md` 동봉 |
-| dflow-poll | `poll.sh` — 에이전트 위임(tags: agent) 작업 감시 → 자동 착수. 낮 시간 반자동 |
+| dflow-poll | `poll.mjs` — 에이전트 위임(tags: agent) 작업 감시 → 자동 착수. 낮 시간 반자동 |
 | dflow-merge | 승인된 작업 브랜치를 main 에 반영(조상 순서, --no-ff) |
 | dflow-team | 팀장. 에이전트 위임 작업을 슬롯 N개 팀원(Orca pane 또는 별도 claude -p 프로세스)에게 나눠 동시에 개발시킨다. 낮 시간 supervised |
 | dflow-wbs-nlevel | levels 계약 wbs.md 생성·검증. 계약 문서·골격 샘플 동봉 |
@@ -81,7 +81,7 @@ Gradle 리포(`gradlew` 또는 `settings.gradle(.kts)` 가 있는 폴더 — inc
      DB 파일을 선언하지 않은 채 읽는 경우가 흔해, 캐시가 그 실패를 조용히 숨길 수 있기 때문이다(컴파일 태스크는
      캐시 대상에서 빼지 않는다). Test 를 캐시에서 빼는 방법(opt-out)은 위 스니펫의 `outputs.doNotCacheIf { true }`
      이고, `outputs.cacheIf { false }` 도 같은 뜻이다. 이 위험을 감수하고 Test 도 캐시하려면 그 줄을 지운다.
-   - `/dflow-team` 시작 전제 검사도 같은 판정 스크립트(`.claude/skills/dflow-team/scripts/gradle-check.sh`)를 불러
+   - `/dflow-team` 시작 전제 검사도 같은 판정 스크립트(`.claude/skills/dflow-team/scripts/gradle-check.mjs`)를 불러
      권장 키가 없으면 `WARN GRADLE_TUNING <빌드 루트> <빠진 키>` 를 한 줄 내지만 **시작을 막지는 않는다**.
 
 2. **`--gradle-pc`(이 PC 안전망)** — D'Flow 팀원을 여러 개 돌리는 이 PC 전용으로 켜는 선택 층이다. 리포 인자와
@@ -116,13 +116,13 @@ Gradle 리포(`gradlew` 또는 `settings.gradle(.kts)` 가 있는 폴더 — inc
 
 ## 의존
 
-git · curl · jq · node 18.17 이상(dflow-export 스크립트) · gh(GitHub CLI, `done --auto-links` 와 리포 생성용). macOS: `brew install jq gh node`.
-python3 은 아직 python 인 스크립트(dflow-wbs-nlevel, junit-count.sh)에만 필요한 선택 의존이다.
+git · node 18.17 이상(스킬 스크립트 전부) · gh(GitHub CLI, `done --auto-links` 와 리포 생성용). macOS: `brew install gh node`.
+curl·jq·python3 은 더는 필요 없다(스킬 스크립트는 node 로 macOS·Linux·Windows 에서 같이 돈다).
 
-## Windows(Git Bash)
+## Windows
 
-Git for Windows 의 Git Bash 에서 같은 `install.sh` 를 쓴다. 킷과 설치 대상의 `.gitattributes` 가 스킬 줄끝을
-LF 로 고정한다(이미 CRLF 로 받은 클론은 `git add --renormalize .`). `.dflow`·`.dflow.local` 을 CRLF 로 저장해도 `dflow.sh`·
+`install.sh` 는 sh 스크립트라 Git for Windows 의 Git Bash 에서 쓴다. 설치된 스킬 스크립트는 node 로 돌아 PowerShell 에서도 같은 동작을 한다. Git Bash 는 사용자 bash 문법 명령(게이트·baseline 명령)을 Windows 에서 돌릴 때만 필요하다. 킷과 설치 대상의 `.gitattributes` 가 스킬 줄끝을
+LF 로 고정한다(이미 CRLF 로 받은 클론은 `git add --renormalize .`). `.dflow`·`.dflow.local` 을 CRLF 로 저장해도 `dflow.mjs`·
 heartbeat 훅이 `\r` 을 걷어낸다. 네이티브 설치기(`irm https://claude.ai/install.ps1 | iex`)는 `~/.local/bin` 을
 PATH 에 넣으라고 경고하므로 그대로 따른다. `/dflow-team` 은 `powershell.exe` 를 쓴다(프로세스 시작 시각·권한 감지).
 
@@ -151,7 +151,7 @@ phase 를 `cancelled` 로 바꾼다. 표식이 남아 있는 동안은 60초 절
 ## 긴 명령 timeout 가드 훅(선택)
 
 `/dflow-team` 팀원은 이 훅이 자동으로 붙는다(팀원 전용 설정 `~/.dflow/limits/<id8>.settings.json`). 사람이 할 일은 없다.
-훅은 `heavy.sh`·`baseline.sh run`·`gradlew`·`mvn`·`playwright test` 를 Bash 도구 timeout 없이(또는 300000 미만으로) 부르거나
+훅은 `heavy.mjs`·`baseline.mjs run`·`gradlew`·`mvn`·`playwright test` 를 Bash 도구 timeout 없이(또는 300000 미만으로) 부르거나
 백그라운드로 돌리면 거부하고 이유를 모델에게 돌려준다. 하네스가 긴 명령을 자동 백그라운드로 옮긴 뒤 서브에이전트가 완료
 알림을 기다리며 멈추는 일을 막는다.
 
@@ -162,7 +162,7 @@ phase 를 `cancelled` 로 바꾼다. 표식이 남아 있는 동안은 60초 절
 ```json
 { "matcher": "Bash",
   "hooks": [ { "type": "command", "timeout": 5,
-    "command": "if [ -x \"${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.sh\" ]; then /bin/sh \"${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.sh\"; else cat >/dev/null 2>&1 || :; fi" } ] }
+    "command": "if [ -f \"${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.mjs\" ]; then node \"${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.mjs\"; else cat >/dev/null 2>&1 || :; fi" } ] }
 ```
 
 끄기: 위 원소를 지운다.

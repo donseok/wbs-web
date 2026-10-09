@@ -4,13 +4,14 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 import {
   AGENT_DECISIONS_MAX, AGENT_DECISION_ON_REJECT_MAX, AGENT_DECISION_OPTION_MAX, AGENT_DECISION_OPTIONS_MAX,
   AGENT_DECISION_OPTIONS_MIN, AGENT_DECISION_QUESTION_MAX, AGENT_DECISION_RATIONALE_MAX,
 } from '@/lib/domain/agentWork'
 
 const ROOT = process.cwd()
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 const TOKEN = `dflow_pat_AAAAAAAAAAAA_${'x'.repeat(24)}`
 const PID = '11111111-1111-4111-8111-111111111111'
 const WORK_ID = '99999999-9999-4999-8999-999999999999'
@@ -46,11 +47,11 @@ const callsFile = () => join(tmp, 'calls.txt')
 const bodyFile = () => join(tmp, 'body.json')
 
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync('sh', [DFLOW, ...args], {
+  return spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8', cwd: repo,
     env: {
       NODE_ENV: process.env.NODE_ENV,
-      PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
+      NODE_OPTIONS: CURL_SHIM_OPTS, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
       HOME: join(tmp, 'home'), XDG_CACHE_HOME: join(tmp, 'cache'),
       DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
       DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: TOKEN, DFLOW_PROJECT_ID: PID,
@@ -201,18 +202,19 @@ describe('done --decisions — 경고(보고는 계속)', () => {
 
 describe('상한·계약 버전 — 서버 상수와 같다', () => {
   const src = readFileSync(DFLOW, 'utf8')
-  const v = (name: string) => Number((src.match(new RegExp(`^${name}=(\\d+)$`, 'm')) ?? [])[1])
+  // node 판은 `const NAME = 값;` 이고, MIN·MAX 두 상수는 DECISIONS_OPTIONS_*·DECISIONS_RATIONALE_MAX 로 이름이 복수형이다.
+  const v = (name: string) => Number((src.match(new RegExp(`^const ${name} = (\\d+);$`, 'm')) ?? [])[1])
   it('셸 상한 변수 = agentWork.ts 상수', () => {
     expect(v('DECISIONS_MAX')).toBe(AGENT_DECISIONS_MAX)
-    expect(v('DECISION_OPTIONS_MIN')).toBe(AGENT_DECISION_OPTIONS_MIN)
-    expect(v('DECISION_OPTIONS_MAX')).toBe(AGENT_DECISION_OPTIONS_MAX)
+    expect(v('DECISIONS_OPTIONS_MIN')).toBe(AGENT_DECISION_OPTIONS_MIN)
+    expect(v('DECISIONS_OPTIONS_MAX')).toBe(AGENT_DECISION_OPTIONS_MAX)
     expect(v('DECISION_QUESTION_MAX')).toBe(AGENT_DECISION_QUESTION_MAX)
     expect(v('DECISION_OPTION_MAX')).toBe(AGENT_DECISION_OPTION_MAX)
-    expect(v('DECISION_RATIONALE_MAX')).toBe(AGENT_DECISION_RATIONALE_MAX)
+    expect(v('DECISIONS_RATIONALE_MAX')).toBe(AGENT_DECISION_RATIONALE_MAX)
     expect(v('DECISION_ON_REJECT_MAX')).toBe(AGENT_DECISION_ON_REJECT_MAX)
   })
   it('CONTRACT_VERSION = 서버 AGENT_CONTRACT_VERSION = 계약 문서 머리말', () => {
-    const cli = (src.match(/^CONTRACT_VERSION=([\d.]+)$/m) ?? [])[1]
+    const cli = (src.match(/^const CONTRACT_VERSION = '([\d.]+)';$/m) ?? [])[1]
     const server = (readFileSync(join(ROOT, 'src/lib/agent/externalApi.ts'), 'utf8').match(/AGENT_CONTRACT_VERSION = '([\d.]+)'/) ?? [])[1]
     const doc = readFileSync(join(ROOT, '.claude/skills/dflow-work/references/api-contract.md'), 'utf8')
     expect(cli).toBe('2.11')

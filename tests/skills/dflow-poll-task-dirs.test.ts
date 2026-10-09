@@ -6,16 +6,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 describe('poll.sh 승인 감지 대상', () => {
-  const POLL = readFileSync(join(process.cwd(), '.claude/skills/dflow-poll/scripts/poll.sh'), 'utf8')
+  const POLL = readFileSync(join(process.cwd(), '.claude/skills/dflow-poll/scripts/poll.mjs'), 'utf8')
   it('고정 경로 docs/tasks 대신 dflow_config_tasks_dirs 를 훑는다', () => {
     expect(POLL).not.toContain('$PWD/docs/tasks')
-    expect(POLL).toContain('dflow_config_tasks_dirs')
+    expect(POLL).toContain('dfcTasksDirs') // node 판의 dflow_config_tasks_dirs 이식 함수
   })
 })
 
 describe('poll.sh 두 작업 폴더 감지', () => {
   const ROOT = process.cwd()
-  const POLL_SH = join(ROOT, '.claude/skills/dflow-poll/scripts/poll.sh')
+  const POLL_SH = join(ROOT, '.claude/skills/dflow-poll/scripts/poll.mjs')
   const DFLOW_CONFIG = join(ROOT, '.claude/skills/dflow-work/scripts/dflow-config.sh')
 
   const GIT_ENV = {
@@ -115,7 +115,7 @@ esac
       DFLOW_CONFIG_DIR: repo,
       PATH: `${stubBinDir}:${GIT_ENV.PATH}`
     }
-    const r = sh(repo, `sh '${POLL_SH}' --interval 1 --until none`, pollEnv)
+    const r = sh(repo, `node '${POLL_SH}' --interval 1 --until none`, pollEnv)
 
     // poll.sh should exit with code 9 (approval detected) and output both TSK-A and TSK-B
     expect(r.code).toBe(9)
@@ -129,7 +129,7 @@ esac
     mkdirSync(join(repo, 'docs/tasks/TSK-A'), { recursive: true })
     writeFileSync(join(repo, 'docs/tasks/TSK-A/state.json'), JSON.stringify({
       tsk: 'TSK-A', order: 'uuid-order-a-1234567890ab', api_base: 'https://p.test', phase: 'reported' }))
-    const r = sh(repo, `sh '${POLL_SH}' --interval 1 --until none`, {
+    const r = sh(repo, `node '${POLL_SH}' --interval 1 --until none`, {
       DFLOW_SH: join(stubBinDir, 'dflow.sh'), DFLOW_WATCH: '0', DFLOW_CONFIG_DIR: repo, PATH: `${stubBinDir}:${GIT_ENV.PATH}`,
     })
     expect(r.code).toBe(9)
