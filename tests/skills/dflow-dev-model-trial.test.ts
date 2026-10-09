@@ -23,7 +23,7 @@ const BUILD = SK('dflow-dev/references/phase-build.md')
 const RAT = SK('dflow-dev/references/rationale.md')
 const TRIAL = join(ROOT, '.claude/skills/dflow-dev/scripts/build-trial.sh')
 const LIB = join(ROOT, '.claude/skills/dflow-work/scripts/dflow-config.sh')
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 
 let tmp: string
 beforeEach(() => { tmp = realpathSync(mkdtempSync(join(tmpdir(), 'dflow-trial-'))) })
@@ -114,7 +114,7 @@ describe('설정 키 — build_model_trial* 는 개인 설정', () => {
   })
   it('dflow.sh config 로 값을 확인할 수 있다', () => {
     writeFileSync(join(tmp, '.dflow'), DOT); writeFileSync(join(tmp, '.dflow.local'), 'dev_branch=dev/me\nbuild_model_trial_rate=40\n')
-    const r = spawnSync('sh', [DFLOW, 'config', 'build_model_trial_rate'], {
+    const r = spawnSync('node', [DFLOW, 'config', 'build_model_trial_rate'], {
       encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: '/nonexistent', DFLOW_CONFIG_DIR: tmp } as NodeJS.ProcessEnv })
     expect(r.status, r.stderr).toBe(0); expect(r.stdout.trim()).toBe('40')
   })

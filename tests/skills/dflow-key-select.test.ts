@@ -5,9 +5,10 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 
 const ROOT = process.cwd()
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 
 // 가짜 토큰. 형식만 서버 PAT_RE(dflow_pat_<영숫자 12>_<20자 이상>)를 따른다. 실제 키가 아니다.
 const SECRET = 'x'.repeat(24)
@@ -39,12 +40,12 @@ printf '%s' "$body" > "$out"; printf '%s' "$code"
 
 let tmp: string
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync('sh', [DFLOW, ...args], {
+  return spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8',
     env: {
       // NODE_ENV 는 Next 의 ProcessEnv 타입이 필수로 요구한다(heartbeat-hook.test.ts 와 같은 이유). 스크립트는 읽지 않는다.
       NODE_ENV: process.env.NODE_ENV,
-      PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
+      NODE_OPTIONS: CURL_SHIM_OPTS, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
       XDG_CACHE_HOME: join(tmp, 'cache'), // 프로필 캐시가 실제 ~/.cache/dflow 를 건드리지 않게 한다
       DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
       DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: `${A},${B},${C}`, ...env,
@@ -182,7 +183,7 @@ describe('dflow.sh doctor 의 키 표시(스펙 §4-3)', () => {
   it('DFLOW_AS 가 어느 토큰과도 안 맞으면 경고하고 exit 0 이다', () => {
     const r = run(['doctor'], { DFLOW_AS: 'ZZZZZZZZZZZZ' })
     expect(r.status).toBe(0)
-    expect(r.stdout).toContain('⚠ DFLOW_AS=ZZZZZZZZZZZZ 에 맞는 토큰이 없습니다 — dflow.sh profiles 의 prefix 를 적으세요.')
+    expect(r.stdout).toContain('⚠ DFLOW_AS=ZZZZZZZZZZZZ 에 맞는 토큰이 없습니다 — dflow.mjs profiles 의 prefix 를 적으세요.')
     expect(r.stdout).not.toContain('[선택됨]')
   })
 })

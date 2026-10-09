@@ -118,8 +118,8 @@ describe('dflow_config_load — 우선순위·키 범위(스펙 §3·§4)', () =
 // no_docker: 두 파일 모두 받는 키(범위 both). 우선순위 env > .dflow.local > .dflow. 규칙 정본은
 // .claude/skills/dflow-dev/references/dev-discipline.md 「도커 사용 규칙」(2026-09-24 dmes-standard 사고).
 describe('no_docker — 두 파일 모두 받는 키', () => {
-  const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
-  const get = (env: Record<string, string> = {}) => sh(repo, `sh '${DFLOW}' config no_docker`, env)
+  const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.mjs')
+  const get = (env: Record<string, string> = {}) => sh(repo, `node '${DFLOW}' config no_docker`, env)
   it('.dflow 에만 no_docker=1 이면 1, 범위 경고 없이', () => {
     writeFileSync(join(repo, '.dflow'), DOT + 'no_docker=1\n'); writeFileSync(join(repo, '.dflow.local'), LOCAL)
     const r = get()
@@ -161,8 +161,8 @@ describe('no_docker — 두 파일 모두 받는 키', () => {
 // dialect_check: 방언 검증 명령(/dflow-merge 「방언 검증」). 리포 공통(.dflow)에 두고, PC 전용 값(JAVA_HOME 등)이 든 명령은
 // .dflow.local 이 덮는다(범위 both). 값에 공백·=·&&·경로가 든 셸 명령이 그대로 나와야 한다.
 describe('dialect_check — 두 파일 모두 받는 키', () => {
-  const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
-  const get = (env: Record<string, string> = {}) => sh(repo, `sh '${DFLOW}' config dialect_check`, env)
+  const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.mjs')
+  const get = (env: Record<string, string> = {}) => sh(repo, `node '${DFLOW}' config dialect_check`, env)
   const CMD = 'cd src/backend/mdm && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ../gradlew :api:mssqlMigrationTest --no-daemon --console=plain'
   it('.dflow 의 명령을 공백·=·&& 그대로 내고 범위 경고가 없다', () => {
     writeFileSync(join(repo, '.dflow'), DOT + 'dialect_check=./gradlew mssqlMigrationTest -Pdb=mssql\n'); writeFileSync(join(repo, '.dflow.local'), LOCAL)
@@ -228,10 +228,10 @@ describe('.dflow 위치 폴백과 브랜치(스펙 §5-2·§6)', () => {
   })
 })
 
-const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.mjs')
 describe('dflow.sh config·branch(스펙 §6)', () => {
   beforeEach(() => { writeFileSync(join(repo, '.dflow'), DOT); writeFileSync(join(repo, '.dflow.local'), LOCAL) })
-  const run = (args: string, env: Record<string, string> = {}) => sh(repo, `sh '${DFLOW}' ${args}`, env)
+  const run = (args: string, env: Record<string, string> = {}) => sh(repo, `node '${DFLOW}' ${args}`, env)
   it('config <key> 는 값을, branch 는 브랜치를 낸다 — 토큰·네트워크 없이', () => {
     expect(run('config api_base').out).toBe('https://p.test\n')
     expect(run('config automerge').out).toBe('1\n')

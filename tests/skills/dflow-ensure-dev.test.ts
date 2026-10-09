@@ -6,12 +6,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.mjs')
 let tmp: string; let repo: string; let bare: string
 
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim()
 function run(env: Record<string, string> = {}) {
-  const r = spawnSync('sh', [DFLOW, 'branch', 'ensure-dev'], {
+  const r = spawnSync('node', [DFLOW, 'branch', 'ensure-dev'], {
     encoding: 'utf8', cwd: repo,
     env: {
       NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? '', HOME: join(tmp, 'home'),

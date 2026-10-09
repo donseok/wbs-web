@@ -8,9 +8,10 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 
 const ROOT = process.cwd()
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8')
 
 const TOKEN = `dflow_pat_AAAAAAAAAAAA_${'x'.repeat(24)}`
@@ -68,12 +69,12 @@ let repo: string
 let bodies: string
 
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync('sh', [DFLOW, ...args], {
+  return spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8',
     cwd: repo,
     env: {
       NODE_ENV: process.env.NODE_ENV,
-      PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
+      NODE_OPTIONS: CURL_SHIM_OPTS, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
       HOME: join(tmp, 'home'),
       XDG_CACHE_HOME: join(tmp, 'cache'),
       DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
@@ -208,7 +209,7 @@ describe('dflow.sh contract-ge — 숫자 비교', () => {
 
 describe('계약 문서·usage', () => {
   it('usage 가 --design-first·build-start·contract-ge 를 안내한다', () => {
-    const sh = read('.claude/skills/dflow-work/scripts/dflow.sh')
+    const sh = read('.claude/skills/dflow-work/scripts/dflow.mjs')
     expect(sh).toContain('claim <ref> [--design-first]')
     expect(sh).toContain('build-start <ref>')
     expect(sh).toContain('contract-ge <x.y>')

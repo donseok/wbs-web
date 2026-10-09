@@ -5,9 +5,10 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 
 const ROOT = process.cwd()
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 const TOKEN = `dflow_pat_AAAAAAAAAAAA_${'x'.repeat(24)}` // 가짜. 실제 키가 아니다
 const P1 = '11111111-1111-4111-8111-111111111111'
 const P2 = '22222222-2222-4222-8222-222222222222'
@@ -43,7 +44,7 @@ printf '%s' "$body" > "$out"; printf '%s' "$code"
 
 let tmp: string, repo: string, log: string
 const envFor = (env: Record<string, string>) => ({
-  NODE_ENV: process.env.NODE_ENV,
+  NODE_ENV: process.env.NODE_ENV, NODE_OPTIONS: CURL_SHIM_OPTS,
   PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
   XDG_CACHE_HOME: join(tmp, 'cache'), FAKE_LOG: log,
   DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
@@ -53,7 +54,7 @@ const envFor = (env: Record<string, string>) => ({
   DFLOW_HEAVY_SH: join(tmp, 'heavy-off.sh'), ...env,
 })
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync('sh', [DFLOW, ...args], { cwd: repo, encoding: 'utf8', env: envFor(env) })
+  return spawnSync('node', [DFLOW, ...args], { cwd: repo, encoding: 'utf8', env: envFor(env) })
 }
 const sent = () => readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
 const stateFile = () => join(repo, '.git', 'dflow-team.lease')
@@ -279,7 +280,7 @@ describe('lease keep', () => {
   })
   it('SIGTERM 을 받으면 release 하고 끝난다(세션 종료가 백그라운드 태스크를 거둘 때)', async () => {
     run(['lease', 'acquire'])
-    const child = spawn('sh', [DFLOW, 'lease', 'keep', '--pid', String(process.pid), '--lost-file', join(tmp, 'lost')], {
+    const child = spawn('node', [DFLOW, 'lease', 'keep', '--pid', String(process.pid), '--lost-file', join(tmp, 'lost')], {
       cwd: repo, env: envFor({}),
     })
     await new Promise(r => setTimeout(r, 1500))   // 첫 갱신까지
@@ -305,7 +306,8 @@ cat <<'EOF'
     12345   67890   12345   424242  ?        1000  10:00:00 /usr/bin/bash
 EOF
 `
-  it('Windows 흉내: kill -0 실패해도 ps -W 의 WINPID 로 살아있으면 먼저 반납하지 않고 renew 로 간다', () => {
+  // node 판(dflow-lease.mjs)은 process.kill(pid, 0) 으로 윈도우에서도 존재를 검사해 sh 판의 MSYS ps -W 폴백이 없다 — sh 전용 시험이라 skip.
+  it.skip('Windows 흉내: kill -0 실패해도 ps -W 의 WINPID 로 살아있으면 먼저 반납하지 않고 renew 로 간다', () => {
     run(['lease', 'acquire'])
     writeFileSync(join(tmp, 'bin/uname'), FAKE_UNAME, { mode: 0o755 })
     writeFileSync(join(tmp, 'bin/ps'), FAKE_PS_WITH_WINPID, { mode: 0o755 })
@@ -314,7 +316,7 @@ EOF
     expect(readFileSync(join(tmp, 'lost'), 'utf8').trim()).toBe(`LEASE_LOST ${P1}`)
     expect(sent().some(b => b.op === 'release')).toBe(false)
   })
-  it('Windows 흉내: ps -W 목록에 없는 PID 는 죽은 것으로 보고 즉시 반납한다', () => {
+  it.skip('Windows 흉내: ps -W 목록에 없는 PID 는 죽은 것으로 보고 즉시 반납한다', () => {
     run(['lease', 'acquire'])
     writeFileSync(join(tmp, 'bin/uname'), FAKE_UNAME, { mode: 0o755 })
     writeFileSync(join(tmp, 'bin/ps'), FAKE_PS_WITH_WINPID, { mode: 0o755 })
