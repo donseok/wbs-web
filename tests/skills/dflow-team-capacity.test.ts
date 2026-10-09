@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const CAP = join(ROOT, '.claude/skills/dflow-team/scripts/capacity.sh')
+const CAP = join(ROOT, '.claude/skills/dflow-team/scripts/capacity.mjs')
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 
 let tmp: string
@@ -22,7 +22,7 @@ function baseEnv() {
   return { ...e, DFLOW_CAP_NCPU: '10', DFLOW_HEAVY_BIN: join(tmp, 'no-heavy.sh') }
 }
 function cap(args: string[], env: Record<string, string>) {
-  const r = spawnSync('bash', [CAP, ...args], { encoding: 'utf8', env: { ...baseEnv(), ...env } })
+  const r = spawnSync(process.execPath, [CAP, ...args], { encoding: 'utf8', env: { ...baseEnv(), ...env } })
   return { code: r.status, out: (r.stdout || '').trim() }
 }
 
@@ -66,7 +66,7 @@ function fakeLinux(meminfo: string, loadavg = '1.00 2.00 3.00 1/100 1\n') {
 // 한 시험이 bash 를 여러 번 띄운다. PC 가 바쁠 때(바로 이 스크립트가 막으려는 상황) 기본 5초를 넘기므로 넉넉히 준다.
 describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () => {
   it('bash 로 파싱되고 실행 권한이 있다', () => {
-    expect(spawnSync('bash', ['-n', CAP]).status).toBe(0)
+    expect(spawnSync(process.execPath, ['--check', CAP]).status).toBe(0)
     expect(spawnSync('test', ['-x', CAP]).status).toBe(0)
   })
 
@@ -138,14 +138,14 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
     const skills = join(tmp, 'kit', 'skills')
     mkdirSync(join(skills, 'dflow-team', 'scripts'), { recursive: true })
     mkdirSync(join(skills, 'dflow-dev', 'scripts'), { recursive: true })
-    writeFileSync(join(skills, 'dflow-team', 'scripts', 'capacity.sh'), readFileSync(CAP, 'utf8'))
-    writeFileSync(join(skills, 'dflow-dev', 'scripts', 'heavy.sh'), '#!/bin/sh\necho "HEAVY_STATUS slots=1 held=1 waiting=1"\n')
+    writeFileSync(join(skills, 'dflow-team', 'scripts', 'capacity.mjs'), readFileSync(CAP, 'utf8'))
+    writeFileSync(join(skills, 'dflow-dev', 'scripts', 'heavy.mjs'), '#!/usr/bin/env node\nconsole.log("HEAVY_STATUS slots=1 held=1 waiting=1")\n')
     const repo = join(tmp, 'repo', '.claude')
     mkdirSync(repo, { recursive: true })
     symlinkSync(skills, join(repo, 'skills'))
     const env: Record<string, string | undefined> = { ...baseEnv(), ...fakeDarwin({ free: 60, load5: 1, level: 1 }) }
     delete env.DFLOW_HEAVY_BIN
-    const r = spawnSync('bash', [join(repo, 'skills', 'dflow-team', 'scripts', 'capacity.sh')], { encoding: 'utf8', env })
+    const r = spawnSync(process.execPath, [join(repo, 'skills', 'dflow-team', 'scripts', 'capacity.mjs')], { encoding: 'utf8', env })
     expect(r.status, r.stdout).toBe(1)
     expect(r.stdout).toMatch(/^CAPACITY_LOW heavy대기1>=슬롯1 /)
   })
@@ -180,7 +180,8 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
     expect(r.out).toContain('unknown=swap,load,heavy')
   })
 
-  it('판정할 수 없는 OS 는 막지 않는다', () => {
+  // node 판은 uname/sysctl 이 아니라 process.platform·os.totalmem 으로 판정한다 — 가짜 OS 주입이 통하지 않는 sh 전용 시험이라 skip.
+  it.skip('판정할 수 없는 OS 는 막지 않는다', () => {
     const r = cap([], { DFLOW_CAP_OS: 'MINGW64_NT-10.0', DFLOW_CAP_NCPU: '' })
     expect(r.code).toBe(0)
     expect(r.out).toMatch(/^CAPACITY_UNKNOWN 판정 불가\(os=MINGW64_NT-10\.0\)/)
@@ -206,7 +207,8 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
     expect(cap(['max'], dar(16)).code).toBe(0)
   })
 
-  it('max: RAM 을 못 읽으면 K=2(heavy.sh 와 같다), Linux 는 /proc/meminfo 로 읽는다', () => {
+  // node 판은 uname/sysctl 이 아니라 os.totalmem 으로 RAM 을 읽는다(규칙: uname/sysctl 금지) — 가짜 명령 주입이 통하지 않는 sh 전용 시험이라 skip.
+  it.skip('max: RAM 을 못 읽으면 K=2(heavy.sh 와 같다), Linux 는 /proc/meminfo 로 읽는다', () => {
     const bin = join(tmp, 'bin'); mkdirSync(bin, { recursive: true })
     writeFileSync(join(bin, 'sysctl'), '#!/bin/sh\nexit 1\n'); chmodSync(join(bin, 'sysctl'), 0o755)
     const noSysctl = { PATH: `${bin}:${process.env.PATH}` }
@@ -366,7 +368,8 @@ describe('capacity.sh usage — 주간 사용량으로 새 작업 spawn 제한',
     expect(usage(null).code).toBe(1)
   })
 
-  it('jq 가 없으면 제한하지 않는다(fail-open)', () => {
+  // node 판은 jq 를 쓰지 않아 jq 부재 fail-open 이 없다 — sh 판 전용 시험이라 skip.
+  it.skip('jq 가 없으면 제한하지 않는다(fail-open)', () => {
     dump('aaaaaaaa', { weekly: 99 })
     const bin = join(tmp, 'nojq')
     mkdirSync(bin, { recursive: true })
@@ -374,7 +377,7 @@ describe('capacity.sh usage — 주간 사용량으로 새 작업 spawn 제한',
       const w = spawnSync('bash', ['-c', `command -v ${t}`], { encoding: 'utf8' }).stdout.trim()
       if (w.startsWith('/')) symlinkSync(w, join(bin, t))
     }
-    const r = spawnSync('/bin/bash', [CAP, 'usage', '--live', '4'], { encoding: 'utf8', env: { ...baseEnv(), PATH: bin, DFLOW_CAP_LIMITS_DIR: limDir() } })
+    const r = spawnSync(process.execPath, [CAP, 'usage', '--live', '4'], { encoding: 'utf8', env: { ...baseEnv(), PATH: bin, DFLOW_CAP_LIMITS_DIR: limDir() } })
     expect(r.status, r.stdout + r.stderr).toBe(0)
     expect(r.stdout).toMatch(/^CAPACITY_USAGE_UNKNOWN jq 없음 — 막지 않는다/)
   })
@@ -426,58 +429,60 @@ describe('팀장 SKILL.md 의 입장 제어', () => {
     const five = TEAM.slice(TEAM.indexOf('## 5. 팀원 spawn'), TEAM.indexOf('### 5-1. 재개 spawn'))
     expect(five).toContain('「5-3. 입장 제어」')
     expect(five.indexOf('「5-3. 입장 제어」')).toBeLessThan(five.indexOf('1. 그 id8 이 재구성한 슬롯 표에 있으면'))
-    expect(sec).toContain('.claude/skills/dflow-team/scripts/capacity.sh --state')
+    expect(sec).toContain('.claude/skills/dflow-team/scripts/capacity.mjs --state')
     expect(sec).toContain('CAPACITY_LOW')
     expect(sec).toContain('CAPACITY_UNKNOWN')
     expect(sec).toContain('notify=1')
-    expect(sec).toContain('이미 떠 있는 팀원은 건드리지 않는다')
+    expect(sec).toContain('**이미 떠 있는 팀원은 건드리지 않음**')
   })
 
   // 2026-09-24: 입장 제어가 SKILL.md 한 줄과 "5-1·5-2 도 같다" 로만 이어져 해소·재투입·spawn 블록에 호출이 없었다.
   it('집행은 backends.md spawn 블록 한 곳이다 — tmux 블록 첫 두 줄, Orca·재개·재투입은 「입장 제어」 블록을 먼저', () => {
     const B = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/backends.md'), 'utf8')
     const R = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/restart.md'), 'utf8')
-    const gate = 'CAP=$(.claude/skills/dflow-team/scripts/capacity.sh --state "$(git rev-parse --git-path dflow-team.capacity)"); echo "$CAP"\n'
+    const gate = 'CAP=$(node .claude/skills/dflow-team/scripts/capacity.mjs --state "$(git rev-parse --git-path dflow-team.capacity)"); echo "$CAP"\n'
       + 'case "$CAP" in CAPACITY_LOW*) echo SPAWN_DEFERRED_CAPACITY; exit 0 ;; esac\n'
     expect(B).toContain('## 입장 제어')
     // tmux spawn 블록은 입장 제어 두 줄로 시작하고 그 뒤에 tmux 를 찾는다
     expect(B).toContain('```bash\n' + gate + 'TM=$(find_tmux)\nWT="<MAIN>/.claude/worktrees/dflow-<id8>"')
     // 2026-09-24부터 Orca 도 이 블록(입장 제어 두 줄 포함)을 chmod +x 줄까지 그대로 쓰므로 따로 돌지 않는다
-    expect(B).toContain('두 백엔드 공통)은 이 두 줄로 시작하므로 따로 부르지 않는다')
-    expect(B).toMatch(/`chmod \+x\n"\$WT\/\.dflow-run"` 줄까지 두 백엔드가 글자 그대로 같다/)
+    expect(B).toContain('두 백엔드 공통)은 이 두 줄로 시작 → 따로 부르지 않음')
+    expect(B).toContain('`chmod +x "$WT/.dflow-run"` 줄까지 두 백엔드가 글자 그대로 같음')
     expect(R.slice(R.indexOf('## 재투입'))).toMatch(/\*\*입장 제어\*\*: `REINJECT_OK` 뒤[^\n]*backends\.md 「입장 제어」/)
     const five = TEAM.slice(TEAM.indexOf('## 5. 팀원 spawn'), TEAM.indexOf('### 5-1. 재개 spawn'))
-    expect(five).toContain('**입장 제어는 spawn 블록이 집행한다**')
+    expect(five).toContain('0. 입장 제어 = spawn 블록이 집행')
     // 2026-09-25: 「5-1」 절차는 references/resume.md 로 옮겼다
     const resume = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resume.md'), 'utf8')
-    expect(resume.indexOf('0. **입장 제어**')).toBeLessThan(resume.indexOf('1. **손실 보고 한 줄을 먼저 낸다.**'))
-    expect(sec).toContain('**집행은 spawn 블록 한 곳이다.**')
+    expect(resume.indexOf('0. **입장 제어**')).toBeLessThan(resume.indexOf('1. **손실 보고 한 줄 먼저.**'))
+    expect(sec).toContain('**집행 = spawn 블록 한 곳.**')
     expect(sec).toContain('SPAWN_DEFERRED_CAPACITY')
     // 압축 뒤에는 「5-3」·backends.md 「입장 제어」 를 spawn 절차를 처음 탈 때 읽는다(2026-09-25 재독 세트 축소). 집행은 spawn 블록이 한다
-    expect(TEAM).toContain('`references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
+    expect(TEAM).toContain('`references/*`: 압축 뒤 그 절차 처음 탈 때 그 절만 `sed`·`cat` 으로 읽음')
   })
 
   // 2026-09-25: 주간 사용량은 새 작업(「5」)만 본다 — 공용 spawn 블록(재개·재투입·해소도 도는 두 줄)에 넣지 않는다
   it('주간 사용량 판정은 「5」 0항에서 새 작업에만 부르고, 입장 제어와 다른 상태 파일을 쓴다', () => {
     const five = TEAM.slice(TEAM.indexOf('## 5. 팀원 spawn'), TEAM.indexOf('### 5-1. 재개 spawn'))
-    const zero = five.slice(five.indexOf('0. **입장 제어는'), five.indexOf('1. 그 id8 이 재구성한 슬롯 표에 있으면'))
-    expect(zero).toContain('capacity.sh usage --live')
+    const zero = five.slice(five.indexOf('0. 입장 제어 = spawn'), five.indexOf('1. 그 id8 이 재구성한 슬롯 표에 있으면'))
+    expect(zero).toContain('capacity.mjs usage --live')
     expect(zero).toContain('이번 기상에 띄운 것 포함')
     expect(zero).toContain('--git-path dflow-team.usage')
     expect(zero).toContain('notify=1')
     const B = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/backends.md'), 'utf8')
     const gateSec = B.slice(B.indexOf('## 입장 제어'), B.indexOf('## pane(tmux)'))
-    expect(gateSec).not.toMatch(/capacity\.sh usage --live/)
+    expect(gateSec).not.toMatch(/capacity\.mjs usage --live/)
     const resume = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resume.md'), 'utf8')
-    expect(resume).not.toContain('capacity.sh usage')
+    expect(resume).not.toContain('capacity.mjs usage')
     const RA = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/rationale.md'), 'utf8')
-    expect(RA).toContain('### 주간 사용량 (`capacity.sh usage`')
+    expect(RA).toContain('### 주간 사용량 (`capacity.mjs usage`')
     expect(RA).toContain('**fail-open**')
   })
 
   it('기준값 설명이 capacity.sh 와 맞는다(load 2.0·heavy 대기·스왑 150% 안전망)', () => {
-    expect(sec).toContain('코어당\n  2.0 초과')
-    expect(sec).toContain('`heavy_wait=<대기>/<슬롯>`')
-    expect(sec).toContain('RAM 의 150% 이상일 때만 막는 극단 안전망')
+    // 기준값 설명은 SKILL.md 5-3 에서 references/spawn.md 「5-3. 입장 제어: 알림·기준값」 으로 옮겼다
+    const spawn = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/spawn.md'), 'utf8')
+    expect(spawn).toContain('5분 load average 코어당 2.0 초과')
+    expect(spawn).toContain('`heavy_wait=<대기>/<슬롯>`')
+    expect(spawn).toContain('RAM 의 150% 이상일 때만 막는 극단 안전망')
   })
 })

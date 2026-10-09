@@ -7,26 +7,34 @@ import { join } from 'node:path'
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
 const SKILL_DIR = join(ROOT, '.claude', 'skills', 'dflow-team')
 const read = (rel: string) => readFileSync(join(SKILL_DIR, rel), 'utf8')
-// 감시 루프(「2-2」)와 기상 블록(「2-3」)은 2026-09-25 에 scripts/tick.sh·wake.sh 로 옮겼다(팀장이 루프를 매번 다시 쓰지 않게)
-const tick = () => read('scripts/tick.sh')
-const wake = () => read('scripts/wake.sh')
+// 감시 루프(「2-2」)와 기상 블록(「2-3」)은 scripts/tick.mjs·wake.mjs 다(2026-09-25 에 sh 로 옮겼고, dflow-node-1010 에서 node 판으로 바뀜)
+const tick = () => read('scripts/tick.mjs')
+const wake = () => read('scripts/wake.mjs')
 // 분기 전용 절(2026-09-25): 전제 검사 결과별 처리·마감은 references 로 옮겼다
 const precheck = () => read('references/precheck.md')
 const closing = () => read('references/closing.md')
+// dflow-node-1010 절 분리: SKILL.md 에서 요약만 남기고 원문을 옮긴 절 (이동 지도 memo-dn-split-team.md)
+const start = () => read('references/start.md') // 시작 3번 서버 claimed 대조
+const leadState = () => read('references/lead-state.md') // 팀장 상태 복원 규칙·고아 스캔
+const resultHandling = () => read('references/result-handling.md') // 결과 처리: 생존 증거·status 표 나머지 행·무응답
+const sweepDoc = () => read('references/sweep.md') // 승인 스윕 결과별 처리
+const spawnDoc = () => read('references/spawn.md') // 팀원 spawn 단계 세부
+const blockedSeat = () => read('references/blocked-seat.md') // blocked 답 넣기·좌석표 연동
 
 // {ANSWER} 는 tmux 전환(스펙 2026-09-16 §9, 236a3a25)으로 없어졌고 {DEV_BRANCH} 가 .dflow 전환(cdccee70)으로 들어왔다
 const PLACEHOLDERS = ['{TSK}', '{ID8}', '{AGENT_ID}', '{MAIN_CHECKOUT}', '{BACKEND}', '{MODEL_FLAG}', '{DEV_BRANCH}']
 
 describe('dflow-work dflow.sh .env 자동 로드', () => {
-  // Task 2(.dflow 설정 전환): dflow.sh 는 이제 dflow-config.sh 를 source 해 로드를 위임한다.
-  // 레거시 폴백(DFLOW_ENV_FILE, 기본 ./.env)은 dflow-config.sh 에 남아 있고, 동작은
+  // Task 2(.dflow 설정 전환): dflow.mjs 는 dflow-config.mjs 를 import 해 로드를 위임한다(node 이식판).
+  // 레거시 폴백(DFLOW_ENV_FILE, 기본 ./.env)은 dflow-config.mjs 에 남아 있고, 동작은
   // tests/skills/dflow-config.test.ts 의 legacy 모드 테스트가 검사한다.
   it('환경에 PAT 가 없으면 DFLOW_ENV_FILE(기본 ./.env) 를 스스로 읽는다', () => {
-    const sh = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'utf8')
-    expect(sh).toContain('. "$(dirname "$0")/dflow-config.sh"')
-    expect(sh).toContain('dflow_config_load || exit 2')
-    const lib = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow-config.sh'), 'utf8')
-    expect(lib).toContain('_dfc_envf:-./.env')
+    const sh = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs'), 'utf8')
+    expect(sh).toContain("from './dflow-config.mjs'")
+    expect(sh).toContain('if (!dflowConfigLoad()) process.exit(2)')
+    const lib = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow-config.mjs'), 'utf8')
+    expect(lib).toContain("envf = envf || './.env'")
+    expect(lib).toContain('process.env.DFLOW_ENV_FILE')
   })
 })
 
@@ -46,7 +54,7 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     expect(p()).toContain('command -v git')
     expect(p()).toContain('bare `git` 금지')
     expect(p()).toContain('git rev-parse --git-dir --git-common-dir')
-    expect(p()).toContain('출력 두 줄이 **같으면** 주 워크트리')
+    expect(p()).toContain('출력 두 줄이 **같으면** 주 worktree')
     expect(p()).toContain('{TSK} {ID8} - - - failed not-isolated')
     expect(p()).toContain('**아무 파일도 쓰지 않고**')
     expect(p()).not.toContain('show-toplevel')
@@ -78,18 +86,18 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     expect(p()).toContain('if [ -d .claude/skills ] && [ ! -L .claude/skills ]; then')
     expect(p()).toContain('[ -e ".claude/skills/$s" ] || ln -s "{MAIN_CHECKOUT}/.claude/skills/$s" ".claude/skills/$s"')
     expect(p()).toContain('mkdir -p .claude && ln -s {MAIN_CHECKOUT}/.claude/skills .claude/skills')
-    expect(p()).toContain('.claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"')
+    expect(p()).toContain('node .claude/skills/dflow-work/scripts/dflow.mjs doctor; echo "doctor=$?"')
     expect(p()).not.toContain('. ./.env')
     expect(p()).toContain('git fetch origin && git switch --detach origin/<기본브랜치>')
     // .dflow 전환(2026-09-23): <기본브랜치> 는 팀장이 넘긴 {DEV_BRANCH} 다. 워커는 symbolic-ref·ls-remote 로
     // 다시 해석하지 않는다(dflow-config-docs.test.ts 가 이 계약을 단정한다).
-    expect(p()).toContain('`<기본브랜치>` 는 팀장이 넘긴 `{DEV_BRANCH}` 다')
+    expect(p()).toContain('`<기본브랜치>` = 팀장이 넘긴 `{DEV_BRANCH}`')
     expect(p()).not.toContain('symbolic-ref --short refs/remotes/origin/HEAD')
     expect(p()).toContain("grep -qE '^<!-- dflow-caps: worker |--worker' .claude/skills/dflow-dev/SKILL.md || echo NO_WORKER_FLAG")
   })
 
   it('인증은 doctor 종료 코드가 아니라 me 로 판정하고, 의존성은 설치하지 않는다(/dflow-dev 행 H 가 한다)', () => {
-    expect(p()).toContain('dflow.sh me >/dev/null || echo AUTH_FAILED')
+    expect(p()).toContain('dflow.mjs me >/dev/null || echo AUTH_FAILED')
     expect(p()).toContain('{TSK} {ID8} - - - failed auth')
     expect(p()).toContain('{TSK} {ID8} - - - failed doctor-<exit>')
     expect(p()).toContain('{TSK} {ID8} - - - failed no-skill')
@@ -106,12 +114,12 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
 
   it('/dflow-dev --worker 로 실행하고 Skill 미등록이면 SKILL.md 를 직접 따른다', () => {
     expect(p()).toContain('/dflow-dev {ID8} --worker {MODEL_FLAG}')
-    expect(p()).toContain('`.claude/skills/dflow-dev/SKILL.md` 를 Read 해서')
+    expect(p()).toContain('`.claude/skills/dflow-dev/SKILL.md` 를 Read')
   })
 
   it('서버 쓰기는 {ID8} 하나뿐이고 list 를 부르지 않는다', () => {
-    expect(p()).toContain('`list` 는 호출하지 않는다')
-    expect(p()).toContain('`show {ID8}` 뿐이다')
+    expect(p()).toContain('`list` 호출 금지')
+    expect(p()).toContain('`show {ID8}` 뿐')
   })
 
   it('.result 한 줄 형식, status 다섯, skipped 사유와 failed 구분 사유 넷을 담는다', () => {
@@ -126,15 +134,15 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
 
   // BACKEND 는 이제 언제나 pane 이라 백엔드별 표가 없어졌다(스펙 2026-09-16 §9, 236a3a25).
   it('blocked 는 커밋·push 뒤 쓰고 AskUserQuestion 을 쓰지 않는다', () => {
-    expect(p()).toContain('AskUserQuestion 을 쓰지 않는다')
-    expect(p()).toContain('현재 산출물을 커밋·push 한 뒤')
+    expect(p()).toContain('AskUserQuestion 사용 금지')
+    expect(p()).toContain('현재 산출물 commit·push')
     expect(p()).not.toContain('agent-team')
   })
 
   it('팀원은 권한 거부를 우회하지 않고 failed permission 으로 보고한다', () => {
-    expect(p()).toContain('**권한 거부**') // 236a3a25: 백엔드 구분이 없어져 '(프로세스)' 가 빠졌다
+    expect(p()).toContain('**permission 거부**') // 236a3a25: 백엔드 구분이 없어져 '(프로세스)' 가 빠졌다
     expect(p()).toContain('failed permission <거부된 명령의 첫 낱말들>')
-    expect(p()).toContain('`permission`(권한 거부')
+    expect(p()).toContain('`permission`(permission 거부')
   })
 
   it('기본 브랜치로 switch 하지 않는다(detach 만 한다)', () => {
@@ -144,10 +152,10 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
   it('blocked 직전에 좌석표 heartbeat 를 1회 보내고 실패를 무시한다(에이전트 스튜디오 v1 계약)', () => {
     const line = p()
       .split('\n')
-      .find((l) => l.includes('dflow.sh heartbeat {ID8} --phase blocked --note'))
+      .find((l) => l.includes('dflow.mjs heartbeat {ID8} --phase blocked --note'))
     expect(line, 'heartbeat 줄이 있어야 한다').toBeTruthy()
     expect(line!.trimEnd().endsWith('|| :')).toBe(true)
-    expect(p()).toContain('`.result` 를 쓰기\n전에 좌석표에 손 든 상태를 알린다')
+    expect(p()).toContain('`.result` 쓰기 전에 좌석표에 손 든 상태를 알림')
   })
 })
 
@@ -183,12 +191,12 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   // 300초 주기는 ab8ee46b(180초)로 바뀌었다.
   // 하드 상한 6 은 2026-09-24 에 PC 별 상한 min(6, K+2)(capacity.sh max)로 바뀌었다. 6 은 덮어도 넘지 못하는 천장으로 남는다.
   it('인자: 기본 3·상한 min(6, K+2), 종료 시각이 유일한 필수, 180초 고정, 작업 빼기는 agent 태그', () => {
-    expect(s()).toContain('**기본 3, 인원 상한은 이 PC 의 `min(6, K+2)`.**')
-    expect(s()).toContain('.claude/skills/dflow-team/scripts/capacity.sh max')
-    expect(s()).toContain('`DFLOW_TEAM_MAX`(1~6)로 덮는다')
-    expect(s()).toContain('**종료 시각은 유일한 필수 인자다.**')
-    expect(s()).toContain('poll 조회 주기는 180초(3분)로 고정하고')
-    expect(s()).toContain('`agent` 태그를 끈다')
+    expect(s()).toContain('**기본 3, 인원 상한 = 이 PC `min(6, K+2)`.**')
+    expect(s()).toContain('node .claude/skills/dflow-team/scripts/capacity.mjs max')
+    expect(s()).toContain('`DFLOW_TEAM_MAX`(1-6)로 덮음')
+    expect(s()).toContain('**종료 시각 = 유일한 필수 인자.**')
+    expect(s()).toContain('poll 조회 주기 180초(3분) 고정')
+    expect(s()).toContain('`agent` 태그 끔')
   })
 
   // 프로세스 백엔드 갈래와 "병렬 불가로 종료하지 않는다" 는 tmux 전환(스펙 2026-09-16 §2·§3)으로 없어졌다.
@@ -256,9 +264,12 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('**깨어날 때마다**')
     // 매 기상: 소유(신원 + 세션 PID)를 확인한 뒤에만 beat 를 쓰고, 아니면 잠금 상실
     expect(closing()).toContain('{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true')
-    expect(wake()).toContain('{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true')
-    expect(wake()).toContain('if [ "$o_who" = "$OWNER" ] && [ -n "$LEAD_PID" ] && [ "$o_pid" = "$LEAD_PID" ]; then\n  date +%s > "$LOCK/beat"')
-    expect(s()).toContain(".claude/skills/dflow-team/scripts/wake.sh --owner '<신원>/<host>/lead'")
+    // wake.mjs: owner 파일을 o_who·o_ts·o_pid 로 읽고, 신원 + 세션 PID 가 모두 맞을 때만 beat 를 쓴다
+    expect(wake()).toContain("const o_who = parts[0] ?? '';")
+    expect(wake()).toContain("const o_pid = parts.slice(2).join(' ');")
+    expect(wake()).toContain("if (o_who === OWNER && LEAD_PID !== '' && o_pid === LEAD_PID) {")
+    expect(wake()).toContain("fs.writeFileSync(path.join(lockAbs, 'beat')")
+    expect(s()).toContain(".claude/skills/dflow-team/scripts/wake.mjs --owner '<신원>/<host>/lead'")
     expect(s()).toContain('LOCK_LOST')
     expect(wake()).toContain('LOCK_LOST')
     expect(s()).not.toContain('date +%s > "$(git rev-parse --git-path dflow-team.lock)/beat"')
@@ -271,30 +282,32 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   // 생존은 .dflow-pid·pstart 대신 .dflow-pane 의 pane_dead 로 본다(146ea66d). blocked 는 재spawn 하지 않아
   // 대기 큐에 넣지 않는다(스펙 2026-09-16 §9).
   it('재구성 규칙: 슬롯 번호 발급, 살아 있는 팀원 정의(tmux 는 pane_dead 생존), 고아 스캔', () => {
-    expect(s()).toContain('흡수한 번호를 뺀 1..N 중 가장 작은 것')
-    expect(s()).toContain('"살아 있는 팀원" 은 spawn 했고 아직 최종 판정')
-    expect(s()).toContain('화면이 떠 있는지로 판단하지 않는다')
+    expect(s()).toContain('흡수한 번호 뺀 1..N 중 가장 작은 것')
+    expect(s()).toContain('"살아 있는 팀원" = spawn 했고 아직 최종 판정')
+    expect(s()).toContain('screen 떠 있는지로 판단 안 함')
     expect(s()).toContain('p=$(head -n 1 "$w/.dflow-pane" 2>/dev/null); alive=-')
     expect(s()).toContain(`d=$("$TM" -L dflow list-panes -t "$p" -F '#{pane_dead}' 2>/dev/null | head -n 1)`)
-    expect(s()).toContain('팀장 세션이 새로 떠도 살아 있는 tmux 팀원은 원래 슬롯\n  번호로 흡수한다')
+    expect(s()).toContain('팀장 세션 새로 떠도 살아 있는 tmux 팀원은 원래 슬롯 번호로 흡수')
     expect(s()).toContain('**고아 스캔**')
   })
 
   it('결과 중복 방지: 결과 줄 해시를 경로별 마지막 처리 해시와 비교한다', () => {
     expect(s()).toContain("printf '%s\\n' \"$l\" | cksum | cut -d' ' -f1")
     expect(s()).toContain('경로별 마지막 처리 해시')
-    expect(s()).toContain('해시가 다를 때만 처리한다')
+    expect(s()).toContain('현재 줄 해시와 비교해 다를 때만 처리')
   })
 
   it('재기동 때 이어받은 것(답 대기 blocked 포함)을 team.start 바로 뒤에 다시 기록하고 그 id8 은 재개 필요로 보지 않는다', () => {
     expect(s()).toContain('`team.start` 바로 뒤에')
-    expect(s()).toContain('이어받은 팀원이 살아 있지 않은 것으로 보이고 같은 결과가 다시 처리된다')
-    expect(s()).toContain('답을 기다리는 `blocked` 마다')
+    expect(s()).toContain('이어받은 팀원 죽은 것으로 보이고 같은 결과 재처리됨')
+    expect(s()).toContain('답 기다리는 `blocked` 마다')
     // 이어받은 슬롯의 재기록은 재개 재시도로 세지 않는다 — spawn_kind 로 가른다.
-    expect(s()).toContain('`team.spawn`(`spawn_kind` 는 `readopt`)')
-    expect(s()).toContain('답을 기다리는 `blocked`·대기 중인 답 어디에도 없는 id8')
+    expect(s()).toContain('`team.spawn`(`spawn_kind` = `readopt`')
+    // 서버 claimed 대조 전문은 start.md 로 옮겼다(SKILL.md 3번은 요약).
+    expect(start()).toContain('답 기다리는 `blocked`·대기 중인 답 어디에도 없는 id8')
     // 워크트리가 없는 갈래만 자동 재착수에서 뺀다. 남아 있는 갈래는 고아 스캔이 이어받는다.
-    expect(s()).toContain('**"멈춤" 표(사유 `워크트리 없음`)**')
+    expect(start()).toContain('**"멈춤" 표(사유 `워크트리 없음`)**')
+    expect(s()).toContain('"멈춤" 표(사유 `워크트리 없음`)')
   })
 
   // 백엔드별·LEAD_SKIP_PERMISSIONS 별 두 갈래 안내는 스펙 2026-09-16 §9 로 없어졌다. 팀원은 언제나 생략 모드다.
@@ -305,20 +318,21 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
 
   it('감시 루프: 세대 파일로 교체하고 줄 전체(해시)를 비교하며 TICK 은 예정 시각으로 낸다', () => {
     expect(s()).toContain('$(git rev-parse --git-path dflow-team.gen)')
-    expect(tick()).toContain('git rev-parse --path-format=absolute --git-path dflow-team.gen')
-    expect(tick()).toContain('echo STALE')
+    expect(tick()).toContain("['rev-parse', '--path-format=absolute', '--git-path', 'dflow-team.gen']")
+    expect(tick()).toContain("process.stdout.write('STALE\\n')")
     expect(tick()).toContain('RESULT_READY')
-    expect(tick()).toContain('echo TICK')
-    expect(tick()).toContain('[ "$(date +%s)" -ge "$TICK_AT" ]')
-    expect(tick()).toContain("sum=$(printf '%s\\n' \"$cur\" | cksum | cut -d' ' -f1)")
-    expect(s()).toContain('**줄 전체를 비교한다**')
+    expect(tick()).toContain("process.stdout.write('TICK\\n')")
+    expect(tick()).toContain('if (nowSec() >= TICK_AT) {')
+    // 줄 전체(첫 줄 + 개행)의 cksum 을 넘겨받은 해시와 비교한다
+    expect(tick()).toContain("cksumFirst(Buffer.from(cur + '\\n', 'utf8')) !== prev")
+    expect(s()).toContain('**줄 전체 비교**')
     expect(s()).toContain('run_in_background')
     // tmux 팀원은 pane_dead 로 죽음을 감지한다(146ea66d, 종전 PID). 결과 줄이 새로 있으면 RESULT_READY 가 먼저다
-    expect(tick()).toContain('[ "$d" = 0 ] || dead="$dead $f"')
-    expect(tick()).toContain('[ -n "$hit" ] && { echo "RESULT_READY$hit"; exit 0; }\n  [ -n "$dead" ] && { echo "PANE_DEAD$dead"; exit 0; }')
+    expect(tick()).toContain("if (d !== '0') dead += ` ${f}`;")
+    expect(tick()).toContain("if (hit !== '') { process.stdout.write(`RESULT_READY${hit}\\n`); return 0; }\n    if (dead !== '') { process.stdout.write(`PANE_DEAD${dead}\\n`); return 0; }")
     // 항목 형식(경로|해시|pane)은 그대로다. 팀장은 스크립트를 한 줄로 부른다
     expect(s()).toContain("-- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'")
-    expect(s()).toContain('.claude/skills/dflow-team/scripts/tick.sh [--new-tick] [--may-skip]')
+    expect(s()).toContain('node .claude/skills/dflow-team/scripts/tick.mjs [--new-tick] [--may-skip]')
     // --pid 가 없으면 tick.sh 가 ppid 로 추정해, 실행이 한 단계 더 감싸이면 LOCK_LOST 로 건너뛰기가 무력화된다(2026-09-25 검토)
     expect(s()).toContain(`--until-label '<UNTIL_LABEL>' --pid "\${CLAUDE_PID:-$PPID}" \\\n  -- '<워크트리1>`)
   })
@@ -328,15 +342,15 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('mkdir -p "$(git rev-parse --git-path dflow-team-poll)"')
     expect(s()).toContain('POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)')
     expect(s()).toContain('( cd "$POLL_DIR" && DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0 \\')
-    expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --lead --until \'<UNTIL>\' --interval 180 --recheck-cycles 10 \\')
+    expect(s()).toContain('node "<MAIN>/.claude/skills/dflow-poll/scripts/poll.mjs" --require-tag agent --lead --until \'<UNTIL>\' --interval 180 --recheck-cycles 10 \\')
     expect(s()).toContain('--wait-cycles 40 [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] [--exclude-wait <id8,id8>] )')
   })
 
   it('poll 재기동 조건과 제외 목록: 영구 ∪ 슬롯 id8, 빈 목록은 플래그 생략, 대기 큐 제외 금지, exit 9·10 분기 없음', () => {
-    expect(s()).toContain('**재기동 조건**')
-    expect(s()).toContain('**영구 제외 ∪ 현재 슬롯의 id8**')
-    expect(s()).toContain('**목록이 비면 그 플래그 자체를 생략한다.**')
-    expect(s()).toContain('대기 큐는 `--exclude` 에 넣지 않는다')
+    expect(s()).toContain('**restart 조건**')
+    expect(s()).toContain('**영구 제외 ∪ 현재 슬롯 id8**')
+    expect(s()).toContain('**목록이 비면 그 플래그 자체 생략.**')
+    expect(s()).toContain('대기 큐 `--exclude` 에 넣지 않음')
     expect(s()).not.toMatch(/^\| poll exit (9|10)/m)
   })
 
@@ -347,14 +361,16 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   })
 
   it('SKILL.md 가 분기하는 poll exit code 는 poll.sh 머리말이 문서화한 것뿐이다', () => {
-    // 머리말의 `# exit:` 줄과 그 들여쓴 이어짐 줄만 본다 — 다른 머리말 줄의 숫자(예: "계약 2.11")가 코드로 잡히지 않게(deferred A8)
-    const lines = readFileSync(join(ROOT, '.claude/skills/dflow-poll/scripts/poll.sh'), 'utf8').split('\n')
-    const at = lines.findIndex((l) => l.startsWith('# exit:'))
-    expect(at, '# exit: 줄').toBeGreaterThanOrEqual(0)
+    // 머리말의 `// exit:` 줄과 그 들여쓴 이어짐 줄만 본다 — 다른 머리말 줄의 숫자(예: "계약 2.11")가 코드로 잡히지 않게(deferred A8)
+    // poll.mjs 는 승인(9)·반려(10) 감지를 `exit:` 줄 위쪽 문장("… exit 9", "… exit 10")에 적으므로 그 `exit N` 꼴만 더한다.
+    const lines = readFileSync(join(ROOT, '.claude/skills/dflow-poll/scripts/poll.mjs'), 'utf8').split('\n')
+    const at = lines.findIndex((l) => l.startsWith('// exit:'))
+    expect(at, '// exit: 줄').toBeGreaterThanOrEqual(0)
     let end = at + 1
-    while (end < lines.length && /^#\s{2,}\S/.test(lines[end])) end++
+    while (end < lines.length && /^\/\/\s{2,}\S/.test(lines[end])) end++
     const header = lines.slice(at, end).join(' ')
     const documented = new Set(header.match(/\b\d{1,2}\b/g) ?? [])
+    for (const l of lines.slice(0, at)) for (const m of l.matchAll(/\bexit (\d{1,2})\b/g)) documented.add(m[1])
     expect(documented.has('11'), '계약 2.11 의 11 은 exit 코드가 아니다').toBe(false)
     for (const c of ['0', '8', '9', '10']) expect(documented.has(c), `exit ${c} 는 이어짐 줄까지 읽어야 보인다`).toBe(true)
     const used = [...s().matchAll(/poll exit (\d{1,2})/g)].map((m) => m[1])
@@ -363,9 +379,9 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   })
 
   it('poll exit 0: 영구 제외·슬롯 표와만 다시 대조하고(일시 제외는 보지 않는다) show 는 jq 로 .order.item 경로의 필요한 필드만 뽑는다', () => {
-    expect(s()).toContain('영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다')
-    expect(s()).toContain('일시 제외는 대조하지 않는다')
-    expect(s()).toContain('id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다')
+    expect(s()).toContain('영구 제외 목록·슬롯 표에만 한 번 더 대조해 걸리는 것 버림')
+    expect(s()).toContain('일시 제외는 대조 안 함')
+    expect(leadState()).toContain('제외 목록 = id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정함')
     expect(s()).toContain('.order.item.external_ref')
     expect(s()).toContain('.order.item.spec')
     expect(s()).not.toMatch(/`\.item\.(spec|external_ref)`/)
@@ -373,55 +389,60 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
 
   // PROC_DEAD·.dflow-worker.log 폴백·kill <PID> 는 tmux 전환으로 PANE_DEAD·죽은 pane 화면 폴백·kill-pane 이 됐다(146ea66d).
   it('결과 처리: 경로 매칭, PANE_DEAD 는 .result → 죽은 pane 화면 폴백 → 즉시 failed no-result, kill-pane 회수, 차단기, rate-limit·deps·permission, 즉시 정리', () => {
-    expect(s()).toContain('슬롯은 경로(그 슬롯의\n  워크트리)로 찾는다')
+    expect(s()).toContain('슬롯은 경로(그 슬롯 worktree)로 찾음')
     expect(s()).toContain('`PANE_DEAD <경로>`(tmux)')
     expect(s()).toContain('backends.md 「결과 줄과 죽은 pane 폴백」 대로 `capture-pane -p -J -S -`')
-    expect(s()).toContain('**곧바로** `failed no-result` 로 판정한다')
+    expect(s()).toContain('곧바로 `failed no-result` 판정')
     expect(s()).not.toContain('suspect')
     expect(s()).not.toContain('TaskStop(w<slot>-<id8>)')
     expect(s()).toContain('pane 을 `kill-pane -t <pane>` 으로 거두고')
     expect(s()).toContain('그 id8 을 먼저 진행 중 영구 제외에서 빼고')
     expect(s()).toContain('연속 2건')
-    expect(s()).toContain('| `failed rate-limit` |')
-    expect(s()).toContain('| `failed deps` |')
-    expect(s()).toContain('| `failed permission <명령>` |')
-    expect(s()).toContain('| `failed no-result`(pane 이 죽었는데 결과 줄 없음) |')
-    expect(s()).toContain('그 자리에서 정리한다')
+    // status 표의 합친 행은 SKILL.md 에 요점만 남기고 행 전문은 result-handling.md 「status 표 나머지 행」 으로 옮겼다
+    expect(resultHandling()).toContain('| `failed rate-limit` |')
+    expect(resultHandling()).toContain('| `failed deps` |')
+    expect(resultHandling()).toContain('| `failed permission <명령>` |')
+    expect(resultHandling()).toContain('| `failed no-result`(pane 죽었는데 결과 줄 없음) |')
+    expect(s()).toContain('`failed permission`·`failed rate-limit`·`failed no-result`')
+    expect(s()).toContain('**그 자리에서 정리**')
   })
 
   it('생존 증거는 브랜치 tip·서버 progress·미커밋 목록이고 화면은 쓰지 않는다', () => {
-    expect(s()).toContain('**화면은 생존 증거로 쓰지 않는다.**')
-    expect(s()).toContain('git -C <워크트리> log -1 --format=%ct')
+    expect(s()).toContain('**screen 은 생존 증거로 쓰지 않음**')
+    expect(resultHandling()).toContain('git -C <워크트리> log -1 --format=%ct')
     expect(s()).not.toMatch(/terminal read[^\n]*\| cksum/)
   })
 
   it('무응답은 보고만 하고 슬롯을 유지하며, 자동 정리는 두 TICK 연속일 때만 하고 두 백엔드가 같다', () => {
-    expect(s()).toContain('"무응답" 으로 보고만 하고 슬롯을 유지한다')
-    expect(s()).toContain('**두 TICK 연속으로** 생존 증거가 없을 때만')
+    expect(s()).toContain('"무응답" 보고만(슬롯 유지)')
+    expect(s()).toContain('두 `TICK` 연속 무변화')
+    expect(resultHandling()).toContain('자동 정리 = 두 TICK 연속 생존 증거 없을 때만')
     // 2026-09-24부터 Orca 도 orca terminal close 로 팀원을 실제로 멈춘다(예전에는 워크트리 삭제뿐이었다)
-    expect(s()).toContain('Orca 는 `orca terminal close\n  --terminal <handle> --tab --json` 으로 팀원을 멈추고 슬롯을 해제하며')
+    expect(resultHandling()).toContain('Orca 는 `orca terminal close --terminal <handle> --tab --json` 으로 팀원 중지·슬롯 해제')
   })
 
   // 프로세스 팀원의 회수·parked·ANSWER 재spawn 은 스펙 2026-09-16 §9(e9da5a11)로 없어졌다.
   it('blocked: 팀원이 슬롯을 계속 잡고 PushNotification 으로 알린다', () => {
-    expect(s()).toContain('**그 슬롯은 blocked 팀원이 계속 잡으며 다른 작업에 재배정하지 않는다.**')
+    expect(s()).toContain('**그 슬롯은 blocked 팀원이 계속 잡음. 다른 작업에 재배정 안 함.**')
     expect(s()).toContain('PushNotification')
   })
 
   // 답은 send-keys 로 그 pane 에 넣으므로 대기 큐로 돌리지 않는다(e9da5a11).
   it('답 매칭: <id8> <답>, 여럿인데 id8 이 없을 때만 되묻고, parked 면 사람 확인', () => {
     expect(s()).toContain('`<id8> <답>`')
-    expect(s()).toContain('어느 작업의 답인지 되묻는다')
+    expect(s()).toContain('여럿인데 id8 없으면 되묻음')
+    expect(blockedSeat()).toContain('여럿인데 id8 없으면 어느 작업의 답인지 되물음')
     expect(s()).toContain('"사람 확인 필요"')
   })
 
   it('승인 스윕: 인자 없는 /dflow-merge, 반려는 수동 대상, 충돌·경합·훅 거부는 되돌림 뒤 보고', () => {
-    expect(s()).toContain('`/dflow-merge` 를 **인자 없이** 실행한다')
-    expect(s()).toContain('`api_base` 가 없는 로컬 후보는 전제 검사가 시작 전에 막는다')
-    expect(s()).toContain('수동 `/dflow-dev <id8>` 대상')
-    expect(s()).toContain('`git reset --keep`')
-    expect(s()).toContain('"push 실패(경합)"')
-    expect(s()).toContain('"push 실패(훅)"')
+    expect(s()).toContain('`/dflow-merge` 를 인자 없이 실행')
+    expect(s()).toContain('`api_base` 없는 로컬 후보는 전제 검사가 시작 전에 막음')
+    // 반려·경합·훅 거부의 결과별 처리 전문은 sweep.md 「스윕 결과별 처리」 로 옮겼다
+    expect(sweepDoc()).toContain('수동 `/dflow-dev <id8>` 대상')
+    expect(sweepDoc()).toContain('`git reset --keep`')
+    expect(sweepDoc()).toContain('"push 실패(경합)"')
+    expect(sweepDoc()).toContain('"push 실패(훅)"')
     expect(s()).toContain('"머지 실패(충돌)"')
     expect(s()).toContain('"사람이 머지해야 함"')
   })
@@ -432,7 +453,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain(
       '<MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=pane MODEL=<opus|sonnet|default> DEV_BRANCH=<개발브랜치>',
     )
-    expect(s()).toContain('그 id8 이 재구성한 슬롯 표에 있으면 띄우지 않는다')
+    expect(s()).toContain('그 id8 이 재구성한 슬롯 표에 있으면 안 띄움')
     expect(s()).toContain('`git worktree add --detach <MAIN>/.claude/worktrees/dflow-<id8> origin/<기본브랜치>`')
     expect(s()).not.toContain('isolation: "worktree"` 는 **필수**')
     expect(s()).toContain('`team.spawn` 에 `slot`·`tsk`·`order`·`id8`·`worktree`·`handle`')
@@ -440,89 +461,98 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     // 2026-09-24부터 Orca 도 같은 준비 블록(chmod +x 줄까지)을 쓴 뒤 orca terminal create 로 잇는다
     expect(s()).toContain('orca terminal create --worktree "path:$WT"')
     expect(s()).toContain('--command ./.dflow-run --json')
-    expect(s()).toContain('`--worktree "path:$WT"` 선택자를 쓴다')
+    expect(spawnDoc()).toContain('`--worktree "path:$WT"` 선택자로 가리킴')
   })
 
   it('마감: 대기 상한 TICK 두 번, 마지막 스윕, 살아 있는 팀원 워크트리 보존, agent 브랜치 남김, team.stop, 소유 판정으로 잠금 해제, 잠금 상실 마감', () => {
     expect(s()).toContain('cat .claude/skills/dflow-team/references/closing.md')
     expect(closing()).toContain('`TICK` 두 번까지만')
     expect(closing()).toContain('마지막 승인 스윕')
-    expect(closing()).toContain('**살아 있는 팀원의 워크트리는 조건과 무관하게 지우지 않는다.**')
-    expect(closing()).toContain('**agent 브랜치는 남긴다.**')
+    expect(closing()).toContain('살아 있는 팀원 worktree 는 조건 무관 삭제 안 함')
+    expect(closing()).toContain('agent branch 유지')
     expect(closing()).toContain('`team.stop`')
     expect(closing()).toContain(
-      '[ "$o_pid" = "$LEAD_PID" ]; then\n     .claude/skills/dflow-work/scripts/dflow.sh lease release || { rm -f "$(git rev-parse --git-path dflow-team.lease)" "$(git rev-parse --git-path dflow-team.lease).beat"; echo "LEASE_RELEASE_FAILED 3분 뒤 스스로 풀린다"; }\n     rm -f "$(git rev-parse --git-path dflow-team.stop)"',
+      '[ "$o_pid" = "$LEAD_PID" ]; then\n     node .claude/skills/dflow-work/scripts/dflow.mjs lease release || { rm -f "$(git rev-parse --git-path dflow-team.lease)" "$(git rev-parse --git-path dflow-team.lease).beat"; echo "LEASE_RELEASE_FAILED 3분 뒤 스스로 풀린다"; }\n     rm -f "$(git rev-parse --git-path dflow-team.stop)"',
     )
     expect(closing()).not.toContain('fromdateiso8601') // events.jsonl 의 team.start 는 새 팀장의 것일 수 있다
     expect(closing()).not.toContain('rm -f "$(git rev-parse --git-path dflow-team.lock)"')
-    expect(closing()).toContain('**잠금 상실 마감**')
+    expect(closing()).toContain('잠금 상실 마감(「2-3」 `LOCK_LOST`)')
   })
 
   it('마감의 남은 에이전트 확인: 팀원·손자는 별도 프로세스라 세션 목록에 없고, 잠금 상실 마감은 팀원 pane 을 건드리지 않는다', () => {
-    expect(closing()).toContain('**남은 에이전트 확인**')
-    expect(closing()).toContain('ListAgents 를 다시 불러')
-    expect(closing()).toContain('팀원 pane 은 건드리지 않고') // 146ea66d 계열 tmux 전환: 종전 '팀원 프로세스'
+    expect(closing()).toContain('남은 에이전트 확인: ListAgents 재호출')
+    expect(closing()).toContain('팀원 pane 은 건드리지 않음') // 146ea66d 계열 tmux 전환: 종전 '팀원 프로세스'
     expect(closing()).not.toContain('**손자 정리**')
     expect(closing()).not.toContain('is not running (status: completed)')
   })
 
   // 팀원 프로세스 spawn 의 nohup … & 예외는 스펙 2026-09-16 §9 로 없어졌다(이제 팀원 spawn 에도 & 를 쓰지 않는다).
   it('금지: 팀원을 Agent 도구 서브에이전트로 띄우지 않는다', () => {
-    expect(s()).toContain('- 팀원을 Agent 도구 서브에이전트로 띄우는 것')
+    expect(s()).toContain('- 팀원을 Agent 도구 서브에이전트로 띄우기')
     expect(s()).toContain('**제1 제약: 팀원을 서브에이전트로 띄우지 않는다.**')
   })
 
   it('좌석표 v1 계약: 팀장은 watch 를 시작·매 기상·마감에서 보내고 poll 은 DFLOW_WATCH=0 으로 watch 를 끈다', () => {
     // 시작은 SKILL.md, 매 기상은 wake.sh(「2-3」), 마감은 references/closing.md 에 있다(2026-09-25)
-    const t = s() + '\n' + wake().replace('"$DFLOW" watch', '.claude/skills/dflow-work/scripts/dflow.sh watch') + '\n' + closing()
-    const watchCalls = t.match(/dflow\.sh watch --agent/g) ?? []
+    // wake.mjs 는 dflow.mjs 인자를 배열로 만들므로 명령 한 줄 꼴로 바꿔 센다
+    const wakeAsCmd = wake().replace("['watch', '--agent', o_who, '--slots'", 'node .claude/skills/dflow-work/scripts/dflow.mjs watch --agent o_who --slots')
+    const t = s() + '\n' + wakeAsCmd + '\n' + closing()
+    const watchCalls = t.match(/dflow\.mjs watch --agent/g) ?? []
     expect(watchCalls.length).toBeGreaterThanOrEqual(3)
-    const stopCalls = [...t.matchAll(/dflow\.sh watch --agent[\s\S]{0,200}?--stop\b/g)]
+    const stopCalls = [...t.matchAll(/dflow\.mjs watch --agent[\s\S]{0,200}?--stop\b/g)]
     expect(stopCalls.length).toBeGreaterThanOrEqual(1)
-    const slotsCalls = [...t.matchAll(/dflow\.sh watch --agent[\s\S]{0,200}?--slots\b/g)]
+    const slotsCalls = [...t.matchAll(/dflow\.mjs watch --agent[\s\S]{0,200}?--slots\b/g)]
     expect(slotsCalls.length).toBeGreaterThanOrEqual(2)
     // DFLOW_CONFIG_DIR 과 같은 줄에 DFLOW_WATCH=0 이 있다(.dflow 전환, 2026-09-23)
     expect(t).toMatch(/DFLOW_CONFIG_DIR="<MAIN>" DFLOW_WATCH=0 \\/)
   })
 
   it('「좌석표 연동」 절은 70분 STANDBY 계약을 확정하고 team.start 로 대신한다는 옛 문장이 없다', () => {
-    const t = s()
-    const start = t.indexOf('## 좌석표 연동')
-    const end = t.indexOf('## 금지')
-    expect(start).toBeGreaterThan(-1)
-    expect(end).toBeGreaterThan(start)
-    const section = t.slice(start, end)
+    // SKILL.md 「좌석표 연동」 은 요약이고 원문은 blocked-seat.md 「좌석표 연동」 으로 옮겼다
+    expect(s()).toContain('## 좌석표 연동')
+    expect(s()).toContain('전문 = `references/blocked-seat.md` 「좌석표 연동」')
+    const t = blockedSeat()
+    const from = t.indexOf('## 좌석표 연동')
+    expect(from).toBeGreaterThan(-1)
+    const section = t.slice(from)
     expect(section).toContain('70분')
     expect(section).not.toContain('그 전에는 `team.start`')
   })
 
   it('Orca 리허설 반영: 재개 필요 목록은 CL 행만 세고, 기상은 events.md 의 기록 명령을 다시 읽는다', () => {
-    expect(s()).toContain(`awk -F'\\t' 'NF>=4 && $2=="CL" {print $4}'`)
+    expect(start()).toContain(`awk -F'\\t' 'NF>=4 && $2=="CL" {print $4}'`)
     expect(s()).not.toContain(`awk -F'\\t' 'NF>=4 {print $4}'`)
-    const start = s().indexOf('### 2-3. 기상마다 하는 일')
-    expect(start).toBeGreaterThan(-1)
-    expect(s().slice(start, start + 1500)).toContain('기억으로 재구성한 명령은 쓰지 않는다')
-    expect(s().slice(start, start + 1500)).toContain('EVENT_ARGS_MISSING')
+    const at = s().indexOf('### 2-3. 기상마다 하는 일')
+    expect(at).toBeGreaterThan(-1)
+    expect(s().slice(at, at + 1500)).toContain('기억으로 재구성한 명령 금지')
+    expect(s().slice(at, at + 1500)).toContain('EVENT_ARGS_MISSING')
     // 기상 블록(wake.sh)의 마지막 명령이 events.md 의 기록 명령을 화면에 띄운다(압축 뒤 기억으로 쓰지 않게)
-    expect(s().slice(start, start + 2500)).toContain('.claude/skills/dflow-team/scripts/wake.sh')
-    expect(wake()).toContain('EVENTS_MD="$HERE/../references/events.md"')
-    expect(wake()).toContain("sed -n '/^## 기록 명령/,$p' \"$EVENTS_MD\"")
+    expect(s().slice(at, at + 2500)).toContain('.claude/skills/dflow-team/scripts/wake.mjs')
+    expect(wake()).toContain("const EVENTS_MD = path.join(HERE, '..', 'references', 'events.md');")
+    expect(wake()).toContain('/^## 기록 명령/m.exec(t)')
   })
 
   it('프로세스 리허설 반영: 압축 뒤 첫 기상은 절차 정본을 다시 읽고, 고아 스캔이 남긴 워크트리는 parked 로 표시한다', () => {
     expect(s()).toContain('**압축 뒤 첫 기상**')
     // 2026-09-25: 재독 세트를 「참조」~「인자」「팀장 상태」「2」「3」 으로 줄이고(그 밖은 그 절차를 처음 탈 때 그 절만 읽는다), 압축 신호를 적었다
-    expect(s()).toContain('이 파일의 「참조」~「인자」「팀장 상태」「2. 기상과 감시」「3. 결과 처리」')
+    expect(s()).toContain('이 파일 「참조」-「인자」「팀장 상태」「2. 기상과 감시」「3. 결과 처리」')
     expect(s()).toContain('**압축 신호**')
-    expect(s()).toContain('폴링만 이어 가지 않는다')
-    expect(s()).toContain('압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
+    expect(s()).toContain('폴링만 이어 가지 않음')
+    expect(s()).toContain('압축 뒤 그 절차 처음 탈 때 그 절만 `sed`·`cat` 으로 읽음')
     const i = s().indexOf('- **고아 스캔**')
     expect(i).toBeGreaterThan(-1)
     const scan = s().slice(i, i + 3000)
-    // 정리 가능·재개 가능·멈춤 셋으로 가른다. parked 는 재개 대상이 아닌 것에만 찍는다.
-    expect(scan).toContain('**정리 가능·재개 가능·멈춤** 셋으로 가른다')
-    expect(scan).toContain('`.dflow-agent` 를 `parked` 로 바꾸지\n     **않는다**')
-    expect(scan).toContain('`<신원>/<host>/parked` 로 바꾼 뒤(「고아 정리\n     규칙」 3번)')
+    // 정리 가능·재개 가능·멈춤으로 가른다. parked 는 재개 대상이 아닌 것에만 찍는다.
+    expect(scan).toContain('**정리 가능·재개 가능·멈춤** 으로 가름')
+    expect(scan).toContain('멈춤 → `.dflow-agent` 를 `parked` 로 바꾸고')
+    // 재개 가능은 parked 로 안 바꾼다는 규칙과 「고아 정리 규칙」 3번 참조는 고아 스캔 원문(lead-state.md)에 있다
+    const ls = leadState()
+    const j = ls.indexOf('- **고아 스캔**')
+    expect(j).toBeGreaterThan(-1)
+    const scanDoc = ls.slice(j)
+    expect(scanDoc).toContain('**정리 가능·재개 가능·멈춤** 셋으로 가름')
+    expect(scanDoc).toContain('`.dflow-agent` `parked` 로 **안 바꿈**')
+    expect(scanDoc).toContain('`.dflow-agent` 값 → `<신원>/<host>/parked` 로 바꿈(「고아 정리 규칙」 3번)')
   })
 
   it('Windows(Git Bash) 이식성: hostname -s·ps -o 직접 호출·pwd -P 비교·$PPID 단독 소유 판정이 없고, uname 분기와 CLAUDE_PID 를 쓴다', () => {
@@ -554,16 +584,19 @@ describe('dflow-team 압축 뒤 복구(2026-09-25)', () => {
 
   it('SKILL.md 머리에서 Skill 도구 재호출을 금지하고 재독 세트로 보낸다', () => {
     const head = s().slice(0, 1500)
-    expect(head).toContain('**컨텍스트 압축 뒤에는 Skill 도구로 `/dflow-team` 을 다시 부르지 않는다**')
+    expect(head).toContain('**컨텍스트 압축 뒤 Skill 도구로 `/dflow-team` 재호출 금지**')
     expect(head).toContain('`COMPACT_REREAD`')
   })
 
   it('wake.sh 가 매 기상 같은 재독 명령을 COMPACT_REREAD 줄로 띄운다', () => {
-    const w = read('scripts/wake.sh')
-    const line = w.split('\n').find((l) => l.includes('echo "COMPACT_REREAD'))
+    // wake.mjs 는 잠금 소유가 틀려도(LOCK_LOST) 쓰기 없이 기록 명령 절 + COMPACT_REREAD 줄까지 늘 출력한다
+    const w = read('scripts/wake.mjs')
+    expect(w).toContain("const COMPACT_REREAD = 'COMPACT_REREAD ")
+    const r = spawnSync(process.execPath, [join(SKILL_DIR, 'scripts/wake.mjs'), '--owner', 'nobody/none/lead', '--slots', '1', '--busy', '0', '--until-label', 'x'], { cwd: ROOT, encoding: 'utf8' })
+    expect(r.status).toBe(0)
+    const line = r.stdout.trim().split('\n').pop()
     expect(line).toBeTruthy()
-    // echo "…" 안의 \\. 은 셸이 \. 로 푼다
-    const printed = spawnSync('bash', ['-c', line!.trim()], { encoding: 'utf8' }).stdout.trim()
+    const printed = line!.trim()
     expect(printed.startsWith('COMPACT_REREAD ')).toBe(true)
     expect(printed.endsWith(rereadCmd())).toBe(true)
     expect(printed).toContain('Skill 도구 재호출 금지')

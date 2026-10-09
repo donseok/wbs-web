@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh')
+const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.mjs')
 const REF = (f: string) => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references', f), 'utf8')
 
 let tmp: string, dir: string
@@ -30,11 +30,11 @@ function env(extra: Record<string, string> = {}) {
   }
 }
 function run(args: string[], extra: Record<string, string> = {}) {
-  const r = spawnSync('bash', [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000 })
+  const r = spawnSync(process.execPath, [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000 })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), err: r.stderr || '', stdout: r.stdout || '' }
 }
 function start(args: string[], extra: Record<string, string> = {}) {
-  const p = spawn('bash', [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
+  const p = spawn(process.execPath, [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
   let out = ''
   p.stdout!.on('data', (b) => { out += b })
   p.stderr!.on('data', (b) => { out += b })
@@ -176,7 +176,7 @@ describe('heavy.sh 부하 검사 — 적용하지 않는 곳', { timeout: 30000 
 
   it('감싼 실행 안(DFLOW_HEAVY_HELD)의 안쪽 호출은 부하와 무관하게 곧바로 돈다', () => {
     liveSlot('slot-1', sleeper())
-    const r = run(['sh', '-c', `bash '${HEAVY}' echo inner-ran`], { ...OTHER, ...HOT, DFLOW_HEAVY_HELD: join(dir, 'slot-1') })
+    const r = run(['sh', '-c', `node '${HEAVY}' echo inner-ran`], { ...OTHER, ...HOT, DFLOW_HEAVY_HELD: join(dir, 'slot-1') })
     expect(r.code).toBe(0)
     expect(r.out).toContain('inner-ran')
     expect(r.err).not.toContain('HEAVY_BUSY')
@@ -201,7 +201,7 @@ describe('heavy.sh 부하 검사 — 적용하지 않는 곳', { timeout: 30000 
   })
 
   it('snapshot 의 PC 줄 형식은 그대로다(덮어쓴 부하·코어 수를 싣는다)', () => {
-    const r = spawnSync('bash', [HEAVY, 'snapshot'], { encoding: 'utf8', env: env(HOT) })
+    const r = spawnSync(process.execPath, [HEAVY, 'snapshot'], { encoding: 'utf8', env: env(HOT) })
     expect(r.status).toBe(0)
     expect(r.stdout).toBe('PC\t2\t0\t0\t30\t10\n')
   })
@@ -211,13 +211,14 @@ describe('부하 검사 문서', () => {
   it('heavy.sh 머리 주석·dev-discipline 정본·rationale 이 규칙과 이유를 적는다', () => {
     const src = readFileSync(HEAVY, 'utf8')
     const head = src.slice(0, src.indexOf('set -u'))
-    for (const w of ['DFLOW_HEAVY_LOAD_MAX', 'DFLOW_HEAVY_LOADAVG', 'DFLOW_HEAVY_CPUS', 'HEAVY_LOAD_WAIT', '기아 방지', 'fail-open']) {
+    for (const w of ['DFLOW_HEAVY_LOAD_MAX', 'DFLOW_HEAVY_LOADAVG', 'DFLOW_HEAVY_CPUS', 'HEAVY_LOAD_WAIT', '기아 방지', '못 읽으면 null']) {
       expect(head).toContain(w)
     }
     const disc = REF('dev-discipline.md')
     const sec = disc.slice(disc.indexOf('## 무거운 명령 줄 세우기'), disc.indexOf('## 포그라운드 실행'))
     expect(sec).toContain('`DFLOW_HEAVY_LOAD_MAX`')
     expect(sec).toContain('부하 대기: load=')
-    expect(REF('rationale.md').replace(/\s*\n\s*/g, ' ')).toContain('부하가 20~30(최대 62)까지 올랐고, 그 부하에서 벽시계 성능 테스트가 실패해 blocked 가 났다')
+    expect(sec).toContain('부하를 못 읽는 환경(Windows Git Bash 등)은 검사 건너뜀')
+    expect(REF('rationale.md').replace(/\s*\n\s*/g, ' ')).toContain('K 는 RAM 기준이라 게이트가 몰린 구간에는 10코어 PC 의 부하가 20-30(최대 62)까지 오름. 그 부하에서 벽시계 성능 test 가 실패해 blocked 발생')
   })
 })

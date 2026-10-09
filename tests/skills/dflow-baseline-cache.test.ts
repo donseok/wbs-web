@@ -9,7 +9,7 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const BASELINE = join(ROOT, '.claude/skills/dflow-dev/scripts/baseline.sh')
+const BASELINE = join(ROOT, '.claude/skills/dflow-dev/scripts/baseline.mjs')
 const DEV = devAll()
 const DISCIPLINE = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 
@@ -45,7 +45,7 @@ let base: string
 let CMD: string
 const runs = () => (existsSync(join(tmp, 'counter')) ? readFileSync(join(tmp, 'counter'), 'utf8').trim().split('\n').length : 0)
 const run = (cwd = repo, env: Record<string, string> = {}, cmd = CMD, extra = '--task-dir docs/tasks/TSK-01-01') =>
-  sh(cwd, `bash '${BASELINE}' run --base ${base} ${extra} -- '${cmd}'`, env)
+  sh(cwd, `node '${BASELINE}' run --base ${base} ${extra} -- '${cmd}'`, env)
 const cacheDir = () => join(repo, '.git/dflow-baseline')
 const jsons = () => (existsSync(cacheDir()) ? readdirSync(cacheDir()).filter((f) => f.endsWith('.json')) : [])
 const keyOf = (out: string) => out.match(/key=(\S+)/)?.[1] ?? ''
@@ -88,7 +88,7 @@ describe('baseline.sh — 같은 기점·같은 명령은 한 번만 잰다', ()
   it('note 로 더한 총수·실패 목록을 재사용하는 쪽이 BASELINE_SUMMARY 로 받는다', () => {
     const key = keyOf(run().out)
     writeFileSync(join(tmp, 'failed.txt'), 'legacy-flaky\n')
-    const n = sh(repo, `bash '${BASELINE}' note ${key} --tests 10 --failures 1 --failed-file '${tmp}/failed.txt'`)
+    const n = sh(repo, `node '${BASELINE}' note ${key} --tests 10 --failures 1 --failed-file '${tmp}/failed.txt'`)
     expect(n.code, n.out).toBe(0)
     const r = run()
     expect(r.out).toContain('BASELINE_FAILED legacy-flaky')
@@ -97,9 +97,9 @@ describe('baseline.sh — 같은 기점·같은 명령은 한 번만 잰다', ()
   })
 
   it('list 는 같은 기점에서 이미 잰 명령과 cwd 를 낸다(다음 팀원이 글자 그대로 쓰도록)', () => {
-    expect(sh(repo, `bash '${BASELINE}' list --base ${base}`).out).toContain('BASELINE_LIST_NONE')
+    expect(sh(repo, `node '${BASELINE}' list --base ${base}`).out).toContain('BASELINE_LIST_NONE')
     const key = keyOf(run(join(repo, 'src')).out)
-    const l = sh(repo, `bash '${BASELINE}' list --base ${base}`)
+    const l = sh(repo, `node '${BASELINE}' list --base ${base}`)
     expect(l.out).toContain(`BASELINE_CACHED ${key} exit=1 cwd=src/ ${CMD}`)
     // 앞뒤 공백만 다른 명령은 같은 키다
     expect(run(join(repo, 'src'), {}, `  ${CMD}  `).out).toContain(`BASELINE_REUSED exit=1 key=${key}`)
@@ -202,7 +202,7 @@ describe('baseline.sh — 캐시를 쓰지 않는 경우(게이트는 절대 캐
 describe('baseline.sh — 동시 측정', () => {
   it('둘이 동시에 같은 키를 재려 하면 한쪽만 재고 다른 쪽은 기다렸다 재사용한다', async () => {
     const slow = `echo run >> ${tmp}/counter; sleep 1; echo "Tests 10, failed 1: legacy-flaky"; exit 1`
-    const cmd = `bash '${BASELINE}' run --base ${base} --task-dir docs/tasks/TSK-01-01 -- '${slow}'`
+    const cmd = `node '${BASELINE}' run --base ${base} --task-dir docs/tasks/TSK-01-01 -- '${slow}'`
     const [a, b] = await Promise.all([shAsync(repo, cmd), shAsync(repo, cmd)])
     expect(runs()).toBe(1)
     expect([a.code, b.code]).toEqual([1, 1])
@@ -229,7 +229,7 @@ describe('baseline.sh — 동시 측정', () => {
   it('기다리는 동안 측정하던 쪽이 저장하지 않고 끝나면(exit 127) 기다리던 쪽이 직접 잰다', async () => {
     // 첫째는 잠금을 잡고 1초 뒤 127 로 끝난다. 같은 명령 문자열이라 둘째는 그 잠금을 기다린다
     const flaky = `if [ ! -e ${tmp}/first ]; then touch ${tmp}/first; sleep 1; exit 127; fi; echo run >> ${tmp}/counter; exit 1`
-    const cmd = `bash '${BASELINE}' run --base ${base} -- '${flaky}'`
+    const cmd = `node '${BASELINE}' run --base ${base} -- '${flaky}'`
     const a = shAsync(repo, cmd)
     await new Promise((r) => setTimeout(r, 300))
     const b = await shAsync(repo, cmd)
@@ -241,18 +241,18 @@ describe('baseline.sh — 동시 측정', () => {
 })
 
 describe('문서: 기준선 캐시', () => {
-  it('Phase 01 4번이 baseline.sh 로 감싸 재고, 게이트·공통 프롬프트에는 -- 뒤 명령만 쓰게 한다', () => {
+  it('Phase 01 4번이 baseline.mjs 로 감싸 재고, 게이트·공통 프롬프트에는 -- 뒤 명령만 쓰게 한다', () => {
     const p4 = DEV.split('4. **게이트 기준선 기록**')[1]?.split('5. spec.md 읽기')[0] ?? ''
-    expect(p4).toContain('.claude/skills/dflow-dev/scripts/baseline.sh run --base')
-    expect(p4).toContain('`--` 뒤의 명령')
+    expect(p4).toContain('node .claude/skills/dflow-dev/scripts/baseline.mjs run --base')
+    expect(p4).toContain('`--` 뒤 명령')
     expect(p4).toContain('"source"')
   })
   it('dev-discipline 「게이트 기준선」 이 캐시 규칙(키·끄는 법·동시 측정·재사용 기록)을 적는다', () => {
     const sec = DISCIPLINE.split('## 게이트 기준선')[1]?.split('## 화면 작업의 브라우저 E2E')[0] ?? ''
-    expect(sec).toContain('baseline.sh')
+    expect(sec).toContain('baseline.mjs')
     expect(sec).toContain('DFLOW_BASELINE_CACHE=0')
     expect(sec).toContain('DFLOW_BASELINE_CACHE=refresh')
-    expect(sec).toContain('기점 커밋 sha')
+    expect(sec).toContain('기점 commit sha')
     expect(sec).toContain('게이트')
     expect(sec).toContain('"source": "cache"')
   })
@@ -273,8 +273,8 @@ describe('baseline.sh — 대기 상한과 PC 전역 슬롯(2026-09-24 통합)',
 
   it('PC 전역 무거운 명령 슬롯이 차 있으면(HEAVY_BUSY) 기준선으로 저장하지 않고 BASELINE_BUSY 로 끝난다', async () => {
     const env = { DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_DIR: join(tmp, 'heavy') }
-    const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh')
-    const holder = shAsync(repo, `bash '${HEAVY}' sleep 8`, env)
+    const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.mjs')
+    const holder = shAsync(repo, `node '${HEAVY}' sleep 8`, env)
     // 쥐는 쪽이 슬롯을 실제로 잡을 때까지 기다린다(고정 대기는 부하가 높을 때 흔들린다)
     for (let i = 0; i < 100 && !(existsSync(env.DFLOW_HEAVY_DIR) && readdirSync(env.DFLOW_HEAVY_DIR).some((n) => n.startsWith('slot-'))); i++) {
       await new Promise((res) => setTimeout(res, 100))
@@ -305,7 +305,7 @@ describe('baseline.sh — 대기 상한과 PC 전역 슬롯(2026-09-24 통합)',
       DFLOW_BASELINE_WAIT: '7',
     }
     const t0 = Date.now()
-    const p = spawn('bash', ['-c', `bash '${BASELINE}' run --base ${base} --task-dir docs/tasks/TSK-01-01 -- '${CMD}'`],
+    const p = spawn('bash', ['-c', `node '${BASELINE}' run --base ${base} --task-dir docs/tasks/TSK-01-01 -- '${CMD}'`],
       { cwd: repo, env, timeout: 25_000 })
     let out = ''
     p.stdout.on('data', (d) => (out += d))

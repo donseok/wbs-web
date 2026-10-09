@@ -85,11 +85,11 @@ fi
 TARGET=$(cd "$TARGET" && pwd)
 [ -d "$TARGET/.git" ] || echo "경고: $TARGET 은 git 리포가 아니다 — dflow-dev 는 git 리포 루트에서만 동작한다." >&2
 
-# 1) 의존 점검 — dflow.sh(curl·jq), poll.sh(jq), export 스크립트(node 18.17 이상), done --auto-links(gh)
-#    Windows 는 Git Bash(Git for Windows) 에서 실행한다. dflow-team 은 powershell.exe 도 쓴다(프로세스 시작 시각).
-#    python 은 아직 python 으로 남은 스크립트(dflow-wbs-nlevel, junit-count.sh)용 선택 의존이라 없으면 경고만 한다.
+# 1) 의존 점검 — 스킬 스크립트는 모두 node 18.17 이상, git, done --auto-links(gh) 만 쓴다.
+#    이 install.sh 자체는 sh 스크립트라 Windows 에서는 Git Bash(Git for Windows) 로 실행한다. 설치된 스킬은 Git Bash 없이도 돈다.
+#    (게이트·baseline 같은 사용자 bash 문법 명령을 Windows 에서 돌릴 때만 Git Bash 가 필요하다.)
 missing=""
-for c in git curl jq gh node; do command -v "$c" >/dev/null 2>&1 || missing="$missing $c"; done
+for c in git gh node; do command -v "$c" >/dev/null 2>&1 || missing="$missing $c"; done
 if [ -n "$missing" ]; then
   echo "필요한 명령이 없다:$missing" >&2
   echo "  macOS: brew install${missing}" >&2
@@ -97,9 +97,7 @@ if [ -n "$missing" ]; then
   exit 2
 fi
 node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>18||(a===18&&b>=17)?0:1)' \
-  || { echo "node 18.17 이상이 필요하다(현재 $(node --version)) — dflow-export 스크립트가 node 18.17 이상을 전제한다." >&2; exit 2; }
-command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 \
-  || echo "경고: python3 이 없다 — dflow-wbs-nlevel 스크립트와 junit-count.sh 는 아직 python 이 필요하다(dflow-export·그 밖 스크립트는 node 만으로 돈다)." >&2
+  || { echo "node 18.17 이상이 필요하다(현재 $(node --version)) — dflow 스크립트가 node 18.17 이상을 전제한다." >&2; exit 2; }
 
 # 2) 스킬 복사 — 스킬 폴더 단위로 통째 갱신(사본에서 고친 것은 덮인다 — 정본은 킷)
 #    주의: .claude/skills/dflow-* 가 심링크(다른 리포를 가리킴)인 대상에서는 이 단계가 그 심링크를 지우고
@@ -121,11 +119,11 @@ if [ -d "$KIT_DIR/skills/_shared" ]; then
     cp -R "$KIT_DIR/skills/_shared/." "$TARGET/.claude/skills/_shared/"
   fi
 fi
-chmod +x "$TARGET"/.claude/skills/dflow-work/scripts/dflow.sh "$TARGET"/.claude/skills/dflow-poll/scripts/poll.sh
-# gradle-check.sh 는 dflow-team 킷에 늘 딸려 오지만(kit-build.sh SKILLS 목록), 없어도 이 단계는 죽지 않는다 —
-# 아래 3-d) 는 어차피 -f 로 있는지 다시 확인하고 sh 로 직접 불러 실행 비트에 기대지 않는다.
-[ -f "$TARGET/.claude/skills/dflow-team/scripts/gradle-check.sh" ] \
-  && chmod +x "$TARGET/.claude/skills/dflow-team/scripts/gradle-check.sh" || true
+chmod +x "$TARGET"/.claude/skills/dflow-work/scripts/dflow.mjs "$TARGET"/.claude/skills/dflow-poll/scripts/poll.mjs
+# gradle-check.mjs 는 dflow-team 킷에 늘 딸려 오지만(kit-build.sh SKILLS 목록), 없어도 이 단계는 죽지 않는다 —
+# 아래 3-d) 는 어차피 -f 로 있는지 다시 확인하고 node 로 직접 불러 실행 비트에 기대지 않는다.
+[ -f "$TARGET/.claude/skills/dflow-team/scripts/gradle-check.mjs" ] \
+  && chmod +x "$TARGET/.claude/skills/dflow-team/scripts/gradle-check.mjs" || true
 
 # 3) 설정 초안 + .gitignore — .dflow 는 커밋 대상, .dflow.local 은 개인 파일
 #    레거시 대상(.env 에 DFLOW_* 가 있고 .dflow·.dflow.local 이 둘 다 없음)은 초안을 만들지 않는다.
@@ -167,10 +165,10 @@ fi
 
 # 3-d) Gradle 권장 설정 — 대상 리포가 Gradle 리포일 때만 gradle.properties 상태를 점검한다(리포 정본, 다른 PC·CI 에도
 #      적용된다). 파일이 없으면 권장 3키로 새로 만든다. 있는데 키가 빠졌으면 고치지 않고 붙일 줄만 안내한다(커밋은
-#      사람 몫). 판정 로직은 dflow-team 의 gradle-check.sh 하나뿐 — /dflow-team 전제 검사도 같은 스크립트를 부른다.
-GC="$TARGET/.claude/skills/dflow-team/scripts/gradle-check.sh"
+#      사람 몫). 판정 로직은 dflow-team 의 gradle-check.mjs 하나뿐 — /dflow-team 전제 검사도 같은 스크립트를 부른다.
+GC="$TARGET/.claude/skills/dflow-team/scripts/gradle-check.mjs"
 if [ -f "$GC" ]; then
-  gout=$(sh "$GC" "$TARGET" 2>/dev/null || true)
+  gout=$(node "$GC" "$TARGET" 2>/dev/null || true)
   if printf '%s\n' "$gout" | grep -Eq '^ROOT '; then
     echo
     echo "Gradle 권장 설정 점검(빌드 루트마다):"
@@ -236,7 +234,7 @@ cat <<EOF
 다음 단계
   1. D'Flow 웹 → 우상단 계정 → /account "내 토큰" 에서 PAT 발급
   2. $TARGET/.dflow 에 api_base·project_id, $TARGET/.dflow.local 에 pats·dev_branch 기입(값은 어디에도 붙여넣지 말 것). .dflow 는 커밋한다
-  3. cd $TARGET && .claude/skills/dflow-work/scripts/dflow.sh doctor
+  3. cd $TARGET && node .claude/skills/dflow-work/scripts/dflow.mjs doctor
   4. Claude Code 를 $TARGET 에서 열고 "/dflow-dev" 등 스킬 사용. 스킬 킷은 리포에 커밋해 팀과 공유한다.
   Windows(Git Bash): .gitattributes 로 스킬 줄끝을 LF 로 고정했다. 이미 CRLF 로 받은 클론이면 git add --renormalize . 뒤 커밋한다.
   5. 좌석표 heartbeat 훅: ./install.sh <리포> --hooks 뒤 README 「좌석표 heartbeat 훅」 대로 settings.json 등록

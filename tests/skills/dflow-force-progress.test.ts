@@ -7,10 +7,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 const sh = readFileSync(DFLOW, 'utf8')
 const dev = devAll()
-const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-exec.md'), 'utf8')
 const contract = readFileSync(join(ROOT, '.claude/skills/dflow-work/references/api-contract.md'), 'utf8')
 
 function repo(files: Record<string, string>): string {
@@ -23,8 +23,8 @@ function repo(files: Record<string, string>): string {
 }
 
 describe('check_depends_local — waived 간선은 로컬 도달 검사에서 뺀다', () => {
-  it('jq 필터가 waived 를 거른다', () => {
-    expect(sh).toContain('.[] | select(.head_sha != null and .waived != true)')
+  it('선행 검사 필터가 waived 를 거른다(node 판: jq 필터 대신 JS filter)', () => {
+    expect(sh).toContain('d.head_sha != null && d.waived !== true')
   })
 })
 
@@ -34,7 +34,7 @@ const MARK = 'FORCE-' + 'STUB: '
 describe('dflow.sh stub-check', () => {
   it('FORCE-STUB 표식이 있으면 exit 4 와 건수', () => {
     const d = repo({ 'a.ts': `// ${MARK}TSK-03-01\nexport const x = 1\n`, 'b.ts': 'ok\n' })
-    const r = spawnSync('sh', [DFLOW, 'stub-check', 'HEAD'], { cwd: d, encoding: 'utf8' })
+    const r = spawnSync('node', [DFLOW, 'stub-check', 'HEAD'], { cwd: d, encoding: 'utf8' })
     expect(r.status).toBe(4)
     expect(r.stdout).toContain('FORCE_STUB_FOUND 1')
     expect(r.stdout).toContain('a.ts:1:')
@@ -45,19 +45,19 @@ describe('dflow.sh stub-check', () => {
     writeFileSync(join(d, '.claude/skills/SKILL.md'), `${MARK}TSK-02\n`)
     writeFileSync(join(d, 'docs/spec.txt'), `${MARK}TSK-03\n`)
     execFileSync('git', ['add', '.'], { cwd: d }); execFileSync('git', ['commit', '-qm', 'docs'], { cwd: d })
-    const r = spawnSync('sh', [DFLOW, 'stub-check', 'HEAD'], { cwd: d, encoding: 'utf8' })
+    const r = spawnSync('node', [DFLOW, 'stub-check', 'HEAD'], { cwd: d, encoding: 'utf8' })
     expect(r.status).toBe(4)
     expect(r.stdout).toContain('FORCE_STUB_FOUND 1')
     expect(r.stdout).toContain('svc.ts:1:')
   })
   it('이 리포(스킬·문서·테스트가 표식 문구를 담고 있다)에서도 0건으로 통과한다 — .dflow.local 이 없어도', () => {
-    const r = spawnSync('sh', [DFLOW, 'stub-check', 'HEAD'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, HOME: tmpdir() } })
+    const r = spawnSync('node', [DFLOW, 'stub-check', 'HEAD'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, HOME: tmpdir() } })
     expect(r.stdout).toContain('FORCE_STUB_NONE')
     expect(r.status).toBe(0)
   })
   it('없으면 exit 0', () => {
     const d = repo({ 'a.ts': 'clean\n' })
-    const r = spawnSync('sh', [DFLOW, 'stub-check', 'HEAD'], { cwd: d, encoding: 'utf8' })
+    const r = spawnSync('node', [DFLOW, 'stub-check', 'HEAD'], { cwd: d, encoding: 'utf8' })
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('FORCE_STUB_NONE')
   })
@@ -65,9 +65,10 @@ describe('dflow.sh stub-check', () => {
 
 describe('/dflow-dev — waived 갈래', () => {
   it('선행 검사에 waived 갈래가 있고 기본 브랜치 반영 확인을 하지 않는다', () => {
-    expect(dev).toContain("`d.waived === true` 면 **강제 진행 간선**이다")
+    expect(dev).toContain('`d.waived === true` = **강제 진행 간선**')
+    expect(dev).toContain('완료 판정·기본 branch 반영 확인·스택 안 함')
     expect(dev).toContain('강제 진행: <선행> 은 스텁으로 대신한다')
-    expect(dev).toContain('기점은 항상 `origin/<기본브랜치>`')
+    expect(dev).toContain('기점 = 항상 `origin/<기본브랜치>`')
   })
   it('스텁 규칙(후행 소유 경로·표식·완료 보고 절)을 적는다', () => {
     expect(dev).toContain('FORCE-STUB: <선행 TSK-ID>')
@@ -78,8 +79,8 @@ describe('/dflow-dev — waived 갈래', () => {
 
 describe('/dflow-merge — 개발 브랜치 = 운영 브랜치면 스텁 머지 거부', () => {
   it('stub-check 로 막는다', () => {
-    expect(merge).toContain('dflow.sh stub-check <머지 대상>')
-    expect(merge).toContain('개발 브랜치와 운영 브랜치가 같으면')
+    expect(merge).toContain('`dflow.mjs stub-check <머지 대상>`')
+    expect(merge).toContain('개발 브랜치 = 운영 브랜치(`dflow.mjs branch dev` 와 `dflow.mjs branch release` 가 같은 값)면')
   })
 })
 
@@ -87,6 +88,6 @@ describe('계약 문서 v2.8(변경점 절 유지, 버전은 2.11)', () => {
   it('waived 필드와 reached 관계를 적는다', () => {
     expect(contract).toContain('## v2.8 변경점')
     expect(contract).toContain('`depends_evidence[].waived`')
-    expect(sh).toMatch(/^CONTRACT_VERSION=2\.11$/m)
+    expect(sh).toMatch(/^const CONTRACT_VERSION = '2\.11';$/m)
   })
 })

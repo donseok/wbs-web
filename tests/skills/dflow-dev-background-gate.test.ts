@@ -14,6 +14,8 @@ import { join } from 'node:path'
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
 const dflowDev = () => devAll()
 const dflowTeam = () => readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
+// 무응답·정지 패턴 판정 절은 SKILL.md 에서 references/result-handling.md 로 옮겼다
+const teamResult = () => readFileSync(join(ROOT, '.claude/skills/dflow-team/references/result-handling.md'), 'utf8')
 const devDiscipline = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 // 서브에이전트에게 주는 문구는 phase-prompt.md 템플릿으로 옮겼다(줄바꿈 위치는 보지 않는다)
 const phasePrompt = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/phase-prompt.md'), 'utf8').replace(/\s+/g, ' ')
@@ -33,9 +35,9 @@ describe('dflow-dev: Phase 서브에이전트 공통 프롬프트의 포그라�
   it('dev-discipline.md 가 정본 절을 갖고, 두 소비자(dflow-dev·무인 러너) 공통이라고 밝힌다', () => {
     const doc = devDiscipline()
     expect(doc).toContain('## 포그라운드 실행(백그라운드 게이트 금지)')
-    expect(doc).toContain('`run_in_background` 로 띄우지 않는다')
+    expect(doc).toContain('`run_in_background` 로 띄우지 않음')
     expect(doc).toContain('그 작업이 끝나 결과를 확인하기 전에는 턴을 끝내지')
-    expect(doc).toContain('무인 러너(`claude -p`)도 같은 위험을 안는다')
+    expect(doc).toContain('무인 러너(`claude -p`)도 같은 위험')
     expect(doc).toContain('제1 제약')
   })
 
@@ -44,14 +46,14 @@ describe('dflow-dev: Phase 서브에이전트 공통 프롬프트의 포그라�
     expect(doc).toContain('이 호출의 자식이 아닌')
     expect(doc).toContain('`kill -0 <PID>` 로 생존을')
     const skill = dflowDev()
-    expect(skill).toContain('`kill -0 <PID>` 로 생존을\n   확인하며 짧은 간격으로 재확인하거나 로그·산출물 파일을 폴링')
-    expect(skill).toContain('`wait <PID>` 는 그 PID 가 이 Bash 호출의\n   자식일 때만 되므로')
+    expect(skill).toContain('`kill -0 <PID>` 로 생존 확인하며 짧은 간격 재확인, 또는 로그·산출물 파일 폴링')
+    expect(skill).toContain('`wait <PID>` = 그 PID 가 이 Bash 호출의 자식일 때만 됨')
   })
 
   it('Bash timeout 상한(600000ms)을 넘기지 않게 스윕을 나누고, 하네스의 자동 백그라운드 전환도 같은 규칙으로 다룬다', () => {
     const doc = devDiscipline()
     expect(doc).toContain('600000ms=10분')
-    expect(doc).toContain('하네스가 그 호출을\n   자동으로 백그라운드로 옮기며')
+    expect(doc).toContain('하네스가 그 호출을 자동으로 백그라운드로 옮겨')
     const p = phasePrompt()
     expect(p).toContain('Bash 의 timeout 은 최대 600000ms(10분)')
     expect(p).toContain("하네스가 시간 초과로 자동으로 백그라운드로 옮긴 경우도 위 '백그라운드로 띄웠다면'과 똑같이 다룬다")
@@ -61,8 +63,8 @@ describe('dflow-dev: Phase 서브에이전트 공통 프롬프트의 포그라�
     const skill = dflowDev()
     // 「커밋 규칙에는 ...」 문단이 여전히 표지 블록(E) 바로 앞의 마지막 문단이어야
     // tests/skills/dflow-dev-worker.test.ts 의 표지 prev 검사가 깨지지 않는다.
-    const idx = skill.indexOf('`.claude/skills/dflow-dev/references/phase-prompt.md` 의 템플릿')
-    const commitRuleIdx = skill.indexOf('커밋 규칙에는 **모든 커밋에')
+    const idx = skill.indexOf('`.claude/skills/dflow-dev/references/phase-prompt.md` 템플릿 그대로')
+    const commitRuleIdx = skill.indexOf('commit 규칙에 **모든 commit 에')
     const workerBeginIdx = skill.indexOf('<!-- worker:begin -->\n`--worker` 면 공통 프롬프트에 git 절대경로')
     expect(idx).toBeGreaterThan(-1)
     expect(commitRuleIdx).toBeGreaterThan(idx)
@@ -74,23 +76,23 @@ describe('dflow-dev: 오케스트레이터가 서브에이전트 종료 뒤 오�
   it('Phase 종료마다 오케스트레이터가 하는 목록에 무응답 알림 처리 규칙이 있다', () => {
     const skill = dflowDev()
     expect(skill).toContain(
-      '**서브에이전트가 끝났는데(finished) 이 오케스트레이터가 게이트를 아직 직접 돌리지 않았다면**',
+      '**서브에이전트 finished 인데 이 오케스트레이터가 게이트를 아직 직접 안 돌렸으면**',
     )
     expect(skill).toContain('백그라운드 완료를 기다린다')
-    expect(skill).toContain('프로세스\n   (`pgrep` 등)와 산출물(커밋·파일)을 직접 확인한다')
-    expect(skill).toContain('그 프로세스가 아직 돌고 있으면 알림을 기다리지 말고')
-    expect(skill).toContain('오케스트레이터가 포그라운드에서 그 프로세스가 끝날 때까지 직접 기다린 뒤')
-    expect(skill).toContain('오지 않을 알림을 기다리며 입력 대기로 멈추지 않는다')
+    expect(skill).toContain('그 알림 기다리지 않음')
+    expect(skill).toContain('프로세스(`pgrep` 등)·산출물(commit·파일) 직접 확인')
+    expect(skill).toContain('프로세스가 아직 돌면 오케스트레이터가 포그라운드에서 끝날 때까지 직접 대기 뒤 게이트 실행')
+    expect(skill).toContain('오지 않을 알림 기다리며 입력 대기로 멈추기 금지')
     expect(readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/rationale.md'), 'utf8')).toContain('2026-09-24 dmes-standard TSK-03-01')
     // 구현 단위가 여럿이면 마지막이 아닌 단위는 게이트 대신 다음 단위로 넘어간다
-    expect(skill).toContain('"게이트를 돌린다" 를 "그 단위 커밋을 확인하고 다음 단위를 띄운다" 로 읽는다')
+    expect(skill).toContain('"게이트를 돌린다" = "그 단위 commit 확인 후 다음 단위 띄움"')
   })
 })
 
 describe('dflow-team: TICK 무응답 점검이 서브에이전트 종료 후 정지 패턴을 첫 TICK 에 알아채고 깨운다', () => {
   it('무응답 절 바로 뒤, 대기 중인 팀원 판정보다 앞에 서브에이전트 종료 후 정지 패턴 절이 있다(두 TICK 을 기다리지 않기 위해)', () => {
-    const skill = dflowTeam()
-    const noResponseIdx = skill.indexOf('- **무응답**: 결과도 알림도 없는 진행 슬롯')
+    const skill = teamResult()
+    const noResponseIdx = skill.indexOf('- **무응답**: 결과·알림 없는 진행 슬롯')
     const patternIdx = skill.indexOf('**서브에이전트 종료 후 정지 패턴(2026-09-24, dmes-standard TSK-03-01)**')
     const waitingIdx = skill.indexOf('**대기 중인 팀원 판정(2026-09-24, doc-level')
     const restartIdx = skill.indexOf('**자동 재시작**:')
@@ -101,40 +103,40 @@ describe('dflow-team: TICK 무응답 점검이 서브에이전트 종료 후 정
   })
 
   it('두 TICK 이 아니라 무변화 1회째에 판정하고, heartbeat 정지 여부와 무관하다', () => {
-    const skill = dflowTeam()
-    expect(skill).toContain('무변화 **1 회째** — 두 `TICK` 을 기다리지 않는다')
-    expect(skill).toContain('`last_heartbeat_at`\n  이 함께 멈춰 있어도 상관없다')
-    expect(skill).toContain('이 판정은 heartbeat 값을 보지 않는다')
+    const skill = teamResult()
+    expect(skill).toContain('생존 증거 무변화 1회째 — 두 `TICK` 안 기다림')
+    expect(skill).toContain('`last_heartbeat_at` 이 함께 멈춰 있어도 상관없음')
+    expect(skill).toContain('이 판정은 heartbeat 값 안 봄')
   })
 
   it('finished 알림 + 대기 화면이면 다음 TICK 을 기다리지 않고 그 TICK 에서 곧바로 [팀장 지시] 를 주입한다', () => {
-    const skill = dflowTeam()
+    const skill = teamResult()
     expect(skill).toContain('Teammate @<TSK>-<phase> finished')
-    expect(skill).toContain('다시는 오지 않을 알림을 기다리는 정지')
-    expect(skill).toContain('하고 다음 `TICK` 을 기다리지 않는다 — **이 TICK 에서 곧바로**')
+    expect(skill).toContain('이 정지 = 안 올 알림을 기다림')
+    expect(skill).toContain('다음 `TICK` 안 기다림. 이 TICK 에서 곧바로')
     expect(skill).toContain('send-keys -l --')
     expect(skill).toContain('orca terminal')
     expect(skill).toContain('[팀장 지시 <id8>] 서브에이전트 @<TSK>-<phase> 는 이미 끝났다(finished)')
-    expect(skill).toContain('"사람 확인 필요"로 올린다')
+    expect(skill).toContain('"사람 확인 필요" 로 올림')
   })
 
   it('주입이 성공하면 자동 정리·자동 재시작이 걸리지 않고, 실패하면 그 두 경로가 그대로 이어받는다', () => {
-    const skill = dflowTeam()
-    expect(skill).toContain('**자동 정리·자동 재시작과의 관계**')
-    expect(skill).toContain('"두 `TICK` 연속 무변화" 조건이 깨지므로')
-    expect(skill).toContain('`cause=no-response`, (나) 2회째)도 걸리지')
-    expect(skill).toContain('기존 자동 정리·자동\n  재시작이 그대로 이어받는다(이 절이 그것을 막지 않는다)')
+    const skill = teamResult()
+    expect(skill).toContain('자동 정리·자동 재시작과의 관계')
+    expect(skill).toContain('"두 `TICK` 연속 무변화" 조건 깨짐')
+    expect(skill).toContain('`cause=no-response`, (나) 2회째)도 안 걸림')
+    expect(skill).toContain('기존 자동 정리·자동 재시작이 그대로 이어받음(이 절이 안 막음)')
   })
 
   it('적용 대상은 restart.md 판정 1~5번(측정 실패·중단·점유 변동·표식 불일치·rate-limit)에 걸리지 않은 슬롯뿐이다', () => {
-    const skill = dflowTeam()
-    expect(skill).toContain('적용\n  대상은 `references/restart.md` 「판정」 의 1~5번(측정 실패·중단·점유 변동·표식 불일치·rate-limit)에 걸리지')
-    expect(skill).toContain('취소되거나 한도에 걸린 슬롯에 이 지시를 주입하지\n  않는다')
+    const skill = teamResult()
+    expect(skill).toContain('적용 대상 = `references/restart.md` 「판정」 1-5번(측정 실패·중단·점유 변동·표식 불일치·rate-limit)에 안 걸리고')
+    expect(skill).toContain('취소되거나 한도에 걸린 슬롯에 이 지시 주입 안 함')
   })
 
   it('restart.md 판정 표 9번(무응답 1회) 칸이 이 SKILL.md 절로 되돌아가는 포인터를 갖는다(top-down 표를 그대로 읽는 리더가 놓치지 않게)', () => {
     const restart = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/restart.md'), 'utf8')
     expect(restart).toContain('| 9 | (나) 1회째 | 무응답 1회 |')
-    expect(restart).toContain('「서브에이전트 종료 후 정지 패턴」 의 화면 조건에 맞으면 보고 대신 그 절대로 곧바로 지시를 주입한다')
+    expect(restart).toContain('「서브에이전트 종료 후 정지 패턴」 의 screen 조건에 맞으면 보고 대신 그 절대로 곧바로 지시 주입')
   })
 })

@@ -8,9 +8,10 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 
 const ROOT = process.cwd()
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8')
 
 const TOKEN = `dflow_pat_AAAAAAAAAAAA_${'x'.repeat(24)}`
@@ -68,12 +69,12 @@ let repo: string
 let bodies: string
 
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync('sh', [DFLOW, ...args], {
+  return spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8',
     cwd: repo,
     env: {
       NODE_ENV: process.env.NODE_ENV,
-      PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
+      NODE_OPTIONS: CURL_SHIM_OPTS, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
       HOME: join(tmp, 'home'),
       XDG_CACHE_HOME: join(tmp, 'cache'),
       DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
@@ -208,7 +209,7 @@ describe('dflow.sh contract-ge — 숫자 비교', () => {
 
 describe('계약 문서·usage', () => {
   it('usage 가 --design-first·build-start·contract-ge 를 안내한다', () => {
-    const sh = read('.claude/skills/dflow-work/scripts/dflow.sh')
+    const sh = read('.claude/skills/dflow-work/scripts/dflow.mjs')
     expect(sh).toContain('claim <ref> [--design-first]')
     expect(sh).toContain('build-start <ref>')
     expect(sh).toContain('contract-ge <x.y>')
@@ -225,46 +226,47 @@ describe('/dflow-dev 「설계 선행」 흐름 문구', () => {
   const DEV = flat(devAll())
   const WM = flat(read('.claude/skills/dflow-dev/references/worker-mode.md'))
   it('계약 2.9 이상이면 늘 --design-first 로 claim 하고, 너무 이른 선행은 재시도하지 않는다', () => {
-    expect(DEV).toContain('`dflow.sh contract-ge 2.9` 가 exit 0 이면 늘 `dflow.sh claim <ref> --design-first` 다')
-    expect(DEV).toContain('exit 4 에 stderr `DESIGN_FIRST_TOO_EARLY` 면 아래 재시도를 하지 않는다')
+    expect(DEV).toContain('`dflow.mjs contract-ge 2.9` exit 0 이면 늘 `dflow.mjs claim <ref> --design-first`')
+    expect(DEV).toContain('exit 4 + stderr `DESIGN_FIRST_TOO_EARLY` 면 아래 재시도 안 함')
   })
   it('Design 게이트 뒤 build-start: exit 4 면 멈추고, 멈춤 절차는 state.json → push → heartbeat wait_pred 순서다', () => {
-    expect(DEV).toContain('Design 게이트가 통과하면 아래 모듈 기준선보다 먼저 `dflow.sh build-start <ref>` 를 부른다')
+    expect(DEV).toContain('게이트 통과하면 아래 모듈 기준선보다 먼저 `dflow.mjs build-start <ref>` 호출')
     const i = DEV.indexOf('**멈춤 절차**(순서 고정)')
-    const seq = ['state.json `phase` 를 `wait_pred` 로', '`git push origin <agent 브랜치>`', '`dflow.sh heartbeat <ref> --phase wait_pred`', '`design_waiting <미충족 선행 ref…>`']
+    const seq = ['state.json `phase` 를 `wait_pred` 로', '`git push origin <agent 브랜치>`', '`dflow.mjs heartbeat <ref> --phase wait_pred`', '`design_waiting <미충족 선행 ref…>`']
     let at = i
     for (const s of seq) { const n = DEV.indexOf(s, at); expect(n, s).toBeGreaterThan(at); at = n }
   })
   it('재개 트리거는 현재 트리가 아니라 agent 브랜치의 state.json 에서 읽는다', () => {
     expect(DEV).toContain('`git show <그 브랜치>:<TASKS>/<TSK>/state.json`')
-    expect(DEV).toContain('0. 그 agent 브랜치로 switch 한다')
+    expect(DEV).toContain('0. 그 agent 브랜치로 switch.')
   })
   it('재개는 기점 판정만 다시 하고(claim·detach 없음) 한 번 머지·기점과 기준선 교체·의존성 갱신·선행 기준 재확인 순이다', () => {
-    expect(DEV).toContain('다시 하는 것은 **어느 커밋을 기점으로 삼을지의 판정뿐**이다')
+    expect(DEV).toContain('다시 하는 것 = **어느 commit 을 기점으로 삼을지 판정뿐**')
     expect(DEV).toContain('git merge --no-ff <기점> -m "merge: <TSK> 설계 선행 재개')
     expect(DEV).toContain('state.json `branch_base`·`baseline.base` 를 새 기점 sha 로 바꾸고 `baseline.cmds` 를 모듈 기준선까지 모두 비운 뒤')
-    expect(DEV).toContain('`dflow-prepare.done`(준비 빌드 표식)은 늘 지운 뒤 행 H 의 `deps.sh` 를 다시 부른다')
+    expect(DEV).toContain('`dflow-prepare.done`(준비 build 표식)은 늘 삭제.')
+    expect(DEV).toContain('그 뒤 행 H 의 `deps.mjs` 다시 호출')
     expect(DEV).toContain('`git diff --name-only <적힌 sha>..<새 기점> -- <파일>`')
-    expect(DEV).toContain('적힌 sha 가 없거나(읽을 곳 없음) 로컬에 없으면')
+    expect(DEV).toContain('적힌 sha 없거나(읽을 곳 없음) 로컬에 없으면')
   })
   it('설계 선행 모드의 state.json 표식·phase 값·선행 기준 절', () => {
-    expect(DEV).toContain('`design_first`(선택)는 설계 선행 모드의 표식 `{"unmet": ["<선행 external_ref>", …]}` 이다')
-    expect(DEV).toContain('`wait_pred` 는 설계를 마치고 선행을 기다리며 멈춘 상태다')
+    expect(DEV).toContain('`design_first`(선택) = 설계 선행 모드 표식 `{"unmet": ["<선행 external_ref>", …]}`')
+    expect(flat(read('.claude/skills/dflow-dev/references/state-model.md'))).toContain('`wait_pred` = 설계 마치고 선행 기다리며 멈춘 상태')
     const pd = flat(read('.claude/skills/dflow-dev/references/phase-design.md'))
     expect(pd).toContain('## 선행 기준')
     expect(pd).toContain('`선행 ref | 읽은 곳과 sha | 파일 | 기대하는 선행 계약`')
-    expect(pd).toContain('보고된 `head_sha` → `origin/agent/…` 브랜치 tip → 없음')
+    expect(pd).toContain('보고된 `head_sha` → `origin/agent/…` branch tip → 없음')
     const pp = read('.claude/skills/dflow-dev/references/phase-prompt.md')
     expect(pp).toContain('| `{DESIGN_FIRST}` |')
     expect(pp).toContain('{FORCE_STUB}\n{DESIGN_FIRST}\n{DOCKER_LINE}')
   })
   it('워커: 행 G 갈래 1 을 설계 선행이 대신하고, 선행 반영 머지는 기본 브랜치 머지 금지와 부딪치지 않는다', () => {
-    expect(WM).toContain('서버 계약이 2.9 이상이면 갈래 1 은 아래 「설계 선행」 이 대신한다')
+    expect(WM).toContain('**행 G 갈래 1 대신**: `dflow.mjs contract-ge 2.9` exit 0 이면 `reached` 거짓 선행을 `skipped 선행 미승인` 으로 끝내지 않고 `claim --design-first` 로 진행')
     expect(WM).toContain('`{TSK} {ID8} <agent 브랜치> <push 한 head_sha> - design_waiting <미충족 선행 ref…>`')
-    expect(WM).toContain('agent 브랜치 위의 머지이므로')
-    expect(flat(read('.claude/skills/dflow-dev/references/dev-discipline.md'))).toContain('**설계 선행 재개**(`orch/design-first.md` 「3」)의 선행 반영 머지가 이 허용 한 번이다')
+    expect(WM).toContain('agent branch 위의 merge')
+    expect(flat(read('.claude/skills/dflow-dev/references/dev-discipline.md'))).toContain('설계 선행 재개(`orch/design-first.md` 「3」)의 선행 반영 merge = 이 허용 한 번.')
   })
   it('/dflow-poll 루프는 설계 선행을 하지 않는다(상한은 팀장에만 있다)', () => {
-    expect(flat(read('.claude/skills/dflow-poll/SKILL.md'))).toContain('서버 계약이 2.9 여도 `reached` 가 거짓인 선행은 여기서 불가(선행 대기)로 본다')
+    expect(flat(read('.claude/skills/dflow-poll/SKILL.md'))).toContain('서버 계약이 2.9 여도 `reached` 가 거짓인 선행은 여기서 불가(선행 대기)로 봄')
   })
 })

@@ -9,9 +9,10 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 
 const ROOT = process.cwd()
-const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 
 const SECRET = 'x'.repeat(24)
 const TOKEN = `dflow_pat_AAAAAAAAAAAA_${SECRET}`
@@ -64,13 +65,13 @@ let repo: string
 let capture: string
 
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync('sh', [DFLOW, ...args], {
+  return spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8',
     cwd: repo,
     env: {
       // NODE_ENV 는 Next 의 ProcessEnv 타입이 필수로 요구한다(다른 skills 테스트와 같은 이유).
       NODE_ENV: process.env.NODE_ENV,
-      PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
+      NODE_OPTIONS: CURL_SHIM_OPTS, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`,
       HOME: join(tmp, 'home'),
       XDG_CACHE_HOME: join(tmp, 'cache'),
       DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),

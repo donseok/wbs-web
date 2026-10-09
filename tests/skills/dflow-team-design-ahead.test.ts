@@ -25,7 +25,7 @@ function blockAfter(marker: string): string {
 }
 
 describe('design-ahead.md — 설계 선행 블록(AHEAD·TOO_EARLY)', () => {
-  const block = () => blockAfter('설계 선행 블록 — 출력 줄은').replace("'<신원>/<host>/lead'", `'${AGENT}'`).replace("'<MAIN>'", `'${MAIN}'`)
+  const block = () => blockAfter('설계 선행 블록 — 출력 줄:').replace("'<신원>/<host>/lead'", `'${AGENT}'`).replace("'<MAIN>'", `'${MAIN}'`)
   const iso = (secAgo: number) => new Date(Date.now() - secAgo * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
   const ev = (o: Record<string, unknown>) => JSON.stringify({ host: 'pc1', repo: MAIN, phase: 'team', agent: AGENT, ...o })
   function run(lines: string[]): string[] {
@@ -76,7 +76,7 @@ describe('design-ahead.md — 설계 완료 대기 목록(워크트리가 정본
     mkdirSync(main)
     g(main, 'init', '-q', '-b', 'dev'); writeFileSync(join(main, 'a'), 'a'); g(main, 'add', 'a'); g(main, 'commit', '-qm', 'i')
     mkdirSync(join(tmp, 'bin'))
-    writeFileSync(join(tmp, 'bin', 'dflow.sh'), '#!/bin/sh\n[ "$1 $2" = "config tasks-dirs" ] && echo docs/tasks\n', { mode: 0o755 })
+    writeFileSync(join(tmp, 'bin', 'dflow.mjs'), '#!/usr/bin/env node\nif (process.argv[2] + " " + process.argv[3] === "config tasks-dirs") console.log("docs/tasks")\n', { mode: 0o755 })
     const mk = (name: string, agent: string, phase: string) => {
       const w = join(tmp, name)
       g(main, 'worktree', 'add', '-q', '--detach', w)
@@ -89,7 +89,7 @@ describe('design-ahead.md — 설계 완료 대기 목록(워크트리가 정본
     mk('bbbb', 'me/pc1/w2', 'build')
     mk('cccc', 'you/pc1/w1', 'wait_pred')
     const b = blockAfter('## 1. 설계 완료 대기 목록').replaceAll("'<신원>/<host>/'", "'me/pc1/'")
-      .replace('.claude/skills/dflow-work/scripts/dflow.sh', join(tmp, 'bin', 'dflow.sh'))
+      .replace('.claude/skills/dflow-work/scripts/dflow.mjs', join(tmp, 'bin', 'dflow.mjs'))
     const r = spawnSync('bash', ['-c', b], { cwd: main, encoding: 'utf8' })
     expect(r.status, r.stderr).toBe(0)
     expect(r.stdout.trim().split('\n')).toEqual([`DESIGNED\taaaa0000\tTSK-aaaa\t${w1}\td/TSK-03-01,d/TSK-03-02`])
@@ -99,30 +99,32 @@ describe('design-ahead.md — 설계 완료 대기 목록(워크트리가 정본
 describe('dflow-team 문서 — 설계 선행 계약', () => {
   it('참조 표와 「2-3」 4번이 design-ahead.md 를 가리키고, 빈 슬롯이 남았을 때만 준다', () => {
     expect(TEAM).toContain('| `references/design-ahead.md` |')
-    expect(flat(TEAM)).toContain('그러고도 빈 슬롯이 남으면 선행 대기 작업을 **설계 선행**으로 준다(`references/design-ahead.md` 3번, `DFLOW_DESIGN_AHEAD_MAX`)')
+    expect(flat(TEAM)).toContain('그 뒤에도 빈 슬롯 남으면 선행 대기 작업을 **설계 선행**으로 줌 (`references/design-ahead.md` 3번, `DFLOW_DESIGN_AHEAD_MAX`)')
     const d = flat(DA)
-    expect(d).toContain('`DFLOW_DESIGN_AHEAD_MAX`(팀장 세션 환경변수, 기본 2. 0 이면 끈다) 미만일 때만')
-    expect(d).toContain('선행이 충족된 후보(대기 큐)가 하나라도 있으면 그것이 먼저다')
-    expect(d).toContain('선행의 단계(구현 전인지)는 팀장이 판정하지 않는다')
+    expect(d).toContain('`DFLOW_DESIGN_AHEAD_MAX` = 팀장 세션 환경변수, 기본 2, 0 이면 끔')
+    expect(d).toContain('< `DFLOW_DESIGN_AHEAD_MAX` 일 때만, 그 차이만큼까지 줌')
+    expect(d).toContain('빈 slot 남았을 때만')
+    expect(d).toContain('선행 충족 후보(대기 큐) 하나라도 있으면 그것이 먼저')
+    expect(d).toContain('선행 단계(구현 전인지) = 팀장 판정 안 함')
   })
 
   it('design_waiting 결과는 실패가 아니고 워크트리를 지우지 않으며 제외도 없다', () => {
-    expect(TEAM).toContain('| `design_waiting`(설계 완료·선행 대기, 사유는 미충족 선행 ref) | 해제 | 없음 | **지우지 않는다**.')
+    expect(read('.claude/skills/dflow-team/references/result-handling.md')).toContain('| `design_waiting`(설계 완료·선행 대기, 사유 = 미충족 선행 ref) | 해제 | 없음 | 지우지 않음.')
     expect(read('.claude/skills/dflow-team/references/backends.md')).toContain('0. **설계 완료 대기**')
     expect(read('.claude/skills/dflow-team/references/worker-prompt.md')).toContain('| `design_waiting` |')
   })
 
   it('재시작 경로: 고아 스캔 0번과 restart.md 4-1 이 wait_pred 워크트리를 재시작·재개 후보에서 뺀다', () => {
-    expect(flat(TEAM)).toContain('0. **설계 완료 대기**: `<TASKS>/*/state.json` 이 `phase=wait_pred` 면 정리·멈춤으로 보내지 않는다')
+    expect(flat(read('.claude/skills/dflow-team/references/lead-state.md'))).toContain('0. **설계 완료 대기**: `<TASKS>/*/state.json` `phase=wait_pred` → 정리·멈춤으로 안 보냄.')
     const r = read('.claude/skills/dflow-team/references/restart.md')
     expect(r).toContain('| 4-1 | `local_phase=wait_pred` |')
-    expect(flat(r)).toContain('재투입하지 않고 「판정」 4-1·4-2 의 오른쪽 칸대로 처리한다')
-    expect(flat(DA)).toContain('**재시작·재개 후보에서 뺀다**')
+    expect(flat(r)).toContain('재투입 안 하고 「판정」 4-1·4-2 의 오른쪽 칸대로 처리')
+    expect(flat(DA)).toContain('**restart·재개 후보에서 뺌**')
   })
 
   it('워커 서버 쓰기 범위에 build-start·heartbeat 가 자기 ID8 로만 들어간다', () => {
     const w = flat(read('.claude/skills/dflow-team/references/worker-prompt.md'))
-    expect(w).toContain('`{ID8}` 외의 어떤 주문에도 claim·build-start·progress·heartbeat·release·done 을 하지 않는다')
+    expect(w).toContain('`{ID8}` 외 주문에 claim·build-start·progress·heartbeat·release·done 금지')
     expect(w).toContain('`선행 미충족(설계 선행 불가: <ref…>)`')
   })
 })
@@ -144,7 +146,7 @@ describe('lead-state.sh — design_waiting 은 제외하지 않고 차단기를 
       l({ event: 'team.spawn', slot: '2', id8: 'desi0002', worktree: '/w2', handle: '-', spawn_kind: 'new' }),
       l({ event: 'team.result', slot: '2', id8: 'desi0002', status: 'design_waiting', worktree: '/w2', hash: '2', reason: 'd/TSK-01-01' }),
     ].join('\n') + '\n')
-    const r = spawnSync('bash', [join(ROOT, '.claude/skills/dflow-team/scripts/lead-state.sh'), '--agent', A, '--repo', R, '--events', ev], { encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [join(ROOT, '.claude/skills/dflow-team/scripts/lead-state.mjs'), '--agent', A, '--repo', R, '--events', ev], { encoding: 'utf8' })
     expect(r.status, r.stderr).toBe(0)
     const out = r.stdout.split('\n')
     expect(out).toContain('BREAKER 0')

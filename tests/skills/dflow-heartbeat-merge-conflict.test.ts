@@ -5,8 +5,9 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 
-const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.mjs')
 const TOKEN = `dflow_pat_AAAAAAAAAAAA_${'x'.repeat(24)}` // 가짜 토큰(형식만)
 const ORDER = '22222222-2222-4222-8222-222222222222'
 
@@ -26,11 +27,11 @@ printf '%s' "$FAKE_BODY" > "$out"; printf '%s' "$FAKE_CODE"
 
 let tmp: string
 function run(args: string[], code: string, body: string) {
-  return spawnSync('sh', [DFLOW, ...args], {
+  return spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8',
     env: {
       NODE_ENV: process.env.NODE_ENV,
-      PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
+      NODE_OPTIONS: CURL_SHIM_OPTS, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
       XDG_CACHE_HOME: join(tmp, 'cache'), DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
       DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: TOKEN, FAKE_CODE: code, FAKE_BODY: body, FAKE_DATA: join(tmp, 'data.json'),
     },
@@ -78,7 +79,7 @@ describe('dflow.sh heartbeat — 팀장 머지 충돌 표시', () => {
   })
   it('계약 버전은 2.11 이상(2.7 변경점 유지), usage 에 --clear-merge-conflict 가 있다', () => {
     const src = readFileSync(DFLOW, 'utf8')
-    expect(src).toMatch(/^CONTRACT_VERSION=2\.11$/m)
+    expect(src).toMatch(/^const CONTRACT_VERSION = '2\.11';$/m)
     expect(src).toContain('--clear-merge-conflict')
     const doc = readFileSync(join(process.cwd(), '.claude/skills/dflow-work/references/api-contract.md'), 'utf8')
     expect(doc).toContain('# D\'Flow Agent API 계약 v2.11')

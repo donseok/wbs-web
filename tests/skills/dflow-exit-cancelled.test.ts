@@ -6,8 +6,9 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CURL_SHIM_OPTS } from './_curl-shim'
 
-const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.sh')
+const DFLOW = join(process.cwd(), '.claude/skills/dflow-work/scripts/dflow.mjs')
 const TOKEN = `dflow_pat_AAAAAAAAAAAA_${'x'.repeat(24)}` // 가짜 토큰(형식만)
 const ORDER = '22222222-2222-4222-8222-222222222222'
 
@@ -26,11 +27,11 @@ printf '%s' "$FAKE_BODY" > "$out"; printf '%s' "$FAKE_CODE"
 
 let tmp: string
 function run(args: string[], code: string, body: string) {
-  return spawnSync('sh', [DFLOW, ...args], {
+  return spawnSync('node', [DFLOW, ...args], {
     encoding: 'utf8',
     env: {
       NODE_ENV: process.env.NODE_ENV,
-      PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
+      NODE_OPTIONS: CURL_SHIM_OPTS, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
       XDG_CACHE_HOME: join(tmp, 'cache'), DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
       DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: TOKEN, FAKE_CODE: code, FAKE_BODY: body,
     },
@@ -59,8 +60,8 @@ describe('dflow.sh exit 10 — 사람이 중단한 주문', () => {
     expect(run(['heartbeat', ORDER, '--agent', 'a'], '409', 'not json').status).toBe(4)
   })
   it('사용법·파일 머리의 exit 표에 10 이 있다', () => {
-    const r = spawnSync('sh', [DFLOW], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: join(tmp, 'home'), NODE_ENV: process.env.NODE_ENV, DFLOW_CONFIG_DIR: join(tmp, 'no-config') } })
+    const r = spawnSync('node', [DFLOW], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '', HOME: join(tmp, 'home'), NODE_ENV: process.env.NODE_ENV, DFLOW_CONFIG_DIR: join(tmp, 'no-config') } })
     expect(r.status).toBe(2)
-    expect(r.stderr).toMatch(/exit: .*10 중단됨/)
+    expect(r.stderr).toMatch(/10 = 사람이 D'Flow 에서 작업을 중단했다/)
   })
 })

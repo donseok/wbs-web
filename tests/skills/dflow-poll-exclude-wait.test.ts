@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const POLL_SH = join(process.cwd(), '.claude/skills/dflow-poll/scripts/poll.sh')
+const POLL_SH = join(process.cwd(), '.claude/skills/dflow-poll/scripts/poll.mjs')
 const ENV = {
   PATH: process.env.PATH ?? '', HOME: '/nonexistent',
   GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
@@ -41,7 +41,7 @@ const row = (n: number, id8: string) => `${n}\tRD\tx\t${id8}\t작업${id8}`
 const calls = () => readFileSync(join(tmp, 'calls'), 'utf8').trim().split('\n').length
 
 function poll(args: string[], rows: string[]) {
-  const r = spawnSync('sh', [POLL_SH, '--interval', '0', '--until', 'none', ...args], {
+  const r = spawnSync('node', [POLL_SH, '--interval', '0', '--until', 'none', ...args], {
     cwd: cfg, encoding: 'utf8', timeout: 20000,
     env: { ...ENV, DFLOW_SH: stub(rows), DFLOW_WATCH: '0', DFLOW_CONFIG_DIR: cfg } as NodeJS.ProcessEnv,
   })

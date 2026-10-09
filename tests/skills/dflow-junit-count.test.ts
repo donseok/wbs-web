@@ -10,10 +10,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCRIPT = join(ROOT, '.claude/skills/dflow-dev/scripts/junit-count.sh')
+const SCRIPT = join(ROOT, '.claude/skills/dflow-dev/scripts/junit-count.mjs')
 
 function run(cwd: string, args: string[]) {
-  const r = spawnSync('sh', [SCRIPT, ...args], { cwd, encoding: 'utf8', timeout: 30_000 })
+  const r = spawnSync('node', [SCRIPT, ...args], { cwd, encoding: 'utf8', timeout: 30_000 })
   return { code: r.status, out: r.stdout || '', err: r.stderr || '' }
 }
 
@@ -41,8 +41,8 @@ describe('junit-count.sh — 기본', () => {
   it('실행 비트가 있다', () => {
     expect(statSync(SCRIPT).mode & 0o111).not.toBe(0)
   })
-  it('sh -n 으로 문법 검사를 통과한다', () => {
-    const r = spawnSync('sh', ['-n', SCRIPT], { encoding: 'utf8' })
+  it('node --check 로 문법 검사를 통과한다', () => {
+    const r = spawnSync('node', ['--check', SCRIPT], { encoding: 'utf8' })
     expect(r.status).toBe(0)
   })
 })
@@ -88,7 +88,7 @@ describe('junit-count.sh — Gradle 다중 모듈 합산', () => {
   })
 
   it('폴더를 안 주면 cwd 를 쓴다', () => {
-    const r = spawnSync('sh', [SCRIPT], { cwd: repo, encoding: 'utf8', timeout: 30_000 })
+    const r = spawnSync('node', [SCRIPT], { cwd: repo, encoding: 'utf8', timeout: 30_000 })
     expect(r.status).toBe(0)
     expect((r.stdout || '').trim()).toBe('JUNIT_SUMMARY tests=5 failures=1 errors=1 skipped=1 files=2')
   })

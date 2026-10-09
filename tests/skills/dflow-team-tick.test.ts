@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const TICK = join(ROOT, '.claude/skills/dflow-team/scripts/tick.sh')
-const WAKE = join(ROOT, '.claude/skills/dflow-team/scripts/wake.sh')
+const TICK = join(ROOT, '.claude/skills/dflow-team/scripts/tick.mjs')
+const WAKE = join(ROOT, '.claude/skills/dflow-team/scripts/wake.mjs')
 const OWNER = 'hong/mbp/lead'
 const PID = '4242'
 
@@ -61,7 +61,7 @@ const baseArgs = (tm = '') => ['--tm', tm, '--owner', OWNER, '--slots', '3', '--
 // 루프를 띄우고 끝날 때까지 기다린다. during 은 띄운 뒤 ms 뒤에 한 번 돈다.
 function tick(args: string[], opt: { env?: Record<string, string>; during?: () => void; after?: string; at?: number; timeout?: number } = {}): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve, reject) => {
-    const p = spawn('bash', [TICK, ...args], { cwd: repo, env: envFor(opt.env) })
+    const p = spawn(process.execPath, [TICK, ...args], { cwd: repo, env: envFor(opt.env) })
     let out = '', err = ''
     p.stdout.on('data', (d) => { out += d })
     p.stderr.on('data', (d) => { err += d })
@@ -108,9 +108,9 @@ beforeEach(() => {
 afterEach(() => { rmSync(tmp, { recursive: true, force: true }) })
 
 describe('tick.sh — 감시 루프의 종료 조건과 출력 토큰(「2-2」 그대로)', { timeout: 30000 }, () => {
-  it('bash 로 파싱되고 실행 권한이 있다', () => {
+  it('node --check 를 통과하고 실행 권한이 있다', () => {
     for (const f of [TICK, WAKE]) {
-      expect(spawnSync('bash', ['-n', f]).status, f).toBe(0)
+      expect(spawnSync(process.execPath, ['--check', f]).status, f).toBe(0)
       expect(spawnSync('test', ['-x', f]).status, f).toBe(0)
     }
   })
@@ -119,7 +119,7 @@ describe('tick.sh — 감시 루프의 종료 조건과 출력 토큰(「2-2」 
     writeFileSync(join(repo, '.git', 'dflow-team.gen'), '7 9999999999\n') // 옛 두 칸 형식도 읽는다
     const r = await tick([...baseArgs(), '--'], {
       env: { DFLOW_TICK_SEC: '60' },
-      during: () => { spawnSync('bash', [TICK, '--retire'], { cwd: repo, env: envFor() }) },
+      during: () => { spawnSync(process.execPath, [TICK, '--retire'], { cwd: repo, env: envFor() }) },
     })
     expect(r.out.trim()).toBe('STALE')
     expect(gen()[0]).toBe('9')
@@ -260,7 +260,7 @@ describe('tick.sh — 변화 없는 TICK 은 연속 한 번까지만 건너뛴�
 
 describe('wake.sh — 기상 블록(「2-3」)', () => {
   const wake = (args: string[], env: Record<string, string> = {}) =>
-    spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', ...args], { cwd: repo, encoding: 'utf8', env: envFor(env) })
+    spawnSync(process.execPath, [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', ...args], { cwd: repo, encoding: 'utf8', env: envFor(env) })
 
   it('소유가 맞으면 beat 를 갱신하고 LOCK_OK, 재개 요청을 이 리포 바인딩으로 거르고, events.md 기록 명령을 띄운다', () => {
     writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [
@@ -344,7 +344,7 @@ describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, 
   it('wake.sh 는 watch 에 poll 과 같은 거르기(태그 agent·--wp)를 싣고, --wp 가 없거나 - 면 WP 는 싣지 않는다. tick.sh 는 --wp 를 wake.sh 에 넘긴다(D22·Y9)', async () => {
     const lastWatch = () => readFileSync(join(fake, 'calls'), 'utf8').trim().split('\n').filter((l) => l.startsWith('watch ')).at(-1)
     const wakeWith = (...extra: string[]) =>
-      spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events', ...extra], { cwd: repo, encoding: 'utf8', env: envFor() })
+      spawnSync(process.execPath, [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events', ...extra], { cwd: repo, encoding: 'utf8', env: envFor() })
     const base = 'watch --agent hong/mbp/lead --slots 4 --busy 2 --until 09-21 06:00 --json --holder h1 --require-tag agent'
     wakeWith('--wp', 'WP-02,dict/WP-3')
     expect(lastWatch()).toBe(`${base} --wp WP-02,dict/WP-3`)
@@ -361,13 +361,13 @@ describe('tick.sh·wake.sh — 설계 상태(계약 2.11)', { timeout: 60000 }, 
       resume_requests: [{ id8: 'aaaa0001', code: 'c', host: 'mbp', requested_at: 't', project_id: 'p1', mine: true, design_state: null }],
       build_ready: [{ order_id: 'o3', id8: 'cccc0003', code: '1.1', name: 'x', status: 'claimed' }],
     }))
-    const r = spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events'], { cwd: repo, encoding: 'utf8', env: envFor() })
+    const r = spawnSync(process.execPath, [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events'], { cwd: repo, encoding: 'utf8', env: envFor() })
     expect(JSON.parse(r.stdout.split('\n')[1])).toEqual({
       n: 1, err: '-', reqs: [{ id8: 'aaaa0001', code: 'c', host: 'mbp', requested_at: 't', mine: true, design_state: null }], other_project: [],
       build: [{ id8: 'cccc0003', code: '1.1', status: 'claimed' }], build_err: '-',
     })
     writeFileSync(join(fake, 'watch.json'), JSON.stringify({ resume_requests: [], build_ready: null, build_ready_error: 'db' }))
-    const r2 = spawnSync('bash', [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events'], { cwd: repo, encoding: 'utf8', env: envFor() })
+    const r2 = spawnSync(process.execPath, [WAKE, '--owner', OWNER, '--slots', '4', '--busy', '2', '--until-label', '09-21 06:00', '--pid', PID, '--no-events'], { cwd: repo, encoding: 'utf8', env: envFor() })
     expect(JSON.parse(r2.stdout.split('\n')[1])).toMatchObject({ build: 'NULL', build_err: 'db' })
   })
   it('lead-state.sh 조회 자체가 실패하면(제외 목록을 못 읽음) 건너뛰지 않고 깨운다(리뷰 1회차)', async () => {

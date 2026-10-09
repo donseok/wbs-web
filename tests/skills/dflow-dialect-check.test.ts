@@ -9,10 +9,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/dialect-check.sh')
+const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/dialect-check.mjs')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
 // 방언 검증의 명령·결과 줄 상세는 스윕 보고 직전에만 읽는 references/dialect.md 로 옮겼다(2026-09-25)
 const DIALECT = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/dialect.md'), 'utf8')
+const SWEEP = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/sweep.md'), 'utf8')
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 const EXAMPLE = readFileSync(join(ROOT, '.claude/skills/dflow-work/dflow.example'), 'utf8')
 const LOCAL_EXAMPLE = readFileSync(join(ROOT, '.claude/skills/dflow-work/dflow.local.example'), 'utf8')
@@ -33,7 +34,7 @@ function sh(cwd: string, script: string, env: Record<string, string> = {}) {
   })
   return { code: r.status, out: r.stdout || '', err: r.stderr || '' }
 }
-const run = (env: Record<string, string> = {}, extra = '') => sh(repo, `bash "$S" run --dev dev ${extra}`, env)
+const run = (env: Record<string, string> = {}, extra = '') => sh(repo, `node "$S" run --dev dev ${extra}`, env)
 const last = (out: string) => out.trim().split('\n').at(-1) ?? ''
 const count = () => (existsSync(join(marks, 'runs')) ? readFileSync(join(marks, 'runs'), 'utf8').trim().split('\n').length : 0)
 function setConfig(cmd: string, local = '') {
@@ -85,7 +86,7 @@ const CMD = `echo "$(pwd) $(git rev-parse HEAD) held=$DFLOW_HEAVY_DOCKER_HELD" >
 
 describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, () => {
   it('bash 로 파싱되고 실행 권한이 있다', () => {
-    expect(spawnSync('bash', ['-n', SCRIPT]).status).toBe(0)
+    expect(spawnSync('node', ['--check', SCRIPT]).status).toBe(0)
     expect(spawnSync('test', ['-x', SCRIPT]).status).toBe(0)
   })
 
@@ -117,7 +118,7 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     const r2 = run()
     expect(last(r2.out)).toBe(`DIALECT_SKIP passed ${tip.slice(0, 12)}`)
     expect(count()).toBe(1)
-    expect(last(sh(repo, 'bash "$S" status --dev dev').out)).toMatch(/^DIALECT_PASS /)
+    expect(last(sh(repo, 'node "$S" status --dev dev').out)).toMatch(/^DIALECT_PASS /)
   })
 
   it('실패하면 직전 통과 이후 머지된 Task 와 도커 금지로 확인하지 못한 Task 를 적고 기록한다. 되돌리지 않는다', () => {
@@ -139,7 +140,7 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     const r2 = run()
     expect(last(r2.out)).toBe(`DIALECT_SKIP failed ${tip.slice(0, 12)}`)
     expect(count()).toBe(2)
-    expect(last(sh(repo, 'bash "$S" status --dev dev').out)).toMatch(/^DIALECT_FAIL /)
+    expect(last(sh(repo, 'node "$S" status --dev dev').out)).toMatch(/^DIALECT_FAIL /)
     // 고친 뒤 새 머지가 오면 다시 돌고, since 는 여전히 마지막 통과 커밋이다
     rmSync(join(marks, 'FAIL'))
     const fixed = mergeTask('TSK-02-03')
@@ -175,7 +176,7 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     expect(st).toContain(`last_pass=${passed}\n`)
     expect(st).toContain(`docs_only=${tip}\n`)
     // 상태 조회는 마지막 실제 판정을 그대로 낸다(이월 줄로 덮지 않는다)
-    expect(last(sh(repo, 'bash "$S" status --dev dev').out)).toMatch(new RegExp(`^DIALECT_PASS ${passed.slice(0, 12)} `))
+    expect(last(sh(repo, 'node "$S" status --dev dev').out)).toMatch(new RegExp(`^DIALECT_PASS ${passed.slice(0, 12)} `))
   })
 
   it('작업 폴더라도 목록 밖 파일(스크립트 등)이나 문서 폴더 밖 코드가 바뀌었으면 돌린다', () => {
@@ -244,7 +245,7 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     expect(count()).toBe(0)
     // docker 는 info 로만 불렸다(start 류 없음)
     expect(readFileSync(join(marks, 'docker-calls'), 'utf8').trim().split('\n').every((l) => l === 'info')).toBe(true)
-    expect(sh(repo, 'bash "$S" status --dev dev').out).toContain(`DIALECT_PENDING deferred ${tip.slice(0, 12)}`)
+    expect(sh(repo, 'node "$S" status --dev dev').out).toContain(`DIALECT_PENDING deferred ${tip.slice(0, 12)}`)
     writeFileSync(join(marks, 'DOCKER_UP'), '')
     const r2 = run()
     expect(last(r2.out)).toMatch(new RegExp(`^DIALECT_PASS ${tip.slice(0, 12)} `))
@@ -315,31 +316,31 @@ describe('방언 검증 문서 계약', () => {
   it('/dflow-merge 에 「방언 검증」 절이 있고 스윕 끝에 한 번만, --resolve 는 제외다', () => {
     const sec = MERGE.slice(MERGE.indexOf('## 방언 검증'), MERGE.indexOf('## 결정 번호 매김'))
     expect(MERGE).toContain('## 방언 검증')
-    expect(sec).toContain('`references/dialect.md` 를 읽고')
-    expect(DIALECT).toContain('.claude/skills/dflow-merge/scripts/dialect-check.sh run --dev <기본브랜치> --sweep-base <스윕 전 sha>')
-    expect(sec).toContain('머지마다 돌리지 않는다')
-    expect(sec).toContain('`--resolve` 는 이 절을 타지 않는다')
-    expect(sec).toContain('도커 런타임을 켜지 않는다')
-    expect(MERGE).toContain('「방언 검증」 을 한 번 돈다')
+    expect(sec).toContain('→ references/dialect.md §방언 검증')
+    expect(DIALECT).toContain('.claude/skills/dflow-merge/scripts/dialect-check.mjs run --dev <기본브랜치> --sweep-base <스윕 전 sha>')
+    expect(DIALECT).toContain('merge 마다 실행 안 함')
+    expect(sec).toContain('`--resolve` 는 이 절 안 탐')
+    expect(sec).toContain('도커 런타임 안 켬')
+    expect(MERGE).toContain('「방언 검증」 한 번 실행')
   })
   it('팀장 승인 스윕이 실패·보류를 issues.md 와 team.issue(decision 은 pending 아님)로 기록하고 사람에게 알린다', () => {
-    const sweep = TEAM.slice(TEAM.indexOf('## 4. 승인 스윕'), TEAM.indexOf('### 4-1. 머지 충돌 해소'))
+    const sweep = TEAM.slice(TEAM.indexOf('## 4. 승인 스윕'), TEAM.indexOf('### 4-1. 머지 충돌 해소')) + SWEEP // 줄별 처리는 references/sweep.md 로 옮겼다
     expect(sweep).toContain('**방언 검증**')
     expect(sweep).toContain('`DIALECT_FAIL`')
     expect(sweep).toContain('`DIALECT_DEFERRED docker-off … notify=1`')
-    expect(sweep).toContain('팀장은 도커 런타임을 켜지 않는다')
+    expect(sweep).toContain('팀장 도커 런타임 안 켬')
     expect(sweep).toContain('`docs/dflow-team/issues.md`')
-    expect(sweep).toContain("id8 는 `dialect`")
-    expect(sweep).toContain('`pending` 으로 쓰지 않는다')
-    expect(sweep).toContain('자동으로 되돌리거나 Task 를 재오픈하지 않는다')
+    expect(sweep).toContain('id8 = `dialect`')
+    expect(sweep).toContain('`decision` 에 `pending` 금지')
+    expect(sweep).toContain('자동 되돌리기·Task 재오픈 안 함')
     expect(sweep).toContain('`DIALECT_ERROR`')
     const events = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/events.md'), 'utf8')
-    expect(events).toContain('id8 가 `dialect` 인 줄은 팀원 이슈가 아니라 방언 검증 기록이다')
+    expect(events).toContain('id8 = `dialect` 인 줄 = 팀원 이슈 아님, 방언 검증 기록')
   })
   it('문서뿐 이월(DIALECT_SKIP docs-only)은 보고에 싣지 않는 줄이다(merge 보고·팀장 처리 모두)', () => {
     expect(DIALECT).toContain('`DIALECT_SKIP docs-only <sha> since=<직전 통과>`')
-    expect(MERGE).toContain('결과 줄(`DIALECT_*`, `DIALECT_SKIP` 제외)과 `DIALECT_UNVERIFIED` 줄을 표 아래에 그대로 싣는다')
-    expect(TEAM).toMatch(/`DIALECT_BUSY`·`DIALECT_RUNNING`·`DIALECT_SKIP`·`DIALECT_NONE`: 보고하지 않는다/)
+    expect(MERGE).toContain('결과 줄(`DIALECT_*`, `DIALECT_SKIP` 제외)과 `DIALECT_UNVERIFIED` 줄을 표 아래에 그대로 실음.')
+    expect(SWEEP).toMatch(/`DIALECT_BUSY`·`DIALECT_RUNNING`·`DIALECT_SKIP`·`DIALECT_NONE`: 보고 안 함/)
   })
   it('/dflow-merge 는 실행 불가·시그널 exit 를 실패로 기록하지 않는다고 적는다', () => {
     expect(DIALECT).toContain('exit 126·127·128 이상')
@@ -348,6 +349,6 @@ describe('방언 검증 문서 계약', () => {
   it('예시 설정에 dialect_check 가 있고, PC 전용 값은 .dflow.local 에 두라고 안내한다', () => {
     expect(EXAMPLE).toContain('# dialect_check=')
     expect(LOCAL_EXAMPLE).toContain('# dialect_check=')
-    expect(LOCAL_EXAMPLE).toContain('PC 전용 값(JAVA_HOME 등)이 든 명령은 .dflow.local 에 둔다')
+    expect(LOCAL_EXAMPLE).toContain('PC 전용 값(JAVA_HOME 등) 든 명령은 .dflow.local 에 둠')
   })
 })

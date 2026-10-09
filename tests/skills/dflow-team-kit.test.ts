@@ -137,12 +137,13 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
     expect(hb).toContain(`_base=$(printf '%s' "$_base" | tr -d '\\r'); _all=$(printf '%s' "$_all" | tr -d '\\r')`)
     expect(hb).toContain(`_as=$(printf '%s' "\${DFLOW_AS:-}" | tr -d '\\r')`)
 
-    const dflow = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'utf8')
-    expect(dflow).toContain("_cr=$(printf '\\r')")
-    expect(dflow).toContain('for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP DFLOW_AS DFLOW_DEV_BRANCH DFLOW_RELEASE_BRANCH DFLOW_AUTOMERGE; do')
-    expect(dflow).toContain(`tr -d '\\\\r'`)
+    // dflow.mjs(node 이식판): 설정을 읽은 직후 같은 아홉 변수에서 CR 을 걷어낸다
+    const dflow = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs'), 'utf8')
+    expect(dflow).toContain("for (const v of ['DFLOW_API_BASE', 'DFLOW_PATS', 'DFLOW_PAT', 'DFLOW_PROJECT_ID', 'DFLOW_PROJECT_MAP',\n    'DFLOW_AS', 'DFLOW_DEV_BRANCH', 'DFLOW_RELEASE_BRANCH', 'DFLOW_AUTOMERGE']) {")
+    expect(dflow).toContain("process.env[v] = process.env[v].replace(/\\r/g, '')")
 
-    expect(readFileSync(join(ROOT, 'kit/README.md'), 'utf8')).toMatch(/^## Windows\(Git Bash\)$/m)
+    // 스크립트가 node 판이 되면서 절 이름이 `## Windows(Git Bash)` 에서 `## Windows` 로 바뀌었다
+    expect(readFileSync(join(ROOT, 'kit/README.md'), 'utf8')).toMatch(/^## Windows$/m)
   })
 
   it('F1: dflow.sh doctor 는 CRLF .env 를 읽어도 \\r 없는 출력을 내고 토큰 미설정으로 종료한다', () => {
@@ -150,7 +151,7 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
     const envFile = join(dir, 'env-crlf')
     try {
       writeFileSync(envFile, 'DFLOW_API_BASE=https://example.invalid\r\nDFLOW_PATS=\r\n')
-      const r = spawnSync('sh', [join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'doctor'], {
+      const r = spawnSync(process.execPath, [join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs'), 'doctor'], {
         env: { ...process.env, DFLOW_ENV_FILE: envFile, DFLOW_PATS: '', DFLOW_PAT: '', DFLOW_CONFIG_DIR: '/nonexistent-dflow-config' },
         encoding: 'utf8',
       })
