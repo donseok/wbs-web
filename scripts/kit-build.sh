@@ -3,7 +3,7 @@
 # 스킬 정본은 dmes-standard/.claude/skills/dflow-* 이고(2026-10-01), 여기 .claude/skills/dflow-* 는 그곳으로 가는 링크다.
 # 링크가 아니라 링크 대상의 실제 파일을 복사한다(cp -R 은 링크 자체를 복사하므로 경로/. 로 내용을 복사).
 # 사용법: scripts/kit-build.sh <출력 폴더>   (예: ~/dflow-kit — 그 폴더가 git 리포면 커밋·push 는 사람이)
-# 출력: <출력>/skills/dflow-* · skills/_shared(node·bin·platform-support.md) · install.sh · README.md · VERSION
+# 출력: <출력>/skills/dflow-* · skills/_shared(node·bin·platform-support.md·style) · install.sh · README.md · VERSION
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -34,6 +34,12 @@ for f in "$SH_SRC"/node/*; do
   cp -R "$f" "$OUT/skills/_shared/node/"
 done
 cp "$SH_SRC/platform-support.md" "$OUT/skills/_shared/platform-support.md"
+# 문체 가이드 — 스킬이 ../_shared/style/Korean-STE-*.md 를 가리킨다(정본 = 스킬 정본 리포 .claude/skills/_shared/style).
+mkdir -p "$OUT/skills/_shared/style"
+for f in Korean-STE-Writing-Guide.md Korean-STE-LLM-Guide.md; do
+  [ -f "$SH_SRC/style/$f" ] || { echo "정본 문체 가이드 없음: $SH_SRC/style/$f" >&2; exit 2; }
+  cp "$SH_SRC/style/$f" "$OUT/skills/_shared/style/$f"
+done
 # 스킬이 가리키는 _shared 스크립트가 실제로 실렸는지 확인 — 빠지면 설치한 리포에서 ERR_MODULE_NOT_FOUND 로 죽는다.
 for ref in $(grep -rhoE '_shared/(bin|node)/[A-Za-z0-9_.-]+\.(mjs|sh)' "$OUT"/skills/dflow-* | sort -u); do
   [ -f "$OUT/skills/$ref" ] || { echo "킷에 없는 _shared 파일을 스킬이 참조한다: $ref" >&2; exit 1; }
