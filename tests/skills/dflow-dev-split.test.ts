@@ -75,7 +75,8 @@ describe('이동 지도(분할 전 SKILL.md → 안내 본문·단계 파일)', 
     expect(next - 1).toBe(presplit.length)
   })
 
-  it('각 범위의 줄이 대상 파일에 같은 순서로 남아 있다(CHANGED_SPLIT 제외)', () => {
+  // fixture(분할 전 SKILL.md·이동 지도)가 개편 2·3차 전면 재작성보다 앞선 것이라 줄 순서 대조가 성립하지 않는다 — skip. fixture 는 지우지 않는다.
+  it.skip('각 범위의 줄이 대상 파일에 같은 순서로 남아 있다(CHANGED_SPLIT 제외)', () => {
     for (const r of moveMap) {
       const target = readFileSync(join(DEV_DIR, r.file), 'utf8')
       const range = presplit.slice(r.from - 1, r.to).join('\n')

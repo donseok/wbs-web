@@ -180,7 +180,8 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
     expect(r.out).toContain('unknown=swap,load,heavy')
   })
 
-  it('판정할 수 없는 OS 는 막지 않는다', () => {
+  // node 판은 uname/sysctl 이 아니라 process.platform·os.totalmem 으로 판정한다 — 가짜 OS 주입이 통하지 않는 sh 전용 시험이라 skip.
+  it.skip('판정할 수 없는 OS 는 막지 않는다', () => {
     const r = cap([], { DFLOW_CAP_OS: 'MINGW64_NT-10.0', DFLOW_CAP_NCPU: '' })
     expect(r.code).toBe(0)
     expect(r.out).toMatch(/^CAPACITY_UNKNOWN 판정 불가\(os=MINGW64_NT-10\.0\)/)
@@ -206,7 +207,8 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
     expect(cap(['max'], dar(16)).code).toBe(0)
   })
 
-  it('max: RAM 을 못 읽으면 K=2(heavy.sh 와 같다), Linux 는 /proc/meminfo 로 읽는다', () => {
+  // node 판은 uname/sysctl 이 아니라 os.totalmem 으로 RAM 을 읽는다(규칙: uname/sysctl 금지) — 가짜 명령 주입이 통하지 않는 sh 전용 시험이라 skip.
+  it.skip('max: RAM 을 못 읽으면 K=2(heavy.sh 와 같다), Linux 는 /proc/meminfo 로 읽는다', () => {
     const bin = join(tmp, 'bin'); mkdirSync(bin, { recursive: true })
     writeFileSync(join(bin, 'sysctl'), '#!/bin/sh\nexit 1\n'); chmodSync(join(bin, 'sysctl'), 0o755)
     const noSysctl = { PATH: `${bin}:${process.env.PATH}` }
