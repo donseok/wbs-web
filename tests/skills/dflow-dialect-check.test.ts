@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/dialect-check.sh')
+const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/dialect-check.mjs')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
 // 방언 검증의 명령·결과 줄 상세는 스윕 보고 직전에만 읽는 references/dialect.md 로 옮겼다(2026-09-25)
 const DIALECT = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/dialect.md'), 'utf8')
@@ -33,7 +33,7 @@ function sh(cwd: string, script: string, env: Record<string, string> = {}) {
   })
   return { code: r.status, out: r.stdout || '', err: r.stderr || '' }
 }
-const run = (env: Record<string, string> = {}, extra = '') => sh(repo, `bash "$S" run --dev dev ${extra}`, env)
+const run = (env: Record<string, string> = {}, extra = '') => sh(repo, `node "$S" run --dev dev ${extra}`, env)
 const last = (out: string) => out.trim().split('\n').at(-1) ?? ''
 const count = () => (existsSync(join(marks, 'runs')) ? readFileSync(join(marks, 'runs'), 'utf8').trim().split('\n').length : 0)
 function setConfig(cmd: string, local = '') {
@@ -85,7 +85,7 @@ const CMD = `echo "$(pwd) $(git rev-parse HEAD) held=$DFLOW_HEAVY_DOCKER_HELD" >
 
 describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, () => {
   it('bash 로 파싱되고 실행 권한이 있다', () => {
-    expect(spawnSync('bash', ['-n', SCRIPT]).status).toBe(0)
+    expect(spawnSync('node', ['--check', SCRIPT]).status).toBe(0)
     expect(spawnSync('test', ['-x', SCRIPT]).status).toBe(0)
   })
 
@@ -117,7 +117,7 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     const r2 = run()
     expect(last(r2.out)).toBe(`DIALECT_SKIP passed ${tip.slice(0, 12)}`)
     expect(count()).toBe(1)
-    expect(last(sh(repo, 'bash "$S" status --dev dev').out)).toMatch(/^DIALECT_PASS /)
+    expect(last(sh(repo, 'node "$S" status --dev dev').out)).toMatch(/^DIALECT_PASS /)
   })
 
   it('실패하면 직전 통과 이후 머지된 Task 와 도커 금지로 확인하지 못한 Task 를 적고 기록한다. 되돌리지 않는다', () => {
@@ -139,7 +139,7 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     const r2 = run()
     expect(last(r2.out)).toBe(`DIALECT_SKIP failed ${tip.slice(0, 12)}`)
     expect(count()).toBe(2)
-    expect(last(sh(repo, 'bash "$S" status --dev dev').out)).toMatch(/^DIALECT_FAIL /)
+    expect(last(sh(repo, 'node "$S" status --dev dev').out)).toMatch(/^DIALECT_FAIL /)
     // 고친 뒤 새 머지가 오면 다시 돌고, since 는 여전히 마지막 통과 커밋이다
     rmSync(join(marks, 'FAIL'))
     const fixed = mergeTask('TSK-02-03')
@@ -175,7 +175,7 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     expect(st).toContain(`last_pass=${passed}\n`)
     expect(st).toContain(`docs_only=${tip}\n`)
     // 상태 조회는 마지막 실제 판정을 그대로 낸다(이월 줄로 덮지 않는다)
-    expect(last(sh(repo, 'bash "$S" status --dev dev').out)).toMatch(new RegExp(`^DIALECT_PASS ${passed.slice(0, 12)} `))
+    expect(last(sh(repo, 'node "$S" status --dev dev').out)).toMatch(new RegExp(`^DIALECT_PASS ${passed.slice(0, 12)} `))
   })
 
   it('작업 폴더라도 목록 밖 파일(스크립트 등)이나 문서 폴더 밖 코드가 바뀌었으면 돌린다', () => {
@@ -244,7 +244,7 @@ describe('dialect-check.sh — 스윕 끝 방언 검증', { timeout: 60000 }, ()
     expect(count()).toBe(0)
     // docker 는 info 로만 불렸다(start 류 없음)
     expect(readFileSync(join(marks, 'docker-calls'), 'utf8').trim().split('\n').every((l) => l === 'info')).toBe(true)
-    expect(sh(repo, 'bash "$S" status --dev dev').out).toContain(`DIALECT_PENDING deferred ${tip.slice(0, 12)}`)
+    expect(sh(repo, 'node "$S" status --dev dev').out).toContain(`DIALECT_PENDING deferred ${tip.slice(0, 12)}`)
     writeFileSync(join(marks, 'DOCKER_UP'), '')
     const r2 = run()
     expect(last(r2.out)).toMatch(new RegExp(`^DIALECT_PASS ${tip.slice(0, 12)} `))

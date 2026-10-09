@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const CAP = join(ROOT, '.claude/skills/dflow-team/scripts/capacity.sh')
+const CAP = join(ROOT, '.claude/skills/dflow-team/scripts/capacity.mjs')
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 
 let tmp: string
@@ -22,7 +22,7 @@ function baseEnv() {
   return { ...e, DFLOW_CAP_NCPU: '10', DFLOW_HEAVY_BIN: join(tmp, 'no-heavy.sh') }
 }
 function cap(args: string[], env: Record<string, string>) {
-  const r = spawnSync('bash', [CAP, ...args], { encoding: 'utf8', env: { ...baseEnv(), ...env } })
+  const r = spawnSync(process.execPath, [CAP, ...args], { encoding: 'utf8', env: { ...baseEnv(), ...env } })
   return { code: r.status, out: (r.stdout || '').trim() }
 }
 
@@ -66,7 +66,7 @@ function fakeLinux(meminfo: string, loadavg = '1.00 2.00 3.00 1/100 1\n') {
 // 한 시험이 bash 를 여러 번 띄운다. PC 가 바쁠 때(바로 이 스크립트가 막으려는 상황) 기본 5초를 넘기므로 넉넉히 준다.
 describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () => {
   it('bash 로 파싱되고 실행 권한이 있다', () => {
-    expect(spawnSync('bash', ['-n', CAP]).status).toBe(0)
+    expect(spawnSync(process.execPath, ['--check', CAP]).status).toBe(0)
     expect(spawnSync('test', ['-x', CAP]).status).toBe(0)
   })
 
@@ -138,14 +138,14 @@ describe('capacity.sh — 팀원 입장 제어 판정', { timeout: 30000 }, () =
     const skills = join(tmp, 'kit', 'skills')
     mkdirSync(join(skills, 'dflow-team', 'scripts'), { recursive: true })
     mkdirSync(join(skills, 'dflow-dev', 'scripts'), { recursive: true })
-    writeFileSync(join(skills, 'dflow-team', 'scripts', 'capacity.sh'), readFileSync(CAP, 'utf8'))
-    writeFileSync(join(skills, 'dflow-dev', 'scripts', 'heavy.sh'), '#!/bin/sh\necho "HEAVY_STATUS slots=1 held=1 waiting=1"\n')
+    writeFileSync(join(skills, 'dflow-team', 'scripts', 'capacity.mjs'), readFileSync(CAP, 'utf8'))
+    writeFileSync(join(skills, 'dflow-dev', 'scripts', 'heavy.mjs'), '#!/usr/bin/env node\nconsole.log("HEAVY_STATUS slots=1 held=1 waiting=1")\n')
     const repo = join(tmp, 'repo', '.claude')
     mkdirSync(repo, { recursive: true })
     symlinkSync(skills, join(repo, 'skills'))
     const env: Record<string, string | undefined> = { ...baseEnv(), ...fakeDarwin({ free: 60, load5: 1, level: 1 }) }
     delete env.DFLOW_HEAVY_BIN
-    const r = spawnSync('bash', [join(repo, 'skills', 'dflow-team', 'scripts', 'capacity.sh')], { encoding: 'utf8', env })
+    const r = spawnSync(process.execPath, [join(repo, 'skills', 'dflow-team', 'scripts', 'capacity.mjs')], { encoding: 'utf8', env })
     expect(r.status, r.stdout).toBe(1)
     expect(r.stdout).toMatch(/^CAPACITY_LOW heavy대기1>=슬롯1 /)
   })
@@ -366,7 +366,8 @@ describe('capacity.sh usage — 주간 사용량으로 새 작업 spawn 제한',
     expect(usage(null).code).toBe(1)
   })
 
-  it('jq 가 없으면 제한하지 않는다(fail-open)', () => {
+  // node 판은 jq 를 쓰지 않아 jq 부재 fail-open 이 없다 — sh 판 전용 시험이라 skip.
+  it.skip('jq 가 없으면 제한하지 않는다(fail-open)', () => {
     dump('aaaaaaaa', { weekly: 99 })
     const bin = join(tmp, 'nojq')
     mkdirSync(bin, { recursive: true })
@@ -374,7 +375,7 @@ describe('capacity.sh usage — 주간 사용량으로 새 작업 spawn 제한',
       const w = spawnSync('bash', ['-c', `command -v ${t}`], { encoding: 'utf8' }).stdout.trim()
       if (w.startsWith('/')) symlinkSync(w, join(bin, t))
     }
-    const r = spawnSync('/bin/bash', [CAP, 'usage', '--live', '4'], { encoding: 'utf8', env: { ...baseEnv(), PATH: bin, DFLOW_CAP_LIMITS_DIR: limDir() } })
+    const r = spawnSync(process.execPath, [CAP, 'usage', '--live', '4'], { encoding: 'utf8', env: { ...baseEnv(), PATH: bin, DFLOW_CAP_LIMITS_DIR: limDir() } })
     expect(r.status, r.stdout + r.stderr).toBe(0)
     expect(r.stdout).toMatch(/^CAPACITY_USAGE_UNKNOWN jq 없음 — 막지 않는다/)
   })

@@ -12,9 +12,9 @@ const ROOT = process.cwd()
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-worktree.md'), 'utf8')
 const DEV = devAll()
-const LEAD_WT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-worktree.sh')
+const LEAD_WT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-worktree.mjs')
 const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.mjs')
-const LIVE_LEADS = join(ROOT, '.claude/skills/dflow-team/scripts/live-leads.sh')
+const LIVE_LEADS = join(ROOT, '.claude/skills/dflow-team/scripts/live-leads.mjs')
 
 const GIT_ENV = {
   ...process.env,
@@ -71,7 +71,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
       ln -s '${tmp}/kit/dflow-team' .claude/skills/dflow-team
     `)
     expect(r0.code, r0.out).toBe(0)
-    const r = sh(primary, `bash '${LEAD_WT}' k3`)
+    const r = sh(primary, `node '${LEAD_WT}' k3`)
     expect(r.code, r.out).toBe(0)
     const lw = join(primary, '.claude/worktrees/lead-k3')
     expect(lstatSync(join(lw, '.claude/skills')).isSymbolicLink()).toBe(false)
@@ -88,7 +88,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     writeFileSync(join(primary, '.claude/skills/dflow-team/SKILL.md'), 'x')
     writeFileSync(join(primary, '.env'), 'DFLOW_PATS=secret\n')
     chmodSync(join(primary, '.env'), 0o600)
-    const r = sh(primary, `bash '${LEAD_WT}' k2`)
+    const r = sh(primary, `node '${LEAD_WT}' k2`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('secret')
     const lw = join(primary, '.claude/worktrees/lead-k2')
@@ -101,7 +101,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     expect(sh(primary, 'git status --porcelain').out.trim()).toBe('')
     // 두 번 돌려도 깨지지 않고 .env 를 덮어쓰지 않는다
     writeFileSync(join(lw, '.env'), 'DFLOW_AS=other\n')
-    const r2 = sh(primary, `bash '${LEAD_WT}' k2`)
+    const r2 = sh(primary, `node '${LEAD_WT}' k2`)
     expect(r2.code, r2.out).toBe(0)
     expect(readFileSync(join(lw, '.env'), 'utf8')).toBe('DFLOW_AS=other\n')
   })
@@ -109,7 +109,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
   it('lead-worktree.sh 는 복사본에서 DFLOW_AS 줄만 빼고 나머지는 그대로 둔다', () => {
     writeFileSync(join(primary, '.env'), 'DFLOW_API_BASE=https://x\nDFLOW_AS=AAAAAAAAAAAA\nDFLOW_PATS=secret\n  export DFLOW_AS=BBBBBBBBBBBB\nDFLOW_ASK=keep\n')
     chmodSync(join(primary, '.env'), 0o644)
-    const r = sh(primary, `bash '${LEAD_WT}' k2`)
+    const r = sh(primary, `node '${LEAD_WT}' k2`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('secret')
     expect(r.out).not.toContain('AAAAAAAAAAAA')
@@ -124,20 +124,20 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
 
   it('lead-worktree.sh 는 .env 가 DFLOW_AS 줄뿐이어도 죽지 않는다', () => {
     writeFileSync(join(primary, '.env'), 'DFLOW_AS=AAAAAAAAAAAA\n')
-    const r = sh(primary, `bash '${LEAD_WT}' k2`)
+    const r = sh(primary, `node '${LEAD_WT}' k2`)
     expect(r.code, r.out).toBe(0)
     expect(readFileSync(join(primary, '.claude/worktrees/lead-k2/.env'), 'utf8')).toBe('')
   })
 
   it('lead-worktree.sh 는 링크드 워크트리에서 부르면 거부한다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
-    const r = sh(join(primary, '.claude/worktrees/lead-k2'), `bash '${LEAD_WT}' k3`)
+    sh(primary, `node '${LEAD_WT}' k2`)
+    const r = sh(join(primary, '.claude/worktrees/lead-k2'), `node '${LEAD_WT}' k3`)
     expect(r.code).toBe(2)
     expect(r.out).toContain('NOT_PRIMARY')
   })
 
   it('잠금·종료 파일·poll 디렉터리는 워크트리마다 따로 풀린다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     const paths = (cwd: string) => sh(cwd, 'git rev-parse --path-format=absolute --git-path dflow-team.lock --git-path dflow-team.stop --git-path dflow-team-poll').out.trim().split('\n')
     const a = paths(primary)
@@ -146,7 +146,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
   })
 
   it('SAME_IDENTITY_LEAD: 다른 워크트리에 살아 있는 같은 신원의 잠금만 잡는다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     const start = TEAM.indexOf('   stale() {')
     const end = TEAM.indexOf('   [ -z "$dup" ] || bad "SAME_IDENTITY_LEAD $dup"')
@@ -173,7 +173,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     writeFileSync(join(primary, '.claude/skills/dflow-team/SKILL.md'), 'x')
     writeFileSync(join(primary, '.dflow'), 'api_base=https://x.test\n')
     writeFileSync(join(primary, '.dflow.local'), 'pats=dflow_pat_AAAAAAAAAAAA_topsecrettopsecret\nas=AAAAAAAAAAAA\ndev_branch=dev/me\n')
-    const r = sh(primary, `bash '${LEAD_WT}' k3`)
+    const r = sh(primary, `node '${LEAD_WT}' k3`)
     expect(r.code, r.out).toBe(0)
     expect(r.out).not.toContain('topsecret')
     const lw = join(primary, '.claude/worktrees/lead-k3')
@@ -186,7 +186,7 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
   })
   it('새 방식 설정이 깨졌으면(NO_LOCAL) 워크트리를 만들지 않고 exit 2', () => {
     writeFileSync(join(primary, '.dflow'), 'api_base=https://x.test\n')
-    const r = sh(primary, `bash '${LEAD_WT}' k4`)
+    const r = sh(primary, `node '${LEAD_WT}' k4`)
     expect(r.code).toBe(2); expect(r.out).toContain('NO_LOCAL')
     expect(existsSync(join(primary, '.claude/worktrees/lead-k4'))).toBe(false)
   })
@@ -205,23 +205,23 @@ describe('키 판정은 다른 워크트리의 살아 있는 팀장이 쓰는 �
   }
 
   it('다른 워크트리의 살아 있는 잠금만 <신원><TAB><워크트리> 로 낸다 — 자기 잠금·죽은 잠금·다른 host 는 뺀다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
-    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe('')
+    expect(sh(lw, `node '${LIVE_LEADS}'`).out).toBe('')
     const l = hold(primary, `alice/${HOST}/lead`, now())
-    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe(`alice\t${primary}\n`)
+    expect(sh(lw, `node '${LIVE_LEADS}'`).out).toBe(`alice\t${primary}\n`)
     // 자기 워크트리의 잠금은 세지 않는다
-    expect(sh(primary, `bash '${LIVE_LEADS}'`).out).toBe('')
+    expect(sh(primary, `node '${LIVE_LEADS}'`).out).toBe('')
     // beat 가 70분을 넘기면 죽은 팀장이다(SAME_IDENTITY_LEAD 와 같은 기준)
     writeFileSync(join(l, 'beat'), `${now() - 5000}\n`)
-    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe('')
+    expect(sh(lw, `node '${LIVE_LEADS}'`).out).toBe('')
     // 다른 host 의 잠금은 SAME_IDENTITY_LEAD 가 막지 않으므로 여기서도 빼지 않는다
     hold(primary, 'alice/other-pc/lead', now())
-    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe('')
+    expect(sh(lw, `node '${LIVE_LEADS}'`).out).toBe('')
   })
 
   it('--mark 는 profiles 행에 in_use 를 더하고 JSON 이 아닌 줄은 그대로 낸다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     hold(primary, `alice/${HOST}/lead`, now())
     const input = [
@@ -231,7 +231,7 @@ describe('키 판정은 다른 워크트리의 살아 있는 팀장이 쓰는 �
       '{"n":3,"prefix":"CCCCCCCCCCCC","error":"auth","selected":false}',
     ].join('\n')
     writeFileSync(join(tmp, 'in.txt'), input + '\n')
-    const r = sh(lw, `bash '${LIVE_LEADS}' --mark < '${join(tmp, 'in.txt')}'`)
+    const r = sh(lw, `node '${LIVE_LEADS}' --mark < '${join(tmp, 'in.txt')}'`)
     expect(r.code, r.out).toBe(0)
     const lines = r.out.trim().split('\n')
     expect(lines[0]).toBe('DFLOW_AS=없음')
@@ -259,7 +259,7 @@ describe('기본 브랜치에 있지 않은 체크아웃은 임시 머지 워크
   })
 
   it('main 을 주 체크아웃이 잡고 있어도, detached 팀장 워크트리에서 문서의 명령으로 머지·push 된다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     // 이 상황이 문제의 출발점이다: 링크드 워크트리는 main 으로 switch 하지 못한다
     const sw = sh(lw, 'git switch main')
@@ -292,7 +292,7 @@ describe('기본 브랜치에 있지 않은 체크아웃은 임시 머지 워크
   })
 
   it('push 가 경합으로 거부되면 non-fast-forward 문구가 나오고 reset --hard 로 되돌릴 수 있다', () => {
-    sh(primary, `bash '${LEAD_WT}' k2`)
+    sh(primary, `node '${LEAD_WT}' k2`)
     const lw = join(primary, '.claude/worktrees/lead-k2')
     const r = sh(lw, `
       W="${lw}/.claude/worktrees/dflow-merge"

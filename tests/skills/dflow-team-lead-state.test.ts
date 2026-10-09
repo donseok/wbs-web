@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCRIPT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-state.sh')
+const SCRIPT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-state.mjs')
 const A = 'hong/mbp/lead'
 const R = '/work/repo'
 const WT = (id8: string, sfx = '') => `${R}/.claude/worktrees/dflow-${id8}${sfx}`
@@ -29,7 +29,7 @@ const lost = (slot: string, id8: string, next: string) => line({ event: 'team.lo
 
 function run(lines: string[], args: string[] = ['--agent', A, '--repo', R]) {
   writeFileSync(ev, lines.join('\n') + '\n')
-  const r = spawnSync('bash', [SCRIPT, ...args, '--events', ev], { encoding: 'utf8' })
+  const r = spawnSync(process.execPath, [SCRIPT, ...args, '--events', ev], { encoding: 'utf8' })
   expect(r.status, r.stderr).toBe(0)
   return r.stdout.trim().split('\n')
 }
@@ -37,7 +37,7 @@ const get = (out: string[], key: string) => out.filter((l) => l.startsWith(key +
 
 describe('lead-state.sh — 재구성 보조 요약', () => {
   it('bash 로 파싱되고 실행 권한이 있다', () => {
-    expect(spawnSync('bash', ['-n', SCRIPT]).status).toBe(0)
+    expect(spawnSync(process.execPath, ['--check', SCRIPT]).status).toBe(0)
     expect(spawnSync('test', ['-x', SCRIPT]).status).toBe(0)
   })
 
@@ -143,9 +143,9 @@ describe('lead-state.sh — 재구성 보조 요약', () => {
     const repo = join(tmp, 'lead')
     spawnSync('bash', ['-c', `mkdir -p '${repo}' && cd '${repo}' && git init -q && mkdir -p .git/dflow-team.lock && echo '${A} 1 2' > .git/dflow-team.lock/owner`])
     writeFileSync(ev, [start(), spawnE('1', 'aaaa0001')].map((l) => l.replace(R, repo)).join('\n') + '\n')
-    const r = spawnSync('bash', [SCRIPT, '--events', ev], { cwd: repo, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [SCRIPT, '--events', ev], { cwd: repo, encoding: 'utf8' })
     expect(r.stdout).toMatch(/^SLOT 1 aaaa0001 /m)
-    const none = spawnSync('bash', [SCRIPT, '--agent', A, '--repo', R, '--events', join(tmp, 'nope.jsonl')], { encoding: 'utf8' })
+    const none = spawnSync(process.execPath, [SCRIPT, '--agent', A, '--repo', R, '--events', join(tmp, 'nope.jsonl')], { encoding: 'utf8' })
     expect(none.stdout.trim().split('\n')).toEqual(['RUN start=- backend=- slots=- until=- until_label=- wp=- scope=-', 'EVENTS window=0 total=0 bad=0', 'BREAKER 0', 'CONFLICT_CLEARED resolved=0 other=0', 'HASH_OMITTED 0', 'EXCLUDE_PERM -', 'EXCLUDE_TEMP -'])
     expect(readFileSync(SCRIPT, 'utf8')).toContain('실행 내내 쌓인 이벤트를 그대로')
   })

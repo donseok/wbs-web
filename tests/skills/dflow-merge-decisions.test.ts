@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/decisions.sh')
-const DLOG = join(ROOT, '.claude/skills/dflow-wbs/scripts/decision-log.py')
+const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/decisions.mjs')
+const DLOG = join(ROOT, '.claude/skills/dflow-wbs/scripts/decision-log.mjs')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
 const DETAILS = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/script-details.md'), 'utf8')
 const MERGE_RESOLVE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/resolve.md'), 'utf8')
@@ -70,15 +70,15 @@ afterEach(() => rmSync(tmp, { recursive: true, force: true }))
 // /dflow-merge 3단계 그대로: 머지 → 충돌이면 decisions.md 만 스크립트로 풀고, 남은 충돌이 없으면 커밋 → 번호 매김
 const mergeStep = (ref: string, tsk: string) => `
   git merge --no-ff ${ref} -m "merge: ${tsk} x (approved)" -m "DFlow-Order: o-${tsk}" >/dev/null 2>&1 || {
-    sh "$S" merge-conflicts
+    node "$S" merge-conflicts
     left=$(git diff --name-only --diff-filter=U | paste -sd, -)
     if [ -n "$left" ]; then echo "LEFT=$left"; git merge --abort; exit 3; fi
     git commit -q --no-edit --cleanup=strip
   }
-  sh "$S" renumber --tsk ${tsk} --order o-${tsk}
+  node "$S" renumber --tsk ${tsk} --order o-${tsk}
 `
 const doc = () => readFileSync(join(repo, 'docs/mdm/decisions.md'), 'utf8')
-const validate = () => sh(repo, 'python3 "$DLOG" validate --target docs/mdm')
+const validate = () => sh(repo, 'node "$DLOG" validate --target docs/mdm')
 
 describe('decisions.sh — 머지 때 번호 매김(실제 git)', { timeout: 30000 }, () => {
   it('두 병렬 브랜치를 차례로 머지하면 decisions.md 충돌을 기계적으로 풀고 D-003·D-004·D-005 를 매긴다', () => {
@@ -115,9 +115,9 @@ describe('decisions.sh — 머지 때 번호 매김(실제 git)', { timeout: 300
 
   it('다시 돌리면 아무것도 하지 않는다(NO_TEMP_IDS, 커밋 없음). 임시 ID 가 없는 머지도 같다', () => {
     const r = sh(repo, `
-      sh "$S" renumber; h1=$(git rev-parse HEAD)
+      node "$S" renumber; h1=$(git rev-parse HEAD)
       ${mergeStep('origin/agent/aaaaaaaa-a', 'TSK-01-02')}
-      h2=$(git rev-parse HEAD); sh "$S" renumber; h3=$(git rev-parse HEAD)
+      h2=$(git rev-parse HEAD); node "$S" renumber; h3=$(git rev-parse HEAD)
       [ "$h2" = "$h3" ] && echo SECOND_RUN_NOOP
     `)
     expect(r.code, r.out).toBe(0)
@@ -139,7 +139,7 @@ describe('decisions.sh — 머지 때 번호 매김(실제 git)', { timeout: 300
     const r = sh(repo, `
       printf '%b' ${JSON.stringify(block('D-TSK-09-09-1', '2026-09-24T05:00:00Z') + block('D-TSK-09-09-1', '2026-09-24T06:00:00Z') + block('D-TSK-09-09-2', '2026-09-24T07:00:00Z'))} >> docs/mdm/decisions.md
       git commit -qam dup
-      sh "$S" renumber; echo "exit=$?"
+      node "$S" renumber; echo "exit=$?"
     `)
     expect(r.out).toContain('RENUMBER_DUP D-TSK-09-09-1')
     expect(r.out).toContain('RENUMBERED D-TSK-09-09-2=D-003 docs/mdm/decisions.md')
@@ -178,7 +178,7 @@ describe('decisions.sh — 머지 때 번호 매김(실제 git)', { timeout: 300
       git merge -q --no-ff origin/agent/aaaaaaaa-a -m ma
       h=$(git rev-parse HEAD)
       printf '#!/bin/sh\\nexit 1\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
-      sh "$S" renumber --tsk TSK-01-02; echo "exit=$?"
+      node "$S" renumber --tsk TSK-01-02; echo "exit=$?"
       printf 'porcelain=[%s]\\n' "$(git status --porcelain)"
       [ "$(git rev-parse HEAD)" = "$h" ] && echo HEAD_SAME
       grep -c '^## D-TSK-01-02-' docs/mdm/decisions.md
@@ -190,7 +190,7 @@ describe('decisions.sh — 머지 때 번호 매김(실제 git)', { timeout: 300
     expect(r.out).toContain('\n2\n')
   })
   it('트리가 깨끗하지 않으면 손대지 않는다(RENUMBER_DIRTY, exit 1)', () => {
-    const r = sh(repo, `printf 'y\\n' >> a.txt; sh "$S" renumber; echo "exit=$?"; git status --porcelain`)
+    const r = sh(repo, `printf 'y\\n' >> a.txt; node "$S" renumber; echo "exit=$?"; git status --porcelain`)
     expect(r.out).toContain('RENUMBER_DIRTY')
     expect(r.out).toContain('exit=1')
     expect(r.out).toContain(' M a.txt')
@@ -206,7 +206,7 @@ describe('decisions.sh — 머지 때 번호 매김(실제 git)', { timeout: 300
       git switch -q main
       printf 'main\\n' > a.txt && printf '%b' ${JSON.stringify(block('D-003', '2026-09-24T09:00:00Z'))} >> docs/mdm/decisions.md && git commit -qam m
       git merge --no-ff agent/dddddddd-d >/dev/null 2>&1
-      sh "$S" merge-conflicts
+      node "$S" merge-conflicts
       git diff --name-only --diff-filter=U | sort | paste -sd, -
       git merge --abort
     `)
@@ -219,7 +219,7 @@ describe('decisions.sh — 머지 때 번호 매김(실제 git)', { timeout: 300
       printf 'docs/**/decisions.md merge=union\\n' > .gitattributes && git add .gitattributes && git commit -qm attr
       git merge -q --no-ff origin/agent/aaaaaaaa-a -m ma
       git merge -q --no-ff origin/agent/bbbbbbbb-b -m mb; echo "merge=$?"
-      sh "$S" renumber
+      node "$S" renumber
     `)
     expect(r.out).toContain('merge=0')   // 충돌 없이 들어온다
     const d = doc()
@@ -366,7 +366,7 @@ describe('decisions.sh — 직접 매긴 전역 번호가 겹치면 머지 대�
   it('머지 커밋이 아닌 HEAD 의 중복은 바로잡지 않고 DUP_LEFT 로 알린다', () => {
     const r = sh(repo, `
       printf '%b' ${JSON.stringify(blk('D-002', '2026-09-24T11:00:00Z'))} >> docs/mdm/decisions.md && git commit -qam dup
-      h=$(git rev-parse HEAD); sh "$S" renumber; [ "$(git rev-parse HEAD)" = "$h" ] && echo HEAD_SAME
+      h=$(git rev-parse HEAD); node "$S" renumber; [ "$(git rev-parse HEAD)" = "$h" ] && echo HEAD_SAME
     `)
     expect(r.out).toContain('DUP_LEFT docs/mdm/decisions.md D-002 not-a-merge')
     expect(r.out).toContain('NO_TEMP_IDS')

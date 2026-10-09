@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 const SKILL = readFileSync('.claude/skills/dflow-team/SKILL.md', 'utf8')
 const HELP = readFileSync('.claude/skills/dflow-team/references/help.md', 'utf8')
 // 감시 루프·기상 블록은 2026-09-25 에 scripts/tick.sh·wake.sh 로 옮겼다
-const TICK = readFileSync('.claude/skills/dflow-team/scripts/tick.sh', 'utf8')
-const WAKE = readFileSync('.claude/skills/dflow-team/scripts/wake.sh', 'utf8')
+const TICK = readFileSync('.claude/skills/dflow-team/scripts/tick.mjs', 'utf8')
+const WAKE = readFileSync('.claude/skills/dflow-team/scripts/wake.mjs', 'utf8')
 // 「7. 마감」(잠금·lease 상실 마감 포함)은 2026-09-25 에 references/closing.md 로 옮겼다
 const CLOSING = readFileSync('.claude/skills/dflow-team/references/closing.md', 'utf8')
 const csection = (from: string, to: string) => CLOSING.slice(CLOSING.indexOf(from), to ? CLOSING.indexOf(to, CLOSING.indexOf(from) + 1) : undefined)

@@ -76,7 +76,7 @@ describe('design-ahead.md — 설계 완료 대기 목록(워크트리가 정본
     mkdirSync(main)
     g(main, 'init', '-q', '-b', 'dev'); writeFileSync(join(main, 'a'), 'a'); g(main, 'add', 'a'); g(main, 'commit', '-qm', 'i')
     mkdirSync(join(tmp, 'bin'))
-    writeFileSync(join(tmp, 'bin', 'dflow.sh'), '#!/bin/sh\n[ "$1 $2" = "config tasks-dirs" ] && echo docs/tasks\n', { mode: 0o755 })
+    writeFileSync(join(tmp, 'bin', 'dflow.mjs'), '#!/usr/bin/env node\nif (process.argv[2] + " " + process.argv[3] === "config tasks-dirs") console.log("docs/tasks")\n', { mode: 0o755 })
     const mk = (name: string, agent: string, phase: string) => {
       const w = join(tmp, name)
       g(main, 'worktree', 'add', '-q', '--detach', w)
@@ -89,7 +89,7 @@ describe('design-ahead.md — 설계 완료 대기 목록(워크트리가 정본
     mk('bbbb', 'me/pc1/w2', 'build')
     mk('cccc', 'you/pc1/w1', 'wait_pred')
     const b = blockAfter('## 1. 설계 완료 대기 목록').replaceAll("'<신원>/<host>/'", "'me/pc1/'")
-      .replace('.claude/skills/dflow-work/scripts/dflow.sh', join(tmp, 'bin', 'dflow.sh'))
+      .replace('.claude/skills/dflow-work/scripts/dflow.mjs', join(tmp, 'bin', 'dflow.mjs'))
     const r = spawnSync('bash', ['-c', b], { cwd: main, encoding: 'utf8' })
     expect(r.status, r.stderr).toBe(0)
     expect(r.stdout.trim().split('\n')).toEqual([`DESIGNED\taaaa0000\tTSK-aaaa\t${w1}\td/TSK-03-01,d/TSK-03-02`])
@@ -144,7 +144,7 @@ describe('lead-state.sh — design_waiting 은 제외하지 않고 차단기를 
       l({ event: 'team.spawn', slot: '2', id8: 'desi0002', worktree: '/w2', handle: '-', spawn_kind: 'new' }),
       l({ event: 'team.result', slot: '2', id8: 'desi0002', status: 'design_waiting', worktree: '/w2', hash: '2', reason: 'd/TSK-01-01' }),
     ].join('\n') + '\n')
-    const r = spawnSync('bash', [join(ROOT, '.claude/skills/dflow-team/scripts/lead-state.sh'), '--agent', A, '--repo', R, '--events', ev], { encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [join(ROOT, '.claude/skills/dflow-team/scripts/lead-state.mjs'), '--agent', A, '--repo', R, '--events', ev], { encoding: 'utf8' })
     expect(r.status, r.stderr).toBe(0)
     const out = r.stdout.split('\n')
     expect(out).toContain('BREAKER 0')

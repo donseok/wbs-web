@@ -8,7 +8,7 @@ import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const PROMPT = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resolve-prompt.md'), 'utf8')
-const DECIDE = join(ROOT, '.claude/skills/dflow-team/scripts/resolve-decide.sh')
+const DECIDE = join(ROOT, '.claude/skills/dflow-team/scripts/resolve-decide.mjs')
 const HOOK = join(ROOT, 'kit/hooks/heartbeat.sh')
 
 describe('resolve-prompt.md — 해소 워커 규칙', () => {
@@ -144,7 +144,7 @@ afterEach(() => rmSync(tmp, { recursive: true, force: true }))
 function decide(lines: string[] | null, dev = DEV) {
   const f = join(tmp, 'events.jsonl')
   if (lines) writeFileSync(f, lines.join('\n') + '\n')
-  const r = spawnSync('sh', [DECIDE, f, LEAD, REPO, ID8, dev], { encoding: 'utf8' })
+  const r = spawnSync(process.execPath, [DECIDE, f, LEAD, REPO, ID8, dev], { encoding: 'utf8' })
   return { code: r.status, out: (r.stdout || '').trim() }
 }
 
@@ -191,7 +191,7 @@ describe('resolve-decide.sh — 해소 재시도 판정', () => {
     expect(decide([other, otherLead, other])).toEqual({ code: 0, out: 'RESOLVE 1' })
   })
   it('인자가 모자라면 UNKNOWN usage(2)', () => {
-    const r = spawnSync('sh', [DECIDE, 'x'], { encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [DECIDE, 'x'], { encoding: 'utf8' })
     expect(r.status).toBe(2)
     expect(r.stdout.trim()).toBe('UNKNOWN usage')
   })

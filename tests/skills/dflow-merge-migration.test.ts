@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/migration-check.sh')
+const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/migration-check.mjs')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
 const MERGE_RESOLVE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/resolve.md'), 'utf8')
 const RESOLVE = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resolve-prompt.md'), 'utf8')
@@ -74,37 +74,37 @@ describe('migration-check.sh — 머지 전 관문(실제 git)', { timeout: 3000
     expect(r.out).toContain('2\n')
   })
   it('버전 중복(DUP): 폴더마다 잡고, 걸린 브랜치 파일을 MIGRATION_FILES 로 낸다(exit 1)', () => {
-    const r = sh(repo, `sh "$S" HEAD origin/agent/aaaaaaaa-a; echo "exit=$?"`)
+    const r = sh(repo, `node "$S" HEAD origin/agent/aaaaaaaa-a; echo "exit=$?"`)
     expect(r.out).toContain(`MIGRATION_DUP ${SQ} V4 V4__create_mdm_interface_layout.sql,V4__term_abbr_index_relax.sql`)
     expect(r.out).toContain(`MIGRATION_DUP ${MS} V4 V4__create_mdm_interface_layout.sql,V4__term_abbr_index_relax.sql`)
     expect(r.out).toContain(`MIGRATION_FILES ${MS}/V4__term_abbr_index_relax.sql,${SQ}/V4__term_abbr_index_relax.sql`)
     expect(r.out).toContain('exit=1')
   })
   it('역순 도착(ORDER): 개발 브랜치 최대 V4 보다 작은 V3.1 을 더하면 막는다', () => {
-    const r = sh(repo, `sh "$S" HEAD origin/agent/bbbbbbbb-b; echo "exit=$?"`)
+    const r = sh(repo, `node "$S" HEAD origin/agent/bbbbbbbb-b; echo "exit=$?"`)
     expect(r.out).toContain(`MIGRATION_ORDER ${SQ} V3_1__hotfix.sql V3.1 <= V4`)
     expect(r.out).toContain(`MIGRATION_FILES ${SQ}/V3_1__hotfix.sql`)
     expect(r.out).toContain('exit=1')
   })
   it('outOfOrder 를 쓰는 리포는 --allow-out-of-order(또는 DFLOW_MIGRATION_OUT_OF_ORDER=1)로 ORDER 만 끈다. DUP 은 늘 본다', () => {
-    expect(sh(repo, `sh "$S" --allow-out-of-order HEAD origin/agent/bbbbbbbb-b; echo "exit=$?"`).out).toBe('MIGRATION_OK\nexit=0\n')
-    expect(sh(repo, `sh "$S" HEAD origin/agent/bbbbbbbb-b; echo "exit=$?"`, { DFLOW_MIGRATION_OUT_OF_ORDER: '1' }).out).toBe('MIGRATION_OK\nexit=0\n')
-    expect(sh(repo, `sh "$S" --allow-out-of-order HEAD origin/agent/aaaaaaaa-a; echo "exit=$?"`).out).toContain('exit=1')
+    expect(sh(repo, `node "$S" --allow-out-of-order HEAD origin/agent/bbbbbbbb-b; echo "exit=$?"`).out).toBe('MIGRATION_OK\nexit=0\n')
+    expect(sh(repo, `node "$S" HEAD origin/agent/bbbbbbbb-b; echo "exit=$?"`, { DFLOW_MIGRATION_OUT_OF_ORDER: '1' }).out).toBe('MIGRATION_OK\nexit=0\n')
+    expect(sh(repo, `node "$S" --allow-out-of-order HEAD origin/agent/aaaaaaaa-a; echo "exit=$?"`).out).toContain('exit=1')
   })
   it('다음 번호(V5)·마이그레이션 없는 브랜치는 통과한다. 방언 폴더끼리 같은 버전(sqlite·mssql V5)은 중복이 아니다. R__ 는 보지 않는다', () => {
-    expect(sh(repo, `sh "$S" HEAD origin/agent/dddddddd-d; echo "exit=$?"`).out).toBe('MIGRATION_OK\nexit=0\n')
-    expect(sh(repo, `sh "$S" HEAD origin/agent/cccccccc-c; echo "exit=$?"`).out).toBe('MIGRATION_OK\nexit=0\n')
+    expect(sh(repo, `node "$S" HEAD origin/agent/dddddddd-d; echo "exit=$?"`).out).toBe('MIGRATION_OK\nexit=0\n')
+    expect(sh(repo, `node "$S" HEAD origin/agent/cccccccc-c; echo "exit=$?"`).out).toBe('MIGRATION_OK\nexit=0\n')
   })
   it('Flyway 버전 규칙: V04·V4_0·V4.0 은 V4 와 같고, 큰 타임스탬프 버전도 자리수로 바르게 비교한다', () => {
     const r = sh(repo, `
       set -e
       for v in V04__a V4_0__b V4.0__c; do
         git switch -q -c t-$v main && printf 'x;\\n' > ${SQ}/$v.sql && git add . && git commit -qm $v
-        sh "$S" main t-$v | head -n 1
+        node "$S" main t-$v | head -n 1
       done
       git switch -q -c ts main && printf 'x;\\n' > ${SQ}/V20260924120000__big.sql && git add . && git commit -qm big && git switch -q main && git merge -q --no-ff ts -m ts
       git switch -q -c ts2 HEAD~1 && printf 'x;\\n' > ${SQ}/V9999999999999__less.sql && printf 'x;\\n' > ${MS}/V202609241200001__more.sql && git add . && git commit -qm ts2
-      sh "$S" main ts2 || true
+      node "$S" main ts2 || true
     `)
     expect(r.out).toContain(`MIGRATION_DUP ${SQ} V4 V4__create_mdm_interface_layout.sql,V04__a.sql`)
     expect(r.out).toContain(`MIGRATION_DUP ${SQ} V4 V4__create_mdm_interface_layout.sql,V4_0__b.sql`)
@@ -116,14 +116,14 @@ describe('migration-check.sh — 머지 전 관문(실제 git)', { timeout: 3000
   it('개발 브랜치 자체의 중복은 경고(MIGRATION_DEV_DUP)만 하고 이 머지를 막지 않는다', () => {
     const r = sh(repo, `
       printf 'x;\\n' > ${SQ}/V4__oops.sql && git add . && git commit -qm oops
-      sh "$S" HEAD origin/agent/cccccccc-c; echo "exit=$?"
+      node "$S" HEAD origin/agent/cccccccc-c; echo "exit=$?"
     `)
     expect(r.out).toContain(`MIGRATION_DEV_DUP ${SQ} V4 V4__create_mdm_interface_layout.sql,V4__oops.sql`)
     expect(r.out).toContain('MIGRATION_OK')
     expect(r.out).toContain('exit=0')
   })
   it('판정 불가는 exit 2(MIGRATION_CHECK_FAILED) — 호출자는 머지하지 않는다', () => {
-    const r = sh(repo, `sh "$S" HEAD origin/agent/nope; echo "exit=$?"`)
+    const r = sh(repo, `node "$S" HEAD origin/agent/nope; echo "exit=$?"`)
     expect(r.out).toContain('MIGRATION_CHECK_FAILED no-ref origin/agent/nope')
     expect(r.out).toContain('exit=2')
   })
@@ -134,10 +134,10 @@ describe('해소 트리(--staged) — R9 재채번 뒤 게이트가 통과한다
     const r = sh(repo, `
       git -c rerere.enabled=true merge --no-ff --no-commit origin/agent/aaaaaaaa-a >/dev/null 2>&1; echo "merge=$?"
       git diff --name-only --diff-filter=U | wc -l | tr -d ' '
-      sh "$S" --staged; echo "before=$?"
+      node "$S" --staged; echo "before=$?"
       for d in ${SQ} ${MS}; do git mv $d/V4__term_abbr_index_relax.sql $d/V5__term_abbr_index_relax.sql; done
       sed -i.bak 's/V4__term_abbr_index_relax/V5__term_abbr_index_relax/' design.md && rm design.md.bak && git add design.md
-      sh "$S" --staged; echo "after=$?"
+      node "$S" --staged; echo "after=$?"
       git grep -n 'V4__term_abbr_index_relax' -- . || echo NO_OLD_REFS
     `)
     expect(r.out).toContain('merge=0')

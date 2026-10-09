@@ -25,7 +25,7 @@ function buildFakeKit(): string {
   cpSync(join(ROOT, '.claude/skills/dflow-work'), join(kit, 'skills/dflow-work'), { recursive: true })
   cpSync(join(ROOT, '.claude/skills/dflow-poll'), join(kit, 'skills/dflow-poll'), { recursive: true })
   cpSync(join(ROOT, '.claude/skills/dflow-team'), join(kit, 'skills/dflow-team'), { recursive: true })
-  chmodSync(join(kit, 'skills/dflow-team/scripts/gradle-check.sh'), 0o755)
+  chmodSync(join(kit, 'skills/dflow-team/scripts/gradle-check.mjs'), 0o755)
   return kit
 }
 
@@ -77,7 +77,7 @@ function makeTarget(): string {
 // 텍스트를 실행한다 — 나중에 SKILL.md 가 바뀌면 이 시험도 따라 깨진다).
 function extractGradleWarnFragment(): string {
   const skill = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
-  const m = skill.match(/\n {3}if \[ -x \.claude\/skills\/dflow-team\/scripts\/gradle-check\.sh \][\s\S]*?\n {3}fi\n/)
+  const m = skill.match(/\n {3}if \[ -f \.claude\/skills\/dflow-team\/scripts\/gradle-check\.mjs \][\s\S]*?\n {3}fi\n/)
   if (!m) throw new Error('SKILL.md 에서 gradle-check.sh 전제 검사 조각을 찾지 못했다')
   return m[0]
     .split('\n')
@@ -97,7 +97,7 @@ describe('gradle-check.sh — 탐색·판정 전용(파일을 고치지 않는�
       mkdirSync(join(repo, 'node_modules/ignored-gradle'), { recursive: true })
       writeFileSync(join(repo, 'node_modules/ignored-gradle/settings.gradle'), '')
 
-      const r = spawnSync('sh', [join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.sh'), repo], { encoding: 'utf8' })
+      const r = spawnSync(process.execPath, [join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.mjs'), repo], { encoding: 'utf8' })
       expect(r.status, r.stderr).toBe(0)
       expect(r.stdout).toContain(`NOFILE ${repo}`)
       expect(r.stdout).toContain(`OK ${join(repo, 'moduleB')}`)
@@ -121,7 +121,7 @@ describe('gradle-check.sh — 탐색·판정 전용(파일을 고치지 않는�
       writeFileSync(join(worktree, '.git'), 'gitdir: /somewhere/else/.git/worktrees/dflow-abc12345\n')
       writeFileSync(join(worktree, 'gradlew'), '')
 
-      const r = spawnSync('sh', [join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.sh'), repo], { encoding: 'utf8' })
+      const r = spawnSync(process.execPath, [join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.mjs'), repo], { encoding: 'utf8' })
       expect(r.status, r.stderr).toBe(0)
       expect(r.stdout).toContain(`NOFILE ${repo}`)
       expect(r.stdout).not.toContain(worktree)
@@ -134,7 +134,7 @@ describe('gradle-check.sh — 탐색·판정 전용(파일을 고치지 않는�
   it('Gradle 리포가 아니면 아무것도 내지 않고 exit 0', () => {
     const repo = mkdtempSync(join(tmpdir(), 'dflow-gc-nogradle-'))
     try {
-      const r = spawnSync('sh', [join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.sh'), repo], { encoding: 'utf8' })
+      const r = spawnSync(process.execPath, [join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.mjs'), repo], { encoding: 'utf8' })
       expect(r.status).toBe(0)
       expect(r.stdout.trim()).toBe('')
     } finally {
@@ -147,7 +147,7 @@ describe('gradle-check.sh — 탐색·판정 전용(파일을 고치지 않는�
     try {
       writeFileSync(join(repo, 'gradlew'), '')
       writeFileSync(join(repo, 'gradle.properties'), 'org.gradle.caching=true\n')
-      const r = spawnSync('sh', [join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.sh'), repo], { encoding: 'utf8' })
+      const r = spawnSync(process.execPath, [join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.mjs'), repo], { encoding: 'utf8' })
       expect(r.stdout).toContain(`MISSING ${repo} org.gradle.workers.max,org.gradle.daemon.idletimeout`)
     } finally {
       rmSync(repo, { recursive: true, force: true })
@@ -241,7 +241,7 @@ describe('install.sh — Gradle 리포 설정(정본)', () => {
     const bin = buildStubBin()
     try {
       writeFileSync(join(target, 'gradlew'), '')
-      chmodSync(join(kit, 'skills/dflow-team/scripts/gradle-check.sh'), 0o644) // 실행 비트 없음
+      chmodSync(join(kit, 'skills/dflow-team/scripts/gradle-check.mjs'), 0o644) // 실행 비트 없음
       const r = spawnSync('sh', [join(kit, 'install.sh'), target], {
         encoding: 'utf8',
         env: { ...process.env, HOME: mkdtempSync(join(tmpdir(), 'dflow-fake-home-noexec-')), PATH: `${bin}:${process.env.PATH ?? ''}` },
@@ -506,7 +506,7 @@ describe('install.sh 인자 처리 — --hooks 하위 호환 + 다중 옵션', (
 describe('/dflow-team 전제 검사 — Gradle 권장 설정 경고(시작을 막지 않는다)', () => {
   it('SKILL.md 전제 검사 블록이 gradle-check.sh 를 불러 WARN GRADLE_TUNING 을 내고 fail 을 건드리지 않는다', () => {
     const frag = extractGradleWarnFragment()
-    expect(frag).toContain('gradle-check.sh')
+    expect(frag).toContain('gradle-check.mjs')
     expect(frag).toContain('WARN GRADLE_TUNING')
     expect(frag).not.toContain('bad ')
   })
@@ -515,8 +515,8 @@ describe('/dflow-team 전제 검사 — Gradle 권장 설정 경고(시작을 �
     const repo = mkdtempSync(join(tmpdir(), 'dflow-precheck-frag-'))
     try {
       mkdirSync(join(repo, '.claude/skills/dflow-team/scripts'), { recursive: true })
-      cpSync(join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.sh'), join(repo, '.claude/skills/dflow-team/scripts/gradle-check.sh'))
-      chmodSync(join(repo, '.claude/skills/dflow-team/scripts/gradle-check.sh'), 0o755)
+      cpSync(join(ROOT, '.claude/skills/dflow-team/scripts/gradle-check.mjs'), join(repo, '.claude/skills/dflow-team/scripts/gradle-check.mjs'))
+      chmodSync(join(repo, '.claude/skills/dflow-team/scripts/gradle-check.mjs'), 0o755)
 
       // NOFILE 케이스
       writeFileSync(join(repo, 'gradlew'), '')

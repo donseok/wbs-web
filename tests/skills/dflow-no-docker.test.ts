@@ -201,21 +201,21 @@ describe('/dflow-team 도커 허용 태그와 포인터', () => {
 
 // docker-allow.sh: 서버 tags 로 포인터 값을 정한다. 조회 실패는 금지(fail-closed).
 describe('docker-allow.sh — 태그로 허용', () => {
-  const SCRIPT = join(process.cwd(), '.claude/skills/dflow-team/scripts/docker-allow.sh')
+  const SCRIPT = join(process.cwd(), '.claude/skills/dflow-team/scripts/docker-allow.mjs')
   let tmp: string
   beforeEach(() => { tmp = realpathSync(mkdtempSync(join(tmpdir(), 'dflow-docker-allow-'))) })
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }) })
   const json = (tags: unknown) => JSON.stringify({ order: { id: 'o-1', status: 'ready', item: { external_ref: 'TSK-01', tags } } })
-  const viaStdin = (input: string) => spawnSync('bash', [SCRIPT, '--json'], { input, encoding: 'utf8' })
+  const viaStdin = (input: string) => spawnSync(process.execPath, [SCRIPT, '--json'], { input, encoding: 'utf8' })
   function viaShow(body: string, rc = 0) {
     const stub = join(tmp, 'dflow.sh')
     writeFileSync(join(tmp, 'body.json'), body)
     writeFileSync(stub, `#!/bin/sh\n[ "$1" = show ] && [ "$2" = abcd1234 ] || exit 9\ncat '${join(tmp, 'body.json')}'\nexit ${rc}\n`, { mode: 0o755 })
-    return spawnSync('bash', [SCRIPT, 'abcd1234'], { encoding: 'utf8', env: { ...process.env, DFLOW_SH: stub } })
+    return spawnSync(process.execPath, [SCRIPT, 'abcd1234'], { encoding: 'utf8', env: { ...process.env, DFLOW_SH: stub } })
   }
 
-  it('bash 로 파싱되고 실행 권한이 있다', () => {
-    expect(spawnSync('bash', ['-n', SCRIPT]).status).toBe(0)
+  it('node --check 를 통과하고 실행 권한이 있다', () => {
+    expect(spawnSync(process.execPath, ['--check', SCRIPT]).status).toBe(0)
     expect(spawnSync('test', ['-x', SCRIPT]).status).toBe(0)
   })
   it('tags 에 docker(대소문자 무시)가 있으면 allow, 없으면 ban', () => {
@@ -225,7 +225,7 @@ describe('docker-allow.sh — 태그로 허용', () => {
     expect(viaStdin(json(null)).stdout).toBe('DOCKER=ban tag=none\n')
     expect(viaStdin(json(['agent', 'dockerfile'])).stdout).toBe('DOCKER=ban tag=none\n')
   })
-  it('dflow.sh show 로 서버 tags 를 읽는다', () => {
+  it('dflow.mjs show 로 서버 tags 를 읽는다', () => {
     const r = viaShow(json(['agent', 'docker']))
     expect(r.status).toBe(0)
     expect(r.stdout).toBe('DOCKER=allow tag=docker\n')
@@ -242,7 +242,7 @@ describe('docker-allow.sh — 태그로 허용', () => {
 // 새 작업 spawn 은 같은 기상의 show 필터가 남긴 응답을 재사용한다(중복 show 제거). 5분 안·같은 주문일 때만 쓰고 한 번 쓰면
 // 지운다. 못 쓰면 금지가 아니라 show 로 다시 읽는다. 재개·재투입·해소는 재사용하지 않는다(references/rationale.md 「5. 팀원 spawn」).
 describe('docker-allow.sh --reuse-dir — 같은 흐름의 show 재사용', () => {
-  const SCRIPT = join(process.cwd(), '.claude/skills/dflow-team/scripts/docker-allow.sh')
+  const SCRIPT = join(process.cwd(), '.claude/skills/dflow-team/scripts/docker-allow.mjs')
   const ORDER = 'abcd1234-0000-4000-8000-000000000000'
   let tmp: string
   beforeEach(() => { tmp = realpathSync(mkdtempSync(join(tmpdir(), 'dflow-docker-reuse-'))) })
@@ -253,7 +253,7 @@ describe('docker-allow.sh --reuse-dir — 같은 흐름의 show 재사용', () =
     const stub = join(tmp, 'dflow.sh')
     writeFileSync(join(tmp, 'body.json'), body(showTags))
     writeFileSync(stub, `#!/bin/sh\necho "$1 $2" >> '${join(tmp, 'calls')}'\ncat '${join(tmp, 'body.json')}'\n`, { mode: 0o755 })
-    const r = spawnSync('bash', [SCRIPT, arg, '--reuse-dir', tmp], { encoding: 'utf8', env: { ...process.env, DFLOW_SH: stub } })
+    const r = spawnSync(process.execPath, [SCRIPT, arg, '--reuse-dir', tmp], { encoding: 'utf8', env: { ...process.env, DFLOW_SH: stub } })
     const calls = existsSync(join(tmp, 'calls')) ? readFileSync(join(tmp, 'calls'), 'utf8').trim().split('\n').length : 0
     return { out: r.stdout, code: r.status, calls }
   }
