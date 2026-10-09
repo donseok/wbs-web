@@ -1,0 +1,1 @@
+../../../../dmes-standard/docs/guide/Common/Korean-STE-LLM-Guide.md
