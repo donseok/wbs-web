@@ -10,7 +10,7 @@ const DEV = devAll()
 const MERGE = read('.claude/skills/dflow-merge/SKILL.md')
 describe('나머지 스킬 문서', () => {
   it('dflow-dev·dflow-merge 가 <기본브랜치> 를 개발 브랜치로 정의한다', () => {
-    expect(DEV).toContain('`<기본브랜치>` 는 개발 브랜치, 즉 `dflow.sh branch dev` 의 값이다')
+    expect(DEV + read('.claude/skills/dflow-dev/references/worker-mode.md')).toContain('`<기본브랜치>` 는 개발 브랜치, 즉 `dflow.mjs branch dev` 의 값이다')
     expect(MERGE).toContain('`<기본브랜치>` = 개발 branch = `dflow.mjs branch dev` 값')
     expect(MERGE).not.toContain('기본브랜치(main)')
   })
