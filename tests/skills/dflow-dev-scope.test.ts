@@ -179,7 +179,7 @@ describe('워커 규칙(worker-mode.md·worker-prompt.md)', () => {
     expect(w).toContain('팀장이 넘긴 `--scope` 는 새 claim 의 범위이고, 이미 잡힌 작업은 서버 `claim_scope` 가 이긴다')
   })
   it('결과 줄 표가 「그 밖의 워커 규칙」 아래에 있어 워커가 시작 때 함께 읽는다', () => {
-    const r = spawnSync('bash', [join(process.cwd(), '.claude/skills/dflow-dev/scripts/sections.sh'), join(process.cwd(), WORKER_MODE), '그 밖의 워커 규칙'], { encoding: 'utf8' })
+    const r = spawnSync('node', [join(process.cwd(), '.claude/skills/dflow-dev/scripts/sections.mjs'), join(process.cwd(), WORKER_MODE), '그 밖의 워커 규칙'], { encoding: 'utf8' })
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('### 설계 상태의 결과 줄(계약 2.11)')
   })

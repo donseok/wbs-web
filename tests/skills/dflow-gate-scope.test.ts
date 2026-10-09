@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 const ROOT = process.cwd()
-const SCOPE = join(ROOT, '.claude/skills/dflow-dev/scripts/gate-scope.sh')
+const SCOPE = join(ROOT, '.claude/skills/dflow-dev/scripts/gate-scope.mjs')
 
 const GIT_ENV = {
   ...process.env,
@@ -40,7 +40,7 @@ const put = (rel: string, body = 'x\n') => {
   writeFileSync(join(repo, rel), body)
 }
 const commit = (msg = 'c') => sh(repo, `git add -A && git commit -qm ${msg}`)
-const scope = (extra = '') => sh(repo, `sh '${SCOPE}' --base ${base} --ignore docs/tasks/TSK-01/ ${extra}`)
+const scope = (extra = '') => sh(repo, `node '${SCOPE}' --base ${base} --ignore docs/tasks/TSK-01/ ${extra}`)
 const lines = (out: string) => out.trim().split('\n').filter((l) => l.startsWith('GATE_SCOPE '))
 
 beforeEach(() => {
@@ -107,7 +107,7 @@ describe('gate-scope.sh — 모듈 범위', () => {
     put('backend/api/src/B.java', 'changed\n')
     put('docs/tasks/TSK-01/design.md', '# d\n')
     commit()
-    const r = sh(repo, `sh '${SCOPE}' --base ${base} --ignore '${join(repo, 'docs/tasks/TSK-01')}/'`)
+    const r = sh(repo, `node '${SCOPE}' --base ${base} --ignore '${join(repo, 'docs/tasks/TSK-01')}/'`)
     expect(lines(r.out)).toEqual(['GATE_SCOPE module ./gradlew :api:test'])
   })
   it('삭제한 파일도 그 모듈의 변경이다', () => {
@@ -187,7 +187,7 @@ describe('gate-scope.sh — 대응표 형식 오류는 invalid(exit 2)', () => {
     expect(r.out).toContain('GATE_SCOPE invalid 대응표 1행에 TAB 이 없음')
   })
   it('기점을 모르면 invalid', () => {
-    const r = sh(repo, `sh '${SCOPE}' --base deadbeef`)
+    const r = sh(repo, `node '${SCOPE}' --base deadbeef`)
     expect(r.code).toBe(2)
     expect(r.out).toContain('GATE_SCOPE invalid 기점 deadbeef 를 모름')
   })

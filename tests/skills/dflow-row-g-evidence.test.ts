@@ -10,7 +10,7 @@ const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests
 // 「--worker」 행 A~I 는 references/worker-mode.md 로 옮겼다(SKILL.md 에는 그 파일을 가리키는 머리 절만 있다)
 const dev = devAll() + '\n' + readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
 // 판정 이력(실측 사례)은 실행체 머리 주석으로 옮겼다
-const predScript = readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/pred-reflected.sh'), 'utf8')
+const predScript = readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/pred-reflected.mjs'), 'utf8')
 const discipline = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
 

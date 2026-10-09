@@ -21,7 +21,7 @@ const DISC = SK('dflow-dev/references/dev-discipline.md')
 const PROMPT = SK('dflow-dev/references/phase-prompt.md')
 const BUILD = SK('dflow-dev/references/phase-build.md')
 const RAT = SK('dflow-dev/references/rationale.md')
-const TRIAL = join(ROOT, '.claude/skills/dflow-dev/scripts/build-trial.sh')
+const TRIAL = join(ROOT, '.claude/skills/dflow-dev/scripts/build-trial.mjs')
 const LIB = join(ROOT, '.claude/skills/dflow-work/scripts/dflow-config.sh')
 const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 
@@ -31,7 +31,7 @@ afterEach(() => rmSync(tmp, { recursive: true, force: true }))
 
 // 설정 파일 없는 빈 폴더(DFLOW_CONFIG_DIR)에서 돌린다 — 판정은 export 된 env 로만 한다.
 function trial(ref: string, base: string, env: Record<string, string> = {}) {
-  const r = spawnSync('sh', [TRIAL, ref, base], {
+  const r = spawnSync('node', [TRIAL, ref, base], {
     cwd: tmp, encoding: 'utf8',
     env: { PATH: process.env.PATH ?? '', HOME: '/nonexistent', DFLOW_CONFIG_DIR: tmp, ...env } as NodeJS.ProcessEnv,
   })

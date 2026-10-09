@@ -140,9 +140,9 @@ describe('단계 지도와 단계 파일', () => {
 })
 
 describe('규율 절 읽기(sections.sh)와 안내 본문 크기', () => {
-  const SEC = join(DEV_DIR, 'scripts/sections.sh')
+  const SEC = join(DEV_DIR, 'scripts/sections.mjs')
   const run = (...args: string[]) => {
-    const r = spawnSync('bash', [SEC, ...args], { encoding: 'utf8' })
+    const r = spawnSync('node', [SEC, ...args], { encoding: 'utf8' })
     return { code: r.status, out: r.stdout }
   }
   const tmp = mkdtempSync(join(tmpdir(), 'sections-'))

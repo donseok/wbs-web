@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const MUTATE = join(ROOT, '.claude/skills/dflow-dev/scripts/mutate.sh')
+const MUTATE = join(ROOT, '.claude/skills/dflow-dev/scripts/mutate.mjs')
 const REF = (f: string) => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references', f), 'utf8')
 const flat = (s: string) => s.replace(/\s+/g, ' ')
 
@@ -20,7 +20,7 @@ function mut(id: string, body: string) {
   writeFileSync(join(repo, 'muts', `${id}.mut`), body)
 }
 function run(args: string[]) {
-  const r = spawnSync('sh', [MUTATE, ...args], { cwd: repo, encoding: 'utf8', timeout: 30000 })
+  const r = spawnSync('node', [MUTATE, ...args], { cwd: repo, encoding: 'utf8', timeout: 30000 })
   return { code: r.status, out: r.stdout || '', err: r.stderr || '' }
 }
 
@@ -78,7 +78,7 @@ describe('mutate.sh', { timeout: 30000 }, () => {
 
   it('중단(TERM)돼도 되돌리고, 남은 사본은 다음 실행이 먼저 되돌리며 MUTATION_RERUN_NEEDED 를 낸다', async () => {
     mut('M1', 'rule: r\nfile: src/a.py\ntest: sleep 20\n--- find\n    return x + 1\n--- replace\n    return 0\n')
-    const p = spawn('sh', [MUTATE, 'run', 'muts'], { cwd: repo, stdio: 'ignore' })
+    const p = spawn('node', [MUTATE, 'run', 'muts'], { cwd: repo, stdio: 'ignore' })
     const t0 = Date.now()
     while (!readFileSync(join(repo, 'src/a.py'), 'utf8').includes('return 0')) {
       if (Date.now() - t0 > 10000) throw new Error('변이가 들어가지 않음')
@@ -105,7 +105,7 @@ describe('mutate.sh', { timeout: 30000 }, () => {
     const r = run(['run', 'muts'])
     expect(r.code).toBe(2)
     expect(r.err).toContain('test: 없음')
-    const sub = spawnSync('sh', [MUTATE, 'run', '../muts'], { cwd: join(repo, 'src'), encoding: 'utf8' })
+    const sub = spawnSync('node', [MUTATE, 'run', '../muts'], { cwd: join(repo, 'src'), encoding: 'utf8' })
     expect(sub.status).toBe(2)
     expect(sub.stderr).toContain('리포 최상위에서 부른다')
   })
