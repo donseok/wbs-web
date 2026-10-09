@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.sh')
+const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.mjs')
 
 const GIT_ENV = {
   ...process.env,
@@ -28,7 +28,7 @@ function sh(cwd: string, script: string, env: Record<string, string> = {}) {
   const r = spawnSync('bash', ['-c', script], { cwd, encoding: 'utf8', env: { ...GIT_ENV, ...heavy, ...env }, timeout: 60000 })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') }
 }
-const deps = (cwd: string, env: Record<string, string> = {}) => sh(cwd, `bash '${DEPS}'`, env)
+const deps = (cwd: string, env: Record<string, string> = {}) => sh(cwd, `node '${DEPS}'`, env)
 const worker = (name: string) => {
   const w = join(primary, '.claude/worktrees', name)
   const r = sh(primary, `mkdir -p .claude/worktrees && git worktree add -q --detach "${w}" main`)

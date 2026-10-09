@@ -10,13 +10,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const GUARD = join(ROOT, '.claude/skills/dflow-dev/scripts/timeout-guard.sh')
+const GUARD = join(ROOT, '.claude/skills/dflow-dev/scripts/timeout-guard.mjs')
 const B = () => readFileSync(join(ROOT, '.claude/skills/dflow-team/references/backends.md'), 'utf8')
 
 type Input = { command: string; timeout?: number; run_in_background?: boolean }
 const hookJson = (i: Input, tool = 'Bash') => JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: i })
 function guard(i: Input, env: Record<string, string> = {}) {
-  const r = spawnSync('/bin/sh', [GUARD], { input: hookJson(i), encoding: 'utf8', env: { ...process.env, ...env } })
+  const r = spawnSync(process.execPath, [GUARD], { input: hookJson(i), encoding: 'utf8', env: { ...process.env, ...env } })
   return { code: r.status, err: r.stderr }
 }
 
@@ -27,8 +27,8 @@ describe('timeout-guard.sh 판정', () => {
 
   it.each([
     // 인자 자리 — 명령이 아니다
-    'sed -n 1,40p .claude/skills/dflow-dev/scripts/heavy.sh',
-    'grep -n acquire .claude/skills/dflow-dev/scripts/heavy.sh',
+    'sed -n 1,40p .claude/skills/dflow-dev/scripts/heavy.mjs',
+    'grep -n acquire .claude/skills/dflow-dev/scripts/heavy.mjs',
     'cat ../x/heavy.sh',
     'ls ./gradlew; chmod +x gradlew',
     'echo "a; ./gradlew test"',
@@ -102,7 +102,7 @@ describe('timeout-guard.sh 판정', () => {
     'heavy.sh --exclusive ./gradlew perfTest',
     'heavy.sh wait j-1',
     '.claude/skills/dflow-dev/scripts/baseline.sh run -- ./gradlew test',
-    '.claude/skills/dflow-dev/scripts/deps.sh',
+    '.claude/skills/dflow-dev/scripts/deps.mjs',
     './gradlew test',
     '../gradlew test',
     'cd api && ../gradlew test',
@@ -123,8 +123,8 @@ describe('timeout-guard.sh 판정', () => {
     const r = guard({ command })
     expect(r.code).toBe(2)
     expect(r.err).toContain('timeout 을 300000~600000 으로 주고 다시 호출하라')
-    expect(r.err).toContain('heavy.sh --detach')
-    expect(r.err).toContain('heavy.sh wait <id>')
+    expect(r.err).toContain('heavy.mjs --detach')
+    expect(r.err).toContain('heavy.mjs wait <id>')
   })
 
   it('거부: timeout 120000(기본값)과 299999', () => {
@@ -154,13 +154,14 @@ describe('timeout-guard.sh 판정', () => {
   })
 
   it('Bash 가 아닌 도구·깨진 입력·빈 명령은 통과한다', () => {
-    const run = (input: string) => spawnSync('/bin/sh', [GUARD], { input, encoding: 'utf8' }).status
+    const run = (input: string) => spawnSync(process.execPath, [GUARD], { input, encoding: 'utf8' }).status
     expect(run(hookJson({ command: './gradlew test' }, 'Read'))).toBe(0)
     expect(run('not json')).toBe(0)
     expect(run(hookJson({ command: '' }))).toBe(0)
   })
 
-  it('jq 가 없으면 그대로 통과한다(fail-open)', () => {
+  // node 판은 jq 를 쓰지 않아 jq 부재 fail-open 이 없다 — sh 판 전용 시험이라 skip.
+  it.skip('jq 가 없으면 그대로 통과한다(fail-open)', () => {
     // /bin 이 /usr/bin 과 같은 곳(Ubuntu·Git Bash)이 있으므로 sh·cat 만 링크한 임시 폴더를 PATH 로 쓴다.
     const bin = mkdtempSync(join(tmpdir(), 'tg-bin-'))
     try {
@@ -168,7 +169,7 @@ describe('timeout-guard.sh 판정', () => {
         const w = spawnSync('/bin/sh', ['-c', `command -v ${t}`], { encoding: 'utf8' }).stdout.trim()
         symlinkSync(w, join(bin, t))
       }
-      const r = spawnSync('/bin/sh', [GUARD], { input: hookJson({ command: './gradlew test' }), encoding: 'utf8', env: { PATH: bin } })
+      const r = spawnSync(process.execPath, [GUARD], { input: hookJson({ command: './gradlew test' }), encoding: 'utf8', env: { PATH: bin } })
       expect(r.status).toBe(0)
     } finally { rmSync(bin, { recursive: true, force: true }) }
   })

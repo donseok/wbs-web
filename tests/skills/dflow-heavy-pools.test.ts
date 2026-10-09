@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh')
+const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.mjs')
 
 let tmp: string, dir: string, jobs: string
 const kids: ChildProcess[] = []
@@ -29,11 +29,11 @@ function env(extra: Record<string, string> = {}) {
   }
 }
 function run(args: string[], extra: Record<string, string> = {}, cwd = ROOT) {
-  const r = spawnSync('bash', [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000, cwd })
+  const r = spawnSync(process.execPath, [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000, cwd })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), err: r.stderr || '', stdout: r.stdout || '' }
 }
 function start(args: string[], extra: Record<string, string> = {}) {
-  const p = spawn('bash', [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
+  const p = spawn(process.execPath, [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
   let out = ''
   p.stdout!.on('data', (b) => { out += b })
   p.stderr!.on('data', (b) => { out += b })
@@ -179,7 +179,7 @@ describe('heavy.sh --exclusive — 독점 실행', { timeout: 30000 }, () => {
 
   it('일반 슬롯 K개를 모두 잡고 돈다 — 안에서 본 status 는 held=K, snapshot 은 RUN run general 한 줄. 끝나면 슬롯·표식을 푼다', () => {
     const r = run(['--exclusive', 'sh', '-c',
-      `echo "held=$DFLOW_HEAVY_HELD"; bash '${HEAVY}' status; bash '${HEAVY}' snapshot; ls '${dir}'; exit 5`], { ...K2, ...me() })
+      `echo "held=$DFLOW_HEAVY_HELD"; node '${HEAVY}' status; node '${HEAVY}' snapshot; ls '${dir}'; exit 5`], { ...K2, ...me() })
     expect(r.code).toBe(5)
     expect(r.err).toContain('HEAVY_EXCL k=2')
     expect(r.out).toContain(`held=${join(dir, 'slot-1')}`)
@@ -293,7 +293,7 @@ describe('heavy.sh --exclusive — 독점 실행', { timeout: 30000 }, () => {
   })
 
   it('이미 슬롯을 쥔 세션(감싼 실행 안·acquire)에서 부르면 HEAVY_EXCL_NESTED 와 exit 2', () => {
-    const inner = run(['sh', '-c', `bash '${HEAVY}' --exclusive echo x`], { DFLOW_HEAVY_WAIT: '0' })
+    const inner = run(['sh', '-c', `node '${HEAVY}' --exclusive echo x`], { DFLOW_HEAVY_WAIT: '0' })
     expect(inner.code).toBe(2)
     expect(inner.err).toContain('HEAVY_EXCL_NESTED 감싼 실행 안(slot-1)')
     expect(run(['acquire', 'srv'], me()).code).toBe(0)
@@ -451,7 +451,7 @@ describe('heavy.sh --exclusive — 표식 수명과 일반 hold(리뷰 회귀)',
     expect(run(['--exclusive', 'true'], { ...K2, ...me(), DFLOW_HEAVY_WAIT: '0' }).code).toBe(75)
     expect(exclFiles(process.pid)).toHaveLength(1)
     // 자기 세션의 표식에는 양보하지 않으므로 바깥 게이트는 slot-1 을 잡고, 안쪽 독점은 NESTED 로 거부된다
-    const inner = run(['sh', '-c', `bash '${HEAVY}' --exclusive echo x`], { ...K2, ...me(), DFLOW_HEAVY_WAIT: '0' })
+    const inner = run(['sh', '-c', `node '${HEAVY}' --exclusive echo x`], { ...K2, ...me(), DFLOW_HEAVY_WAIT: '0' })
     expect(inner.code).toBe(2)
     expect(inner.err).toContain('HEAVY_EXCL_NESTED 감싼 실행 안(slot-1)')
     expect(exclFiles(process.pid)).toEqual([])

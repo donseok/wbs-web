@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
-const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh')
+const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.mjs')
 const REF = (f: string) => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references', f), 'utf8')
 
 let tmp: string, dir: string
@@ -30,11 +30,11 @@ function env(extra: Record<string, string> = {}) {
   }
 }
 function run(args: string[], extra: Record<string, string> = {}) {
-  const r = spawnSync('bash', [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000 })
+  const r = spawnSync(process.execPath, [HEAVY, ...args], { encoding: 'utf8', env: env(extra), timeout: 30000 })
   return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), err: r.stderr || '', stdout: r.stdout || '' }
 }
 function start(args: string[], extra: Record<string, string> = {}) {
-  const p = spawn('bash', [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
+  const p = spawn(process.execPath, [HEAVY, ...args], { env: env(extra), stdio: ['ignore', 'pipe', 'pipe'] })
   let out = ''
   p.stdout!.on('data', (b) => { out += b })
   p.stderr!.on('data', (b) => { out += b })
@@ -176,7 +176,7 @@ describe('heavy.sh 부하 검사 — 적용하지 않는 곳', { timeout: 30000 
 
   it('감싼 실행 안(DFLOW_HEAVY_HELD)의 안쪽 호출은 부하와 무관하게 곧바로 돈다', () => {
     liveSlot('slot-1', sleeper())
-    const r = run(['sh', '-c', `bash '${HEAVY}' echo inner-ran`], { ...OTHER, ...HOT, DFLOW_HEAVY_HELD: join(dir, 'slot-1') })
+    const r = run(['sh', '-c', `node '${HEAVY}' echo inner-ran`], { ...OTHER, ...HOT, DFLOW_HEAVY_HELD: join(dir, 'slot-1') })
     expect(r.code).toBe(0)
     expect(r.out).toContain('inner-ran')
     expect(r.err).not.toContain('HEAVY_BUSY')
@@ -201,7 +201,7 @@ describe('heavy.sh 부하 검사 — 적용하지 않는 곳', { timeout: 30000 
   })
 
   it('snapshot 의 PC 줄 형식은 그대로다(덮어쓴 부하·코어 수를 싣는다)', () => {
-    const r = spawnSync('bash', [HEAVY, 'snapshot'], { encoding: 'utf8', env: env(HOT) })
+    const r = spawnSync(process.execPath, [HEAVY, 'snapshot'], { encoding: 'utf8', env: env(HOT) })
     expect(r.status).toBe(0)
     expect(r.stdout).toBe('PC\t2\t0\t0\t30\t10\n')
   })

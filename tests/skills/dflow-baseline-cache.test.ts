@@ -273,8 +273,8 @@ describe('baseline.sh — 대기 상한과 PC 전역 슬롯(2026-09-24 통합)',
 
   it('PC 전역 무거운 명령 슬롯이 차 있으면(HEAVY_BUSY) 기준선으로 저장하지 않고 BASELINE_BUSY 로 끝난다', async () => {
     const env = { DFLOW_HEAVY_SLOTS: '1', DFLOW_HEAVY_DIR: join(tmp, 'heavy') }
-    const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh')
-    const holder = shAsync(repo, `bash '${HEAVY}' sleep 8`, env)
+    const HEAVY = join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.mjs')
+    const holder = shAsync(repo, `node '${HEAVY}' sleep 8`, env)
     // 쥐는 쪽이 슬롯을 실제로 잡을 때까지 기다린다(고정 대기는 부하가 높을 때 흔들린다)
     for (let i = 0; i < 100 && !(existsSync(env.DFLOW_HEAVY_DIR) && readdirSync(env.DFLOW_HEAVY_DIR).some((n) => n.startsWith('slot-'))); i++) {
       await new Promise((res) => setTimeout(res, 100))

@@ -243,8 +243,8 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
     expect(sec).toContain('npm ci')
     // 인라인 설치 블록은 21f5764f 에서 scripts/deps.sh 로 옮겼다. 같은 규칙을 그 스크립트에서 본다
     // (npm 경로의 실행 검사는 tests/skills/dflow-lead-worktree.test.ts).
-    expect(sec).toContain('.claude/skills/dflow-dev/scripts/deps.sh')
-    const deps = readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/deps.sh'), 'utf8')
+    expect(sec).toContain('.claude/skills/dflow-dev/scripts/deps.mjs')
+    const deps = readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/deps.mjs'), 'utf8')
     expect(deps).toContain('[ -f package.json ] || {')
     expect(deps).toContain('[ -e node_modules ] && {')
     expect(deps).toContain('pnpm install --frozen-lockfile')

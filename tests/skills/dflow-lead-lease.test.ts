@@ -147,7 +147,7 @@ describe('lease renew — 무거운 작업(heavy)', () => {
       Object.entries({ pstart: '-', host: 'h', kind: 'run', ...o }).map(([k, v]) => `${k}=${v}`).join('\n') + '\n')
   }
   const renewBody = () => sent().filter(b => b.op === 'renew').at(-1)
-  const HV = { DFLOW_HEAVY_SH: join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.sh') }
+  const HV = { DFLOW_HEAVY_SH: join(ROOT, '.claude/skills/dflow-dev/scripts/heavy.mjs') }
   const WT = () => join(tmp, 'repo/.claude/worktrees/dflow-abcdef12')
 
   it('팀원 워크트리의 슬롯을 id8 로 싣고, 명령의 워크트리·홈 경로와 비밀 값은 가린다', () => {
