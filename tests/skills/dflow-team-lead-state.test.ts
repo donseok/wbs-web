@@ -147,7 +147,7 @@ describe('lead-state.sh — 재구성 보조 요약', () => {
     expect(r.stdout).toMatch(/^SLOT 1 aaaa0001 /m)
     const none = spawnSync(process.execPath, [SCRIPT, '--agent', A, '--repo', R, '--events', join(tmp, 'nope.jsonl')], { encoding: 'utf8' })
     expect(none.stdout.trim().split('\n')).toEqual(['RUN start=- backend=- slots=- until=- until_label=- wp=- scope=-', 'EVENTS window=0 total=0 bad=0', 'BREAKER 0', 'CONFLICT_CLEARED resolved=0 other=0', 'HASH_OMITTED 0', 'EXCLUDE_PERM -', 'EXCLUDE_TEMP -'])
-    expect(readFileSync(SCRIPT, 'utf8')).toContain('실행 내내 쌓인 이벤트를 그대로')
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-team/references/rationale.md'), 'utf8')).toContain('이벤트를 쌓인 그대로 띄우면 수십만 자')
   })
 
   // 2026-09-25 검토: 결과 수만큼 늘어나는 HASH 가 앞에 있어, 출력이 약 30K자를 넘으면 뒤의 제외·차단기·EVENTS 줄이 잘려 보이지 않았다

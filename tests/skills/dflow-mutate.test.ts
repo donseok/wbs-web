@@ -115,13 +115,13 @@ describe('변이 기록을 패치 형태로 남기고 Verify 는 드라이버로
   it('phase-build: 변이마다 {TASK_DIR}/mutations/<ID>.mut 을 커밋하고 표의 변이 칸은 ID 로 시작한다', () => {
     const b = flat(REF('phase-build.md'))
     expect(b).toContain('`<TASKS>/<TSK>/mutations/<ID>.mut`')
-    expect(b).toContain('`scripts/mutate.sh run`')
-    expect(b).toContain('변이 칸은 ID 로 시작한다')
+    expect(b).toContain('`scripts/mutate.mjs run`')
+    expect(b).toContain('표의 변이 칸은 ID 로 시작')
   })
   it('phase-verify: 기록 파일을 드라이버에 넣고 위치를 찾으려 소스를 다시 읽지 않는다, E2E 변이는 1행까지', () => {
     const v = flat(REF('phase-verify.md'))
-    expect(v).toContain('`heavy.sh mutate.sh run <TASKS>/<TSK>/mutations --ids <고른 ID>`')
-    expect(v).toContain('변이 위치를 찾으려고 소스를 다시 읽거나 조사 에이전트를 띄우지 않는다')
-    expect(v).toContain('E2E 변이 행(`e2e: yes`)은 다시 넣는 행 전체에서 1행까지다')
+    expect(v).toContain('`node heavy.mjs node mutate.mjs run <TASKS>/<TSK>/mutations --ids <고른 ID>`')
+    expect(v).toContain('변이 위치 찾으려고 소스 다시 읽기·조사 에이전트 띄우기 금지')
+    expect(v).toContain('E2E 변이 행(`e2e: yes`)은 다시 넣는 행 전체에서 1행까지')
   })
 })

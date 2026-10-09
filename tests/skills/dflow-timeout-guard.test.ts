@@ -200,7 +200,7 @@ describe('팀원 전용 설정의 훅 등록(backends.md 「팀원 워크트리 
     expect(h.type).toBe('command')
     expect(h.timeout).toBe(5)
     expect(h.command).toBe(
-      'if [ -x "${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.sh" ]; then /bin/sh "${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.sh"; else cat >/dev/null 2>&1 || :; fi',
+      'if [ -f "${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.mjs" ]; then node "${CLAUDE_PROJECT_DIR-}/.claude/skills/dflow-dev/scripts/timeout-guard.mjs"; else cat >/dev/null 2>&1 || :; fi',
     )
   })
 
@@ -218,6 +218,6 @@ describe('팀원 전용 설정의 훅 등록(backends.md 「팀원 워크트리 
 
   it('backends.md 가 전역 설정에 훅을 넣지 않는다고 적는다', () => {
     expect(B()).toContain('**timeout 가드 훅**')
-    expect(B()).toContain('전역 `~/.claude/settings.json` 에는\n  넣지 않는다')
+    expect(B()).toContain('전역 `~/.claude/settings.json` 에는 안 넣음')
   })
 })

@@ -20,13 +20,13 @@ describe('resolve-prompt.md — 해소 워커 규칙', () => {
     expect(PROMPT).toContain('## 해소 규약')
     expect(PROMPT).toContain('### blocked 로 멈추는 경우')
     expect(PROMPT).toContain('## 게이트')
-    expect(PROMPT).toContain('**기준선 대비 신규 실패 0 + 시험 총수가 하한(개발 브랜치 총수 + (MERGE_HEAD 단독 총수 − merge-base\n총수) − 계획 삭제 수) 이상**')
+    expect(PROMPT).toContain('**기준선 대비 신규 실패 0 + test 총수가 하한(개발 branch 총수 + (MERGE_HEAD 단독 총수 − merge-base\n  총수) − 계획 삭제 수) 이상**')
     expect(PROMPT).toContain('## 금지')
     for (const s of ['| `resolved` |', '| `skipped` |', '| `blocked` |', '| `failed <사유>` |']) expect(PROMPT).toContain(s)
   })
   it('서버에 쓰지 않는다 — blocked 직전 heartbeat 도 보내지 않는다(주문이 claimed 가 아니라 409)', () => {
-    expect(PROMPT).toContain('`dflow.sh heartbeat --phase blocked` 를 **보내지 않는다**')
-    expect(PROMPT).toContain('claim·progress·done·heartbeat 를 하지 않는다')
+    expect(PROMPT).toContain('`dflow.mjs heartbeat --phase blocked` 를 **보내지 않음**')
+    expect(PROMPT).toContain('claim·progress·done·heartbeat 안 함')
   })
   it('/dflow-merge --resolve 를 --attempt 와 함께 부르고, 기준 이동·push 경합 재시도는 합쳐 2회', () => {
     expect(PROMPT).toContain('/dflow-merge --resolve {ID8} --attempt {ATTEMPT}')
@@ -59,7 +59,7 @@ describe('resolve-prompt.md — 해소 워커 규칙', () => {
     expect(PROMPT).not.toContain('`/dflow-merge` 「해소 머지」')
   })
   it('H(워커 자동 재시작)의 대상이 아니라고 적는다', () => {
-    expect(PROMPT).toContain('워커 자동 재시작(H)의 대상이 아니다')
+    expect(PROMPT).toContain('워커 자동 재시작(H) 대상 아님')
   })
 })
 
@@ -119,7 +119,7 @@ describe('resolve-prompt.md 「게이트」 판정 블록 — 하한 = 개발 �
     const block = sec.match(/```bash\n([\s\S]*?)```/)?.[1] ?? ''
     expect(block).toContain('git merge-base')
     expect(block).not.toMatch(/\$\(\s*git /)
-    expect(sec).toContain('스위트(또는 모듈·시험 파일)별로도')
+    expect(sec).toContain('스위트(또는 module·test 파일)별로도')
   })
   it('통과 문구·resolution.md 기록 줄·결과 줄이 새 식을 말한다', () => {
     expect(PROMPT).not.toContain('max(개발 브랜치 총수, MERGE_HEAD 단독 총수)')
@@ -127,7 +127,7 @@ describe('resolve-prompt.md 「게이트」 판정 블록 — 하한 = 개발 �
     expect(PROMPT).toContain('tests=<통과/총수> need=<하한>')
     expect(readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/resolve.md'), 'utf8')).toContain('tests=<통과/총수> need=<하한>`')
     // 계획 삭제는 이 브랜치가 이미 지운 시험을 넣지 않는다(이중 차감 방지)
-    expect(PROMPT).toContain('이 브랜치 커밋이 이미 지운 시험은 넣지 않는다')
+    expect(PROMPT).toContain('이 branch commit 이 이미 지운 test 는 안 넣음')
   })
 })
 
@@ -226,12 +226,15 @@ describe('리뷰 minor(2026-09-23) — 결과 줄 전체 sha, blocked RUNNING �
   it('결과 줄 head 는 전체 sha 이고 팀장 조상 확인도 전체 sha 로 한다', () => {
     const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/resolve.md'), 'utf8')
     const mc = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')
-    expect(PROMPT).toContain('`head` 칸에 push 한 머지 커밋의 **전체 sha**')
+    expect(PROMPT).toContain('`head` = push 한 merge commit 의 **전체 sha**')
     expect(merge).toContain('`RESOLVE_PUSHED <머지 커밋 전체 sha> base=')
     expect(merge).not.toContain('git rev-parse --short HEAD~1')
-    expect(mc).toContain('`<결과 줄 head>` 는 결과 줄 넷째 칸의 **전체 sha** 다')
+    expect(mc).toContain('`<결과 줄 head>` = 결과 줄 넷째 칸의 **전체 sha**')
   })
   it('resolve-decide.sh 의 blocked RUNNING 은 무응답 규칙에 기댄다고 적는다', () => {
-    expect(readFileSync(DECIDE, 'utf8')).toContain('팀장의 무응답 규칙')
+    // 스크립트 머리 주석에서 빠지고 merge-conflict.md 판정 표의 RUNNING 행으로 옮겨졌다.
+    const mc = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')
+    expect(mc).toContain('마지막이 `blocked` 인 해소 워커도 `RUNNING`')
+    expect(mc).toContain('SKILL.md 「3. 결과 처리」 의 무응답 규칙이 `failed no-result` 결과를 남겨야 풀림')
   })
 })

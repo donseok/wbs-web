@@ -211,13 +211,14 @@ describe('부하 검사 문서', () => {
   it('heavy.sh 머리 주석·dev-discipline 정본·rationale 이 규칙과 이유를 적는다', () => {
     const src = readFileSync(HEAVY, 'utf8')
     const head = src.slice(0, src.indexOf('set -u'))
-    for (const w of ['DFLOW_HEAVY_LOAD_MAX', 'DFLOW_HEAVY_LOADAVG', 'DFLOW_HEAVY_CPUS', 'HEAVY_LOAD_WAIT', '기아 방지', 'fail-open']) {
+    for (const w of ['DFLOW_HEAVY_LOAD_MAX', 'DFLOW_HEAVY_LOADAVG', 'DFLOW_HEAVY_CPUS', 'HEAVY_LOAD_WAIT', '기아 방지', '못 읽으면 null']) {
       expect(head).toContain(w)
     }
     const disc = REF('dev-discipline.md')
     const sec = disc.slice(disc.indexOf('## 무거운 명령 줄 세우기'), disc.indexOf('## 포그라운드 실행'))
     expect(sec).toContain('`DFLOW_HEAVY_LOAD_MAX`')
     expect(sec).toContain('부하 대기: load=')
-    expect(REF('rationale.md').replace(/\s*\n\s*/g, ' ')).toContain('부하가 20~30(최대 62)까지 올랐고, 그 부하에서 벽시계 성능 테스트가 실패해 blocked 가 났다')
+    expect(sec).toContain('부하를 못 읽는 환경(Windows Git Bash 등)은 검사 건너뜀')
+    expect(REF('rationale.md').replace(/\s*\n\s*/g, ' ')).toContain('K 는 RAM 기준이라 게이트가 몰린 구간에는 10코어 PC 의 부하가 20-30(최대 62)까지 오름. 그 부하에서 벽시계 성능 test 가 실패해 blocked 발생')
   })
 })

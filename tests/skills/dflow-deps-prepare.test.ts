@@ -193,6 +193,6 @@ describe('deps.sh 준비 빌드(prepare)', { timeout: 60000 }, () => {
     const worker = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8').replace(/\s*\n\s*/g, ' ')
     expect(worker).toContain('`.dflow-gates` 의 `prepare<TAB><명령>`')
     expect(worker).toContain('`DEPS_PREPARE_FAIL`')
-    expect(worker).toContain('Bash 도구의 timeout 을 300000~600000 으로 준다')
+    expect(worker).toContain('Bash 도구 timeout 을 300000-600000 으로 줌')
   })
 })

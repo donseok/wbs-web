@@ -12,6 +12,7 @@ const ROOT = process.cwd()
 const SCRIPT = join(ROOT, '.claude/skills/dflow-merge/scripts/migration-check.mjs')
 const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
 const MERGE_RESOLVE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/resolve.md'), 'utf8')
+const MERGE_EXEC = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-exec.md'), 'utf8')
 const RESOLVE = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resolve-prompt.md'), 'utf8')
 const DISC = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/dev-discipline.md'), 'utf8')
 
@@ -152,21 +153,21 @@ describe('해소 트리(--staged) — R9 재채번 뒤 게이트가 통과한다
 describe('문서 계약 — 마이그레이션 버전 관문', () => {
   it('/dflow-merge: 스윕은 머지 전에 검사해 걸리면 머지 실패(충돌)로 해소 워커에 넘긴다', () => {
     expect(MERGE).toContain('\n## 마이그레이션 버전 관문\n')
-    expect(MERGE).toContain('.claude/skills/dflow-merge/scripts/migration-check.sh HEAD <머지 대상>')
-    expect(MERGE).toContain('머지 실패(충돌) <MIGRATION_FILES 의 파일,…> (마이그레이션 버전)')
+    expect(MERGE_EXEC).toContain('node .claude/skills/dflow-merge/scripts/migration-check.mjs HEAD <머지 대상>')
+    expect(MERGE_EXEC).toContain('머지 실패(충돌) <MIGRATION_FILES 의 파일,…> (마이그레이션 버전)')
     // 관문은 git merge 보다 앞(2단계)이다
-    const step2 = MERGE.indexOf('**마이그레이션 버전 관문**: ')
+    const step2 = MERGE_EXEC.indexOf('**마이그레이션 버전 관문**: ')
     expect(step2).toBeGreaterThan(0)
-    expect(step2).toBeLessThan(MERGE.indexOf('   3. `git merge --no-ff <머지 대상>`.'))
+    expect(step2).toBeLessThan(MERGE_EXEC.indexOf('   3. `git merge --no-ff <머지 대상>`.'))
   })
   it('/dflow-merge --resolve: 머지 뒤 --staged 로 찾아 R9 로 풀고, 게이트에서 다시 본다', () => {
     const r = MERGE_RESOLVE.slice(MERGE_RESOLVE.indexOf('\n## 해소 머지\n'))
     expect(r.indexOf('4. **머지·해소·stage**')).toBeGreaterThan(0)
     const four = r.slice(r.indexOf('4. **머지·해소·stage**'), r.indexOf('5. **게이트**'))
     const five = r.slice(r.indexOf('5. **게이트**'), r.indexOf('6. **기록·커밋**'))
-    expect(four).toContain('migration-check.sh --staged')
+    expect(four).toContain('migration-check.mjs --staged')
     expect(four).toContain('R9')
-    expect(five).toContain('migration-check.sh --staged')
+    expect(five).toContain('migration-check.mjs --staged')
   })
   it('resolve-prompt: R9 재채번 규약이 있고, blocked 규칙은 이미 적용된 마이그레이션으로 좁혀졌다', () => {
     expect(RESOLVE).toContain('| R9 |')

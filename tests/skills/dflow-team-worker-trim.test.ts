@@ -144,7 +144,7 @@ describe('worker-trim.sh — 킷 규칙', () => {
   const S = () => readFileSync(SCRIPT, 'utf8')
   it('내장 스킬을 통째로 끄지 않는다(disableBundledSkills 는 Workflow 도구 설명을 도리어 키운다)', () => {
     expect(S()).not.toContain('disableBundledSkills')
-    expect(B()).toContain('`disableBundledSkills` 는\n  쓰지 않는다')
+    expect(B()).toContain('`disableBundledSkills` 사용 금지')
   })
   it('키 넷이 dflow-config.sh 에 개인(personal) 키로 등록돼 있고 예시 파일에 주석으로 있다', () => {
     const lib = join(ROOT, '.claude/skills/dflow-work/scripts/dflow-config.sh')

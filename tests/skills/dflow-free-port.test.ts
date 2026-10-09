@@ -70,19 +70,19 @@ describe('free-port.sh', { timeout: 30000 }, () => {
 describe('e2e.md 운영 지침(P8)', () => {
   const proc = E2E.slice(E2E.indexOf('## 서버 프로세스'), E2E.indexOf('## E2E 서버 슬롯')).replace(/\s*\n\s*/g, ' ')
   it('빈 포트는 free-port.sh 로 받고, bind 실패면 새로 받는다', () => {
-    expect(proc).toContain('`.claude/skills/dflow-dev/scripts/free-port.sh`')
-    expect(proc).toContain('PORT=$(.claude/skills/dflow-dev/scripts/free-port.sh)')
+    expect(proc).toContain('`node .claude/skills/dflow-dev/scripts/free-port.mjs`')
+    expect(proc).toContain('PORT=$(node .claude/skills/dflow-dev/scripts/free-port.mjs)')
     expect(proc).toContain('다시 받아')
     expect(proc).not.toContain('빈 포트를 직접 골라')
   })
   it('라이브러리 빌드는 프런트 dev 서버 기동 전에 끝내고, 기동 뒤 다시 빌드했으면 dev 서버도 다시 띄운다', () => {
     expect(proc).toContain('프런트 dev 서버')
-    expect(proc).toContain('기동 **전에** 끝낸다')
-    expect(proc).toContain('dev 서버도 다시 띄운다')
+    expect(proc).toContain('start **전에** 끝냄')
+    expect(proc).toContain('dev 서버도 다시 띄움')
   })
   it('DB 초기화는 서버 재기동이 아니라 픽스처 재투입을 권한다', () => {
     expect(proc).toContain('픽스처')
-    expect(proc).toContain('서버를 다시 띄우지 않고')
+    expect(proc).toContain('서버 restart 대신 픽스처')
   })
   it('특정 프로젝트 이름을 쓰지 않는다', () => {
     expect(E2E).not.toMatch(/dmes-standard|@dk-oasis|m-mdm|m-mcm/)
