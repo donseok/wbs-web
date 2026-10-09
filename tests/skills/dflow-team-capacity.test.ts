@@ -427,58 +427,60 @@ describe('팀장 SKILL.md 의 입장 제어', () => {
     const five = TEAM.slice(TEAM.indexOf('## 5. 팀원 spawn'), TEAM.indexOf('### 5-1. 재개 spawn'))
     expect(five).toContain('「5-3. 입장 제어」')
     expect(five.indexOf('「5-3. 입장 제어」')).toBeLessThan(five.indexOf('1. 그 id8 이 재구성한 슬롯 표에 있으면'))
-    expect(sec).toContain('.claude/skills/dflow-team/scripts/capacity.sh --state')
+    expect(sec).toContain('.claude/skills/dflow-team/scripts/capacity.mjs --state')
     expect(sec).toContain('CAPACITY_LOW')
     expect(sec).toContain('CAPACITY_UNKNOWN')
     expect(sec).toContain('notify=1')
-    expect(sec).toContain('이미 떠 있는 팀원은 건드리지 않는다')
+    expect(sec).toContain('**이미 떠 있는 팀원은 건드리지 않음**')
   })
 
   // 2026-09-24: 입장 제어가 SKILL.md 한 줄과 "5-1·5-2 도 같다" 로만 이어져 해소·재투입·spawn 블록에 호출이 없었다.
   it('집행은 backends.md spawn 블록 한 곳이다 — tmux 블록 첫 두 줄, Orca·재개·재투입은 「입장 제어」 블록을 먼저', () => {
     const B = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/backends.md'), 'utf8')
     const R = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/restart.md'), 'utf8')
-    const gate = 'CAP=$(.claude/skills/dflow-team/scripts/capacity.sh --state "$(git rev-parse --git-path dflow-team.capacity)"); echo "$CAP"\n'
+    const gate = 'CAP=$(node .claude/skills/dflow-team/scripts/capacity.mjs --state "$(git rev-parse --git-path dflow-team.capacity)"); echo "$CAP"\n'
       + 'case "$CAP" in CAPACITY_LOW*) echo SPAWN_DEFERRED_CAPACITY; exit 0 ;; esac\n'
     expect(B).toContain('## 입장 제어')
     // tmux spawn 블록은 입장 제어 두 줄로 시작하고 그 뒤에 tmux 를 찾는다
     expect(B).toContain('```bash\n' + gate + 'TM=$(find_tmux)\nWT="<MAIN>/.claude/worktrees/dflow-<id8>"')
     // 2026-09-24부터 Orca 도 이 블록(입장 제어 두 줄 포함)을 chmod +x 줄까지 그대로 쓰므로 따로 돌지 않는다
-    expect(B).toContain('두 백엔드 공통)은 이 두 줄로 시작하므로 따로 부르지 않는다')
-    expect(B).toMatch(/`chmod \+x\n"\$WT\/\.dflow-run"` 줄까지 두 백엔드가 글자 그대로 같다/)
+    expect(B).toContain('두 백엔드 공통)은 이 두 줄로 시작 → 따로 부르지 않음')
+    expect(B).toContain('`chmod +x "$WT/.dflow-run"` 줄까지 두 백엔드가 글자 그대로 같음')
     expect(R.slice(R.indexOf('## 재투입'))).toMatch(/\*\*입장 제어\*\*: `REINJECT_OK` 뒤[^\n]*backends\.md 「입장 제어」/)
     const five = TEAM.slice(TEAM.indexOf('## 5. 팀원 spawn'), TEAM.indexOf('### 5-1. 재개 spawn'))
-    expect(five).toContain('**입장 제어는 spawn 블록이 집행한다**')
+    expect(five).toContain('0. 입장 제어 = spawn 블록이 집행')
     // 2026-09-25: 「5-1」 절차는 references/resume.md 로 옮겼다
     const resume = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resume.md'), 'utf8')
-    expect(resume.indexOf('0. **입장 제어**')).toBeLessThan(resume.indexOf('1. **손실 보고 한 줄을 먼저 낸다.**'))
-    expect(sec).toContain('**집행은 spawn 블록 한 곳이다.**')
+    expect(resume.indexOf('0. **입장 제어**')).toBeLessThan(resume.indexOf('1. **손실 보고 한 줄 먼저.**'))
+    expect(sec).toContain('**집행 = spawn 블록 한 곳.**')
     expect(sec).toContain('SPAWN_DEFERRED_CAPACITY')
     // 압축 뒤에는 「5-3」·backends.md 「입장 제어」 를 spawn 절차를 처음 탈 때 읽는다(2026-09-25 재독 세트 축소). 집행은 spawn 블록이 한다
-    expect(TEAM).toContain('`references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
+    expect(TEAM).toContain('`references/*`: 압축 뒤 그 절차 처음 탈 때 그 절만 `sed`·`cat` 으로 읽음')
   })
 
   // 2026-09-25: 주간 사용량은 새 작업(「5」)만 본다 — 공용 spawn 블록(재개·재투입·해소도 도는 두 줄)에 넣지 않는다
   it('주간 사용량 판정은 「5」 0항에서 새 작업에만 부르고, 입장 제어와 다른 상태 파일을 쓴다', () => {
     const five = TEAM.slice(TEAM.indexOf('## 5. 팀원 spawn'), TEAM.indexOf('### 5-1. 재개 spawn'))
-    const zero = five.slice(five.indexOf('0. **입장 제어는'), five.indexOf('1. 그 id8 이 재구성한 슬롯 표에 있으면'))
-    expect(zero).toContain('capacity.sh usage --live')
+    const zero = five.slice(five.indexOf('0. 입장 제어 = spawn'), five.indexOf('1. 그 id8 이 재구성한 슬롯 표에 있으면'))
+    expect(zero).toContain('capacity.mjs usage --live')
     expect(zero).toContain('이번 기상에 띄운 것 포함')
     expect(zero).toContain('--git-path dflow-team.usage')
     expect(zero).toContain('notify=1')
     const B = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/backends.md'), 'utf8')
     const gateSec = B.slice(B.indexOf('## 입장 제어'), B.indexOf('## pane(tmux)'))
-    expect(gateSec).not.toMatch(/capacity\.sh usage --live/)
+    expect(gateSec).not.toMatch(/capacity\.mjs usage --live/)
     const resume = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resume.md'), 'utf8')
-    expect(resume).not.toContain('capacity.sh usage')
+    expect(resume).not.toContain('capacity.mjs usage')
     const RA = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/rationale.md'), 'utf8')
-    expect(RA).toContain('### 주간 사용량 (`capacity.sh usage`')
+    expect(RA).toContain('### 주간 사용량 (`capacity.mjs usage`')
     expect(RA).toContain('**fail-open**')
   })
 
   it('기준값 설명이 capacity.sh 와 맞는다(load 2.0·heavy 대기·스왑 150% 안전망)', () => {
-    expect(sec).toContain('코어당\n  2.0 초과')
-    expect(sec).toContain('`heavy_wait=<대기>/<슬롯>`')
-    expect(sec).toContain('RAM 의 150% 이상일 때만 막는 극단 안전망')
+    // 기준값 설명은 SKILL.md 5-3 에서 references/spawn.md 「5-3. 입장 제어: 알림·기준값」 으로 옮겼다
+    const spawn = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/spawn.md'), 'utf8')
+    expect(spawn).toContain('5분 load average 코어당 2.0 초과')
+    expect(spawn).toContain('`heavy_wait=<대기>/<슬롯>`')
+    expect(spawn).toContain('RAM 의 150% 이상일 때만 막는 극단 안전망')
   })
 })

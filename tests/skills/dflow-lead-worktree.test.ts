@@ -10,7 +10,7 @@ import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const TEAM = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
-const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-worktree.md'), 'utf8')
+const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-worktree.md'), 'utf8') + readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-exec.md'), 'utf8')
 const DEV = devAll()
 const LEAD_WT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-worktree.mjs')
 const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.mjs')
@@ -242,10 +242,9 @@ describe('키 판정은 다른 워크트리의 살아 있는 팀장이 쓰는 �
 
   it('살아 있음의 기준이 전제 검사의 stale() 와 같다', () => {
     const t = readFileSync(LIVE_LEADS, 'utf8')
-    for (const s of ['-ge 4200', '-mmin +10']) {
-      expect(t, s).toContain(s)
-      expect(TEAM, s).toContain(s)
-    }
+    // 스크립트는 node 판이라 같은 기준(70분=4200초, 10분=600초)을 숫자 비교로 적는다. 문서의 stale() 는 셸 판 그대로다
+    for (const s of ['>= 4200', '> 600']) expect(t, s).toContain(s)
+    for (const s of ['-ge 4200', '-mmin +10']) expect(TEAM, s).toContain(s)
   })
 })
 
@@ -343,7 +342,7 @@ mkdir -p node_modules/.cache && echo abs > node_modules/.cache/x
     const worker = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
     expect(DEV).toContain('references/worker-mode.md')
     expect(worker).toContain('.claude/skills/dflow-dev/scripts/deps.mjs')
-    expect(worker).toContain('`scripts/deps.sh` 머리 주석이 정본이다')
+    expect(worker).toContain('정본 = `scripts/deps.mjs` 머리 주석')
     const deps = readFileSync(DEPS, 'utf8')
     expect(deps).toContain('pnpm 은 기존 node_modules 를 lockfile 과 대조해 다른 것만')
     expect(deps).toContain('npm 은 사람 체크아웃의 node_modules 를 쓰지 않는다')

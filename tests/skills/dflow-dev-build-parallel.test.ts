@@ -55,7 +55,7 @@ describe('Build: 병렬 묶음의 단위는 git 에 쓰지 않고 보고로 넘�
   })
   it('기존 단위 완료·인계 규칙은 순차 단위에 그대로 남는다', () => {
     expect(BUILD).toContain('`--trailer "DFlow-Unit: <단위> done"`')
-    expect(BUILD).toContain('단위가 하나여도 `--trailer "DFlow-Unit: <단위> handoff"`')
+    expect(BUILD).toContain('단위 하나여도 `--trailer "DFlow-Unit: <단위> handoff"`')
   })
 })
 

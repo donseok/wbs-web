@@ -69,9 +69,9 @@ describe('dflow.sh branch ensure-dev', () => {
 describe('문서', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), '.claude/skills', p), 'utf8')
   it('팀장 전제 검사는 개발 브랜치가 없으면 만들고, 그래도 없을 때만 멈춘다', () => {
-    expect(read('dflow-team/SKILL.md')).toContain('dflow.sh branch ensure-dev >/dev/null || bad "NO_REMOTE_DEV_BRANCH $base"')
+    expect(read('dflow-team/SKILL.md')).toContain('dflow.mjs branch ensure-dev >/dev/null || bad "NO_REMOTE_DEV_BRANCH $base"')
   })
   it('dflow-dev Phase 01 은 시작 때 ensure-dev 를 부른다', () => {
-    expect(devAll()).toContain('dflow.sh branch ensure-dev')
+    expect(devAll()).toContain('dflow.mjs branch ensure-dev')
   })
 })

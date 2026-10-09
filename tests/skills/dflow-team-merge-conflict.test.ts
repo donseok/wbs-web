@@ -10,6 +10,7 @@ const ROOT = process.cwd()
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8')
 const TEAM = read('.claude/skills/dflow-team/SKILL.md')
 const MC = read('.claude/skills/dflow-team/references/merge-conflict.md')
+const LEADSTATE = read('.claude/skills/dflow-team/references/lead-state.md')
 const EVENTS = read('.claude/skills/dflow-team/references/events.md')
 const BACKENDS = read('.claude/skills/dflow-team/references/backends.md')
 const HELP = read('.claude/skills/dflow-team/references/help.md')
@@ -20,52 +21,52 @@ describe('SKILL.md — 포인터 절과 바뀐 문구', () => {
     expect(TEAM).toContain('### 5-2. 해소 spawn')
     expect(TEAM).toContain('cat .claude/skills/dflow-team/references/merge-conflict.md')
     // 2026-09-25: 압축 뒤에는 재독 세트 밖 문서를 그 절차를 처음 탈 때 읽는다(merge-conflict.md 머리에도 적었다)
-    expect(TEAM).toContain('`references/*` 는 압축 뒤 그 절차를 처음 탈 때 그 절만 `sed`·`cat` 으로\n  읽는다')
-    expect(readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')).toContain('컨텍스트 압축 뒤에도 그때 다시 읽는다')
+    expect(TEAM).toContain('`references/*`: 압축 뒤 그 절차 처음 탈 때 그 절만 `sed`·`cat` 으로 읽음')
+    expect(readFileSync(join(ROOT, '.claude/skills/dflow-team/references/merge-conflict.md'), 'utf8')).toContain('(context 압축 뒤에도 그때 다시 읽음)')
   })
   it('최종 판정 목록 두 곳에 resolved 가 있다', () => {
     // 설계 선행(2026-09-26): "살아 있는 팀원" 의 목록에는 design_waiting 이 뒤에 붙는다(재개 가능 목록은 그대로)
-    expect(TEAM.split('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`').length - 1).toBe(2)
-    expect(TEAM).toContain('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`·`design_reopened`)을 받지 않은 팀원이다')
+    expect(TEAM.split('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`').length - 1 + LEADSTATE.split('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`').length - 1).toBe(2)
+    expect(TEAM).toContain('`needs-merge`·`skipped`·`failed`·`cancelled`·`resolved`·`design_waiting`·`design_review`·`design_reopened`) 안 받은 팀원.')
   })
   it('spawn 우선순위: 재개 → 해소 → 대기 큐', () => {
-    expect(TEAM).toContain('**재개 대상을 먼저**(「5-1. 재개 spawn」), 그 다음 **해소 큐**(「5-2. 해소 spawn」), 그 다음 대기 큐')
+    expect(TEAM).toContain('1. **재개 대상** (「5-1. 재개 spawn」)\n   2. **해소 큐** (「5-2. 해소 spawn」)\n   3. 대기 큐 맨 앞부터')
   })
   it('머지 충돌 bullet 은 해소로 넘기고, 못 푸는 경우만 사람 몫(기존 문구 유지)', () => {
     expect(TEAM).toContain('"머지 실패(충돌)"')
     expect(TEAM).toContain('"사람이 머지해야 함"')
-    expect(TEAM).toContain('「4-1. 머지 충돌 해소」 로 넘긴다')
+    expect(TEAM).toContain('그 id8 은 「4-1」 로(해소 못 하면 "사람이 머지해야 함")')
   })
   it('일시 제외 해제: 머지됨·해소 resolved 도 풀고, 선행 미반영도 선행 계열이다', () => {
-    expect(TEAM).toContain('"머지됨(승인 전)"·"머지됨" 을 한 건이라도 냈거나 해소 워커가 `resolved` 로 끝났으면')
+    expect(TEAM).toContain('"머지됨"·"머지됨(승인 전)" 을 한 건이라도 냈거나 해소 워커가 `resolved` 로 끝났으면')
     expect(TEAM).toMatch(/선행 계열\(선행 미충족·[^)]*선행 미반영\)/)
   })
   it('금지: heartbeat·--resolve 예외, 재spawn 예외는 여섯', () => {
-    expect(TEAM).toContain('머지 충돌 표시 heartbeat(`merge_conflict` 설정·해제')
-    expect(TEAM).toContain('해소 워커의 `/dflow-merge --resolve` 가 개발 브랜치에 한 건을 머지·push 한다')
+    expect(TEAM).toContain('merge 충돌 표시 heartbeat(`merge_conflict` 설정·해제')
+    expect(TEAM).toContain('해소 워커의 `/dflow-merge --resolve` 가 개발 branch에 한 건을 merge·push')
     // 2026-09-25: 「금지」 는 「5」 끝의 정본(다섯 예외)을 가리키기만 한다(중복 제거)
-    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외는 「5. 팀원 spawn」 끝의 여섯뿐이다.')
-    expect(TEAM).toContain('같은 작업을 다시 띄우는 것은 여섯뿐이다(')
+    expect(TEAM).toContain('- 같은 작업의 재spawn. 예외 = 「5. 팀원 spawn」 끝의 여섯뿐.')
+    expect(TEAM).toContain('같은 작업 재spawn 은 여섯뿐 (')
   })
   it('team.sweep 은 resolved 를 함께 센다, 마감은 표시를 지우지 않는다', () => {
-    expect(TEAM).toContain('`team.sweep`(merged, waiting, rejected, resolved 개수)을 기록한다.')
+    expect(TEAM).toContain('`team.sweep`(merged, waiting, rejected, resolved 개수) 기록.')
     // 「7. 마감」 절차는 references/closing.md 로 옮겼다
-    expect(read('.claude/skills/dflow-team/references/closing.md')).toContain('마감은 남은 `merge_conflict` 표시를 지우지 않는다')
+    expect(read('.claude/skills/dflow-team/references/closing.md')).toContain('마감은 남은 `merge_conflict` 표시 안 지움')
   })
   it('해소 워크트리는 부트스트랩 실패 정리 대상이 아니다(branch 칸이 늘 -)', () => {
-    expect(TEAM).toContain('(해소 워크트리 `dflow-<id8>-resolve` 는 예외 — 「고아 정리 규칙」 2-1번)')
+    expect(LEADSTATE).toContain('(해소 worktree `dflow-<id8>-resolve` 는 예외 — 「고아 정리 규칙」 2-1번)')
   })
 })
 
 describe('merge-conflict.md — 팀장 쪽 절차', () => {
   it('충돌 접수: mine 확인, resolve-decide.sh, 동시 해소 상한', () => {
-    expect(MC).toContain('.claude/skills/dflow-team/scripts/resolve-decide.sh ~/.dflow/events.jsonl')
-    expect(MC).toContain('`mine` 이 `true` 가 아니면')
+    expect(MC).toContain('.claude/skills/dflow-team/scripts/resolve-decide.mjs ~/.dflow/events.jsonl')
+    expect(MC).toContain('`mine` ≠ `true`')
     expect(MC).toContain('`max(1, ⌊인원/2⌋)`')
   })
   it('heartbeat 대리 호출은 전체 UUID 와 --agent <lead> 로 부른다', () => {
-    expect(MC).toContain("dflow.sh heartbeat '<order 전체 UUID>' --agent '<신원>/<host>/lead' --phase merge_conflict --note")
-    expect(MC).toContain("dflow.sh heartbeat '<order 전체 UUID>' --agent '<신원>/<host>/lead' --clear-merge-conflict")
+    expect(MC).toContain("dflow.mjs heartbeat '<order 전체 UUID>' --agent '<신원>/<host>/lead' --phase merge_conflict --note")
+    expect(MC).toContain("dflow.mjs heartbeat '<order 전체 UUID>' --agent '<신원>/<host>/lead' --clear-merge-conflict")
   })
   it('resolved 는 조상 확인 뒤에만 해제하고, 곧바로 승인 스윕', () => {
     expect(MC).toContain("git merge-base --is-ancestor '<결과 줄 head>' origin/<개발브랜치>")
@@ -74,11 +75,11 @@ describe('merge-conflict.md — 팀장 쪽 절차', () => {
   })
   it('차단기: 내용 실패는 세지도 끊지도 않고, 환경 실패만 센다', () => {
     expect(MC).toContain('`failed gate`·`failed push-race`·`failed push-hook`·`failed push-other`·`failed not-detached`·`failed dirty-dev-state`')
-    expect(MC).toContain('세지도 끊지도 않는다')
+    expect(MC).toContain('**세지도 끊지도 않음**')
   })
   it('H 제외, lease 상실 중 spawn 금지', () => {
-    expect(MC).toContain('워커 자동 재시작(H)의 대상이 아니다')
-    expect(MC).toContain('`team.lost` 를 쓰지 않는다')
+    expect(MC).toContain('**워커 자동 재시작(H) 대상 아님**')
+    expect(MC).toContain('`team.lost` 안 씀')
     expect(MC).toContain('`LEASE_LOST`')
   })
   it('사람 머지 감지 jq: 마지막 decision 이 cleared 가 아닌 id8 만 낸다', () => {
@@ -110,14 +111,14 @@ describe('해소 워커 판별 — readopt 뒤에도 워크트리 접미사로 �
     const out = execFileSync('jq', ['-rs', '--arg', 'a', 'hong/mbp/lead', '--arg', 'r', '/r', m![1]], { input }).toString().trim()
     // 이 목록에 든 id8 의 failed gate 는 차단기에 세지 않는다(「6」) — readopt 뒤에도 빠지지 않는다
     expect(out.split('\n')).toEqual(['aaaa1111', 'bbbb2222'])
-    expect(MC).toContain('팀장을 다시 띄운 뒤에도 해소 워커의 내용 실패가\n차단기에 세지지 않는다')
+    expect(MC).toContain('팀장 재기동 뒤에도 해소 워커의 내용 실패가 차단기에 안 세짐.')
   })
   it('해소 슬롯·결과 처리·동시 상한은 워크트리 접미사 -resolve 로 가른다', () => {
-    expect(MC).toContain('**해소 슬롯**: 워크트리 이름이 `-resolve` 로 끝나는 슬롯이다')
-    expect(MC).toContain('세는 대상은 위 판별(워크트리 접미사 `-resolve`)로 고른 해소 슬롯')
-    expect(MC).toContain('해소 슬롯(「0」 의\n판별 — 워크트리 이름 접미사 `-resolve`)')
-    expect(TEAM).toContain('**해소 워커 판별은 워크트리 이름 접미사 `-resolve` 로 한다**')
-    expect(TEAM).toContain('(원래 종류는 `orig_kind` 필드에 싣는다')
+    expect(MC).toContain('**해소 슬롯**: worktree 이름이 `-resolve` 로 끝나는 슬롯')
+    expect(MC).toContain('세는 대상 = 위 판별(worktree 접미사 `-resolve`)로 고른 해소 슬롯')
+    expect(MC).toContain('해소 슬롯(「0」 의 판별 — worktree 이름 접미사 `-resolve`)')
+    expect(TEAM).toContain('해소 워커 판별 = worktree 이름 접미사 `-resolve`')
+    expect(TEAM).toContain('원래 종류는 `orig_kind` 필드')
   })
 })
 
@@ -150,15 +151,15 @@ describe('events.md — 새 값과 가드', () => {
     expect(EVENTS).toContain('"team.lost":["slot","id8","worktree","cause","next","restart_at"]')
   })
   it('spawn_kind 는 네 값이고 resolve 를 설명한다', () => {
-    expect(EVENTS).toContain('`spawn_kind` 는 네 값 중 하나인 문자열이다')
-    expect(EVENTS).toContain('`resolve` 는 「5-2. 해소 spawn」')
-    expect(EVENTS).toContain('`new`·`resume`·`readopt`·`resolve` 밖의 값을 쓰지 않는다')
+    expect(EVENTS).toContain('`spawn_kind` = 네 값 중 하나인 문자열:')
+    expect(EVENTS).toContain('`resolve` = 「5-2. 해소 spawn」')
+    expect(EVENTS).toContain('`new`·`resume`·`readopt`·`resolve` 밖의 값 금지')
   })
 })
 
 describe('backends.md·help.md', () => {
   it('고아 정리 규칙 2-1: 해소 워크트리는 개발 브랜치 조상이면 지운다', () => {
-    expect(BACKENDS).toContain('2-1. **해소 워크트리**')
+    expect(BACKENDS).toContain('2-1. **해소 worktree**')
     expect(BACKENDS).toContain('git -C <워크트리> merge-base --is-ancestor HEAD origin/<개발브랜치>')
   })
   it('도움말에 해소 동작과 상한이 있다', () => {

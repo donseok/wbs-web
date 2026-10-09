@@ -18,6 +18,9 @@ const skill = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'u
 // 드문 분기는 references/ 로 옮겼다(2026-09-25). 그 분기의 단언은 옮겨 간 파일을 읽는다
 const ref = (f: string) => readFileSync(join(ROOT, '.claude/skills/dflow-merge/references', f), 'utf8')
 const pushFail = ref('push-fail.md')
+// 후보 식별·판정(1·2번)은 sweep-scan.md, 순서·머지(3·4번)는 merge-exec.md 로 옮겼다(2026-10 개편)
+const scan = ref('sweep-scan.md')
+const exec = ref('merge-exec.md')
 const unapproved = ref('unapproved.md')
 const orig = parseFixture(readFileSync(join(ROOT, 'tests/skills/fixtures/dflow-merge.SKILL.orig.md'), 'utf8')).text
 
@@ -68,77 +71,77 @@ describe('/dflow-merge 원문 보존(스펙 §6-1)', () => {
 
 describe('/dflow-merge 수정(스펙 §6-4)', () => {
   it('원격 후보: origin/agent/* 의 state.json 을 git diff 로 찾아 git show 로 읽고 merged 가 아니면 후보다', () => {
-    expect(skill).toContain("git branch -r --list 'origin/agent/*'") // 팀장 전제 검사가 grep 하는 바이트열 포함
-    expect(skill).toContain('dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs)')
-    expect(skill).toContain('while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done')
-    expect(skill).not.toContain('done <<EOF')   // 들여쓴 목록 안 here-doc 은 붙여넣기에서 종결되지 않는다
-    expect(skill).toContain('git diff --name-only "origin/<기본브랜치>...$ref" -- "$@"')
-    expect(skill).toContain('`git show <ref>:<경로>`')
-    expect(skill).toContain('`git show` 에는 glob 을 쓰지 않는다')
-    expect(skill).toContain('**`phase` 가 `merged` 가 아니면 전부 후보**')
-    expect(skill).toContain('`origin/agent/<id8>-<slug>`')
+    expect(scan).toContain("git branch -r --list 'origin/agent/*'") // 팀장 전제 검사가 grep 하는 바이트열 포함
+    expect(scan).toContain('dirs=$(node .claude/skills/dflow-work/scripts/dflow.mjs config tasks-dirs)')
+    expect(scan).toContain('while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done')
+    expect(scan).not.toContain('done <<EOF')   // 들여쓴 목록 안 here-doc 은 붙여넣기에서 종결되지 않는다
+    expect(scan).toContain('git diff --name-only "origin/<기본브랜치>...$ref" -- "$@"')
+    expect(scan).toContain('`git show <ref>:<경로>`')
+    expect(scan).toContain('`git show` 에 glob 금지')
+    expect(scan).toContain('**`phase` ≠ `merged` 면 전부 후보**')
+    expect(scan).toContain('`origin/agent/<id8>-<slug>`')
   })
 
   it('같은 order 는 로컬 후보로 합친 뒤 api_base 가 다르면 로컬이든 원격이든 건너뛰고, 원격은 값이 없어도 건너뛰며, 값 없는 로컬만 지금처럼 판정한다', () => {
-    expect(skill).toContain('같은 order 가 로컬과 원격에 모두 있으면 로컬 후보 하나로 합쳐 로컬 규칙으로')
-    expect(skill).toContain('`api_base` 는 값이 있는 쪽을 쓰고')
-    expect(skill).toContain('증적 head_sha 를 포함하는 쪽')
-    expect(skill).toContain('순서는 중복 제거 → `api_base` 필터다')
-    expect(skill).toContain('[$ref, .tsk, .order, .phase, (if (.api_base // "") == "" then "none"') // 원격 스캔도 값 없음을 가른다
-    expect(skill).toContain('`api_base` 가 현재 `DFLOW_API_BASE`(끝 `/` 제거)와 다르면')
-    expect(skill).toContain('로컬이든 원격이든 "건너뜀(다른 D\'Flow)" 로 보고한다')
-    expect(skill).toContain('원격 후보는 값이 없어도 건너뛴다')
-    expect(skill).toContain('값이 없는 로컬 후보')
-    expect(skill).not.toContain('필터를 걸지 않는다')
+    expect(scan).toContain('같은 order 가 양쪽에 있으면 로컬 후보 하나로 합쳐 로컬 규칙으로 판정')
+    expect(scan).toContain('합친 후보 `api_base` = 값 있는 쪽')
+    expect(scan).toContain('증적 head_sha 포함하는 쪽')
+    expect(scan).toContain('순서 = 중복 제거 → `api_base` 필터')
+    expect(scan).toContain('[$ref, .tsk, .order, .phase, (if (.api_base // "") == "" then "none"') // 원격 스캔도 값 없음을 가른다
+    expect(scan).toContain('후보 state.json `api_base` ≠ 현재 `DFLOW_API_BASE`(끝 `/` 제거)면')
+    expect(scan).toContain('로컬·원격 모두 "건너뜀(다른 D\'Flow)" 보고')
+    expect(scan).toContain('남은 원격 후보는 값 없어도 건너뜀')
+    expect(scan).toContain('값 없는 로컬 후보(옛 state.json)는 그대로 판정')
+    expect(scan).not.toContain('필터를 걸지 않는다')
   })
 
   it('show 는 전체 UUID 로 부르고 jq 로 status 와 마지막 completion 리포트(증적 head_sha 포함)만 뽑는다', () => {
-    expect(skill).toContain('서버 조회는 state.json 의 전체 UUID 로 한다')
-    expect(skill).toContain('.order.status')
-    expect(skill).toContain('select(.kind == "completion")')
-    expect(skill).toContain('head_sha: .evidence.head_sha')
+    expect(scan).toContain('**서버 조회**: state.json 전체 UUID 로 조회')
+    expect(scan).toContain('.order.status')
+    expect(scan).toContain('select(.kind == "completion")')
+    expect(scan).toContain('head_sha: .evidence.head_sha')
   })
 
   it('판정 보고는 승인 대기·반려·서버 상태·조회 실패를 가르고 반려는 state.json 을 고치지 않는다', () => {
-    expect(skill).toContain('"반려: 재작업 필요 (<review_note>)"')
-    expect(skill).toContain('`review_action=reject`')
-    expect(skill).toContain('반려는 로컬 후보도 state.json 을 고치지 않고 보고만 한다')
-    expect(skill).toContain('`status=reported`: "승인 대기"')
-    expect(skill).toContain('"건너뜀(서버 <status>)"')
-    expect(skill).toContain('404(dflow.sh exit 7)')
-    expect(skill).toContain('"건너뜀(조회 실패)"')
+    expect(scan).toContain('"반려: 재작업 필요 (<review_note>)"')
+    expect(scan).toContain('`review_action=reject`')
+    expect(scan).toContain('로컬 후보도 state.json 수정 없이 보고만')
+    expect(scan).toContain('`status=reported`: "승인 대기"')
+    expect(scan).toContain('"건너뜀(서버 <status>)"')
+    expect(scan).toContain('404(dflow.mjs exit 7)')
+    expect(scan).toContain('"건너뜀(조회 실패)"')
   })
 
   it('순서는 branch_base 와 차분 백스톱으로, 승인 뒤 변경과 확인 불가는 건너뛰고, 충돌은 merge --abort, merged 커밋은 push 전에, push 실패는 reset --keep 뒤 경합·훅으로 가른다', () => {
-    expect(skill).toContain('후보 state.json 의 `branch_base` 로 조상')
-    expect(skill).toContain('`git merge-base --is-ancestor <branch_base> <그 후보의 머지 대상>`')
-    expect(skill).toContain('"건너뜀(기점 미반영)"')
-    expect(skill).toContain('`git diff --name-only origin/<기본브랜치>...<그 후보의 머지 대상> --` 뒤에 1번과 같이 구성한 pathspec')
-    expect(skill).toContain('그 작업 외의 state.json 이 있으면')
-    expect(skill).toContain('git diff --name-only <증적 head_sha>..<머지 대상>')
-    expect(skill).toContain('git merge-base --is-ancestor <증적 head_sha> <머지 대상>')
-    expect(skill).toContain('"건너뜀(승인 뒤 변경)"')
-    expect(skill).toContain('"건너뜀(승인 뒤 변경 확인 불가)"')
-    expect(skill).toContain('`git merge --abort`')
-    expect(skill).toContain('"머지 실패(충돌)"')
-    expect(skill).toContain('이 커밋을 **push 전에**')
-    expect(skill).toContain('`git reset --keep <기록한 HEAD>`')
+    expect(exec).toContain('후보 state.json 의 `branch_base` 로 조상')
+    expect(exec).toContain('`git merge-base --is-ancestor <branch_base> <그 후보의 머지 대상>`')
+    expect(exec).toContain('"건너뜀(기점 미반영)"')
+    expect(exec).toContain('`git diff --name-only origin/<기본브랜치>...<그 후보의 머지 대상> --` 뒤에 1번과 같이 구성한 pathspec')
+    expect(exec).toContain('그 작업 외의 state.json 이 있으면')
+    expect(exec).toContain('git diff --name-only <증적 head_sha>..<머지 대상>')
+    expect(exec).toContain('git merge-base --is-ancestor <증적 head_sha> <머지 대상>')
+    expect(exec).toContain('"건너뜀(승인 뒤 변경)"')
+    expect(exec).toContain('"건너뜀(승인 뒤 변경 확인 불가)"')
+    expect(exec).toContain('`git merge --abort`')
+    expect(exec).toContain('"머지 실패(충돌)"')
+    expect(exec).toContain('이 커밋을 **push 전에**')
+    expect(exec).toContain('`git reset --keep <기록한 HEAD>`')
     expect(pushFail).toContain('`non-fast-forward` 나 `fetch first`')
     expect(pushFail).toContain('"push 실패(경합)"')
     expect(pushFail).toContain('"push 실패(훅)"')
     expect(pushFail).toContain('그 작업과 그 후손')
-    for (const d of [skill, pushFail]) expect(d).not.toContain('훅에 거부되든 경합으로 거부되든')
-    expect(skill).toContain('`origin` 으로 리셋하지 않는다')
-    expect(skill).toContain('`references/push-fail.md` 를 읽어 거부 모양')
-    expect(skill).toMatch(/git add "<후보 state\.json 경로>" && git commit -m "chore\(<TSK>\): phase=merged" \\\n\s*&& git push origin <기본브랜치>/)
-    expect(skill).not.toMatch(/git add "\$\(dflow\.sh taskdir/) // 다시 서버를 부르지 않는다(1번에서 이미 찾은 경로를 재사용)
-    expect(skill).not.toMatch(/git commit -m "chore\(<TSK>\): phase=merged"\s*\n\s*git push/) // add·commit 과 push 가 분리돼 있으면 실패해도 push 될 수 있다
+    for (const d of [skill, exec, pushFail]) expect(d).not.toContain('훅에 거부되든 경합으로 거부되든')
+    expect(exec).toContain('`origin` 으로 리셋 금지')
+    expect(exec).toContain('`references/push-fail.md` 를 읽어 거부 모양')
+    expect(exec).toMatch(/git add "<후보 state\.json 경로>" && git commit -m "chore\(<TSK>\): phase=merged" \\\n\s*&& git push origin <기본브랜치>/)
+    expect(exec).not.toMatch(/git add "\$\(dflow\.mjs taskdir/) // 다시 서버를 부르지 않는다(1번에서 이미 찾은 경로를 재사용)
+    expect(exec).not.toMatch(/git commit -m "chore\(<TSK>\): phase=merged"\s*\n\s*git push/) // add·commit 과 push 가 분리돼 있으면 실패해도 push 될 수 있다
   })
 
   it('뒷정리: 로컬 브랜치가 없거나 다른 워크트리가 잡고 있으면 건너뛰고 보고한다', () => {
     expect(skill).toContain('(not found)')
     expect(skill).toContain('(checked out)')
-    expect(skill).toContain('건너뛰고 보고한다')
+    expect(skill).toContain('건너뛰고 보고')
   })
 })
 
@@ -148,30 +151,31 @@ describe('/dflow-merge --on-report 와 /dflow-team 자동 머지(2026-09-19)', (
   const dev = readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
 
   it('승인 전 머지분은 phase 를 merged 로 두고 unapproved 로 구분한다 — 새 phase 값은 행 G·반려 감지를 깨뜨린다', () => {
-    expect(skill).toContain('승인 전 머지면 같은 커밋에서 `unapproved: true` 를 함께 넣는다')
+    expect(exec).toContain('승인 전 머지면 같은 커밋에 `unapproved: true` 도 넣음')
     expect(skill).not.toContain('merged_unapproved')
     // 행 G 의 반영 확인은 여전히 phase=merged 를 본다
     expect(dev).toContain('phase 가 merged 여야 하고')
   })
 
   it('로컬 스캔이 승인 전 머지분을 다시 읽고, 재머지 없이 승인·반려만 판정한다', () => {
-    expect(skill).toContain('select(.phase == "reported" or (.phase == "merged" and .unapproved == true))')
-    expect(skill).toContain('절대 다시 머지하지 않는다')
-    expect(skill).toContain('`references/unapproved.md` 를 읽고')
-    expect(unapproved).toContain('절대 다시 머지하지 않는다')
+    expect(scan).toContain('select(.phase == "reported" or (.phase == "merged" and .unapproved == true))')
+    expect(skill).toContain('절대 다시 merge 안 함')
+    expect(scan).toContain('절대 다시 merge 안 함')
+    expect(scan).toContain('`references/unapproved.md` 를 읽고')
+    expect(unapproved).toContain('재merge 금지')
     expect(unapproved).toContain('"반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>)"')
     expect(unapproved).toContain('"승인 반영(이미 머지됨)"')
   })
 
   it('플래그 없는 기본 동작은 approved 만 머지한다(원문 금지 줄 유지)', () => {
-    expect(skill).toContain('**approved 확인 전 머지 절대 금지** — 로컬 state 나 기억이 아니라 show 응답이 판정이다.')
-    expect(skill).toContain('예외는 `--on-report` 의 반려되지 않은 `reported` 하나뿐이다')
+    expect(scan).toContain('**approved 확인 전 merge 절대 금지** — 로컬 state·기억 아닌 show 응답이 판정.')
+    expect(skill).toContain('예외 = `--on-report` 의 반려 안 된 `reported` 하나뿐.')
   })
 
   it('팀장은 automerge=1 일 때만 --on-report 로 스윕하고, done 결과에서 곧바로 스윕한다', () => {
     // .dflow 전환(2026-09-23): automerge 는 dflow.sh config automerge 로 읽는다(레거시는 .env 의 DFLOW_AUTOMERGE).
-    expect(team).toContain('[ "$(.claude/skills/dflow-work/scripts/dflow.sh config automerge)" = 1 ] && echo AUTOMERGE_ON || echo AUTOMERGE_OFF')
-    expect(team).toContain('자동 머지(`AUTOMERGE_ON`, 「인자」)면 `--on-report` 하나만 붙여')
-    expect(team).toContain('자동 머지(`AUTOMERGE_ON`)면 **먼저 승인 스윕을 곧바로 한다**')
+    expect(team).toContain('[ "$(node .claude/skills/dflow-work/scripts/dflow.mjs config automerge)" = 1 ] && echo AUTOMERGE_ON || echo AUTOMERGE_OFF')
+    expect(team).toContain('자동 merge(`AUTOMERGE_ON`, 「인자」)면 `--on-report` 하나만 붙여')
+    expect(team).toContain('자동 merge(`AUTOMERGE_ON`)면 먼저 승인 스윕 곧바로 함')
   })
 })

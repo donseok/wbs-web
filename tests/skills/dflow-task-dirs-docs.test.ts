@@ -21,7 +21,7 @@ describe('스킬 문서의 작업 폴더', () => {
   })
   it('dflow-dev·dflow-merge·dflow-team 이 <TASKS> 를 정의한다', () => {
     for (const f of ['dflow-dev/SKILL.md', 'dflow-merge/SKILL.md', 'dflow-team/SKILL.md'])
-      expect(f === 'dflow-dev/SKILL.md' ? devAll() : read(f), f).toContain('작업 폴더 `<TASKS>` 는 `<DOCS_DIR>/tasks` 다')
+      expect(f === 'dflow-dev/SKILL.md' ? devAll() : read(f), f).toContain('`<TASKS>` = `<DOCS_DIR>/tasks`')
   })
   it('팀장 exclude 패턴과 backends 필터가 DOCS_DIR 을 덮는다', () => {
     expect(read('dflow-team/SKILL.md')).toContain("'**/tasks/*/.result' '**/tasks/*/.issues'")
@@ -30,27 +30,28 @@ describe('스킬 문서의 작업 폴더', () => {
   it('dflow-dev 가 ready 단일 파일을 격리 예외로 둔다', () => {
     const t = devAll()
     expect(t).toContain('`state.json` 하나만 있고 `phase=ready`')
-    expect(t).toMatch(/`phase` 값: `ready`·`design`/)
+    expect(read('dflow-dev/references/state-model.md')).toMatch(/`phase` 값: `ready`·`design`/)
   })
   it('팀장이 시작할 때 scaffold 를 부른다', () => {
-    expect(read('dflow-team/SKILL.md')).toContain('dflow.sh scaffold')
+    expect(read('dflow-team/SKILL.md')).toContain('dflow.mjs scaffold')
   })
   it('scaffold 블록이 개발 브랜치인지 확인한 뒤에만 부른다(detached HEAD 팀장은 커밋 못 해 DIRTY 를 남긴다)', () => {
-    const t = read('dflow-team/SKILL.md')
+    // scaffold 블록은 references/start.md 「1번 시작: 2번 scaffold 블록」 으로 옮겼다
+    const t = read('dflow-team/references/start.md')
     const block = [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
-      .find((b) => b.includes('dflow.sh scaffold'))!
+      .find((b) => b.includes('dflow.mjs scaffold'))!
     expect(block).toBeDefined()
     expect(block).toContain('branch --show-current')
     expect(block).toContain('branch dev')
     expect(block).toMatch(/scaffold 건너뜀/)
   })
   it('scaffold 전에 개발 브랜치를 fast-forward 한다(뒤처진 dev 에서 커밋하면 push 가 갈라진다)', () => {
-    const t = read('dflow-team/SKILL.md')
+    const t = read('dflow-team/references/start.md')
     const block = [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
-      .find((b) => b.includes('dflow.sh scaffold'))!
+      .find((b) => b.includes('dflow.mjs scaffold'))!
     expect(block).toBeDefined()
     expect(block).toContain('pull -q --ff-only')
-    expect(block.indexOf('pull -q --ff-only')).toBeLessThan(block.indexOf('dflow.sh scaffold'))
+    expect(block.indexOf('pull -q --ff-only')).toBeLessThan(block.indexOf('dflow.mjs scaffold'))
   })
   it('renumbering 뒤 "4번이 답 대기" 참조가 남아 있지 않다(5번으로 고쳤다)', () => {
     expect(read('dflow-team/SKILL.md')).not.toContain('4번이 답 대기 목록을 이어받는다')
@@ -63,28 +64,29 @@ describe('스킬 문서의 작업 폴더', () => {
     // 2026-09-25: 「5-1」 의 절차는 dflow-team references/resume.md 로 옮겼다
     const t = read('dflow-team/SKILL.md') + '\n' + read('dflow-team/references/resume.md')
     const blocks = [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
-      .filter((b) => b.includes('dflow.sh taskdir'))
-    const vars = blocks.map((b) => /dflow\.sh taskdir "\$(\w+)"/.exec(b)?.[1])
+      .filter((b) => b.includes('dflow.mjs taskdir'))
+    const vars = blocks.map((b) => /dflow\.mjs taskdir "\$(\w+)"/.exec(b)?.[1])
     expect(vars.sort()).toEqual(['id8', 'order'])
     for (const b of blocks) {
-      const v = /dflow\.sh taskdir "\$(\w+)"/.exec(b)![1]
+      const v = /dflow\.mjs taskdir "\$(\w+)"/.exec(b)![1]
       const bind = b.indexOf(`${v}='<${v}>'`)
       expect(bind, b).toBeGreaterThan(-1)
-      expect(bind, b).toBeLessThan(b.indexOf('dflow.sh taskdir'))
+      expect(bind, b).toBeLessThan(b.indexOf('dflow.mjs taskdir'))
       expect(b, b).toMatch(/echo ".*rc=\$rc"/)
     }
   })
   it('작업 폴더를 훑는 다른 블록도 앞 블록의 셸 변수에 기대지 않는다', () => {
     const bashBlocks = (t: string) => [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
     // dflow-merge 로컬 후보 스캔: $api 를 같은 블록에서 구한다(원격 스캔 블록과 별도 호출)
-    const local = bashBlocks(read('dflow-merge/SKILL.md'))
+    // 후보 식별 블록은 references/sweep-scan.md 로 옮겼다
+    const local = bashBlocks(read('dflow-merge/references/sweep-scan.md'))
       .find((b) => b.includes('find "$d" -mindepth 2 -maxdepth 2 -name state.json'))!
     expect(local).toBeDefined()
-    expect(local.indexOf('api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}'))
+    expect(local.indexOf('api=$(node .claude/skills/dflow-work/scripts/dflow.mjs config api_base); api=${api%/}'))
       .toBeGreaterThan(-1)
     expect(local.indexOf('api=$(')).toBeLessThan(local.indexOf('--arg api "$api"'))
     // dflow-team 문제 기록: $reason 을 같은 블록에서 .result 첫 줄로부터 구한다(기록 명령과 별도 호출)
-    const issues = bashBlocks(read('dflow-team/SKILL.md')).find((b) => b.includes('docs/dflow-team/issues.md'))!
+    const issues = bashBlocks(read('dflow-team/references/result-handling.md')).find((b) => b.includes('docs/dflow-team/issues.md'))!
     expect(issues).toBeDefined()
     const bind = issues.indexOf('reason=$(')
     expect(bind).toBeGreaterThan(-1)
@@ -93,19 +95,19 @@ describe('스킬 문서의 작업 폴더', () => {
   it('워커는 빈 TASK_DIR 을 실패로 끝내지 않고 옛 팀장이 보는 docs/tasks/{TSK} 로 물러선다(버전 차 호환)', () => {
     const w = read('dflow-team/references/worker-prompt.md')
     expect(w).not.toContain('failed no-task-dir')
-    expect(w).toContain('**`TASK_DIR` 이 비어 있으면** `{TASK_DIR}` 을 `docs/tasks/{TSK}` 로 보고 계속한다')
+    expect(w).toContain('**`TASK_DIR` 이 비면** `{TASK_DIR}` = `docs/tasks/{TSK}` 로 보고 계속')
   })
   it('팀장 재구성이 tasks-dirs 를 워크트리 반복문 밖에서 한 번만 구한다', () => {
     const t = read('dflow-team/SKILL.md')
-    const diIdx = t.indexOf('dirs=$(.claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs)')
+    const diIdx = t.indexOf('dirs=$(node .claude/skills/dflow-work/scripts/dflow.mjs config tasks-dirs)')
     const loopIdx = t.indexOf('git worktree list --porcelain')
     expect(diIdx).toBeGreaterThan(-1)
     expect(loopIdx).toBeGreaterThan(-1)
     expect(diIdx).toBeLessThan(loopIdx)
-    expect(t).not.toContain('cd "$w" && .claude/skills/dflow-work/scripts/dflow.sh config tasks-dirs')
+    expect(t).not.toContain('cd "$w" && node .claude/skills/dflow-work/scripts/dflow.mjs config tasks-dirs')
   })
   it('merge 의 원격 스캔 pathspec 이 고정 glob 이 아니라 tasks-dirs 별로 구성된다', () => {
-    const t = read('dflow-merge/SKILL.md')
+    const t = read('dflow-merge/references/sweep-scan.md')
     expect(t).not.toContain("'*/tasks/*/state.json'")
     expect(t).toContain('printf \'%s\\n\' "$dirs" | {')
     expect(t).toContain('while IFS= read -r d; do set -- "$@" "$d/*/state.json"; done')
@@ -121,8 +123,8 @@ describe('스킬 문서의 작업 폴더', () => {
     const t = read('dflow-team/references/resume.md')
     const start = t.indexOf('# /dflow-team 재개 spawn')
     const section = t.slice(start)
-    const taskDirIdx = section.indexOf('TASK_DIR` 을 구한다')
-    const unparkIdx = section.indexOf('.dflow-agent` 를 되돌린다')
+    const taskDirIdx = section.indexOf('**`TASK_DIR` 구함.**')
+    const unparkIdx = section.indexOf('.dflow-agent` 되돌림.**')
     expect(start).toBeGreaterThan(-1)
     expect(taskDirIdx).toBeGreaterThan(-1)
     expect(unparkIdx).toBeGreaterThan(-1)
@@ -132,7 +134,7 @@ describe('스킬 문서의 작업 폴더', () => {
     const t = read('dflow-team/SKILL.md')
     // 「5. 팀원 spawn」: 3번(TASK_DIR 을 구하는 곳) 이후, 4번 포인터부터는 $TASK_DIR 을 다시 쓰지 않는다
     const spawnStart = t.indexOf('## 5. 팀원 spawn')
-    const spawnStep4 = t.indexOf('4. 포인터 **한 줄**을 만든다', spawnStart)
+    const spawnStep4 = t.indexOf('4. 포인터 **한 줄** 생성.', spawnStart)
     const spawnEnd = t.indexOf('### 5-1. 재개 spawn')
     expect(spawnStep4).toBeGreaterThan(-1)
     expect(t.slice(spawnStep4, spawnEnd)).not.toMatch(/\$TASK_DIR\b/)
@@ -140,7 +142,7 @@ describe('스킬 문서의 작업 폴더', () => {
 
     // 「5-1. 재개 spawn」(references/resume.md): 4번(TASK_DIR 을 구하는 곳) 이후, 5번부터는 $task_dir 을 다시 쓰지 않는다
     const r = read('dflow-team/references/resume.md')
-    const resumeStep5 = r.indexOf('5. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.**')
+    const resumeStep5 = r.indexOf('5. **slot 정하고 `.dflow-agent` 되돌림.**')
     expect(resumeStep5).toBeGreaterThan(-1)
     expect(r.slice(resumeStep5)).not.toMatch(/\$task_dir\b/)
     expect(r.slice(resumeStep5)).toContain('<4항에서 출력된 작업 폴더>')
@@ -167,7 +169,7 @@ describe('들여쓴 bash 블록의 붙여넣기 안전성', () => {
     }
   })
   it('dflow-merge 로컬 후보 스캔은 리포 최상위에서 돈다(tasks-dirs 는 최상위 기준, $f 는 <W>/<경로> 로 재사용)', () => {
-    const local = [...read('dflow-merge/SKILL.md').matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
+    const local = [...read('dflow-merge/references/sweep-scan.md').matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
       .find((b) => b.includes('find "$d" -mindepth 2 -maxdepth 2 -name state.json'))!
     expect(local).toBeDefined()
     expect(local.indexOf('cd "$(git rev-parse --show-toplevel)" || exit 1')).toBeGreaterThan(-1)

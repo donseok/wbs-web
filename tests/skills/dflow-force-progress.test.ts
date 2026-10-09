@@ -10,7 +10,7 @@ const ROOT = process.cwd()
 const DFLOW = join(ROOT, '.claude/skills/dflow-work/scripts/dflow.mjs')
 const sh = readFileSync(DFLOW, 'utf8')
 const dev = devAll()
-const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8')
+const merge = readFileSync(join(ROOT, '.claude/skills/dflow-merge/references/merge-exec.md'), 'utf8')
 const contract = readFileSync(join(ROOT, '.claude/skills/dflow-work/references/api-contract.md'), 'utf8')
 
 function repo(files: Record<string, string>): string {
@@ -65,9 +65,10 @@ describe('dflow.sh stub-check', () => {
 
 describe('/dflow-dev — waived 갈래', () => {
   it('선행 검사에 waived 갈래가 있고 기본 브랜치 반영 확인을 하지 않는다', () => {
-    expect(dev).toContain("`d.waived === true` 면 **강제 진행 간선**이다")
+    expect(dev).toContain('`d.waived === true` = **강제 진행 간선**')
+    expect(dev).toContain('완료 판정·기본 branch 반영 확인·스택 안 함')
     expect(dev).toContain('강제 진행: <선행> 은 스텁으로 대신한다')
-    expect(dev).toContain('기점은 항상 `origin/<기본브랜치>`')
+    expect(dev).toContain('기점 = 항상 `origin/<기본브랜치>`')
   })
   it('스텁 규칙(후행 소유 경로·표식·완료 보고 절)을 적는다', () => {
     expect(dev).toContain('FORCE-STUB: <선행 TSK-ID>')
@@ -78,8 +79,8 @@ describe('/dflow-dev — waived 갈래', () => {
 
 describe('/dflow-merge — 개발 브랜치 = 운영 브랜치면 스텁 머지 거부', () => {
   it('stub-check 로 막는다', () => {
-    expect(merge).toContain('dflow.sh stub-check <머지 대상>')
-    expect(merge).toContain('개발 브랜치와 운영 브랜치가 같으면')
+    expect(merge).toContain('`dflow.mjs stub-check <머지 대상>`')
+    expect(merge).toContain('개발 브랜치 = 운영 브랜치(`dflow.mjs branch dev` 와 `dflow.mjs branch release` 가 같은 값)면')
   })
 })
 

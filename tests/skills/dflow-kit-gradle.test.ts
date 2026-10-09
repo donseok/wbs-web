@@ -545,7 +545,7 @@ describe('/dflow-team 전제 검사 — Gradle 권장 설정 경고(시작을 �
   it('precheck.md 에 WARN GRADLE_TUNING 처리 안내가 있다', () => {
     const doc = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/precheck.md'), 'utf8')
     expect(doc).toContain('WARN GRADLE_TUNING')
-    expect(doc).toContain('시작을 막지 않는다')
+    expect(doc).toContain('시작 안 막음')
   })
 
   it('SKILL.md 참조 표에 precheck.md 가 WARN 때도 읽는 문서로 올라 있다', () => {

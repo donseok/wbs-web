@@ -8,6 +8,7 @@ import { join } from 'node:path'
 
 const ROOT = process.cwd()
 const R = () => readFileSync(join(ROOT, '.claude/skills/dflow-team/references/restart.md'), 'utf8')
+const LEAD = () => readFileSync(join(ROOT, '.claude/skills/dflow-team/references/lead-state.md'), 'utf8')
 const SKILL = () => readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
 const FIX = join(ROOT, 'tests/skills/fixtures/limits')
 const FAR = 4102444800 // 2100-01-01
@@ -97,7 +98,7 @@ describe('판정 블록(재시작 전제 H2·G2)', () => {
     const st = join(w, 'docs/tasks/TSK-01/state.json')
     if (phase) writeFileSync(st, JSON.stringify({ phase })); else rmSync(st, { force: true })
     const code = block('## 판정')
-      .replace('.claude/skills/dflow-work/scripts/dflow.sh', fake)
+      .replace('node .claude/skills/dflow-work/scripts/dflow.mjs', fake)
       .replace("w='<워크트리>'", `w='${w}'`).replace("id8='<id8>'", "id8='a1b2c3d4'").replace("tsk='<TSK>'", "tsk='TSK-01'").replace("tasks='<TASKS>'", "tasks='docs/tasks'")
       .replace("TM='<진짜 tmux 절대경로 또는 빈 값>'", "TM=''").replace("pane='<pane id 또는 ->'", "pane='-'")
       .replace("'claude-<host>'", "'claude-h'")
@@ -145,7 +146,8 @@ describe('이벤트로 본 상태', () => {
 
 describe('카운터', () => {
   function tries(rows: Record<string, unknown>[]): string {
-    const m = SKILL().match(/(jq -r --arg a '<신원>\/<host>\/lead' --arg r '<MAIN>' --arg i "\$id8" \\\n[\s\S]*?print "tries=" n\+0\}')/)
+    // 2026-10: 재시도 블록은 SKILL.md 에서 references/lead-state.md 「고아 스캔」으로 옮겼다
+    const m = LEAD().match(/(jq -r --arg a '<신원>\/<host>\/lead' --arg r '<MAIN>' --arg i "\$id8" \\\n[\s\S]*?print "tries=" n\+0\}')/)
     if (!m) throw new Error('재시도 블록을 찾지 못했다')
     events(rows)
     return sh(lead(`id8='a1'\n${m[1]}`)).stdout.trim()
@@ -200,7 +202,7 @@ describe('restart.md 계약', () => {
     }
   })
   it('rate-limit 대기 슬롯은 판정을 건너뛴다', () => {
-    expect(section(R(), '## 판정')).toMatch(/`RL_WAIT`·`RL_DUE`[^\n]*이 절을 건너뛰고/)
+    expect(section(R(), '## 판정')).toMatch(/`RL_WAIT`·`RL_DUE`[^\n]*이 절 건너뛰고/)
   })
   it('원인 분류 순서: show 실패 → cancelled → 점유 변동 → 표식 불일치 → 한도 → pane 죽음(127 먼저) → 무응답', () => {
     const s = section(R(), '## 판정')
@@ -212,15 +214,15 @@ describe('restart.md 계약', () => {
   it('재시작 후보: 상한이면 park 이고 team.result 를 쓰지 않으며, 거두기를 기록보다 먼저 한다', () => {
     const s = section(R(), '## 재시작 후보를 띄울지')
     expect(s).toMatch(/≥ 3[^\n]*`park`/)
-    expect(s).toMatch(/`team\.result` 를 쓰지 않는다/)
+    expect(s).toMatch(/`team\.result` 안 씀/)
     expect(s.indexOf('REAPED')).toBeGreaterThan(-1)
     expect(s).toMatch(/거두기[^\n]*먼저/)
-    expect(s).toMatch(/워크트리를 지우지 않는다/)
+    expect(s).toMatch(/worktree 를 안 지움/)
   })
   it('재투입은 5-1 을 타고 claim 하지 않으며 6항 직전에 표식을 정리한다', () => {
     const s = section(R(), '## 재투입')
     expect(s).toContain('「5-1. 재개 spawn」')
-    expect(s).toMatch(/claim[^\n]*하지 않는다/)
+    expect(s).toMatch(/claim 안 함/)
     expect(s).toMatch(/6항[^\n]*직전[^\n]*「중단 표식 정리」/)
     expect(s).toContain('`spawn_kind=resume`')
   })
@@ -228,18 +230,18 @@ describe('restart.md 계약', () => {
   // 재투입한다. "관문 전" 갈래(team.lost 를 기록하지 않는 옛 동작)는 리허설 이전 판본을 위해 남긴다.
   it('Orca 는 관문 통과 이후 tmux 와 같이 재투입하고 team.lost 를 기록하며, 관문 전 갈래는 폴백으로 남는다', () => {
     const s = section(R(), '## Orca')
-    expect(s).toMatch(/관문 셋을 2026-09-24 리허설[\s\S]*통과했다/)
-    expect(s).toContain('Orca 도 이제 tmux 와 같은 방식으로 재투입한다')
+    expect(s).toMatch(/관문 셋을 2026-09-24 리허설[\s\S]*통과함/)
+    expect(s).toContain('Orca 도 이제 tmux 와 같은 방식으로 재투입')
     expect(s).toMatch(/탭 닫기[\s\S]*`\.dflow-run` 새로 쓰기[\s\S]*orca terminal create/)
-    expect(s).toContain('`team.lost` 기록도 tmux 와 같게 한다')
+    expect(s).toContain('`team.lost` 기록도 tmux 와 같음')
     // 관문 전 폴백: 여전히 team.lost 를 기록하지 않는 옛 동작을 조건부로 남긴다
-    expect(s).toMatch(/\*\*관문 전에는\*\*[\s\S]*`team\.lost` 는 기록하지 않는다/)
+    expect(s).toMatch(/\*\*관문 전에는\*\*[\s\S]*`team\.lost` 는 기록 안 함/)
     expect(s).toContain('/dflow-team <종료시각> --resume <id8>')
   })
   it('LEASE_LOST·LOCK_LOST·STALE·마감 중에는 판정하지 않는다', () => {
     const s = section(R(), '## 마감·lease·잠금')
     for (const t of ['`LEASE_LOST`', '`LOCK_LOST`', '`STALE`', '「7. 마감」']) expect(s, t).toContain(t)
-    expect(s).toMatch(/재시작하지 않는다/)
+    expect(s).toMatch(/재시작 안 함/)
   })
 })
 
@@ -313,7 +315,7 @@ describe('거두기 확인(리뷰 Important 1)', () => {
     expect(r.agent).toBeNull()
   })
   it('실패하면 기록·재투입 없이 멈춤으로 보낸다고 적는다', () => {
-    expect(section(R(), '## 재시작 후보를 띄울지')).toMatch(/`REAP_FAILED`[^\n]*\n?[^\n]*`team\.lost` 를 쓰지 않고 재투입하지 않으며/)
+    expect(section(R(), '## 재시작 후보를 띄울지')).toMatch(/`REAP_FAILED`[^\n]*\n?[^\n]*`team\.lost` 안 씀, 재투입 안 함/)
   })
 })
 
@@ -328,7 +330,7 @@ describe('재투입 전 확인(리뷰 Important 2)', () => {
     events(Array.from({ length: o.resumes ?? 1 }, () => spawnEv('a1b2c3d4', 'resume')))
     const tm = o.tm === false ? '' : fakeTmux(new Set(o.alive ?? []))
     const code = lead(block('## 재투입'))
-      .replace('.claude/skills/dflow-work/scripts/dflow.sh', fake)
+      .replace('node .claude/skills/dflow-work/scripts/dflow.mjs', fake)
       .replace("w='<워크트리>'", `w='${w}'`).replace("id8='<id8>'", "id8='a1b2c3d4'")
       .replace("TM='<진짜 tmux 절대경로 또는 빈 값>'", `TM='${tm}'`).replace("'claude-<host>'", `'${HOST}'`)
     return sh(code).stdout.trim()
@@ -363,10 +365,10 @@ describe('재투입 전 확인(리뷰 Important 2)', () => {
     expect(pre({ resumes: 3 })).toBe('REINJECT_BLOCKED tries=3')
   })
   it('문서: RESTART_DUE 는 고아 스캔 재개 가능 조건과의 교집합이고, 표식 정리의 st 는 이번 기상 값만 쓴다', () => {
-    expect(section(R(), '## 이벤트로 본 상태')).toMatch(/`RESTART_DUE` 는 그 자체로 재개 가능이 아니다/)
+    expect(section(R(), '## 이벤트로 본 상태')).toMatch(/`RESTART_DUE` 자체는 재개 가능 아님/)
     expect(section(R(), '## 이벤트로 본 상태')).toContain('**교집합**')
     expect(section(R(), '## 재투입')).toMatch(/\*\*이번 기상의\*\* 재투입 전 확인이 낸 `order=`·`st=`/)
-    expect(SKILL()).toMatch(/`RESTART_DUE` 는 이 다섯 조건과의 교집합일 때만 재개 가능/)
+    expect(LEAD()).toMatch(/`RESTART_DUE` = 이 다섯 조건과 교집합일 때만 재개 가능/)
   })
 })
 
@@ -381,8 +383,8 @@ describe('한도 에피소드(리뷰 Minor 3)·차단기 wait 제외(Minor 4)', 
     expect(sh(code()).stdout.trim()).toBe('rl=2')
   })
   it('차단기: next=wait 인 team.lost 는 세지 않는다', () => {
-    expect(section(R(), '## 재시작 후보를 띄울지')).toMatch(/`next=wait` 인 `team\.lost` 는 차단기 연속 실패 수에 넣지 않는다/)
-    expect(SKILL()).toContain('단 `next=wait` 인 `team.lost` 는 세지도 끊지도 않는다')
-    expect(SKILL()).toContain('단 `next=wait` 인 `team.lost` 는 세지 않는다')
+    expect(section(R(), '## 재시작 후보를 띄울지')).toMatch(/`next=wait` 인 `team\.lost` 는 차단기 연속 실패 수에 안 넣음/)
+    expect(LEAD()).toContain('단 `next=wait` `team.lost` 는 세지도 끊지도 않음')
+    expect(SKILL()).toContain('단 `next=wait` 인 `team.lost` 는 세지 않음')
   })
 })

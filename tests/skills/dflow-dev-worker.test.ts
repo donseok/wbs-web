@@ -114,14 +114,15 @@ describe('/dflow-dev 원문 보존(스펙 §6-1)', () => {
 
 describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => {
   it('상태 모델: state.json 에 api_base 를 두고 처음 쓰는 곳(3번 스택 기록·4번 기준선 본문)과 반려 재작업에서 채운다', () => {
-    const model = between(manual, '## 상태 모델', '## Phase 01-가')
+    // 상태 모델 상세(필드·phase 값·api_base)는 SKILL.md 에서 references/state-model.md 로 옮겼다
+    const model = between(manual, '## 상태 모델', '## 단계 지도') + readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/state-model.md'), 'utf8')
     expect(model).toContain('"api_base"')
-    expect(model).toContain('끝 `/` 를 뺀 값')
-    expect(model).toContain('Phase 01 에서 state.json 을 처음 쓰는 곳')
-    expect(model).toContain('반려 재작업이 기존 state.json 에 `phase=rejected` 를 쓸 때')
-    const p03 = between(manual, '3. **브랜치를 오케스트레이터가 직접 만든다**', '4. **게이트 기준선 기록**')
-    expect(p03).toContain('`branch_base`(기점 커밋 sha)·`risk`(선행 반려 시 재작업)와 `api_base`(상태 모델)를 기록한다')
-    expect(manual).toContain('state.json 에 저장(`api_base` 가 아직 없으면 함께 기록한다. 상태 모델).')
+    expect(model).toContain('끝 `/` 뺀 값')
+    expect(model).toContain('Phase 01 에서 state.json 처음 쓰는 곳')
+    expect(model).toContain('반려 재작업이 기존 state.json 에 `phase=rejected` 쓸 때')
+    const p03 = between(manual, '3. **branch 를 오케스트레이터가 직접 만듦**', '4. **게이트 기준선 기록**')
+    expect(p03).toContain('`branch_base`(기점 commit sha)·`risk`(선행 반려 시 재작업)·`api_base`(상태 모델) 기록')
+    expect(manual).toContain('state.json 에 저장 (`api_base` 아직 없으면 함께 기록.')
   })
 
   it('Phase 0-가: 후보를 로컬 + 원격으로 넓히고 판정~뒷정리는 /dflow-merge 2~5번에 맡긴다', () => {
@@ -129,45 +130,45 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
     expect(sweep).toContain('`origin/agent/*`')
     expect(sweep).toContain('"건너뜀(다른 D\'Flow)"')
     expect(sweep).toContain('로컬이든 원격이든')
-    expect(sweep).toContain('같은 order 가 로컬과 원격에 모두 있으면 로컬 후보 하나로 합친다')
+    expect(sweep).toContain('같은 order 가 로컬·원격 모두 있으면 로컬 후보 하나로 합침')
     expect(sweep).toContain('`origin/agent/<id8>-<slug>`')
-    expect(sweep).toContain('`/dflow-merge` SKILL.md(`.claude/skills/dflow-merge/SKILL.md`) 2~5번을 그대로 따른다')
+    expect(sweep).toContain('`/dflow-merge` 2번(`.claude/skills/dflow-merge/references/sweep-scan.md`)·3-4번(`.claude/skills/dflow-merge/references/merge-exec.md`)·5번(`.claude/skills/dflow-merge/SKILL.md`) 그대로')
     expect(sweep).not.toContain('git merge --no-ff') // 머지 절차를 두 곳에 적지 않는다
     expect(sweep).not.toContain('phase=rejected')
   })
 
-  it('Phase 01-가 0번: sweep-check.sh 가 글자 그대로 SWEEP_NONE 일 때만 /dflow-merge 를 읽지 않고, 판정 불가는 fail-open 이다', () => {
+  it('Phase 01-가 0번: sweep-check.mjs 가 글자 그대로 SWEEP_NONE 일 때만 /dflow-merge 를 읽지 않고, 판정 불가는 fail-open 이다', () => {
     const sweep = between(manual, '## Phase 01-가', '## Phase 01 — Claim·브랜치·기준선')
     expect(sweep.indexOf('0. **사전 검사')).toBeLessThan(sweep.indexOf('1. **후보 식별**'))
-    expect(sweep).toContain(".claude/skills/dflow-merge/scripts/sweep-check.sh --dev '<기본브랜치>'; echo \"rc=$?\"")
-    expect(sweep).toContain('| `SWEEP_NONE` | `/dflow-merge` 를 읽지 않고 1~5번을 건너뛴다.')
-    expect(sweep).toContain('| `SWEEP_UNKNOWN <사유>`, 빈 출력, 스크립트 없음(옛 킷), `rc` 가 0 이 아님 | **스윕을 돌린다**(fail-open)')
-    expect(sweep).toContain('글자 그대로 `SWEEP_NONE` 일 때만 건너뛴다')
+    expect(sweep).toContain("node .claude/skills/dflow-merge/scripts/sweep-check.mjs --dev '<기본브랜치>'; echo \"rc=$?\"")
+    expect(sweep).toContain('| `SWEEP_NONE` | `/dflow-merge` 안 읽음, 1-5번 건너뜀.')
+    expect(sweep).toContain('| `SWEEP_UNKNOWN <사유>`, 빈 출력, 스크립트 없음(옛 킷), `rc` ≠ 0 | **스윕 돌림**(fail-open)')
+    expect(sweep).toContain('글자 그대로 `SWEEP_NONE` 일 때만 건너뜀')
     expect(sweep).toContain('`SWEEP_DIALECT_PENDING <sha>`')
-    expect(sweep).toContain(".claude/skills/dflow-merge/scripts/dialect-check.sh run --dev '<기본브랜치>'")
+    expect(sweep).toContain("node .claude/skills/dflow-merge/scripts/dialect-check.mjs run --dev '<기본브랜치>'")
     // 스윕을 건너뛴 세션에서 뒤의 직접 머지가 절차를 모르고 하지 않게 한다
-    expect(manual).toContain('`SWEEP_NONE` 으로 건너뛰어 아직 읽지 않았으면 먼저 읽는다')
-    expect(manual).toContain('`SWEEP_NONE` 으로 `/dflow-merge` SKILL.md 를 읽지 않았으면 먼저 읽는다')
+    expect(manual).toContain('Phase 01-가 가 `SWEEP_NONE` 으로 건너뛰어 아직 안 읽었으면 먼저 읽음')
+    expect(manual).toContain('Phase 01-가 가 `SWEEP_NONE` 으로 `.claude/skills/dflow-merge/references/merge-exec.md` 를 안 읽었으면 먼저 읽음')
   })
 
   it('Phase 0 2번: spec 은 .order.item.spec 에서 읽고, 원래 위치를 기록하고 기점으로 옮긴 뒤 claim 하며, 실패하면 기록한 위치로 돌아간다', () => {
-    const p02 = between(manual, '2. **착수 가능 판정', '3. **브랜치를 오케스트레이터가 직접 만든다**')
-    expect(p02).toContain('show 의 `.order.item.spec` 이 비어 있으면')
+    const p02 = between(manual, '2. **착수 가능 판정', '3. **branch 를 오케스트레이터가 직접 만듦**')
+    expect(p02).toContain('show `.order.item.spec` 이 비면')
     expect(p02).not.toContain('show 의 `item.spec`')
-    expect(p02).toContain('기점 이동이 실패하면 claim 하지 않고 중단·보고한다')
+    expect(p02).toContain('기점 이동 실패 → claim 안 하고 중단·보고')
     expect(p02).toContain('git symbolic-ref -q --short HEAD || git rev-parse HEAD')
     expect(p02).toContain('git switch --detach <기점>')
-    expect(p02).toContain('`origin/<기본브랜치>` 여도 detach 한다')
+    expect(p02).toContain('`origin/<기본브랜치>` 여도 detach')
     expect(p02).toContain('git merge-base --is-ancestor <선행 head_sha> <기점>')
     expect(p02).toContain('선행을 모두 조상으로 갖는 기점 없음')
     expect(p02).toContain('git switch <기록한 브랜치>')
     expect(p02).toContain('git switch --detach <기록한 sha>')
-    expect(p02).toContain('`git switch -` 는 쓰지 않는다')
+    expect(p02).toContain('`git switch -` 금지')
   })
 
   it('exit 4 재시도는 merge 없이 기점을 다시 정하고, 3번은 옮겨 둔 기점에서 브랜치를 만든다', () => {
-    const p02 = between(manual, '2. **착수 가능 판정', '3. **브랜치를 오케스트레이터가 직접 만든다**')
-    const p03 = between(manual, '3. **브랜치를 오케스트레이터가 직접 만든다**', '4. **게이트 기준선 기록**')
+    const p02 = between(manual, '2. **착수 가능 판정', '3. **branch 를 오케스트레이터가 직접 만듦**')
+    const p03 = between(manual, '3. **branch 를 오케스트레이터가 직접 만듦**', '4. **게이트 기준선 기록**')
     expect(p02).toContain('`git fetch origin` 뒤 기점을 다시 정해')
     expect(p02).not.toContain('fetch/merge')
     expect(p03).toContain('git switch -c agent/<주문id8>-<slug> <기점>')
@@ -176,10 +177,10 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
 
   it('Phase 5 4번: reported 를 커밋·push 하고 안내 문구가 실제 반영 경로와 맞는다', () => {
     const p5 = between(manual, '## Phase 06', '**다음 단계**')
-    expect(p5).toContain('그 파일을 파일명을 명시해 커밋한 뒤 `git push origin <agent 브랜치>` 한다')
+    expect(p5).toContain('파일명 명시해 commit → `git push origin <agent 브랜치>`')
     expect(p5).toContain('"승인 대기로 보고했습니다"')
-    expect(p5).toContain('둘 다 원격 agent 브랜치까지 본다')
-    expect(p5).toContain('현재 작업트리의 state.json 만 보므로')
+    expect(p5).toContain('둘 다 원격 agent branch 까지 봄')
+    expect(p5).toContain('현재 worktree state.json 만 봄')
   })
 })
 
@@ -187,16 +188,16 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
   // devAll() 순서: 안내 본문(SKILL.md) → 단계 파일(sweep·start·…·close). 안내 본문의 블록 셋이 먼저 온다.
   const EXPECTED: { prev?: string; next?: string; tag: string }[] = [
     { prev: '인자: `$ARGUMENTS` (`<순번|TSK-ID>` + 옵션)', tag: '팀장 전용' },
-    { prev: '그리고 이 작업이 지나온 앞 행들의 규율 절을 다시 읽은 뒤 진행한다. 압축 요약의 기억으로 단계 절차를 대신하지 않는다.', tag: '「그 밖의 워커 규칙」 도 다시 읽는다' },
+    { prev: '- 압축 요약 기억으로 단계 절차 대체 금지.', tag: '「그 밖의 워커 규칙」 도 다시 읽는다' },
     { next: '## 실행 범위 (--scope)', tag: '## --worker 팀원 모드 (팀장 전용)' },
     { prev: '## Phase 01-가 — 승인 스윕(머지, 오케스트레이터 본인)', tag: '「--worker」 A' },
-    { prev: '   작업이라 스윕이 못 봤을 수 있다 — 그 경우 지금 즉시 같은 머지 절차를 이 ref 하나로 실행 후 종료).', tag: '「--worker」 C' },
-    { prev: '   Design 단계에서는 Design 서브에이전트를 띄우지 않고 곧바로 Design 게이트를 돈다(`orch/design.md`).', tag: 'worker-mode.md 「설계 상태의 결과 줄」' },
-    { prev: '       있다). 머지 후 이어서 진행.', tag: '「--worker」 B' },
-    { prev: '          남긴다** — 서버가 못 막는 우회를 스킬이 최소한 드러낸다.', tag: '「--worker」 G' },
-    { prev: '   `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.', tag: '「--worker」 H' },
-    { prev: '기본 브랜치 반영 확인이 이 트레일러를 증거로 쓴다.', tag: '「--worker」 E' },
-    { prev: '재개한다 — 사람이 검토하기 전에 구현이 시작되면 안 된다.', tag: 'worker-mode.md 「설계 상태의 결과 줄」' },
+    { prev: '   - 로컬 state.json 없는 작업이라 스윕이 못 봤을 수 있음 → 지금 즉시 같은 merge 절차를 이 ref 하나로 실행 후 종료.', tag: '「--worker」 C' },
+    { prev: '3. 통과하면 종전대로 `orch/base.md` → `orch/claim.md`. design.md 든 그 폴더는 재claim 격리 대상 아님 (`orch/claim.md`). Design 단계: Design 서브에이전트 없이 곧바로 Design 게이트 (`orch/design.md`).', tag: 'worker-mode.md 「설계 상태의 결과 줄」' },
+    { prev: '       - merge 후 이어서 진행', tag: '「--worker」 B' },
+    { prev: '       2. `order_approved:false` 인데 `stage >= im` → 승인 버튼 안 거치고 단계 드롭다운으로 완료 처리됨 (서버 가드는 `xx` 만 막고 `im` 은 안 막음). 진행하되 **반드시 한 줄 남김** — 서버가 못 막는 우회를 스킬이 최소한 드러냄.', tag: '「--worker」 G' },
+    { prev: '   이미 해당 branch 면 재개. **main·staging 위에서 사이클 진행 금지** — Phase 진입 전 `git branch --show-current` 가 `agent/` 로 시작하는지 확인, 아니면 중단.', tag: '「--worker」 H' },
+    { prev: '- 아래 팀원 모드 절 행 G 의 기본 브랜치 반영 확인이 이 트레일러를 증거로 씀', tag: '「--worker」 E' },
+    { prev: '- `wait_pred` 를 안 쓰는 이유: 팀장은 선행이 풀린 `wait_pred` worktree 를 자동으로 Build 로 재개함 → 사람이 검토하기 전에 구현이 시작되면 안 됨.', tag: 'worker-mode.md 「설계 상태의 결과 줄」' },
   ]
   // 마지막 표지 블록은 이제 worker-mode.md 를 가리키는 머리 절이다. 행 A~I 본문은 그 파일에 있다
   const section = () => readFileSync(join(ROOT, '.claude/skills/dflow-dev/references/worker-mode.md'), 'utf8')
@@ -224,11 +225,11 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
   it('--worker 절이 행 A~I 와 핵심 규칙을 담는다', () => {
     const sec = section()
     for (const row of ['| A |', '| B |', '| C |', '| D |', '| E |', '| F |', '| G |', '| H |', '| I |']) expect(sec, row).toContain(row)
-    expect(sec).toContain('**팀장 전용, 사람이 직접 쓰지 않는다.**')
-    expect(sec).toContain('기점을 그 `head_sha` 로 잡고')
+    expect(sec).toContain('**팀장 전용, 사람이 직접 쓰지 않음.**')
+    expect(sec).toContain('기점 = 그 `head_sha`')
     expect(sec).toContain('branch_base')
     expect(sec).toContain('needs-merge approved')
-    expect(sec).toContain('AskUserQuestion 을 쓰지 않는다')
+    expect(sec).toContain('AskUserQuestion 금지')
     expect(sec).toContain('command -v git')
     expect(sec).toContain('`skipped 선행 미승인`')
     expect(sec).toContain('`skipped 선행 승인 대기`')
@@ -239,14 +240,14 @@ describe('/dflow-dev --worker 표지 블록(스펙 §6-3)', () => {
 
   it('행 H: 생성 또는 재개로 agent 브랜치에 들어온 직후 lockfile 로 고른 관리자로 설치하고 실패하면 failed deps 다', () => {
     const sec = section()
-    expect(sec).toContain('생성 또는 재개로 agent 브랜치에 들어온 직후, 4번 기준선과 Phase 02~05 게이트 전')
+    expect(sec).toContain('agent branch 에 들어온 직후(생성·재개 모두), 4번 기준선과 Phase 02-05 게이트 전에 아래 블록으로 설치')
     expect(sec).toContain('npm ci')
-    // 인라인 설치 블록은 21f5764f 에서 scripts/deps.sh 로 옮겼다. 같은 규칙을 그 스크립트에서 본다
-    // (npm 경로의 실행 검사는 tests/skills/dflow-lead-worktree.test.ts).
+    // 인라인 설치 블록은 21f5764f 에서 scripts/deps.sh 로 옮겼고, 지금은 deps.mjs(node)다. 같은 규칙을 그 스크립트에서 본다
+    // (npm 경로의 실행 검사는 tests/skills/dflow-lead-worktree.test.ts). 셸 문법이던 두 줄은 node 판의 같은 가드로 읽는다.
     expect(sec).toContain('.claude/skills/dflow-dev/scripts/deps.mjs')
     const deps = readFileSync(join(ROOT, '.claude/skills/dflow-dev/scripts/deps.mjs'), 'utf8')
-    expect(deps).toContain('[ -f package.json ] || {')
-    expect(deps).toContain('[ -e node_modules ] && {')
+    expect(deps).toContain("if (!isFile(P('package.json'))) { out(`DEPS_SKIP package.json 없음${suffix}`); return 0; }")
+    expect(deps).toContain("if (fs.existsSync(P('node_modules'))) {")
     expect(deps).toContain('pnpm install --frozen-lockfile')
     expect(deps).toContain('yarn install --frozen-lockfile')
     expect(sec).toContain('failed deps')

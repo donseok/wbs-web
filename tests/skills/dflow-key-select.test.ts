@@ -198,49 +198,49 @@ describe('/dflow-team 키 판정(스펙 §6)', () => {
   it('키 판정은 「인자」 절에 있고 종료 시각 질문·전제 검사보다 앞이다', () => {
     const args = sk.indexOf('\n## 인자')
     const key = sk.indexOf('- **키 판정**')
-    const until = sk.indexOf('- **종료 시각은 유일한 필수 인자다.**')
+    const until = sk.indexOf('- **종료 시각 = 유일한 필수 인자.**')
     const env0 = sk.indexOf('\n## 0. 환경 감지')
     expect(args).toBeGreaterThan(-1)
     expect(key).toBeGreaterThan(args)
     expect(until).toBeGreaterThan(key)
     expect(env0).toBeGreaterThan(until)
-    expect(sk).toContain('.claude/skills/dflow-work/scripts/dflow.sh profiles)')
+    expect(sk).toContain('.claude/skills/dflow-work/scripts/dflow.mjs profiles)')
   })
   it('DFLOW_AS 가 있으면 묻지 않고, 없으면 bound 후보로 좁혀 0·1·2개 이상을 가른다', () => {
-    for (const s of ['`KEY_NOT_FOUND`', '`NO_KEY_FOR_PROJECT`', '`bound`', '`selected`', '그 키를 자동 선택한다', 'AskUserQuestion 으로 묻는다']) {
+    for (const s of ['`KEY_NOT_FOUND`', '`NO_KEY_FOR_PROJECT`', '`bound`', '`selected`', '그 키 자동 선택', 'AskUserQuestion 으로 질문']) {
       expect(sk, s).toContain(s)
     }
   })
   it('종료 시각이 주어져도 키 질문은 하고, 키를 묻는 호출에서는 WP 선택지를 서버에서 뽑지 않는다', () => {
-    expect(args).toContain('**종료 시각이 인자로 주어져도 키 질문은 한다.**')
-    expect(args).toContain('키를 묻는 호출에서는 WP 범위 선택지를 서버에서 뽑지 않고')
+    expect(args).toContain('**종료 시각 인자 있어도 키 질문 함.**')
+    expect(args).toContain('키 묻는 호출은 WP 범위 선택지를 서버에서 안 뽑고')
   })
   it('고른 prefix 를 .env 끝에 더한다 — 첫 토큰이어도', () => {
     expect(args).toContain(`printf '\\nDFLOW_AS=%s\\n' '<prefix>' >> .env`)
     expect(args).toContain(`printf '\\nas=%s\\n' '<prefix>' >> .dflow.local`)
-    expect(args).toContain('자동 선택한 키가 첫 토큰이어도')
-    expect(sk).toContain('자동 선택이든 답이든 고른 prefix 를 저장한다')
+    expect(args).toContain('자동 선택 키가 첫 토큰이어도')
+    expect(sk).toContain('자동 선택이든 답이든 고른 prefix 저장')
   })
   it('조회 실패를 후보 없음으로 뭉개지 않는다', () => {
     expect(args).toContain('`auth`')
     expect(args).toContain('`unreachable`')
   })
   it('키는 워크트리마다 정하고, 다른 워크트리의 팀장이 쓰는 신원은 후보에서 뺀다', () => {
-    expect(sk).toContain('  | .claude/skills/dflow-team/scripts/live-leads.sh --mark')
-    for (const s of ['`who`', '`in_use`', '`KEY_IN_USE`', '`NO_FREE_KEY`', '워크트리마다 따로']) {
+    expect(sk).toContain('  | node .claude/skills/dflow-team/scripts/live-leads.mjs --mark')
+    for (const s of ['`who`', '`in_use`', '`KEY_IN_USE`', '`NO_FREE_KEY`', 'worktree 마다 따로']) {
       expect(sk, s).toContain(s)
     }
-    expect(args).toContain('같은 계정의 키')
+    expect(args).toContain('같은 계정 키')
     // 키 판정은 전제 검사의 SAME_IDENTITY_LEAD 보다 앞에서, 사람에게 묻기 전에 같은 사실을 본다
     expect(sk.indexOf('`KEY_IN_USE`')).toBeGreaterThan(sk.indexOf('- **키 판정**'))
-    expect(sk.indexOf('`KEY_IN_USE`')).toBeLessThan(sk.indexOf('- **종료 시각은 유일한 필수 인자다.**'))
+    expect(sk.indexOf('`KEY_IN_USE`')).toBeLessThan(sk.indexOf('- **종료 시각 = 유일한 필수 인자.**'))
   })
   it('두 번째 팀장 절과 help.md 가 DFLOW_AS 를 복사하지 않고 키 판정에 맡긴다고 적는다', () => {
     const second = secondLead
-    expect(second).toContain('`DFLOW_AS` 줄은 빼고')
+    expect(second).toContain('`as` 줄 빼고')
     expect(second).toContain('키 판정')
     expect(second).not.toContain('사람은 그 워크트리의 `.env` 에서 키를 고른 뒤')
-    expect(help).toContain('`DFLOW_AS` 줄은 빼고')
+    expect(help).toContain('`DFLOW_AS` 줄)은 빼고')
     expect(help).not.toContain('그 `.env` 에서 키를 고른 뒤')
   })
   it('시작 보고가 키를 알린다', () => {
@@ -249,7 +249,7 @@ describe('/dflow-team 키 판정(스펙 §6)', () => {
   it('help.md 가 첫 토큰이 아니라 DFLOW_AS 를 안내한다', () => {
     expect(help).not.toContain('첫 토큰이 팀장의 신원')
     expect(help).toContain('DFLOW_AS=<prefix>')
-    expect(help).toContain('dflow.sh profiles')
+    expect(help).toContain('dflow.mjs profiles')
   })
 })
 
@@ -271,11 +271,11 @@ describe('킷·dflow-work 문서(스펙 §7)', () => {
   })
   it('dflow-work 문서와 kit README 가 DFLOW_AS·profiles·--as <prefix|email> 을 안내한다', () => {
     for (const rel of [
-      '.claude/skills/dflow-work/SKILL.md', '.claude/skills/dflow-work/README.md',
+      '.claude/skills/dflow-work/references/subcommands.md', '.claude/skills/dflow-work/README.md',
       '.claude/skills/dflow-work/references/troubleshooting.md', 'kit/README.md',
     ]) {
       expect(read(rel), rel).toContain('DFLOW_AS')
-      expect(read(rel), rel).toContain('dflow.sh profiles')
+      expect(read(rel), rel).toContain('dflow.mjs profiles')
     }
     expect(read('.claude/skills/dflow-work/SKILL.md')).toContain('--as <prefix|email>')
     expect(read('.claude/skills/dflow-work/SKILL.md')).not.toContain('--as <이름|email>')

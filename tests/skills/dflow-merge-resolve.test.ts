@@ -97,7 +97,7 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
   })
   it('금지: --resolve 에서도 agent 브랜치 수정·force push·훅 우회는 금지다', () => {
     const ban = MERGE.slice(MERGE.indexOf('## 금지'))
-    expect(ban).toContain('`--resolve` 의 agent 브랜치 수정·rebase')
+    expect(ban).toContain('`--resolve` 의 agent branch 수정·rebase')
   })
 })
 

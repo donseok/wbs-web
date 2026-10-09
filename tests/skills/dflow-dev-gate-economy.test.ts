@@ -55,10 +55,10 @@ describe('워커는 Refactor 를 건너뛴다', () => {
 describe('heavy.sh 적용 범위: Gradle·Maven 은 단일 테스트도 감싼다', () => {
   const heavy = between(DISC, '## 무거운 명령 줄 세우기', '## 포그라운드 실행')
   it('감쌀 명령에 모든 gradlew·mvn 호출(단일 테스트 포함)·변이 검증·의존성 설치가 있고, 예외는 JS 러너 단일 파일·린트뿐이다', () => {
-    expect(heavy).toContain('**모든 `gradlew`·`mvn` 호출(단일 테스트 포함)**')
+    expect(heavy).toContain('모든 `gradlew`·`mvn` 호출(단일 테스트 포함)')
     expect(heavy).toContain('변이 검증(스크립트 전체를 한 번)')
     expect(heavy).toContain('의존성 설치')
-    expect(heavy).toContain('**JS 러너(vitest·jest 등)의 단일 테스트 파일 실행과 린트**만')
+    expect(heavy).toContain('JS 러너(vitest·jest 등)의 단일 테스트 파일 실행과 린트만 짧고 가벼워 감싸지 않음')
     expect(heavy).not.toContain('단일 테스트 파일·린트처럼 짧고 가벼운 명령은')
   })
   it('기준선은 baseline.sh 가 스스로 heavy 를 쓰므로 heavy.sh 를 붙이지 않는다(25행·57행 상충 해소)', () => {
@@ -148,7 +148,7 @@ describe('Build 게이트 실패는 1회 재시도한다', () => {
   })
   it('phase-build.md 에도 같은 규칙이 있다', () => {
     const build = BUILD
-    expect(build).toContain('**Build 게이트 실패는 1회 재시도한다.**')
+    expect(build).toContain('**Build 게이트 실패는 1회 재시도.**')
   })
 })
 
@@ -197,7 +197,7 @@ describe('변이 검증은 Build 한 곳, Verify 는 감사', () => {
   it('예상 효과 표가 추정임을 밝힌다(순수 이력이라 rationale.md 로 옮겼다)', () => {
     const eff = ref('rationale.md').split('### 전체 스위트 실행 횟수')[1] ?? ''
     expect(eff).toContain('**추정**')
-    expect(eff).toContain('| 합계 | 약 12~17 | 약 2~3 |')
+    expect(eff).toContain('| 합계 | 약 12-17 | 약 2-3 |')
   })
 })
 

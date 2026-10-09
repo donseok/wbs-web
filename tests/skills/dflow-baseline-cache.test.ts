@@ -241,18 +241,18 @@ describe('baseline.sh — 동시 측정', () => {
 })
 
 describe('문서: 기준선 캐시', () => {
-  it('Phase 01 4번이 baseline.sh 로 감싸 재고, 게이트·공통 프롬프트에는 -- 뒤 명령만 쓰게 한다', () => {
+  it('Phase 01 4번이 baseline.mjs 로 감싸 재고, 게이트·공통 프롬프트에는 -- 뒤 명령만 쓰게 한다', () => {
     const p4 = DEV.split('4. **게이트 기준선 기록**')[1]?.split('5. spec.md 읽기')[0] ?? ''
-    expect(p4).toContain('.claude/skills/dflow-dev/scripts/baseline.sh run --base')
-    expect(p4).toContain('`--` 뒤의 명령')
+    expect(p4).toContain('node .claude/skills/dflow-dev/scripts/baseline.mjs run --base')
+    expect(p4).toContain('`--` 뒤 명령')
     expect(p4).toContain('"source"')
   })
   it('dev-discipline 「게이트 기준선」 이 캐시 규칙(키·끄는 법·동시 측정·재사용 기록)을 적는다', () => {
     const sec = DISCIPLINE.split('## 게이트 기준선')[1]?.split('## 화면 작업의 브라우저 E2E')[0] ?? ''
-    expect(sec).toContain('baseline.sh')
+    expect(sec).toContain('baseline.mjs')
     expect(sec).toContain('DFLOW_BASELINE_CACHE=0')
     expect(sec).toContain('DFLOW_BASELINE_CACHE=refresh')
-    expect(sec).toContain('기점 커밋 sha')
+    expect(sec).toContain('기점 commit sha')
     expect(sec).toContain('게이트')
     expect(sec).toContain('"source": "cache"')
   })
