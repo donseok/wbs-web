@@ -175,9 +175,12 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
     expect(p03).not.toContain('git fetch origin && git switch -c')
   })
 
-  it('Phase 5 4번: reported 를 커밋·push 하고 안내 문구가 실제 반영 경로와 맞는다', () => {
+  it('Phase 5: reported 는 합친 커밋에 들어가고(별도 commit·push 없음) 안내 문구가 실제 반영 경로와 맞는다', () => {
     const p5 = between(manual, '## Phase 06', '**다음 단계**')
-    expect(p5).toContain('파일명 명시해 commit → `git push origin <agent 브랜치>`')
+    expect(p5).toContain('state.json 을 미리 `phase=reported` 로 쓰고 파일명 명시 commit')
+    expect(p5).toContain('squash-branch.mjs --onto')
+    expect(p5).toContain('`git push origin <agent 브랜치>` — 항상 일반 push')
+    expect(p5).toContain('**추가 commit·push 없음**')
     expect(p5).toContain('"승인 대기로 보고했습니다"')
     expect(p5).toContain('둘 다 원격 agent branch 까지 봄')
     expect(p5).toContain('현재 worktree state.json 만 봄')

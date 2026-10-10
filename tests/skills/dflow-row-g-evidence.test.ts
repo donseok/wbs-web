@@ -69,12 +69,15 @@ describe('커밋 규칙: 모든 커밋에 DFlow-Order 트레일러를 붙인다'
   })
 
   it('/dflow-merge 의 자동 머지 커밋이 트레일러를 붙인다 — git merge 는 --trailer 를 모르므로 둘째 -m 을 쓴다', () => {
-    expect(merge).toContain('git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)" -m "DFlow-Order: <order>"')
+    expect(merge).toContain('git merge --no-ff --no-commit <머지 대상> -m "merge: <TSK> <제목> (approved)" -m "DFlow-Order: <order>"')
+    // 커밋은 4단계 `git commit --no-edit` 한 번 — MERGE_MSG 의 둘째 -m 문단이 트레일러로 남는다
+    expect(merge).toContain('4단계 `git commit --no-edit` 에서 트레일러가 됨')
     expect(merge).toContain('git merge 는 --trailer 를 모른다(git commit 전용)')
   })
 
   it('/dflow-merge 가 충돌을 손으로 풀어 커밋하는 경로에도 같은 트레일러를 요구한다(이 경로는 git commit --trailer)', () => {
-    expect(merge).toContain('손으로 풀고 `git merge --abort` 대신 직접 `git commit` 으로 완성하는 경로')
+    expect(merge).toContain('손으로 풀고 `git merge --abort` 대신 직접 완성하는 경로')
+    expect(merge).toContain('거친 뒤 `git commit` **한 번**으로 완성하고 「트레일러 고정」 적용')
     expect(merge).toContain('**트레일러 고정**')
     expect(merge).toContain('git commit --trailer')
     expect(merge).toContain('어느 경로든 결과 메시지에 이 트레일러가 있어야 함')

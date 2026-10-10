@@ -134,9 +134,12 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
     for (const d of [skill, exec, pushFail]) expect(d).not.toContain('훅에 거부되든 경합으로 거부되든')
     expect(exec).toContain('`origin` 으로 리셋 금지')
     expect(exec).toContain('`references/push-fail.md` 를 읽어 거부 모양')
-    expect(exec).toMatch(/git add "<후보 state\.json 경로>" && git commit -m "chore\(<TSK>\): phase=merged" \\\n\s*&& git push origin <기본브랜치>/)
+    // 머지 커밋 하나에 번호 매김·phase=merged 를 담는다: add·commit·push 가 && 한 사슬, 별도 chore(<TSK>) 커밋 없음
+    expect(exec).toMatch(/git add "<후보 state\.json 경로>" && git commit --no-edit --cleanup=strip \\\n\s*&& git push origin <기본브랜치>/)
+    expect(exec).toContain('별도 `chore(<TSK>): phase=merged` 커밋 없음')
+    expect(exec).not.toMatch(/git commit -m "chore\(<TSK>\): phase=merged"/)
     expect(exec).not.toMatch(/git add "\$\(dflow\.mjs taskdir/) // 다시 서버를 부르지 않는다(1번에서 이미 찾은 경로를 재사용)
-    expect(exec).not.toMatch(/git commit -m "chore\(<TSK>\): phase=merged"\s*\n\s*git push/) // add·commit 과 push 가 분리돼 있으면 실패해도 push 될 수 있다
+    expect(exec).not.toMatch(/git commit --no-edit --cleanup=strip\s*\n\s*git push/) // add·commit 과 push 가 분리돼 있으면 실패해도 push 될 수 있다
   })
 
   it('뒷정리: 로컬 브랜치가 없거나 다른 워크트리가 잡고 있으면 건너뛰고 보고한다', () => {

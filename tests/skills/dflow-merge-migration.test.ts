@@ -158,13 +158,13 @@ describe('문서 계약 — 마이그레이션 버전 관문', () => {
     // 관문은 git merge 보다 앞(2단계)이다
     const step2 = MERGE_EXEC.indexOf('**마이그레이션 버전 관문**: ')
     expect(step2).toBeGreaterThan(0)
-    expect(step2).toBeLessThan(MERGE_EXEC.indexOf('   3. `git merge --no-ff <머지 대상>`.'))
+    expect(step2).toBeLessThan(MERGE_EXEC.indexOf('   3. `git merge --no-ff --no-commit <머지 대상>`.'))
   })
   it('/dflow-merge --resolve: 머지 뒤 --staged 로 찾아 R9 로 풀고, 게이트에서 다시 본다', () => {
     const r = MERGE_RESOLVE.slice(MERGE_RESOLVE.indexOf('\n## 해소 머지\n'))
     expect(r.indexOf('4. **머지·해소·stage**')).toBeGreaterThan(0)
     const four = r.slice(r.indexOf('4. **머지·해소·stage**'), r.indexOf('5. **게이트**'))
-    const five = r.slice(r.indexOf('5. **게이트**'), r.indexOf('6. **기록·커밋**'))
+    const five = r.slice(r.indexOf('5. **게이트**'), r.indexOf('6. **기록**'))
     expect(four).toContain('migration-check.mjs --staged')
     expect(four).toContain('R9')
     expect(five).toContain('migration-check.mjs --staged')
