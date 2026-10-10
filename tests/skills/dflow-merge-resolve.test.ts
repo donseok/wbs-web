@@ -31,7 +31,7 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
     expect(MERGE).toContain('**`--resolve <ref>`(팀장이 띄운 해소 워커 전용)**')
   })
   it('스윕의 충돌 처리: --diff-filter=U 로 파일 목록을 --abort 전에 읽는다', () => {
-    const step3 = section('   3. `git merge --no-ff <머지 대상>`.', '   4. state.json 을 `phase=merged` 로', EXEC)
+    const step3 = section('   3. `git merge --no-ff --no-commit <머지 대상>`.', '   4. state.json 을 `phase=merged` 로', EXEC)
     expect(step3).toContain('git diff --name-only --diff-filter=U')
     // 코드 블록에서 목록 명령이 --abort 바로 앞 줄이다(뒤에서는 목록이 비어 있다)
     expect(step3).toMatch(/--diff-filter=U[^\n]*\n\s*git merge --abort/)
@@ -66,18 +66,22 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
   it('게이트 순서(2026-09-24): 해소·stage → 게이트 → 기록 → 커밋. 두 문서가 같은 순서를 말한다', () => {
     const r = resolveSection()
     const PROMPT = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/resolve-prompt.md'), 'utf8')
-    expect(r).toContain('순서 = **해소·stage → 게이트 → 기록 → 커밋**')
+    expect(r).toContain('순서 = **해소·stage → 게이트 → 기록 → 번호 매김·state.json → 커밋 한 번**')
     expect(PROMPT).toContain('순서: **해소·stage → 게이트 → 기록 → commit**')
-    // 번호 순서: 4 머지·stage → 5 게이트 → 6 기록·커밋(머지 커밋 명령은 게이트 뒤) → 7 state.json → 8 push
+    // 번호 순서: 4 머지·stage → 5 게이트 → 6 기록 → 7 번호 매김·state.json·커밋(머지 커밋 명령은 게이트·기록 뒤, 커밋 하나) → 8 push
     const idx = (s: string) => { const i = r.indexOf(s); if (i < 0) throw new Error(`없음: ${s}`); return i }
     expect(idx('4. **머지·해소·stage**')).toBeLessThan(idx('5. **게이트**'))
-    expect(idx('5. **게이트**')).toBeLessThan(idx('6. **기록·커밋**'))
-    expect(idx('6. **기록·커밋**')).toBeLessThan(idx('git -c rerere.enabled=true commit'))
-    expect(idx('6. **기록·커밋**')).toBeLessThan(idx('7. **state.json**'))
-    expect(idx('7. **state.json**')).toBeLessThan(idx('8. **push**'))
+    expect(idx('5. **게이트**')).toBeLessThan(idx('6. **기록**'))
+    expect(idx('6. **기록**')).toBeLessThan(idx('7. **번호 매김·state.json·커밋**'))
+    expect(idx('7. **번호 매김·state.json·커밋**')).toBeLessThan(idx('git -c rerere.enabled=true commit'))
+    // 번호 매김(--no-commit)·state.json stage 는 commit 명령 앞, 같은 merge commit 하나(별도 커밋 없음)
+    expect(idx('renumber --no-commit')).toBeLessThan(idx('git -c rerere.enabled=true commit'))
+    expect(idx('phase=merged')).toBeLessThan(idx('git -c rerere.enabled=true commit'))
+    expect(r).toContain('(별도 커밋 없음)')
+    expect(idx('git -c rerere.enabled=true commit')).toBeLessThan(idx('8. **push**'))
     // 옛 모순 문구는 없다
     expect(r).not.toContain('머지 커밋 **직후, state.json 커밋 전에**')
-    const gate = r.slice(idx('5. **게이트**'), idx('6. **기록·커밋**'))
+    const gate = r.slice(idx('5. **게이트**'), idx('6. **기록**'))
     expect(gate).toContain('commit **전** stage 한 트리에서')
     expect(gate).toContain('`git diff --quiet`')
     // 게이트 실패의 되돌리기는 merge --abort(커밋 전이라 reset --keep 은 해소 편집을 작업 트리에 남긴다)
@@ -85,8 +89,8 @@ describe('/dflow-merge 문서 — 충돌 파일 목록과 --resolve', () => {
     expect(gate).not.toMatch(/실패[^\n]*`git reset --keep <기준 HEAD>` 로 버리고/)
     // push 실패는 커밋이 있으므로 여전히 reset --keep
     expect(r.slice(idx('8. **push**'))).toContain('`git reset --keep <기준 HEAD>`')
-    // 결과 줄의 머지 커밋 sha 는 6번에서 기록한 값(HEAD~1 로 세지 않는다)
-    expect(r).toContain('merge commit sha = 6번에서 기록한 `git rev-parse HEAD` 값')
+    // 결과 줄의 머지 커밋 sha 는 7번에서 기록한 값(HEAD~1 로 세지 않는다)
+    expect(r).toContain('merge commit sha = 7번에서 기록한 `git rev-parse HEAD` 값')
     expect(r).not.toContain('`git rev-parse HEAD~1`')
     // resolve-prompt: 게이트 대상은 커밋 전 트리, 실패는 merge --abort, 기록은 커밋 전에
     const pg = PROMPT.slice(PROMPT.indexOf('## 게이트'), PROMPT.indexOf('## 기록'))

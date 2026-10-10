@@ -393,16 +393,20 @@ describe('문서 계약 — 결정 번호는 머지 때 매긴다', () => {
   })
   it('/dflow-merge 가 머지 직후 번호를 매기고, 충돌하면 decisions.md 만 스크립트로 푼다. union 은 권하지 않는다', () => {
     expect(EXEC).toContain('node .claude/skills/dflow-merge/scripts/decisions.mjs merge-conflicts')
-    expect(EXEC).toContain('node .claude/skills/dflow-merge/scripts/decisions.mjs renumber --tsk <TSK> --order <order>')
+    expect(EXEC).toContain('node .claude/skills/dflow-merge/scripts/decisions.mjs renumber --no-commit --tsk <TSK> --order <order>')
+    expect(EXEC).toContain('별도 번호 매김 커밋 없음')
     expect(EXEC).toContain('git commit --no-edit --cleanup=strip')
     expect(MERGE).toContain('\n## 결정 번호 매김\n')
     expect(MERGE).toContain('`merge=union` 금지')
     expect(EXEC).toContain('**`merge=union` 금지.**')
     // 해소 경로에서도 머지 커밋 뒤 state.json 커밋 전에 번호를 매긴다
     const r = MERGE_RESOLVE.slice(MERGE_RESOLVE.indexOf('\n## 해소 머지\n'))
-    expect(r.indexOf('6. **기록·커밋**')).toBeGreaterThan(0)
-    expect(r.indexOf('decisions.mjs renumber')).toBeGreaterThan(r.indexOf('6. **기록·커밋**'))
-    expect(r.indexOf('decisions.mjs renumber')).toBeLessThan(r.indexOf('7. **state.json**'))
+    // (2026-10-10) 번호 매김은 --no-commit 으로 stage 만 — 머지 커밋 하나 안에서, state.json stage 앞에
+    const seven = r.indexOf('7. **번호 매김·state.json·커밋**')
+    expect(seven).toBeGreaterThan(0)
+    expect(r.indexOf('decisions.mjs renumber --no-commit')).toBeGreaterThan(seven)
+    expect(r.indexOf('decisions.mjs renumber --no-commit')).toBeLessThan(r.indexOf('state.json: SKILL.md'))
+    expect(r.indexOf('state.json: SKILL.md')).toBeLessThan(r.indexOf('git -c rerere.enabled=true commit'))
   })
   it('전역 번호 중복: /dflow-merge 가 동작·출력 줄을 적고, dev-discipline 은 직접 번호가 옮겨진다고 알린다', () => {
     const sec = EXEC.slice(EXEC.indexOf('\n### 결정 번호 매김\n'))
