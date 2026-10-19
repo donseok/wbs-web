@@ -1,0 +1,278 @@
+[
+  {
+    "id": "WP-01",
+    "parent_id": null,
+    "kind": "wp",
+    "title": "기준정보",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": "2026-11-02 ~ 2026-12-11",
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": "품목·거래처 기준정보"
+    }
+  },
+  {
+    "id": "WP-02",
+    "parent_id": null,
+    "kind": "wp",
+    "title": "생산",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": "2026-12-14 ~ 2026-12-31",
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "ACT-01-01",
+    "parent_id": "WP-01",
+    "kind": "act",
+    "title": "품목 관리",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": null,
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "ACT-01-02",
+    "parent_id": "WP-01",
+    "kind": "act",
+    "title": "거래처 관리",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": null,
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "ACT-02-01",
+    "parent_id": "WP-02",
+    "kind": "act",
+    "title": "작업지시",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": null,
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "TSK-01-01-01",
+    "parent_id": "ACT-01-01",
+    "kind": "task",
+    "title": "품목 등록 화면",
+    "stage": null,
+    "category": "dev",
+    "domain": "fullstack",
+    "model": "sonnet",
+    "assignee": null,
+    "schedule": "2026-11-02 ~ 2026-11-06",
+    "priority": "high",
+    "tags": [
+      "master"
+    ],
+    "depends": [],
+    "prd_ref": "program:MD-001",
+    "entry_point": "기준정보 > 품목",
+    "acceptance": [
+      "중복 코드는 저장되지 않는다"
+    ],
+    "spec_sections": {
+      "requirements": [
+        "품목 코드는 유일하다"
+      ],
+      "test_criteria": [
+        "단위 시험 3건"
+      ],
+      "constraints": [
+        "코드 길이는 20자 이하"
+      ],
+      "api_spec": "POST /api/items",
+      "data_model": "Item(code, name)\nItemHistory(item_code, changed_at)",
+      "description": null
+    }
+  },
+  {
+    "id": "TSK-01-01-02",
+    "parent_id": "ACT-01-01",
+    "kind": "task",
+    "title": "품목 일괄 업로드",
+    "stage": "ip",
+    "category": "dev",
+    "domain": "backend",
+    "model": null,
+    "assignee": null,
+    "schedule": "2026-11-09 ~ 2026-11-13",
+    "priority": "medium",
+    "tags": [],
+    "depends": [
+      "TSK-01-01-01"
+    ],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "TSK-01-02-01",
+    "parent_id": "ACT-01-02",
+    "kind": "task",
+    "title": "거래처 등록",
+    "stage": "todo",
+    "category": "dev",
+    "domain": "fullstack",
+    "model": null,
+    "assignee": null,
+    "schedule": "2026-11-16 ~ 2026-11-20",
+    "priority": "critical",
+    "tags": [],
+    "depends": [
+      "TSK-01-01-01"
+    ],
+    "prd_ref": null,
+    "entry_point": "기준정보 > 거래처",
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "TSK-02-01-01",
+    "parent_id": "ACT-02-01",
+    "kind": "task",
+    "title": "작업지시 발행",
+    "stage": "as",
+    "category": "dev",
+    "domain": "backend",
+    "model": null,
+    "assignee": "dev2@example.com",
+    "schedule": "2026-12-14 ~ 2026-12-18",
+    "priority": "high",
+    "tags": [],
+    "depends": [
+      "TSK-01-02-01"
+    ],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "TSK-02-01-02",
+    "parent_id": "ACT-02-01",
+    "kind": "task",
+    "title": "작업지시 취소 (명세 헤딩 깊이 실수)",
+    "stage": null,
+    "category": "dev",
+    "domain": "backend",
+    "model": null,
+    "assignee": null,
+    "schedule": "2026-12-21 ~ 2026-12-24",
+    "priority": "medium",
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  }
+]

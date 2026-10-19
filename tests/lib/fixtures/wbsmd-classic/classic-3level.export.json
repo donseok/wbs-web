@@ -1,0 +1,343 @@
+[
+  {
+    "id": "착수",
+    "parent_id": null,
+    "kind": "phase",
+    "title": "착수",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": null,
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "구현",
+    "parent_id": null,
+    "kind": "phase",
+    "title": "구현",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": null,
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "WP-01",
+    "parent_id": "착수",
+    "kind": "wp",
+    "title": "프로젝트 초기화",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": "2026-11-02 ~ 2026-11-06",
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": "저장소·CI·공통 설정을 준비한다"
+    }
+  },
+  {
+    "id": "WP-02",
+    "parent_id": "구현",
+    "kind": "wp",
+    "title": "회원 기능",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": "2026-11-09 ~ 2026-11-27",
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "WP-03",
+    "parent_id": "구현",
+    "kind": "wp",
+    "title": "통합테스트",
+    "stage": null,
+    "category": null,
+    "domain": null,
+    "model": null,
+    "assignee": null,
+    "schedule": "2026-11-30 ~ 2026-12-18",
+    "priority": null,
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": "기능 간 시나리오 E2E"
+    }
+  },
+  {
+    "id": "TSK-01-01",
+    "parent_id": "WP-01",
+    "kind": "task",
+    "title": "저장소와 CI 구성",
+    "stage": null,
+    "category": "infra",
+    "domain": "backend",
+    "model": "sonnet",
+    "assignee": null,
+    "schedule": "2026-11-02 ~ 2026-11-03",
+    "priority": "critical",
+    "tags": [
+      "m0",
+      "setup"
+    ],
+    "depends": [],
+    "prd_ref": "TRD 3.1",
+    "entry_point": null,
+    "acceptance": [
+      "main push 시 CI 가 초록이다",
+      "보호 규칙이 force push 를 막는다"
+    ],
+    "spec_sections": {
+      "requirements": [
+        "저장소를 만들고 기본 브랜치 보호를 건다",
+        "CI 에서 lint·test 를 돌린다"
+      ],
+      "test_criteria": [
+        "npm run test"
+      ],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "TSK-01-02",
+    "parent_id": "WP-01",
+    "kind": "task",
+    "title": "공통 설정 모듈 (계약 전용)",
+    "stage": "ip",
+    "category": "infra",
+    "domain": "backend",
+    "model": "opus",
+    "assignee": "dev1@example.com",
+    "schedule": "2026-11-04 ~ 2026-11-06",
+    "priority": "high",
+    "tags": [
+      "contract"
+    ],
+    "depends": [
+      "TSK-01-01"
+    ],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [
+      "실행 로직 없음 (contract-only)",
+      "설정 키 목록이 문서와 같다\n    - 키 이름은 SCREAMING_SNAKE\n    누락 키는 기동 시 실패한다"
+    ],
+    "spec_sections": {
+      "requirements": [
+        "설정 로더를 둔다",
+        "환경별 값을 분리한다"
+      ],
+      "test_criteria": [],
+      "constraints": [
+        "비밀값을 저장소에 넣지 않는다"
+      ],
+      "api_spec": "GET /config → { env, features }\n응답은 캐시하지 않는다",
+      "data_model": "Config(env, features[])",
+      "description": null
+    }
+  },
+  {
+    "id": "TSK-02-01",
+    "parent_id": "WP-02",
+    "kind": "task",
+    "title": "회원 가입 화면",
+    "stage": "im",
+    "category": "dev",
+    "domain": "fullstack",
+    "model": "sonnet",
+    "assignee": null,
+    "schedule": "2026-11-09 ~ 2026-11-13",
+    "priority": "medium",
+    "tags": [],
+    "depends": [
+      "TSK-01-02",
+      "TSK-01-01"
+    ],
+    "prd_ref": "PRD 4.2, program:MB-001",
+    "entry_point": "사이드바 > 회원 > 가입",
+    "acceptance": [
+      "가입 후 로그인 화면으로 간다",
+      "중복 이메일은 거부한다"
+    ],
+    "spec_sections": {
+      "requirements": [
+        "이메일·비밀번호로 가입한다"
+      ],
+      "test_criteria": [
+        "가입 e2e 1건"
+      ],
+      "constraints": [
+        "비밀번호는 해시로만 저장한다"
+      ],
+      "api_spec": "POST /api/members",
+      "data_model": null,
+      "description": "가입 폼과 검증을 한 화면에 둔다"
+    }
+  },
+  {
+    "id": "TSK-02-02",
+    "parent_id": "WP-02",
+    "kind": "task",
+    "title": "회원 목록 (상태 표기 확인)",
+    "stage": "xx",
+    "category": "dev",
+    "domain": "backend",
+    "model": "sonnet",
+    "assignee": null,
+    "schedule": "2026-11-16 ~ 2026-11-20",
+    "priority": "low",
+    "tags": [
+      "list",
+      "paging"
+    ],
+    "depends": [
+      "TSK-02-01"
+    ],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [
+      "페이지 이동이 된다"
+    ],
+    "spec_sections": {
+      "requirements": [
+        "목록을 20건씩 보여 준다"
+      ],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "TSK-02-03",
+    "parent_id": "WP-02",
+    "kind": "task",
+    "title": "회원 탈퇴",
+    "stage": "fp",
+    "category": "feat",
+    "domain": "backend",
+    "model": null,
+    "assignee": null,
+    "schedule": "2026-11-23 ~ 2026-11-27",
+    "priority": "medium",
+    "tags": [],
+    "depends": [],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [],
+    "spec_sections": {
+      "requirements": [],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  },
+  {
+    "id": "TSK-03-01",
+    "parent_id": "WP-03",
+    "kind": "task",
+    "title": "가입→목록 흐름",
+    "stage": null,
+    "category": "itest",
+    "domain": "test",
+    "model": "sonnet",
+    "assignee": null,
+    "schedule": "2026-11-30 ~ 2026-12-04",
+    "priority": "high",
+    "tags": [
+      "integration",
+      "e2e"
+    ],
+    "depends": [
+      "TSK-02-01",
+      "TSK-02-02"
+    ],
+    "prd_ref": null,
+    "entry_point": null,
+    "acceptance": [
+      "시나리오 통과",
+      "발견 결함은 해당 기능 WP에 defect Task로 등록됨"
+    ],
+    "spec_sections": {
+      "requirements": [
+        "가입한 회원이 목록에 보인다"
+      ],
+      "test_criteria": [],
+      "constraints": [],
+      "api_spec": null,
+      "data_model": null,
+      "description": null
+    }
+  }
+]
