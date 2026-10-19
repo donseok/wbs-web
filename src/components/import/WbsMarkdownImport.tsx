@@ -1,14 +1,24 @@
 'use client'
 
-import { useRef, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, CheckCircle2, FileText, Upload, XCircle } from 'lucide-react'
 import { previewWbsUpload, applyWbsUpload, type WbsUploadPreview } from '@/app/actions/wbsMarkdown'
 
+/** module 입력 후 미리보기를 다시 계산하기까지 기다리는 시간 — 글자마다 서버를 부르지 않게. */
+const MODULE_DEBOUNCE_MS = 400
+
+const FORMAT_LABEL: Record<NonNullable<WbsUploadPreview['format']>, string> = {
+  nlevel: 'N단 levels 계약',
+  classic: '기존 3~4단 (dflow-wbs)',
+  unknown: '판정 불가',
+}
+
 /**
  * wbs.md 웹 업로드 — "자동 부착 + 확인"(스펙 §업로드 경로 2개).
- * 파일을 고르면 서버가 부착점·levels 정합·신규/갱신을 판정해 미리보기 카드를 그리고,
- * 사람은 노드를 고르지 않고 [적용/취소]만 한다. 잘못된 파일이면 부착점 표시에서 드러난다.
+ * 파일을 고르면 서버가 형식(N단 levels 계약 | 기존 3~4단)을 판정하고 부착점·levels 정합·신규/갱신을 계산해
+ * 미리보기 카드를 그리며, 사람은 노드를 고르지 않고 [적용/취소]만 한다. 잘못된 파일이면 부착점 표시에서 드러난다.
+ * 기존 3~4단 파일에는 module 이 없어 사람이 정한다 — 서버 제안으로 미리 채우고, 바꾸면 미리보기를 다시 계산한다.
  */
 export function WbsMarkdownImport({ projectId }: { projectId: string }) {
   const router = useRouter()
@@ -16,15 +26,28 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
   const [fileName, setFileName] = useState<string | null>(null)
   const [text, setText] = useState<string | null>(null)
   const [preview, setPreview] = useState<WbsUploadPreview | null>(null)
+  const [moduleInput, setModuleInput] = useState('')
   const [result, setResult] = useState<{
     upserted?: number; ordersCreated?: number; unmatched?: Array<{ id: string; assignee: string }>
     taskCount?: number; agentStopped?: boolean
     delegationCancelled?: number; delegationCancelFailed?: string[]
   } | null>(null)
   const [pending, startTransition] = useTransition()
+  // 늦게 도착한 옛 미리보기 응답이 새 것을 덮지 않게 요청마다 번호를 매긴다.
+  const seqRef = useRef(0)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
+  function cancelPendingPreview() {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = null
+    seqRef.current += 1
+  }
 
   function reset() {
-    setFileName(null); setText(null); setPreview(null); setResult(null)
+    cancelPendingPreview()
+    setFileName(null); setText(null); setPreview(null); setResult(null); setModuleInput('')
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -32,14 +55,39 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
     const f = e.target.files?.[0]
     if (!f) return
     const t = await f.text()
-    setFileName(f.name); setText(t); setResult(null)
-    startTransition(async () => setPreview(await previewWbsUpload(projectId, t)))
+    cancelPendingPreview()
+    const seq = seqRef.current
+    setFileName(f.name); setText(t); setResult(null); setModuleInput('')
+    startTransition(async () => {
+      const p = await previewWbsUpload(projectId, t)
+      if (seq !== seqRef.current) return
+      setPreview(p)
+      if (p.ok && p.format === 'classic') setModuleInput(p.module ?? '')
+    })
+  }
+
+  function onModuleChange(value: string) {
+    setModuleInput(value)
+    if (!text) return
+    cancelPendingPreview()
+    const seq = seqRef.current
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null
+      startTransition(async () => {
+        const p = await previewWbsUpload(projectId, text, { module: value })
+        if (seq !== seqRef.current) return
+        setPreview(p)
+      })
+    }, MODULE_DEBOUNCE_MS)
   }
 
   function apply() {
-    if (!text) return
+    if (!text || !preview) return
+    const classicModule = preview.format === 'classic' ? (preview.module ?? '') : null
     startTransition(async () => {
-      const r = await applyWbsUpload(projectId, text)
+      const r = classicModule === null
+        ? await applyWbsUpload(projectId, text)
+        : await applyWbsUpload(projectId, text, { module: classicModule })
       if (!r.ok) {
         setPreview(p => p ? { ...p, errors: [...(p.errors ?? []), r.error ?? '업로드에 실패했습니다.'], canApply: false } : p)
         return
@@ -49,6 +97,10 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
     })
   }
 
+  const isClassic = preview?.format === 'classic'
+  // 입력한 module 과 미리보기의 module 이 다르면 미리보기가 낡았다 — 다시 계산될 때까지 적용을 막는다.
+  const previewStale = isClassic && moduleInput.trim() !== (preview?.module ?? '')
+
   return (
     <div className="card space-y-4 p-6">
       <div className="flex items-center gap-2">
@@ -56,8 +108,10 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
         <h3 className="text-sm font-semibold">WBS 마크다운 업로드 (wbs.md)</h3>
       </div>
       <p className="text-xs leading-5 text-ink-subtle">
-        levels 계약(N단) wbs.md 를 업로드합니다. 부착점은 파일의 attach 로 자동 판정되며,
-        아래 미리보기를 확인한 뒤 적용하세요. 골격 파일(attach 없음)은 단계 정본(levels)을 시드합니다.
+        두 형식을 모두 받습니다 — 형식은 파일 내용으로 자동 판정합니다.
+        N단 levels 계약 wbs.md 는 파일의 attach 로 부착점을 자동 판정하고, 골격 파일(attach 없음)은 단계 정본(levels)을 시드합니다.
+        dflow-wbs 기존 3~4단 wbs.md(## WP- 아래 ### TSK- 헤딩)는 module 을 정해 프로젝트 루트에 올립니다.
+        아래 미리보기를 확인한 뒤 적용하세요.
       </p>
 
       <div className="flex items-center gap-3">
@@ -78,23 +132,66 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
       {preview?.ok && (
         <div data-md-preview className="space-y-3 rounded-xl border border-line bg-surface-2 p-4">
           <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
-            <Info label="종류" value={preview.mode === 'skeleton' ? '골격(PMO)' : 'PL 모듈'} />
-            <Info label="module" value={preview.module ?? '—'} />
-            <Info
-              label="부착점"
-              value={preview.mode === 'skeleton' ? '루트(Phase 층)' : `${preview.attach ?? '—'} → ${preview.attachRef ?? '해석 실패'}`}
-              tone={preview.mode === 'skeleton' || preview.attachFound ? undefined : 'danger'}
-            />
-            <Info
-              label="levels"
-              value={preview.levelsStatus === 'seed' ? `시드 예정 (${preview.fileLevels?.length}층)` : preview.levelsStatus === 'match' ? '정본 일치' : '정본 불일치'}
-              tone={preview.levelsStatus === 'mismatch' ? 'danger' : undefined}
-            />
-            <Info label="신규 / 갱신" value={`${preview.newCount ?? 0} / ${preview.updateCount ?? 0}`} />
-            <Info label="acceptance 로 접힘(fold)" value={String(preview.foldCount ?? 0)} />
+            {preview.format && <Info label="형식" value={FORMAT_LABEL[preview.format]} tone={preview.format === 'unknown' ? 'danger' : undefined} />}
+            {isClassic ? (
+              <>
+                <Info label="부착점" value="루트 (기존 형식은 attach 없음)" />
+                <Info label="신규 / 갱신" value={preview.newCount === undefined ? '— (module 필요)' : `${preview.newCount} / ${preview.updateCount ?? 0}`} />
+              </>
+            ) : preview.format !== 'unknown' && (
+              <>
+                <Info label="종류" value={preview.mode === 'skeleton' ? '골격(PMO)' : 'PL 모듈'} />
+                <Info label="module" value={preview.module ?? '—'} />
+                <Info
+                  label="부착점"
+                  value={preview.mode === 'skeleton' ? '루트(Phase 층)' : `${preview.attach ?? '—'} → ${preview.attachRef ?? '해석 실패'}`}
+                  tone={preview.mode === 'skeleton' || preview.attachFound ? undefined : 'danger'}
+                />
+                <Info
+                  label="levels"
+                  value={preview.levelsStatus === 'seed' ? `시드 예정 (${preview.fileLevels?.length}층)` : preview.levelsStatus === 'match' ? '정본 일치' : '정본 불일치'}
+                  tone={preview.levelsStatus === 'mismatch' ? 'danger' : undefined}
+                />
+                <Info label="신규 / 갱신" value={`${preview.newCount ?? 0} / ${preview.updateCount ?? 0}`} />
+                <Info label="acceptance 로 접힘(fold)" value={String(preview.foldCount ?? 0)} />
+              </>
+            )}
           </div>
 
-          {preview.counts && (
+          {isClassic && !result && (
+            <div data-md-module className="space-y-2 rounded-lg border border-brand-ring/60 bg-brand-weak/50 p-3">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold">
+                  module <span className="text-danger">(필수)</span> — 이 파일 항목의 키 앞부분(module/ID)
+                </span>
+                <input
+                  data-md-module-input
+                  className="app-input"
+                  value={moduleInput}
+                  onChange={e => onModuleChange(e.target.value)}
+                  placeholder="예: oranda"
+                  maxLength={32}
+                  required
+                  aria-required="true"
+                  aria-invalid={!moduleInput.trim()}
+                />
+              </label>
+              <p className="text-xs leading-5 text-ink-subtle">
+                {preview.moduleSuggested
+                  ? `제안값 ${preview.moduleSuggested} — 이 프로젝트에 이미 올라간 기존 형식 항목 중 가장 많은 module 입니다.`
+                  : '제안할 module 이 없습니다 — 처음 올리는 파일이면 새 이름을 정하세요(영문·숫자·_·- 1~32자).'}
+              </p>
+              <p className="flex items-start gap-1.5 text-xs leading-5 text-accent-warning">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  재업로드 때는 처음 올린 module 을 그대로 쓰세요. module 을 바꾸면 기존 항목이 갱신되지 않고 같은 트리가 하나 더 생깁니다.
+                </span>
+              </p>
+              {previewStale && <p className="text-xs text-ink-subtle">module 이 바뀌어 미리보기를 다시 계산하는 중입니다…</p>}
+            </div>
+          )}
+
+          {preview.counts && Object.keys(preview.counts).length > 0 && (
             <p className="text-xs text-ink-subtle">
               {Object.entries(preview.counts).map(([k, v]) => `${k} ${v}`).join(' · ')}
             </p>
@@ -159,7 +256,7 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <button data-md-apply className="btn btn-primary" onClick={apply} disabled={pending || !preview.canApply}>
+              <button data-md-apply className="btn btn-primary" onClick={apply} disabled={pending || previewStale || !preview.canApply}>
                 적용
               </button>
               <button data-md-cancel className="btn btn-ghost" onClick={reset} disabled={pending}>
