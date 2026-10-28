@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   expandMeetings, occurrencesByDate, sortOccurrences, canEditMeeting, summarizeMeetings,
-  meetingEditHref, MEETING_CATEGORIES, memoPreview, buildMeetingRowExtras,
+  meetingEditHref, MEETING_CATEGORIES, memoPreview, buildMeetingRowExtras, isMyMeeting,
 } from '@/lib/domain/meetings'
 import type { Meeting, MeetingException } from '@/lib/domain/types'
 
@@ -183,5 +183,26 @@ describe('buildMeetingRowExtras — 표시 행의 참석자 이름·메모 조�
   it('시리즈 목록에 없는 id 는 빈 값으로 채운다 — 화면이 undefined 로 터지지 않게', () => {
     const out = buildMeetingRowExtras(['ghost'], meetings, {}, {})
     expect(out.ghost).toEqual({ attendees: [], memo: '' })
+  })
+})
+
+// 프로젝트 회의일정 달력의 '내 것만' 필터 — 사이드바 '내 회의'(getMyMeetings 의 isMine)와 같은 기준:
+// 내가 만든 회의이거나, 참석자(project_members.id)에 내 멤버 행이 들어 있는 회의.
+describe('isMyMeeting', () => {
+  const mine = new Set(['pm-1', 'pm-2'])
+  it('내가 만든 회의는 참석자가 아니어도 내 것이다', () => {
+    expect(isMyMeeting(mtg('a', '2026-07-10', { createdBy: 'u1', attendeeIds: [] }), 'u1', mine)).toBe(true)
+  })
+  it('참석자에 내 멤버 행이 있으면 다른 사람이 만든 회의도 내 것이다', () => {
+    expect(isMyMeeting(mtg('a', '2026-07-10', { createdBy: 'u9', attendeeIds: ['pm-7', 'pm-2'] }), 'u1', mine)).toBe(true)
+  })
+  it('만들지도 참석하지도 않은 회의는 내 것이 아니다', () => {
+    expect(isMyMeeting(mtg('a', '2026-07-10', { createdBy: 'u9', attendeeIds: ['pm-7'] }), 'u1', mine)).toBe(false)
+  })
+  it('로그인 사용자가 없으면(userId null) 작성자 일치로 판정하지 않는다 — createdBy null 과 null 이 같다고 보지 않는다', () => {
+    expect(isMyMeeting(mtg('a', '2026-07-10', { createdBy: null, attendeeIds: [] }), null, mine)).toBe(false)
+  })
+  it('내 멤버 행이 없으면 참석자 판정은 항상 거짓이다(계정 미연결 인력)', () => {
+    expect(isMyMeeting(mtg('a', '2026-07-10', { createdBy: 'u9', attendeeIds: ['pm-1'] }), 'u1', new Set())).toBe(false)
   })
 })

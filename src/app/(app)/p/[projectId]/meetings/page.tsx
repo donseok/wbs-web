@@ -1,8 +1,9 @@
 import { CalendarClock, CalendarCheck, CalendarPlus } from 'lucide-react'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
-import { getProjectMeetingData } from '@/lib/data/meetings'
+import { getProjectMeetingData, resolveMemberIds } from '@/lib/data/meetings'
 import { getProjectMembers } from '@/lib/data/members'
+import { createServerClient } from '@/lib/supabase/server'
 import { expandMeetings, summarizeMeetings } from '@/lib/domain/meetings'
 import { getSession } from '@/lib/auth'
 import { getActorForView } from '@/lib/authz'
@@ -25,13 +26,16 @@ function monthGrid(todayIso: string): [string, string] {
 export default async function MeetingsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const today = seoulToday()
-  const [{ meetings, exceptions }, members, m, user, projects, locale] = await Promise.all([
+  const [{ meetings, exceptions }, members, m, user, projects, locale, myMemberIds] = await Promise.all([
     getProjectMeetingData(projectId),
     getProjectMembers(projectId),
     getActorForView(),
     getSession(),
     listProjects(),
     getServerLocale(),
+    // '내 것만' 필터의 참석자 판정 재료 — 사이드바 '내 회의'(getMyMeetings)와 같은 풀이(user_id·이메일).
+    // 전 프로젝트의 내 멤버 행이 오지만 attendeeIds 는 이 프로젝트 행만 가리키므로 교집합이 곧 이 프로젝트 판정이다.
+    getSession().then(async u => (u ? resolveMemberIds(await createServerClient(), u) : [])),
   ])
   const project = projects.find(p => p.id === projectId)
   const projectName = project?.name ?? ''
@@ -56,7 +60,7 @@ export default async function MeetingsPage({ params }: { params: Promise<{ proje
       />}
     >
       <MeetingsView projectId={projectId} meetings={meetings} exceptions={exceptions} members={members}
-        todayIso={today} currentUserId={user?.id ?? null} role={effectiveLegacyRole(m, projectId)} />
+        todayIso={today} currentUserId={user?.id ?? null} role={effectiveLegacyRole(m, projectId)} myMemberIds={myMemberIds} />
     </ProjectPageShell>
   )
 }

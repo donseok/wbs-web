@@ -177,7 +177,7 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
     currentSearch = 'focus=m1&date=2026-09-15'
     await mount(
       <MeetingsView projectId="p1" meetings={[meeting()]} exceptions={[]} members={[]}
-        todayIso="2026-07-19" currentUserId={null} role={null} />,
+        todayIso="2026-07-19" currentUserId={null} role={null} myMemberIds={[]} />,
     )
     expect(dialog()).not.toBeNull()
     expect(dialog()!.textContent).toContain('주간 정기회의')
@@ -188,7 +188,7 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
     currentSearch = 'focus=ghost&date=2026-09-15'
     await mount(
       <MeetingsView projectId="p1" meetings={[meeting()]} exceptions={[]} members={[]}
-        todayIso="2026-07-19" currentUserId={null} role={null} />,
+        todayIso="2026-07-19" currentUserId={null} role={null} myMemberIds={[]} />,
     )
     expect(dialog()).toBeNull()
     expect(container.textContent).toContain('2026. 7.')

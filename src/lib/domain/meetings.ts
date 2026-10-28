@@ -151,6 +151,21 @@ export function canEditMeeting(m: { createdBy: string | null }, userId: string |
   return m.createdBy !== null && m.createdBy === userId
 }
 
+/**
+ * '내 회의' 판정 — 프로젝트 회의일정 달력의 '내 것만' 필터용. 사이드바 '내 회의'(data/meetings getMyMeetings 의
+ * isMine)와 같은 기준이어야 두 화면의 답이 갈리지 않는다: 내가 만든 회의(createdBy == 로그인 uid) 또는
+ * 참석자(project_members.id)에 내 멤버 행이 들어 있는 회의. myMemberIds 는 서버가 user_id·이메일로 푼
+ * 내 멤버 행 집합이다(ProjectMember 는 auth uuid 를 클라이언트로 보내지 않으므로 클라이언트가 스스로 풀 수 없다).
+ */
+export function isMyMeeting(
+  m: { createdBy: string | null; attendeeIds: readonly string[] },
+  userId: string | null,
+  myMemberIds: ReadonlySet<string>,
+): boolean {
+  if (userId !== null && m.createdBy === userId) return true
+  return m.attendeeIds.some(id => myMemberIds.has(id))
+}
+
 /** 회의 시리즈 수정 폼을 바로 여는 딥링크. 대시보드·내 회의처럼 폼에 필요한 프로젝트 멤버 목록이
  *  없는 화면에서 쓴다 — 회의 페이지가 ?focus 로 회차를 찾고 edit=1 이면 폼을 연다. */
 export function meetingEditHref(projectId: string, seriesId: string, occurrenceDate?: string | null): string {

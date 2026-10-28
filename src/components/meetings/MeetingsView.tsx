@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight, CalendarDays, List, Plus, CalendarX2 } from 'lucide-react'
 import type { Meeting, MeetingException, MeetingOccurrence, ProjectMember } from '@/lib/domain/types'
@@ -9,7 +9,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { fmtDate } from '@/components/wbs/shared'
-import { expandMeetings, sortOccurrences, MEETING_META, canEditMeeting } from '@/lib/domain/meetings'
+import { expandMeetings, sortOccurrences, MEETING_META, canEditMeeting, isMyMeeting } from '@/lib/domain/meetings'
 import { MeetingCalendar } from './MeetingCalendar'
 import { MeetingFormModal } from './MeetingFormModal'
 import { MeetingDetailModal } from './MeetingDetailModal'
@@ -18,6 +18,9 @@ import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 const MATRIX_ROWS = 6
 const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 type ViewKey = 'calendar' | 'list'
+type ScopeKey = 'mine' | 'all'
+/** '내 것만' 선택 기억 — 이 브라우저 한정, 프로젝트 공통(한 번 고르면 어느 프로젝트 달력에서도 유지). 계정 동기화 prefs 와는 별개. */
+const ONLY_MINE_KEY = 'dflow.meetings.onlyMine'
 
 /** 챗봇 딥링크(?focus=&date=)를 열 회차로 해석한다 — 유효하지 않으면 null(조용히 무시). */
 function resolveFocusOccurrence(
@@ -50,7 +53,7 @@ function gridRange(year: number, month0: number): [string, string] {
 }
 
 export function MeetingsView({
-  projectId, meetings, exceptions, members, todayIso, currentUserId, role,
+  projectId, meetings, exceptions, members, todayIso, currentUserId, role, myMemberIds,
 }: {
   projectId: string
   meetings: Meeting[]
@@ -59,6 +62,8 @@ export function MeetingsView({
   todayIso: string
   currentUserId: string | null
   role: string | null
+  /** 서버가 user_id·이메일로 푼 내 project_members.id — '내 것만' 참석자 판정용(isMyMeeting). */
+  myMemberIds: string[]
 }) {
   const router = useRouter()
   const { t, locale } = useLocale()
@@ -85,6 +90,23 @@ export function MeetingsView({
     initialFocus ? Number(initialFocus.occurrenceDate.slice(5, 7)) - 1 : (initM || 1) - 1,
   )
   const [view, setView] = useState<ViewKey>('calendar')
+  // '내 것만 | 전체' — 기본은 전체(지금 화면 그대로. 조회 전용 사용자가 빈 달력으로 시작하지 않게).
+  // 저장값은 마운트 뒤에 읽는다(SSR 과 첫 렌더가 같아야 hydration 이 어긋나지 않는다). 읽지 못하면 기본값.
+  const [onlyMine, setOnlyMine] = useState(false)
+  useEffect(() => {
+    try { if (localStorage.getItem(ONLY_MINE_KEY) === '1') setOnlyMine(true) } catch { /* 사생활 보호 창·차단 — 기본값 */ }
+  }, [])
+  const changeScope = (key: ScopeKey) => {
+    const next = key === 'mine'
+    setOnlyMine(next)
+    try { localStorage.setItem(ONLY_MINE_KEY, next ? '1' : '0') } catch { /* 저장 실패는 이번 방문만 적용 */ }
+  }
+  const myMemberIdSet = useMemo(() => new Set(myMemberIds), [myMemberIds])
+  // 필터는 회차로 펼치기 전 시리즈에 건다 — 달력·목록·빈 화면이 한 목록을 본다. 딥링크(initialFocus)는 전체에서 찾는다.
+  const visibleMeetings = useMemo(
+    () => (onlyMine ? meetings.filter(m => isMyMeeting(m, currentUserId, myMemberIdSet)) : meetings),
+    [meetings, onlyMine, currentUserId, myMemberIdSet],
+  )
 
   const [formOpen, setFormOpen] = useState(!!initialEdit)
   const [editing, setEditing] = useState<Meeting | null>(initialEdit)
@@ -103,8 +125,8 @@ export function MeetingsView({
     range: { from: gridStart, to: gridEnd },
   })
   const occurrences = useMemo(
-    () => expandMeetings(meetings, exceptions, gridStart, gridEnd),
-    [meetings, exceptions, gridStart, gridEnd],
+    () => expandMeetings(visibleMeetings, exceptions, gridStart, gridEnd),
+    [visibleMeetings, exceptions, gridStart, gridEnd],
   )
   const listRows = useMemo(() => sortOccurrences(occurrences).sort((a, b) => a.occurrenceDate.localeCompare(b.occurrenceDate)), [occurrences])
 
@@ -128,6 +150,11 @@ export function MeetingsView({
           <button onClick={() => { setYear(initY); setMonth0((initM || 1) - 1) }} className="btn btn-ghost h-10">{t('meet.today')}</button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* 사이드바 '내 회의'의 '내 것만 | 전체 프로젝트' 탭과 같은 모양·기준. 여기는 프로젝트 하나라 '전체'. */}
+          <SegmentedTabs<ScopeKey>
+            tabs={[{ key: 'mine', label: t('meet.onlyMine') }, { key: 'all', label: t('meet.allMeetings') }]}
+            value={onlyMine ? 'mine' : 'all'} onChange={changeScope} size="sm"
+          />
           <SegmentedTabs<ViewKey>
             tabs={[{ key: 'calendar', label: t('meet.view.calendar'), icon: CalendarDays }, { key: 'list', label: t('meet.view.list'), icon: List }]}
             value={view} onChange={setView} size="sm"
@@ -142,7 +169,9 @@ export function MeetingsView({
       {view === 'calendar' ? (
         <MeetingCalendar year={year} month0={month0} todayIso={todayIso} occurrences={occurrences} onSelectOccurrence={setDetailOcc} />
       ) : listRows.length === 0 ? (
-        <EmptyState icon={CalendarX2} title={t('meet.empty.title')} description={t('meet.empty.desc')} />
+        <EmptyState icon={CalendarX2}
+          title={onlyMine ? t('meet.empty.mineTitle') : t('meet.empty.title')}
+          description={onlyMine ? t('meet.empty.mineDescProject') : t('meet.empty.desc')} />
       ) : (
         <div className="card overflow-hidden p-0">
           <div className="overflow-x-auto">
