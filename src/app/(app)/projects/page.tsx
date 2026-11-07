@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Calendar, FolderPlus, LayoutGrid, ArrowDown, History, ArrowRight } from 'lucide-react'
+import { Calendar, FolderPlus, LayoutGrid, ArrowDown, History, ArrowRight, CircleCheck } from 'lucide-react'
 import { listProjects } from '@/app/actions/project'
 import { getActorForView } from '@/lib/authz'
 import { getProjectsCompletion } from '@/lib/data/wbs'
@@ -137,7 +137,11 @@ function ProjectCard({ project, status, locale }: { project: ProjectRow; status:
   )
 }
 
-export default async function ProjectsHome() {
+export default async function ProjectsHome({ searchParams }: {
+  searchParams?: Promise<{ view?: string | string[] }>
+} = {}) {
+  const completedView = (await searchParams)?.view === 'completed'
+
   // 다섯 조회 전부 상호 독립 — 한 배치로 병렬 실행한다(종전 직렬 3단: 목록 → 로케일 → 트리 5N쿼리).
   // getProjectsCompletion 은 무인자 + React cache 라 하드 로드에서는 레이아웃 실행분에 dedupe 되어
   // 실행 0회 — 이 페이지가 새로 내는 쿼리는 fetchTaskRows 1개뿐이다.
@@ -164,8 +168,11 @@ export default async function ProjectsHome() {
       completion === null ? null : (completion[p.id] ?? { hasWbs: false, allDone: false }),
     ),
   }))
-  const total = withStatus.length
-  const recent = withStatus.slice(0, 3)
+  const ongoing = withStatus.filter(p => p.status !== 'done')
+  const completed = withStatus.filter(p => p.status === 'done')
+  const displayed = completedView ? completed : ongoing
+  const total = displayed.length
+  const recent = ongoing.slice(0, 3)
   // 프로젝트 생성은 슈퍼유저 전용(스펙 §5) — createProject 액션이 재검증한다
   const canCreate = actor?.isSuperuser === true
 
@@ -203,19 +210,29 @@ export default async function ProjectsHome() {
 
         <div className="flex flex-wrap items-center gap-2">
           {canCreate && <NewProjectModal />}
-          <a
-            href="#project-library"
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-semibold text-hero-ink backdrop-blur transition hover:bg-white/20"
+          <Link
+            href={completedView ? '/projects#project-library' : '#project-library'}
+            aria-current={!completedView ? 'page' : undefined}
+            className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold text-hero-ink backdrop-blur transition hover:bg-white/20 ${!completedView ? 'border-white/30 bg-white/20' : 'border-white/15 bg-white/10'}`}
           >
             <LayoutGrid className="h-4 w-4" />
             {t(locale, 'nav.allProjects')}
             <ArrowDown className="h-3.5 w-3.5 opacity-70" />
-          </a>
+          </Link>
+          <Link
+            href="/projects?view=completed#project-library"
+            aria-current={completedView ? 'page' : undefined}
+            className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold text-hero-ink backdrop-blur transition hover:bg-white/20 ${completedView ? 'border-white/30 bg-white/20' : 'border-white/15 bg-white/10'}`}
+          >
+            <CircleCheck className="h-4 w-4" />
+            {t(locale, 'home.completedProjects')}
+            <span className="text-xs tabular-nums opacity-70">{completed.length}</span>
+          </Link>
         </div>
       </section>
 
       {/* ── 최근 프로젝트 (QUICK ACCESS) ── */}
-      {total > 3 && (
+      {!completedView && ongoing.length > 3 && (
         <section aria-labelledby="recent-title">
           <div className="mb-3 flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-weak text-brand"><History className="h-4 w-4" /></span>
@@ -236,10 +253,10 @@ export default async function ProjectsHome() {
       <section id="project-library" aria-labelledby="library-title" className="scroll-mt-24">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-weak text-brand"><LayoutGrid className="h-4 w-4" /></span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-weak text-brand">{completedView ? <CircleCheck className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}</span>
             <div>
-              <div className="eyebrow">Project library</div>
-              <h2 id="library-title" className="text-sm font-semibold text-ink">{t(locale, 'home.projectLibrary')}</h2>
+              <div className="eyebrow">{completedView ? 'Completed projects' : 'Project library'}</div>
+              <h2 id="library-title" className="text-sm font-semibold text-ink">{t(locale, completedView ? 'home.completedProjects' : 'home.projectLibrary')}</h2>
             </div>
           </div>
           {total > 0 && <span className="text-xs text-ink-subtle tabular-nums">{total}{t(locale, 'home.countUnit')} · {t(locale, 'home.sortRecent')}</span>}
@@ -247,14 +264,14 @@ export default async function ProjectsHome() {
 
         {total === 0 ? (
           <EmptyState
-            icon={FolderPlus}
-            title={t(locale, 'home.emptyTitle')}
-            description={t(locale, 'home.emptyDesc')}
-            action={canCreate ? <NewProjectModal label={t(locale, 'home.newProjectStart')} className="btn btn-primary" /> : undefined}
+            icon={completedView ? CircleCheck : FolderPlus}
+            title={t(locale, completedView ? 'home.completedEmptyTitle' : projects.length > 0 ? 'home.ongoingEmptyTitle' : 'home.emptyTitle')}
+            description={t(locale, completedView ? 'home.completedEmptyDesc' : projects.length > 0 ? 'home.ongoingEmptyDesc' : 'home.emptyDesc')}
+            action={!completedView && canCreate ? <NewProjectModal label={t(locale, 'home.newProjectStart')} className="btn btn-primary" /> : undefined}
           />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {withStatus.map(({ project, status }) => (
+            {displayed.map(({ project, status }) => (
               <ProjectCard key={project.id} project={project} status={status} locale={locale} />
             ))}
           </div>

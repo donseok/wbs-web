@@ -106,8 +106,8 @@ function legacyHeroStats() {
   return aggregateTaskStats(trees)
 }
 
-async function renderPage(): Promise<string> {
-  return renderToStaticMarkup(await ProjectsHome())
+async function renderPage(view?: string): Promise<string> {
+  return renderToStaticMarkup(await ProjectsHome({ searchParams: Promise.resolve({ view }) }))
 }
 
 function heroValue(markup: string, label: string): string {
@@ -141,11 +141,14 @@ describe('프로젝트 홈 — 트리 재로드 제거 후 표시 동등성', ()
     expect(heroValue(markup, '%')).toBe(`${legacy.donePct}%`)
   })
 
-  it('상태 배지: 전 리프 완료=done, 미완=overdue, WBS 0건+종료일 경과=done (구 경로와 동일 판정)', async () => {
-    const markup = await renderPage()
+  it('완료 목록은 전 리프 완료 및 WBS 없이 종료된 프로젝트만 표시한다', async () => {
+    const markup = await renderPage('completed')
     // P1(전 리프 100) + P3(WBS 없음 — 날짜 기준 유지) = done 2, P2(미완) = overdue 1
     expect(count(markup, 'bg-done-weak')).toBe(2)
-    expect(count(markup, 'bg-delayed-weak')).toBe(1)
+    expect(count(markup, 'bg-delayed-weak')).toBe(0)
+    expect(markup).toContain('/p/p1/dashboard')
+    expect(markup).toContain('/p/p3/dashboard')
+    expect(markup).not.toContain('/p/p2/dashboard')
     expect(count(markup, 'bg-surface-2 text-ink-muted')).toBe(0) // unknown 없음
   })
 
@@ -165,8 +168,65 @@ describe('프로젝트 홈 — 트리 재로드 제거 후 표시 동등성', ()
     expect(heroValue(markup, 'Tasks')).toBe('–')
     expect(heroValue(markup, 'Done')).toBe('–')
     expect(heroValue(markup, '%')).toBe('–')
-    // 배지는 getProjectsCompletion 경로라 영향 없음
-    expect(count(markup, 'bg-done-weak')).toBe(2)
+    // 배지는 getProjectsCompletion 경로라 영향 없음 — 기본 목록은 완료 프로젝트 제외
+    expect(count(markup, 'bg-delayed-weak')).toBe(1)
+    expect(count(markup, 'bg-done-weak')).toBe(0)
     expect(errSpy).toHaveBeenCalled()
+  })
+})
+
+
+describe('프로젝트 홈 — 완료 프로젝트 분리', () => {
+  it('기본 라이브러리에서 완료 프로젝트를 제외하고 지연 프로젝트를 유지한다', async () => {
+    const markup = await renderPage()
+    expect(markup).not.toContain('/p/p1/dashboard')
+    expect(markup).not.toContain('/p/p3/dashboard')
+    expect(markup).toContain('/p/p2/dashboard')
+    expect(markup).toContain('href="/projects?view=completed#project-library"')
+    expect(markup).toContain('1개')
+  })
+
+  it('최근 프로젝트도 완료 프로젝트를 제외한 뒤 세 개를 고른다', async () => {
+    mocks.listProjects.mockResolvedValue([
+      ...visibleProjects,
+      ...['p4', 'p5', 'p6', 'p7'].map(id => ({ id, name: id, start_date: null, end_date: null })),
+    ])
+    const markup = await renderPage()
+    const recent = markup.split('aria-labelledby="recent-title"')[1].split('</section>')[0]
+    expect(recent).toContain('/p/p2/dashboard')
+    expect(recent).toContain('/p/p4/dashboard')
+    expect(recent).toContain('/p/p5/dashboard')
+    expect(recent).not.toContain('/p/p1/dashboard')
+    expect(recent).not.toContain('/p/p3/dashboard')
+    expect(recent).not.toContain('/p/p6/dashboard')
+  })
+
+  it('완료 화면에는 최근 프로젝트가 없고 기본 목록으로 돌아갈 수 있다', async () => {
+    const markup = await renderPage('completed')
+    expect(markup).not.toContain('id="recent-title"')
+    expect(markup).toContain('href="/projects#project-library"')
+    expect(markup).toContain('2개')
+    expect(markup).toContain('aria-current="page"')
+  })
+
+  it('완료 프로젝트가 없으면 전용 빈 화면을 표시한다', async () => {
+    mocks.listProjects.mockResolvedValue([visibleProjects[1]])
+    const markup = await renderPage('completed')
+    expect(markup).toContain('완료된 프로젝트가 없습니다')
+    expect(markup).not.toContain('첫 프로젝트를 만들어 보세요')
+  })
+
+  it('모두 완료됐으면 기본 목록에 완료 화면 안내를 표시한다', async () => {
+    mocks.listProjects.mockResolvedValue([visibleProjects[0], visibleProjects[2]])
+    const markup = await renderPage()
+    expect(markup).toContain('진행할 프로젝트가 없습니다')
+    expect(markup).not.toContain('/p/p1/dashboard')
+  })
+
+  it('완료 상태 조회에 실패하면 완료 화면으로 잘못 분류하지 않는다', async () => {
+    mocks.getProjectsCompletion.mockResolvedValue(null)
+    const markup = await renderPage('completed')
+    expect(markup).toContain('완료된 프로젝트가 없습니다')
+    expect(markup).not.toContain('/p/p1/dashboard')
   })
 })
