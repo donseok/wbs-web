@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Calendar, FolderPlus, LayoutGrid, ArrowDown, History, ArrowRight, CircleCheck } from 'lucide-react'
+import { Calendar, FolderPlus, LayoutGrid, ArrowDown, ArrowRight, CircleCheck } from 'lucide-react'
 import { listProjects } from '@/app/actions/project'
 import { getActorForView } from '@/lib/authz'
 import { getProjectsCompletion } from '@/lib/data/wbs'
@@ -172,7 +172,6 @@ export default async function ProjectsHome({ searchParams }: {
   const completed = withStatus.filter(p => p.status === 'done')
   const displayed = completedView ? completed : ongoing
   const total = displayed.length
-  const recent = ongoing.slice(0, 3)
   // 프로젝트 생성은 슈퍼유저 전용(스펙 §5) — createProject 액션이 재검증한다
   const canCreate = actor?.isSuperuser === true
 
@@ -230,24 +229,6 @@ export default async function ProjectsHome({ searchParams }: {
           </Link>
         </div>
       </section>
-
-      {/* ── 최근 프로젝트 (QUICK ACCESS) ── */}
-      {!completedView && ongoing.length > 3 && (
-        <section aria-labelledby="recent-title">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-weak text-brand"><History className="h-4 w-4" /></span>
-            <div>
-              <div className="eyebrow">Quick access</div>
-              <h2 id="recent-title" className="text-sm font-semibold text-ink">{t(locale, 'home.recentProjects')}</h2>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {recent.map(({ project, status }) => (
-              <ProjectCard key={project.id} project={project} status={status} locale={locale} />
-            ))}
-          </div>
-        </section>
-      )}
 
       {/* ── 프로젝트 라이브러리 ── */}
       <section id="project-library" aria-labelledby="library-title" className="scroll-mt-24">

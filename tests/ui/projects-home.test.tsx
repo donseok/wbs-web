@@ -186,19 +186,20 @@ describe('프로젝트 홈 — 완료 프로젝트 분리', () => {
     expect(markup).toContain('1개')
   })
 
-  it('최근 프로젝트도 완료 프로젝트를 제외한 뒤 세 개를 고른다', async () => {
+  it('프로젝트가 많아도 최근 프로젝트 영역 없이 라이브러리에만 표시한다', async () => {
     mocks.listProjects.mockResolvedValue([
       ...visibleProjects,
       ...['p4', 'p5', 'p6', 'p7'].map(id => ({ id, name: id, start_date: null, end_date: null })),
     ])
     const markup = await renderPage()
-    const recent = markup.split('aria-labelledby="recent-title"')[1].split('</section>')[0]
-    expect(recent).toContain('/p/p2/dashboard')
-    expect(recent).toContain('/p/p4/dashboard')
-    expect(recent).toContain('/p/p5/dashboard')
-    expect(recent).not.toContain('/p/p1/dashboard')
-    expect(recent).not.toContain('/p/p3/dashboard')
-    expect(recent).not.toContain('/p/p6/dashboard')
+    expect(markup).not.toContain('recent-title')
+    expect(markup).not.toContain('Quick access')
+    expect(markup).not.toContain('최근 프로젝트')
+    expect(count(markup, '/p/p2/dashboard')).toBe(1)
+    expect(count(markup, '/p/p4/dashboard')).toBe(1)
+    expect(count(markup, '/p/p7/dashboard')).toBe(1)
+    expect(markup).not.toContain('/p/p1/dashboard')
+    expect(markup).not.toContain('/p/p3/dashboard')
   })
 
   it('완료 화면에는 최근 프로젝트가 없고 기본 목록으로 돌아갈 수 있다', async () => {
