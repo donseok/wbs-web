@@ -32,6 +32,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { useToast } from '@/components/ui/Toast'
 import { Modal } from '@/components/ui/Modal'
 import { MarkdownView } from './MarkdownView'
+import { MinuteBodyModal } from './MinuteBodyModal'
 import { MinuteMetaModal } from './MinuteMetaModal'
 import { MinuteShareModal } from './MinuteShareModal'
 import { MinuteChatPanel } from './MinuteChatPanel'
@@ -111,6 +112,7 @@ export function MinuteViewer({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [metaOpen, setMetaOpen] = useState(false)
+  const [bodyOpen, setBodyOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [focus, setFocus] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -797,6 +799,9 @@ export function MinuteViewer({
                 <button onClick={() => setShareOpen(true)} className="btn h-8 px-2.5 text-xs">
                   <Share2 className="h-3.5 w-3.5" />{t('min.share.button')}
                 </button>
+                {!historicalVersion && !minute.archivedAt && (
+                  <button onClick={() => setBodyOpen(true)} disabled={busy} className="btn h-8 px-2.5 text-xs">{t('min.body.edit')}</button>
+                )}
                 <button onClick={() => setMetaOpen(true)} className="btn h-8 px-2.5 text-xs">{t('min.detail.edit')}</button>
                 <label className="btn h-8 cursor-pointer px-2.5 text-xs">
                   {t('min.detail.replaceBody')}
@@ -996,6 +1001,12 @@ export function MinuteViewer({
       {metaOpen && (
         <MinuteMetaModal open onClose={() => setMetaOpen(false)} onSaved={() => { setMetaOpen(false); router.refresh() }}
           minute={minute} projects={projects} myProjectIds={myProjectIds} />
+      )}
+
+      {bodyOpen && canManage && !historicalVersion && !minute.archivedAt && (
+        <MinuteBodyModal minuteId={minute.id} bodyMd={minute.bodyMd}
+          onClose={() => setBodyOpen(false)}
+          onSaved={() => { setBodyOpen(false); router.refresh() }} />
       )}
 
       <MinuteShareModal open={shareOpen} onClose={() => setShareOpen(false)} minuteId={minute.id} />

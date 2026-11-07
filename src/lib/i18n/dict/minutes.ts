@@ -232,4 +232,9 @@ export const minutesKo = {
   'min.share.regen': '재발급',
   'min.share.regenConfirm': '기존 링크가 즉시 무효화됩니다. 재발급할까요?',
   'min.share.failed': '공유 설정 처리에 실패했습니다.',
+  'min.body.edit': '본문 수정',
+  'min.body.label': '회의록 내용 (Markdown)',
+  'min.body.saved': '회의록 내용을 저장했습니다.',
+  'min.body.failed': '회의록 내용을 저장하지 못했습니다. 다시 시도해 주세요.',
+  'min.body.tooLong': '본문은 100,000자 이하여야 합니다.',
 }

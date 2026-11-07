@@ -33,7 +33,7 @@ vi.mock('@/lib/supabase/server', () => ({
   createServerClient: (...a: unknown[]) => createServerClient(...(a as [])),
 }))
 
-import { createMinute, deleteMinute, setMinuteShare } from '@/app/actions/minutes'
+import { createMinute, deleteMinute, setMinuteShare, updateMinuteBody } from '@/app/actions/minutes'
 
 const P1 = 'p1'
 const viewer = {
@@ -124,5 +124,49 @@ describe('updateMinuteMeta — 대상 프로젝트 권한도 본다', () => {
     expect(res.ok).toBe(false)
     expect(res.error).toContain('권한')
     expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('회의록 직접 본문 저장', () => {
+  it('작성자가 아니면 버전 저장 전에 거부한다', async () => {
+    getActor.mockResolvedValue(memberOfP1)
+    createServerClient.mockResolvedValue(fakeMinutes({ data: {
+      created_by: 'someone-else', archived_at: null, project_id: P1,
+    } }))
+    expect(await updateMinuteBody('m1', '수정 본문')).toMatchObject({ ok: false, error: '권한 없음' })
+    expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
+  })
+
+  it('보관된 회의록의 본문 저장을 거부한다', async () => {
+    getActor.mockResolvedValue(adminOfP1)
+    createServerClient.mockResolvedValue(fakeMinutes({ data: {
+      created_by: 'u1', archived_at: '2026-08-01', project_id: P1,
+    } }))
+    expect((await updateMinuteBody('m1', '수정 본문')).ok).toBe(false)
+    expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
+  })
+
+  it('100,000자를 넘는 본문은 저장하지 않는다', async () => {
+    getActor.mockResolvedValue(memberOfP1)
+    expect((await updateMinuteBody('m1', 'a'.repeat(100001))).ok).toBe(false)
+    expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
+  })
+
+  it('시간 재보정 없이 새 버전으로 커밋하고 이전 다운로드 포인터를 해제한다', async () => {
+    getActor.mockResolvedValue(memberOfP1)
+    createServerClient.mockResolvedValue(fakeMinutes({ data: {
+      created_by: 'u1', archived_at: null, project_id: P1,
+    } }))
+    const rpc = vi.fn(() => ({ single: vi.fn(async () => ({
+      data: { version_id: 'v2', wiki_rebuild_required: false }, error: null,
+    })) }))
+    adminMocks.createAdminClient.mockReturnValue({ rpc })
+    const body = '- **날짜**: 2026-08-01\n- **시간**: 09:00 ~ 10:00\n- **상태**: 완료\n- **생성자**: 작성자'
+    expect(await updateMinuteBody('m1', body)).toMatchObject({ ok: true })
+    expect(rpc).toHaveBeenCalledWith('commit_minute_body_version', expect.objectContaining({
+      p_body_md: body, p_minute_id: 'm1', p_actor_id: 'u1',
+      p_file_name: null, p_file_path: null, p_file_size: null, p_file_mime: null,
+    }))
   })
 })

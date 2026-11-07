@@ -232,4 +232,9 @@ export const minutesEn: Record<keyof typeof minutesKo, string> = {
   'min.share.regen': 'Regenerate',
   'min.share.regenConfirm': 'The current link stops working immediately. Regenerate?',
   'min.share.failed': 'Failed to update sharing settings.',
+  'min.body.edit': 'Edit content',
+  'min.body.label': 'Meeting minutes content (Markdown)',
+  'min.body.saved': 'Meeting minutes saved.',
+  'min.body.failed': 'Could not save meeting minutes. Please try again.',
+  'min.body.tooLong': 'Content must be 100,000 characters or fewer.',
 }

@@ -539,23 +539,34 @@ export async function fetchMinuteFoldersLite(): Promise<MinuteFolder[] | null> {
   return folders.filter(f => f.projectId === null || !hidden.has(f.projectId))
 }
 
+/** 직접 편집은 이미 보정된 본문을 저장하므로 업로드 시간 보정을 적용하지 않는다. */
+export async function updateMinuteBody(id: string, bodyMd: string): Promise<MinuteActionResult> {
+  return commitMinuteBody(id, bodyMd, null)
+}
+
 /** 본문 교체 — 클라이언트가 새 .md 를 Storage 업로드한 뒤 호출. 기존 body 파일 0건 허용(복구 경로). */
 export async function replaceMinuteBody(
   id: string, bodyMd: string,
-  file: { fileName: string; filePath: string; size: number; mime: string },
+  file: MinuteVersionFile,
+): Promise<MinuteActionResult> {
+  return commitMinuteBody(id, bodyMd, file)
+}
+
+async function commitMinuteBody(
+  id: string, bodyMd: string, file: MinuteVersionFile | null,
 ): Promise<MinuteActionResult> {
   const g = await requireActor()
   if (!g.ok) return { ok: false, error: g.error }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   if (bodyMd.length > 100_000) return { ok: false, error: '본문은 100,000자 이하여야 합니다.' }
-  if (!isMinuteFilePathValid(id, file.filePath)) return { ok: false, error: '잘못된 파일 경로입니다.' }
-  if (!/\.(md|markdown)$/i.test(file.fileName)) return { ok: false, error: '.md 파일만 가능합니다.' }
+  if (file && !isMinuteFilePathValid(id, file.filePath)) return { ok: false, error: '잘못된 파일 경로입니다.' }
+  if (file && !/\.(md|markdown)$/i.test(file.fileName)) return { ok: false, error: '.md 파일만 가능합니다.' }
   const sb = await createServerClient()
   const own = await checkOwner(sb, id, g.actor)
   if (own) return { ok: false, error: own }
   // 녹취툴 산출물이면 시간 줄 +9h(UTC→KST) 보정 — DB·재매칭·재인제스트 전부 보정본 사용
-  const fix = correctMinuteBodyTime(bodyMd)
+  const fix = file ? correctMinuteBodyTime(bodyMd) : { body: bodyMd, corrected: false, from: undefined, to: undefined }
   if (fix.corrected) console.info(`[minutes] 본문 교체 시간 보정 적용: ${fix.from} → ${fix.to} (id=${id})`)
   const body = fix.body
   const { data: minute, error: minuteErr } = await sb.from('minutes')
@@ -573,10 +584,10 @@ export async function replaceMinuteBody(
     p_minute_id: id,
     p_body_md: body,
     p_body_hash: fnv1a64(body),
-    p_file_name: file.fileName,
-    p_file_path: file.filePath,
-    p_file_size: file.size,
-    p_file_mime: file.mime,
+    p_file_name: file?.fileName ?? null,
+    p_file_path: file?.filePath ?? null,
+    p_file_size: file?.size ?? null,
+    p_file_mime: file?.mime ?? null,
     p_actor_id: user.id,
     p_actor_name: displayNameFrom(user.user_metadata, user.email),
   }).single()
