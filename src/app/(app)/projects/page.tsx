@@ -236,7 +236,7 @@ export default async function ProjectsHome({ searchParams }: {
           <div className="flex items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-weak text-brand">{completedView ? <CircleCheck className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}</span>
             <div>
-              <div className="eyebrow">{completedView ? 'Completed projects' : 'Project library'}</div>
+              <div className="eyebrow">{completedView ? 'Completed projects' : 'All projects'}</div>
               <h2 id="library-title" className="text-sm font-semibold text-ink">{t(locale, completedView ? 'home.completedProjects' : 'home.projectLibrary')}</h2>
             </div>
           </div>

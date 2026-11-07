@@ -23,7 +23,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   'home.completedEmptyDesc': 'Completed projects will appear here.',
   'home.ongoingEmptyTitle': 'No ongoing projects',
   'home.ongoingEmptyDesc': 'Use Completed projects above to view finished projects.',
-  'home.projectLibrary': 'Project library',
+  'home.projectLibrary': 'All projects',
   'home.countUnit': ' projects',
   'home.sortRecent': 'newest first',
   'home.emptyTitle': 'Create your first project',

@@ -23,7 +23,7 @@ export const homeKo = {
   'home.completedEmptyDesc': '완료된 프로젝트는 이곳에서 확인할 수 있습니다.',
   'home.ongoingEmptyTitle': '진행할 프로젝트가 없습니다',
   'home.ongoingEmptyDesc': '완료된 프로젝트는 상단의 완료 프로젝트에서 확인하세요.',
-  'home.projectLibrary': '프로젝트 라이브러리',
+  'home.projectLibrary': '전체프로젝트',
   // "{n}개 · 최근 생성 순" — JSX에서 {n}{t('home.countUnit')} · {t('home.sortRecent')}로 조합
   'home.countUnit': '개',
   'home.sortRecent': '최근 생성 순',
