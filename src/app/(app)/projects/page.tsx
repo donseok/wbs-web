@@ -138,9 +138,9 @@ function ProjectCard({ project, status, locale }: { project: ProjectRow; status:
 }
 
 export default async function ProjectsHome({ searchParams }: {
-  searchParams?: Promise<{ view?: string | string[] }>
-} = {}) {
-  const completedView = (await searchParams)?.view === 'completed'
+  searchParams: Promise<{ view?: string | string[] }>
+}) {
+  const completedView = (await searchParams).view === 'completed'
 
   // 다섯 조회 전부 상호 독립 — 한 배치로 병렬 실행한다(종전 직렬 3단: 목록 → 로케일 → 트리 5N쿼리).
   // getProjectsCompletion 은 무인자 + React cache 라 하드 로드에서는 레이아웃 실행분에 dedupe 되어
